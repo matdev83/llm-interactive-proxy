@@ -7,9 +7,11 @@ and handle them correctly in an integrated environment.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from src.core.database.models.usage import SessionMetricsTable
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (
@@ -251,7 +253,6 @@ async def test_eos_emission_when_client_terminates_before_backend_response(
     Requirement 5.5: EoS should be emitted even when client terminates before
     any backend response is received.
     """
-    from datetime import datetime, timezone
 
     from src.core.config.models.end_of_session import EndOfSessionConfig
     from src.core.domain.events.end_of_session_events import (
@@ -296,16 +297,17 @@ async def test_eos_emission_when_client_terminates_before_backend_response(
 
     # Simulate client termination before backend response
     # No backend field since no backend response was received
-    signal = EndOfSessionSignal(
-        session_id="early-termination-session",
-        signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
-        termination_category=EndOfSessionTerminationCategory.NORMAL,
-        observed_at=datetime.now(timezone.utc),
-        reason="client_disconnected",
-        backend=None,  # No backend response yet
-    )
+    with freeze_time("2024-01-01 12:00:00"):
+        signal = EndOfSessionSignal(
+            session_id="early-termination-session",
+            signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
+            termination_category=EndOfSessionTerminationCategory.NORMAL,
+            observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            reason="client_disconnected",
+            backend=None,  # No backend response yet
+        )
 
-    await eos_service.record_signal(signal)
+        await eos_service.record_signal(signal)
 
     # Give time for event processing
     async with FakeClockContext() as clock:

@@ -12,7 +12,6 @@ Run with: pytest -m "integration and network" tests/integration/test_qwen_oauth_
 
 import json
 import os
-import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -68,7 +67,7 @@ class TestQwenOAuthToolCalling:
         connector_class = backend_registry.get_backend_factory("qwen-oauth")
 
         async def mock_initialize(self_obj, **kwargs):
-            expiry_ms = int((time.time() + 3600) * 1000)
+            expiry_ms = int((1000.0 + 3600) * 1000)  # Fixed timestamp: 1000s + 1 hour in ms
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
@@ -657,7 +656,7 @@ class TestQwenOAuthAgentToolCalling:
         connector_class = backend_registry.get_backend_factory("qwen-oauth")
 
         async def mock_initialize(self_obj, **kwargs):
-            expiry_ms = int((time.time() + 3600) * 1000)
+            expiry_ms = int((1000.0 + 3600) * 1000)  # Fixed timestamp: 1000s + 1 hour in ms
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
@@ -861,7 +860,7 @@ class TestQwenOAuthToolCallingErrorHandling:
         connector_class = backend_registry.get_backend_factory("qwen-oauth")
 
         async def mock_initialize(self_obj, **kwargs):
-            expiry_ms = int((time.time() + 3600) * 1000)
+            expiry_ms = int((1000.0 + 3600) * 1000)  # Fixed timestamp: 1000s + 1 hour in ms
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",

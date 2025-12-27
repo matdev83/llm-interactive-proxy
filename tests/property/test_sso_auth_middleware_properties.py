@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
+from freezegun import freeze_time
 from hypothesis import given
 from hypothesis import strategies as st
 from src.core.auth.sso.database import DatabaseManager, TokenRepository
@@ -357,6 +358,7 @@ def test_property_4_malformed_auth_header_sandbox_response(
 
 @given(messages=messages_with_sandbox_marker_strategy())
 @property_test_settings(max_examples=5)
+@freeze_time("2024-01-01 12:00:00")
 def test_property_26_sandbox_session_isolation(
     messages: list[dict],
 ) -> None:
@@ -388,6 +390,7 @@ def test_property_26_sandbox_session_isolation(
 
             # Create a valid token and store it
             plaintext_token, token_hash = token_service.generate_token()
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
             token_record = TokenRecord(
                 id=str(uuid4()),
                 token_hash=token_hash,
@@ -396,9 +399,9 @@ def test_property_26_sandbox_session_isolation(
                 provider="google",
                 is_authenticated=True,
                 is_active=True,
-                created_at=datetime.utcnow(),
-                last_authenticated_at=datetime.utcnow(),
-                auth_expires_at=datetime.utcnow() + timedelta(hours=24),
+                created_at=fixed_time,
+                last_authenticated_at=fixed_time,
+                auth_expires_at=fixed_time + timedelta(hours=24),
             )
             await token_repository.store_token(token_record)
 
@@ -431,6 +434,7 @@ def test_property_26_sandbox_session_isolation(
     session_lifetime_hours=st.integers(min_value=1, max_value=48),
 )
 @property_test_settings(max_examples=5)
+@freeze_time("2024-01-01 12:00:00")
 def test_property_13_session_expiry_status_change(
     session_lifetime_hours: int,
 ) -> None:
@@ -461,7 +465,8 @@ def test_property_13_session_expiry_status_change(
 
             # Create a token with expired session
             plaintext_token, token_hash = token_service.generate_token()
-            expired_time = datetime.utcnow() - timedelta(hours=1)  # Expired 1 hour ago
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            expired_time = fixed_time - timedelta(hours=1)  # Expired 1 hour ago
 
             token_record = TokenRecord(
                 id=str(uuid4()),
@@ -471,9 +476,8 @@ def test_property_13_session_expiry_status_change(
                 provider="google",
                 is_authenticated=True,  # Initially authenticated
                 is_active=True,
-                created_at=datetime.utcnow()
-                - timedelta(hours=session_lifetime_hours + 2),
-                last_authenticated_at=datetime.utcnow()
+                created_at=fixed_time - timedelta(hours=session_lifetime_hours + 2),
+                last_authenticated_at=fixed_time
                 - timedelta(hours=session_lifetime_hours + 1),
                 auth_expires_at=expired_time,  # Expired
             )
@@ -511,6 +515,7 @@ def test_property_13_session_expiry_status_change(
     session_lifetime_hours=st.integers(min_value=1, max_value=48),
 )
 @property_test_settings(max_examples=5)
+@freeze_time("2024-01-01 12:00:00")
 def test_property_25_expired_session_sandbox_response(
     session_lifetime_hours: int,
 ) -> None:
@@ -542,7 +547,8 @@ def test_property_25_expired_session_sandbox_response(
 
             # Create a token with expired session
             plaintext_token, token_hash = token_service.generate_token()
-            expired_time = datetime.utcnow() - timedelta(hours=1)
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            expired_time = fixed_time - timedelta(hours=1)
 
             token_record = TokenRecord(
                 id=str(uuid4()),
@@ -552,9 +558,8 @@ def test_property_25_expired_session_sandbox_response(
                 provider="google",
                 is_authenticated=True,  # Initially authenticated
                 is_active=True,
-                created_at=datetime.utcnow()
-                - timedelta(hours=session_lifetime_hours + 2),
-                last_authenticated_at=datetime.utcnow()
+                created_at=fixed_time - timedelta(hours=session_lifetime_hours + 2),
+                last_authenticated_at=fixed_time
                 - timedelta(hours=session_lifetime_hours + 1),
                 auth_expires_at=expired_time,
             )
@@ -648,6 +653,7 @@ def test_property_4_consistent_sandbox_responses(
     user_email=st.emails(),
 )
 @property_test_settings(max_examples=5)  # Reduced from 10 for performance
+@freeze_time("2024-01-01 12:00:00")
 def test_property_12_reauthentication_status_update(
     session_lifetime_hours: int,
     user_id: str,
@@ -677,7 +683,8 @@ def test_property_12_reauthentication_status_update(
 
             # Create an initial token for the user (expired session)
             plaintext_token, token_hash = token_service.generate_token()
-            expired_time = datetime.utcnow() - timedelta(hours=1)
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            expired_time = fixed_time - timedelta(hours=1)
 
             original_token_record = TokenRecord(
                 id=str(uuid4()),
@@ -687,9 +694,8 @@ def test_property_12_reauthentication_status_update(
                 provider="google",
                 is_authenticated=False,  # Session expired
                 is_active=True,
-                created_at=datetime.utcnow()
-                - timedelta(hours=session_lifetime_hours + 2),
-                last_authenticated_at=datetime.utcnow()
+                created_at=fixed_time - timedelta(hours=session_lifetime_hours + 2),
+                last_authenticated_at=fixed_time
                 - timedelta(hours=session_lifetime_hours + 1),
                 auth_expires_at=expired_time,
             )
@@ -701,7 +707,8 @@ def test_property_12_reauthentication_status_update(
             assert existing_token.id == original_token_record.id, "Should be same token"
 
             # Update auth status (simulating successful re-authentication)
-            new_expiry = datetime.utcnow() + timedelta(hours=session_lifetime_hours)
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            new_expiry = fixed_time + timedelta(hours=session_lifetime_hours)
             await token_repository.update_auth_status(
                 existing_token.id,
                 authenticated=True,
@@ -722,7 +729,7 @@ def test_property_12_reauthentication_status_update(
             ), "Token should now be authenticated"
             assert updated_token.auth_expires_at is not None, "Should have new expiry"
             assert (
-                updated_token.auth_expires_at > datetime.utcnow()
+                updated_token.auth_expires_at > fixed_time
             ), "Expiry should be in future"
 
             # Verify no new token was created for this user

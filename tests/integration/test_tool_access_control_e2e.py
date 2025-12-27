@@ -23,6 +23,8 @@ from src.core.services.tool_access_policy_service import ToolAccessPolicyService
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 from src.core.services.tool_call_reactor_service import ToolCallReactorService
 
+from tests.unit.fixtures.markers import real_time
+
 
 class TestToolAccessControlEndToEnd:
     """Comprehensive end-to-end tests for tool access control."""
@@ -696,6 +698,7 @@ class TestToolAccessControlEndToEnd:
 
     # Test 12: Performance with large number of tools
     @pytest.mark.asyncio
+    @real_time(reason="Measures actual filtering performance characteristics.")
     async def test_performance_with_many_tools(self):
         """Test that policy evaluation performs well with many tools."""
         import time

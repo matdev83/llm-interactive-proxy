@@ -5,7 +5,6 @@ Tests that when reasoning_effort is set to "medium" or "high", the connector
 appends " /think" to the last client message.
 """
 
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -15,22 +14,25 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 
+from tests.utils.fake_clock import FakeClock, FakeClockContext
+
 
 class TestQwenOAuthReasoningEffort:
     """Test reasoning_effort handling in QwenOAuthConnector."""
 
     @pytest.fixture
-    def mock_client(self):
+    async def mock_client(self):
         """Mock httpx.AsyncClient."""
-        client = MagicMock(spec=httpx.AsyncClient)
-        # Mock the post method to return a successful response
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "id": "test-id",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": "qwen-turbo",
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            client = MagicMock(spec=httpx.AsyncClient)
+            # Mock the post method to return a successful response
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "id": "test-id",
+                "object": "chat.completion",
+                "created": int(clock.now()),
+                "model": "qwen-turbo",
             "choices": [
                 {
                     "index": 0,
@@ -58,7 +60,7 @@ class TestQwenOAuthReasoningEffort:
             "access_token": "test-access-token",
             "refresh_token": "test-refresh-token",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int(time.time() * 1000) + 3600000,  # 1 hour from now
+            "expiry_date": 1000000 + 3600000,  # Fixed timestamp: 1000s + 1 hour in ms
         }
         connector.is_functional = True
         connector.available_models = ["qwen-turbo", "qwen-plus"]

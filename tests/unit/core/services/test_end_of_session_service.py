@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (
@@ -78,11 +79,12 @@ def service(
 @pytest.fixture
 def sample_signal() -> EndOfSessionSignal:
     """Create a sample EoS signal."""
+    # Use fixed timestamp - tests should control time via @freeze_time decorator
     return EndOfSessionSignal(
         session_id="test-session-123",
         signal_type=EndOfSessionSignalType.DONE_SENTINEL,
         termination_category=EndOfSessionTerminationCategory.NORMAL,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         reason="Stream completed",
         protocol="openai",
         backend="openai",
@@ -139,6 +141,7 @@ class TestMissingSessionId:
     """Test handling of missing session_id."""
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_missing_session_id_skips_emission(
         self,
         service: EndOfSessionService,
@@ -150,7 +153,7 @@ class TestMissingSessionId:
             session_id="",
             signal_type=EndOfSessionSignalType.DONE_SENTINEL,
             termination_category=EndOfSessionTerminationCategory.NORMAL,
-            observed_at=datetime.now(timezone.utc),
+            observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         await service.record_signal(signal)
@@ -266,6 +269,7 @@ class TestAtomicClaimDedupe:
         assert service.has_ended(sample_signal.session_id)
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_concurrent_signals_only_one_emission(
         self,
         mock_event_bus: IEventBus,
@@ -292,12 +296,13 @@ class TestAtomicClaimDedupe:
         )
 
         # Create multiple signals for same session
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         signals = [
             EndOfSessionSignal(
                 session_id=session_id,
                 signal_type=EndOfSessionSignalType.DONE_SENTINEL,
                 termination_category=EndOfSessionTerminationCategory.NORMAL,
-                observed_at=datetime.now(timezone.utc),
+                observed_at=fixed_time,
                 reason=f"Signal {i}",
             )
             for i in range(5)
@@ -346,6 +351,7 @@ class TestAtomicClaimDedupe:
         mock_event_bus.publish.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_restart_safety_db_backed_dedupe(
         self,
         mock_event_bus: IEventBus,
@@ -370,7 +376,7 @@ class TestAtomicClaimDedupe:
             session_id=session_id,
             signal_type=EndOfSessionSignalType.DONE_SENTINEL,
             termination_category=EndOfSessionTerminationCategory.NORMAL,
-            observed_at=datetime.now(timezone.utc),
+            observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
 
         # Try to emit - should be skipped
@@ -417,6 +423,7 @@ class TestEventEmission:
         assert event.backend == sample_signal.backend
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_error_classification_defaults_to_unknown(
         self,
         service: EndOfSessionService,
@@ -428,7 +435,7 @@ class TestEventEmission:
             session_id="test-session-123",
             signal_type=EndOfSessionSignalType.ERROR_TERMINATION,
             termination_category=EndOfSessionTerminationCategory.ERROR,
-            observed_at=datetime.now(timezone.utc),
+            observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             error_classification=None,  # Missing classification
         )
         mock_session_repository.claim_eos_emission.return_value = True
@@ -443,6 +450,7 @@ class TestEventEmission:
         )
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_error_classification_preserved_when_present(
         self,
         service: EndOfSessionService,
@@ -454,7 +462,7 @@ class TestEventEmission:
             session_id="test-session-123",
             signal_type=EndOfSessionSignalType.ERROR_TERMINATION,
             termination_category=EndOfSessionTerminationCategory.ERROR,
-            observed_at=datetime.now(timezone.utc),
+            observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             error_classification=EndOfSessionErrorClassification.TRANSPORT_ERROR,
         )
         mock_session_repository.claim_eos_emission.return_value = True
@@ -521,6 +529,7 @@ class TestDispatchTimeout:
         # Make publish hang indefinitely
         async def slow_publish(*args, **kwargs):
             from tests.utils.fake_clock import FakeClockContext
+
             async with FakeClockContext() as clock:
                 sleep_task = asyncio.create_task(asyncio.sleep(1.0))
                 clock.advance(1.0)
@@ -559,6 +568,7 @@ class TestDispatchTimeout:
         # Make publish hang longer than timeout
         async def slow_publish(*args, **kwargs):
             from tests.utils.fake_clock import FakeClockContext
+
             async with FakeClockContext() as clock:
                 sleep_task = asyncio.create_task(asyncio.sleep(0.1))
                 clock.advance(0.1)

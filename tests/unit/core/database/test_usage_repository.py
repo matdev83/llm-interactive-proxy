@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.database.config import DatabaseConfig
 from src.core.database.engine import DatabaseEngine
 from src.core.database.models.usage import SessionMetricsTable, UsageRecordTable
@@ -17,11 +18,12 @@ from src.core.domain.usage_record import UsageRecord
 class TestUsageRecordTable:
     """Tests for UsageRecordTable model."""
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_from_domain_basic(self):
         """Test converting domain record to table record."""
         record = UsageRecord(
             id="test-id-123",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             session_id="session-456",
             turn_number=1,
             backend_type="openai",
@@ -57,6 +59,7 @@ class TestUsageRecordTable:
         assert '"search"' in table_record.tool_names_json
         assert '"calculate"' in table_record.tool_names_json
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_from_domain_with_backend_usage(self):
         """Test converting domain record with backend-reported usage."""
         from src.core.domain.openrouter_usage import OpenRouterUsage
@@ -70,7 +73,7 @@ class TestUsageRecordTable:
 
         record = UsageRecord(
             id="test-id-123",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             session_id="session-456",
             turn_number=1,
             backend_type="openai",
@@ -86,6 +89,7 @@ class TestUsageRecordTable:
         assert '"prompt_tokens": 100' in table_record.backend_reported_usage_json
         assert '"cost": 0.015' in table_record.backend_reported_usage_json
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_to_domain_roundtrip(self):
         """Test that from_domain and to_domain are inverses."""
         from src.core.domain.openrouter_usage import OpenRouterUsage
@@ -99,7 +103,7 @@ class TestUsageRecordTable:
 
         original = UsageRecord(
             id=str(uuid.uuid4()),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             session_id="session-456",
             turn_number=3,
             backend_type="anthropic",
@@ -154,11 +158,12 @@ class TestUsageRecordTable:
         assert restored.backend_reported_usage.completion_tokens == 50
         assert restored.backend_reported_usage.cost == 0.015
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_from_domain_with_empty_tool_names(self):
         """Test converting record with empty tool names."""
         record = UsageRecord(
             id="test-id",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             session_id="session-1",
             turn_number=1,
             backend_type="openai",
@@ -171,11 +176,12 @@ class TestUsageRecordTable:
         table_record = UsageRecordTable.from_domain(record)
         assert table_record.tool_names_json is None
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_to_domain_with_null_fields(self):
         """Test converting table record with null optional fields."""
         table_record = UsageRecordTable(
             id="test-id",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             session_id="session-1",
             turn_number=1,
             backend_type="openai",
@@ -211,9 +217,10 @@ class TestUsageRecordTable:
 class TestSessionMetricsTable:
     """Tests for SessionMetricsTable model."""
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_session_metrics(self):
         """Test creating session metrics table entry."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         metrics = SessionMetricsTable(
             session_id="session-123",
             start_time=now,
@@ -232,10 +239,11 @@ class TestSessionMetricsTable:
         assert metrics.total_tokens == 1000
         assert metrics.is_completed is False
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_session_metrics_with_eos_fields(self):
         """Test creating session metrics with EoS fields."""
-        now = datetime.now(timezone.utc)
-        eos_time = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        eos_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         metrics = SessionMetricsTable(
             session_id="session-456",
             start_time=now,
@@ -256,9 +264,10 @@ class TestSessionMetricsTable:
         assert metrics.eos_signal_type == "done_sentinel"
         assert metrics.eos_reason == "Stream completed"
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_session_metrics_with_null_eos_fields(self):
         """Test creating session metrics with null EoS fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         metrics = SessionMetricsTable(
             session_id="session-789",
             start_time=now,
@@ -334,27 +343,30 @@ class TestSessionMetricsRepositoryEoS:
         self, repository: SessionMetricsRepository
     ) -> SessionMetricsTable:
         """Create a sample session metrics entry."""
-        now = datetime.now(timezone.utc)
-        metrics = SessionMetricsTable(
-            session_id="test-session-123",
-            start_time=now,
-            last_activity=now,
-            turn_count=5,
-            total_tokens=1000,
-            total_tool_calls=3,
-            is_completed=False,
-            backend_type="openai",
-            model="gpt-4",
-            proxy_user="test@example.com",
-        )
-        return await repository.upsert(metrics)
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            metrics = SessionMetricsTable(
+                session_id="test-session-123",
+                start_time=now,
+                last_activity=now,
+                turn_count=5,
+                total_tokens=1000,
+                total_tool_calls=3,
+                is_completed=False,
+                backend_type="openai",
+                model="gpt-4",
+                proxy_user="test@example.com",
+            )
+            return await repository.upsert(metrics)
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_claim_eos_emission_succeeds_when_not_claimed(
         self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
     ):
         """Test that claim_eos_emission succeeds when eos_emitted_at is NULL."""
-        emitted_at = datetime.now(timezone.utc)
+        emitted_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         signal_type = "done_sentinel"
         reason = "Stream completed"
 
@@ -383,19 +395,20 @@ class TestSessionMetricsRepositoryEoS:
         assert updated.is_completed is True
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_claim_eos_emission_fails_when_already_claimed(
         self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
     ):
         """Test that claim_eos_emission fails when eos_emitted_at is already set."""
         # First claim succeeds
-        first_emitted_at = datetime.now(timezone.utc)
+        first_emitted_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         first_result = await repository.claim_eos_emission(
             sample_metrics.session_id, first_emitted_at, "done_sentinel", "First claim"
         )
         assert first_result is True
 
         # Second claim fails
-        second_emitted_at = datetime.now(timezone.utc)
+        second_emitted_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         second_result = await repository.claim_eos_emission(
             sample_metrics.session_id,
             second_emitted_at,
@@ -429,12 +442,13 @@ class TestSessionMetricsRepositoryEoS:
         assert result is False
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_has_ended_returns_true_when_ended(
         self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
     ):
         """Test that has_ended returns True when eos_emitted_at is set."""
         # Claim EoS emission
-        emitted_at = datetime.now(timezone.utc)
+        emitted_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         await repository.claim_eos_emission(
             sample_metrics.session_id, emitted_at, "done_sentinel", "Test"
         )
@@ -452,11 +466,12 @@ class TestSessionMetricsRepositoryEoS:
         assert result is False
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_claim_eos_emission_returns_false_when_session_metrics_dont_exist(
         self, repository: SessionMetricsRepository
     ):
         """Test that claim_eos_emission returns False when session metrics don't exist."""
-        emitted_at = datetime.now(timezone.utc)
+        emitted_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         signal_type = "done_sentinel"
         reason = "Stream completed"
 
@@ -473,13 +488,14 @@ class TestSessionMetricsRepositoryEoS:
         assert metrics is None
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_claim_eos_emission_atomicity_under_concurrency(
         self, repository: SessionMetricsRepository, sample_metrics: SessionMetricsTable
     ):
         """Test that only one concurrent claim succeeds."""
         import asyncio
 
-        emitted_at = datetime.now(timezone.utc)
+        emitted_at = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create multiple concurrent claims
         async def claim() -> bool:

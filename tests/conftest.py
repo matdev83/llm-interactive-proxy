@@ -187,6 +187,34 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
             item for item in items if id(item) not in stall_linter_ids
         ]
 
+    # Run the "time usage linter" test early to fail fast on unsafe real-time reads
+    # before xdist worker fan-out.
+    time_usage_linter_nodeid = "tests/unit/test_time_usage_linter.py"
+    time_usage_linter_items = [
+        item for item in items if time_usage_linter_nodeid in item.nodeid
+    ]
+    if time_usage_linter_items:
+        # Only reorder if stall linter wasn't already moved
+        if not stall_linter_items:
+            time_usage_linter_ids = {id(item) for item in time_usage_linter_items}
+            items[:] = time_usage_linter_items + [
+                item for item in items if id(item) not in time_usage_linter_ids
+            ]
+        else:
+            # If stall linter was already moved, insert time usage linter right after it
+            time_usage_linter_ids = {id(item) for item in time_usage_linter_items}
+            # Find position after stall linter items
+            stall_count = len(stall_linter_items)
+            items[:] = (
+                items[:stall_count]
+                + time_usage_linter_items
+                + [
+                    item
+                    for item in items[stall_count:]
+                    if id(item) not in time_usage_linter_ids
+                ]
+            )
+
 
 def pytest_addoption(parser) -> None:  # type: ignore[no-untyped-def]
     group = parser.getgroup("llm-interactive-proxy")

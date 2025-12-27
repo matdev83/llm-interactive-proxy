@@ -30,6 +30,7 @@ from src.core.services.dangerous_command_service import DangerousCommandService
 from src.core.services.tool_call_handlers.dangerous_command_handler import (
     DangerousCommandHandler,
 )
+from tests.unit.fixtures.markers import real_time
 
 
 class TestDangerousCommandDetectionBehavior:
@@ -656,6 +657,7 @@ class TestErrorHandlingAndResilienceBehavior:
                 result.should_swallow is False
             ), f"Empty command {args} was incorrectly blocked"
 
+    @real_time(reason="Measures actual processing time to verify performance remains reasonable (< 1.0s).")
     def test_large_command_argument_handling(self):
         """
         Given: Very large command arguments

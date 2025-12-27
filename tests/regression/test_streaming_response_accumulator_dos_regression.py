@@ -12,6 +12,7 @@ import json
 import time
 
 import pytest
+from tests.unit.fixtures.markers import real_time
 from src.connectors.gemini_base.response_accumulator import StreamingResponseAccumulator
 from src.core.domain.responses import StreamingResponseEnvelope
 
@@ -108,6 +109,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
         return sse_line.encode("utf-8")
 
     @pytest.mark.asyncio
+    @real_time(reason="Measures actual processing time to verify DoS protection performance")
     async def test_large_json_payload_handled_quickly(
         self, accumulator: StreamingResponseAccumulator
     ) -> None:
@@ -140,6 +142,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
             )
 
     @pytest.mark.asyncio
+    @real_time(reason="Measures actual processing time to verify DoS protection performance")
     async def test_multiple_large_payloads(
         self, accumulator: StreamingResponseAccumulator
     ) -> None:
@@ -178,6 +181,7 @@ class TestStreamingResponseAccumulatorDoSRegression:
                 )
 
     @pytest.mark.asyncio
+    @real_time(reason="Measures actual processing time to verify DoS protection performance")
     async def test_deeply_nested_json_handled(
         self, accumulator: StreamingResponseAccumulator
     ) -> None:

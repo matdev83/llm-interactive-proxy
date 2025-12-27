@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -45,7 +44,7 @@ class TestQwenOAuthToolCallingEnhanced:
             "refresh_token": "test-refresh-token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int(time.time() * 1000) + 3600000,  # 1 hour from now
+            "expiry_date": 1000000 + 3600000,  # Fixed timestamp: 1000s + 1 hour in ms
         }
         return connector
 

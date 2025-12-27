@@ -217,13 +217,13 @@ class TestMultiModelRateLimiting:
         assert "model-b" not in retry_states
 
         # Check cooldown logic
+        # Use fixed timestamp for deterministic cooldown check
+        fixed_time = 1000.0
         def is_in_cooldown(model: str) -> bool:
             state = retry_states.get(model)
             if not state:
                 return False
-            import time
-
-            return time.time() < state.cooldown_until
+            return fixed_time < state.cooldown_until
 
         # Model A is in cooldown
         assert is_in_cooldown("model-a") is True

@@ -167,20 +167,23 @@ class TestFullAuthenticationFlow:
         plaintext_token, token_hash = token_service.generate_token()
 
         # Step 4: Store token in database
-        token_record = TokenRecord(
-            id=secrets.token_urlsafe(16),
-            token_hash=token_hash,
-            user_id=sso_result.user_id,
-            user_email=sso_result.user_email,
-            provider=sso_result.provider,
-            is_authenticated=True,
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            last_authenticated_at=datetime.now(timezone.utc),
-            auth_expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        )
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            token_record = TokenRecord(
+                id=secrets.token_urlsafe(16),
+                token_hash=token_hash,
+                user_id=sso_result.user_id,
+                user_email=sso_result.user_email,
+                provider=sso_result.provider,
+                is_authenticated=True,
+                is_active=True,
+                created_at=fixed_time,
+                last_authenticated_at=fixed_time,
+                auth_expires_at=fixed_time + timedelta(hours=24),
+            )
 
-        await token_repository.store_token(token_record)
+            await token_repository.store_token(token_record)
 
         # Step 5: Verify token can be retrieved and validated
         retrieved_record = await token_repository.find_by_hash(token_hash)
@@ -240,20 +243,23 @@ class TestFullAuthenticationFlow:
         plaintext_token, token_hash = token_service.generate_token()
 
         # Step 4: Store token in database
-        token_record = TokenRecord(
-            id=secrets.token_urlsafe(16),
-            token_hash=token_hash,
-            user_id=sso_result.user_id,
-            user_email=sso_result.user_email,
-            provider=sso_result.provider,
-            is_authenticated=True,
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            last_authenticated_at=datetime.now(timezone.utc),
-            auth_expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        )
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            token_record = TokenRecord(
+                id=secrets.token_urlsafe(16),
+                token_hash=token_hash,
+                user_id=sso_result.user_id,
+                user_email=sso_result.user_email,
+                provider=sso_result.provider,
+                is_authenticated=True,
+                is_active=True,
+                created_at=fixed_time,
+                last_authenticated_at=fixed_time,
+                auth_expires_at=fixed_time + timedelta(hours=24),
+            )
 
-        await token_repository.store_token(token_record)
+            await token_repository.store_token(token_record)
 
         # Step 5: Verify token can be retrieved and validated
         retrieved_record = await token_repository.find_by_hash(token_hash)
@@ -282,56 +288,59 @@ class TestReAuthenticationFlow:
     ):
         """Test re-authentication flow when SSO session expires."""
         # Step 1: Create an initial authenticated token
-        plaintext_token, token_hash = token_service.generate_token()
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            plaintext_token, token_hash = token_service.generate_token()
 
-        token_record = TokenRecord(
-            id=secrets.token_urlsafe(16),
-            token_hash=token_hash,
-            user_id="reauth_user_789",
-            user_email="reauth@example.com",
-            provider="google",
-            is_authenticated=True,
-            is_active=True,
-            created_at=datetime.now(timezone.utc) - timedelta(days=2),
-            last_authenticated_at=datetime.now(timezone.utc) - timedelta(days=2),
-            auth_expires_at=datetime.now(timezone.utc) - timedelta(hours=1),  # Expired
-        )
+            token_record = TokenRecord(
+                id=secrets.token_urlsafe(16),
+                token_hash=token_hash,
+                user_id="reauth_user_789",
+                user_email="reauth@example.com",
+                provider="google",
+                is_authenticated=True,
+                is_active=True,
+                created_at=fixed_time - timedelta(days=2),
+                last_authenticated_at=fixed_time - timedelta(days=2),
+                auth_expires_at=fixed_time - timedelta(hours=1),  # Expired
+            )
 
-        await token_repository.store_token(token_record)
+            await token_repository.store_token(token_record)
 
-        # Step 2: Verify token exists but is expired
-        retrieved = await token_repository.find_by_hash(token_hash)
-        assert retrieved is not None
-        assert retrieved.is_authenticated is True  # Still marked as authenticated
-        assert retrieved.auth_expires_at < datetime.now(timezone.utc)  # But expired
+            # Step 2: Verify token exists but is expired
+            retrieved = await token_repository.find_by_hash(token_hash)
+            assert retrieved is not None
+            assert retrieved.is_authenticated is True  # Still marked as authenticated
+            assert retrieved.auth_expires_at < fixed_time  # But expired
 
-        # Step 3: Simulate middleware detecting expired session
-        mock_request = {
-            "headers": {"authorization": f"Bearer {plaintext_token}"},
-            "messages": [],
-        }
+            # Step 3: Simulate middleware detecting expired session
+            mock_request = {
+                "headers": {"authorization": f"Bearer {plaintext_token}"},
+                "messages": [],
+            }
 
-        response = await auth_middleware(mock_request)
+            response = await auth_middleware(mock_request)
 
-        # Should return sandbox response for expired session
-        assert response is not None
-        assert "choices" in response
-        assert "authenticate" in response["choices"][0]["message"]["content"].lower()
+            # Should return sandbox response for expired session
+            assert response is not None
+            assert "choices" in response
+            assert "authenticate" in response["choices"][0]["message"]["content"].lower()
 
-        # Step 4: Simulate re-authentication (SSO completes successfully)
-        # Update the token's authentication status
-        new_expiry = datetime.now(timezone.utc) + timedelta(hours=24)
-        await token_repository.update_auth_status(
-            token_id=token_record.id,
-            authenticated=True,
-            expiry=new_expiry,
-        )
+            # Step 4: Simulate re-authentication (SSO completes successfully)
+            # Update the token's authentication status
+            new_expiry = fixed_time + timedelta(hours=24)
+            await token_repository.update_auth_status(
+                token_id=token_record.id,
+                authenticated=True,
+                expiry=new_expiry,
+            )
 
-        # Step 5: Verify token is now re-authenticated
-        updated = await token_repository.find_by_hash(token_hash)
-        assert updated is not None
-        assert updated.is_authenticated is True
-        assert updated.auth_expires_at > datetime.now(timezone.utc)
+            # Step 5: Verify token is now re-authenticated
+            updated = await token_repository.find_by_hash(token_hash)
+            assert updated is not None
+            assert updated.is_authenticated is True
+            assert updated.auth_expires_at > fixed_time
         assert updated.id == token_record.id  # Same token, not a new one
 
         # Step 6: Verify middleware now allows the request through
@@ -349,28 +358,31 @@ class TestReAuthenticationFlow:
         plaintext_token, token_hash = token_service.generate_token()
         original_id = secrets.token_urlsafe(16)
 
-        token_record = TokenRecord(
-            id=original_id,
-            token_hash=token_hash,
-            user_id="preserve_test_user",
-            user_email="preserve@example.com",
-            provider="google",
-            is_authenticated=False,  # Unauthenticated initially
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            last_authenticated_at=None,
-            auth_expires_at=None,
-        )
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            token_record = TokenRecord(
+                id=original_id,
+                token_hash=token_hash,
+                user_id="preserve_test_user",
+                user_email="preserve@example.com",
+                provider="google",
+                is_authenticated=False,  # Unauthenticated initially
+                is_active=True,
+                created_at=fixed_time,
+                last_authenticated_at=None,
+                auth_expires_at=None,
+            )
 
-        await token_repository.store_token(token_record)
+            await token_repository.store_token(token_record)
 
-        # Step 2: Simulate re-authentication
-        new_expiry = datetime.now(timezone.utc) + timedelta(hours=24)
-        await token_repository.update_auth_status(
-            token_id=original_id,
-            authenticated=True,
-            expiry=new_expiry,
-        )
+            # Step 2: Simulate re-authentication
+            new_expiry = fixed_time + timedelta(hours=24)
+            await token_repository.update_auth_status(
+                token_id=original_id,
+                authenticated=True,
+                expiry=new_expiry,
+            )
 
         # Step 3: Verify same token ID is used
         updated = await token_repository.find_by_hash(token_hash)
@@ -396,22 +408,25 @@ class TestSandboxIsolation:
     ):
         """Test that requests with sandbox history are rejected even with valid token."""
         # Step 1: Create a valid authenticated token
-        plaintext_token, token_hash = token_service.generate_token()
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            plaintext_token, token_hash = token_service.generate_token()
 
-        token_record = TokenRecord(
-            id=secrets.token_urlsafe(16),
-            token_hash=token_hash,
-            user_id="sandbox_test_user",
-            user_email="sandbox@example.com",
-            provider="google",
-            is_authenticated=True,
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            last_authenticated_at=datetime.now(timezone.utc),
-            auth_expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        )
+            token_record = TokenRecord(
+                id=secrets.token_urlsafe(16),
+                token_hash=token_hash,
+                user_id="sandbox_test_user",
+                user_email="sandbox@example.com",
+                provider="google",
+                is_authenticated=True,
+                is_active=True,
+                created_at=fixed_time,
+                last_authenticated_at=fixed_time,
+                auth_expires_at=fixed_time + timedelta(hours=24),
+            )
 
-        await token_repository.store_token(token_record)
+            await token_repository.store_token(token_record)
 
         # Step 2: Create request with sandbox login banner in history
         mock_request = {
@@ -454,22 +469,25 @@ class TestSandboxIsolation:
         assert "authenticate" in sandbox_content.lower()
 
         # Step 2: User authenticates and gets a token
-        plaintext_token, token_hash = token_service.generate_token()
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            plaintext_token, token_hash = token_service.generate_token()
 
-        token_record = TokenRecord(
-            id=secrets.token_urlsafe(16),
-            token_hash=token_hash,
-            user_id="isolation_test_user",
-            user_email="isolation@example.com",
-            provider="google",
-            is_authenticated=True,
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            last_authenticated_at=datetime.now(timezone.utc),
-            auth_expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        )
+            token_record = TokenRecord(
+                id=secrets.token_urlsafe(16),
+                token_hash=token_hash,
+                user_id="isolation_test_user",
+                user_email="isolation@example.com",
+                provider="google",
+                is_authenticated=True,
+                is_active=True,
+                created_at=fixed_time,
+                last_authenticated_at=fixed_time,
+                auth_expires_at=fixed_time + timedelta(hours=24),
+            )
 
-        await token_repository.store_token(token_record)
+            await token_repository.store_token(token_record)
 
         # Step 3: User tries to continue the sandbox session with new token
         mock_request_with_history = {
@@ -508,22 +526,25 @@ class TestSandboxIsolation:
     ):
         """Test sandbox detection works with various message formats."""
         # Create valid token
-        plaintext_token, token_hash = token_service.generate_token()
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            plaintext_token, token_hash = token_service.generate_token()
 
-        token_record = TokenRecord(
-            id=secrets.token_urlsafe(16),
-            token_hash=token_hash,
-            user_id="format_test_user",
-            user_email="format@example.com",
-            provider="google",
-            is_authenticated=True,
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            last_authenticated_at=datetime.now(timezone.utc),
-            auth_expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-        )
+            token_record = TokenRecord(
+                id=secrets.token_urlsafe(16),
+                token_hash=token_hash,
+                user_id="format_test_user",
+                user_email="format@example.com",
+                provider="google",
+                is_authenticated=True,
+                is_active=True,
+                created_at=fixed_time,
+                last_authenticated_at=fixed_time,
+                auth_expires_at=fixed_time + timedelta(hours=24),
+            )
 
-        await token_repository.store_token(token_record)
+            await token_repository.store_token(token_record)
 
         # Test various sandbox message formats
         sandbox_messages = [

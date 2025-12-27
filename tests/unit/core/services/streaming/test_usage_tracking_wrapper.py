@@ -6,13 +6,14 @@ TPS calculation, and equivalence with BackendService._wrap_stream_for_usage.
 
 from __future__ import annotations
 
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.stream_formatting_service import StreamFormattingService
 from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
+
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 class TestWrapStreamForUsage:
@@ -73,17 +74,21 @@ class TestWrapStreamForUsage:
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
 
-        chunks = [chunk async for chunk in wrapped]
+            chunks = [chunk async for chunk in wrapped]
 
-        assert len(chunks) == 2
-        mock_service.record_response.assert_called_once()
-        call = mock_service.record_response.call_args
-        assert call.kwargs["record_id"] == "ctp-123"
-        assert call.kwargs["completion_tokens"] == 5
+            assert len(chunks) == 2
+            mock_service.record_response.assert_called_once()
+            call = mock_service.record_response.call_args
+            assert call.kwargs["record_id"] == "ctp-123"
+            assert call.kwargs["completion_tokens"] == 5
 
     @pytest.mark.asyncio
     async def test_wraps_stream_when_ptb_record_id_provided(self) -> None:
@@ -104,16 +109,20 @@ class TestWrapStreamForUsage:
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id=None, ptb_record_id="ptb-456", start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id=None,
+                ptb_record_id="ptb-456",
+                start_time=clock.now(),
+            )
 
-        chunks = [chunk async for chunk in wrapped]
+            chunks = [chunk async for chunk in wrapped]
 
-        assert len(chunks) == 2
-        mock_service.record_response.assert_called_once()
-        call = mock_service.record_response.call_args
-        assert call.kwargs["record_id"] == "ptb-456"
+            assert len(chunks) == 2
+            mock_service.record_response.assert_called_once()
+            call = mock_service.record_response.call_args
+            assert call.kwargs["record_id"] == "ptb-456"
 
     @pytest.mark.asyncio
     async def test_records_both_ctp_and_ptb(self) -> None:
@@ -134,22 +143,23 @@ class TestWrapStreamForUsage:
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(),
-            ctp_record_id="ctp-123",
-            ptb_record_id="ptb-456",
-            start_time=time.time(),
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id="ptb-456",
+                start_time=clock.now(),
+            )
 
-        _ = [chunk async for chunk in wrapped]
+            _ = [chunk async for chunk in wrapped]
 
-        assert mock_service.record_response.call_count == 2
-        record_ids = [
-            call.kwargs["record_id"]
-            for call in mock_service.record_response.call_args_list
-        ]
-        assert "ctp-123" in record_ids
-        assert "ptb-456" in record_ids
+            assert mock_service.record_response.call_count == 2
+            record_ids = [
+                call.kwargs["record_id"]
+                for call in mock_service.record_response.call_args_list
+            ]
+            assert "ctp-123" in record_ids
+            assert "ptb-456" in record_ids
 
 
 class TestFirstTokenTimeTracking:
@@ -177,17 +187,21 @@ class TestFirstTokenTimeTracking:
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             )
 
-        start_time = time.time()
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=start_time
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            start_time = clock.now()
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=start_time,
+            )
 
-        _ = [chunk async for chunk in wrapped]
+            _ = [chunk async for chunk in wrapped]
 
-        call = mock_service.record_response.call_args
-        ttft_ms = call.kwargs["ttft_ms"]
-        assert ttft_ms is not None
-        assert ttft_ms >= 0
+            call = mock_service.record_response.call_args
+            ttft_ms = call.kwargs["ttft_ms"]
+            assert ttft_ms is not None
+            assert ttft_ms >= 0
 
     @pytest.mark.asyncio
     async def test_ttft_none_when_no_valid_tokens(self) -> None:
@@ -206,15 +220,19 @@ class TestFirstTokenTimeTracking:
                 usage={"prompt_tokens": 10, "completion_tokens": 0, "total_tokens": 10},
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
 
-        _ = [chunk async for chunk in wrapped]
+            _ = [chunk async for chunk in wrapped]
 
-        call = mock_service.record_response.call_args
-        ttft_ms = call.kwargs["ttft_ms"]
-        assert ttft_ms is None
+            call = mock_service.record_response.call_args
+            ttft_ms = call.kwargs["ttft_ms"]
+            assert ttft_ms is None
 
 
 class TestUsageDataAccumulation:
@@ -238,15 +256,19 @@ class TestUsageDataAccumulation:
                 usage=usage,
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
 
-        _ = [chunk async for chunk in wrapped]
+            _ = [chunk async for chunk in wrapped]
 
-        call = mock_service.record_response.call_args
-        assert call.kwargs["backend_reported_usage"] == usage
-        assert call.kwargs["completion_tokens"] == 50
+            call = mock_service.record_response.call_args
+            assert call.kwargs["backend_reported_usage"] == usage
+            assert call.kwargs["completion_tokens"] == 50
 
     @pytest.mark.asyncio
     async def test_usage_from_content_dict_usage_field(self) -> None:
@@ -268,14 +290,18 @@ class TestUsageDataAccumulation:
                 }
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
 
-        _ = [chunk async for chunk in wrapped]
+            _ = [chunk async for chunk in wrapped]
 
-        call = mock_service.record_response.call_args
-        assert call.kwargs["backend_reported_usage"] == usage
+            call = mock_service.record_response.call_args
+            assert call.kwargs["backend_reported_usage"] == usage
 
     @pytest.mark.asyncio
     async def test_usage_from_stop_chunk_with_usage(self) -> None:
@@ -303,14 +329,18 @@ class TestUsageDataAccumulation:
             )
             yield ProcessedResponse(content=stop_chunk)
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
 
-        _ = [chunk async for chunk in wrapped]
+            _ = [chunk async for chunk in wrapped]
 
-        call = mock_service.record_response.call_args
-        assert call.kwargs["backend_reported_usage"] == usage
+            call = mock_service.record_response.call_args
+            assert call.kwargs["backend_reported_usage"] == usage
 
     @pytest.mark.asyncio
     async def test_no_recording_when_no_usage_data(self) -> None:
@@ -327,14 +357,18 @@ class TestUsageDataAccumulation:
                 content={"choices": [{"delta": {"content": "hello"}}]}
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
 
-        _ = [chunk async for chunk in wrapped]
+            _ = [chunk async for chunk in wrapped]
 
-        # No usage data means no recording
-        mock_service.record_response.assert_not_called()
+            # No usage data means no recording
+            mock_service.record_response.assert_not_called()
 
 
 class TestTPSCalculation:
@@ -363,16 +397,20 @@ class TestTPSCalculation:
                 },
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
 
-        _ = [chunk async for chunk in wrapped]
+            _ = [chunk async for chunk in wrapped]
 
-        call = mock_service.record_response.call_args
-        stream_tps = call.kwargs["stream_tps"]
-        # TPS may be None if stream was too fast, or a positive float
-        assert stream_tps is None or stream_tps > 0
+            call = mock_service.record_response.call_args
+            stream_tps = call.kwargs["stream_tps"]
+            # TPS may be None if stream was too fast, or a positive float
+            assert stream_tps is None or stream_tps > 0
 
 
 class TestIsValidCompletionToken:
@@ -469,10 +507,14 @@ class TestErrorHandling:
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
             )
 
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=time.time()
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=clock.now(),
+            )
 
-        # Should not raise, stream should complete normally
-        chunks = [chunk async for chunk in wrapped]
-        assert len(chunks) == 1
+            # Should not raise, stream should complete normally
+            chunks = [chunk async for chunk in wrapped]
+            assert len(chunks) == 1

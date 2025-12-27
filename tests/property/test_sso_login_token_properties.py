@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from freezegun import freeze_time
 from hypothesis import given
 from hypothesis import strategies as st
 from src.core.auth.sso.database import DatabaseManager, TokenRepository
@@ -58,6 +59,7 @@ def test_login_token_lifecycle(ttl_minutes: int) -> None:
     wait_seconds=st.floats(min_value=0.1, max_value=1.0),
 )
 @property_test_settings(max_examples=5)  # Reduced from 10 for performance
+@freeze_time("2024-01-01 12:00:00")
 def test_login_token_expiry(ttl_minutes: int, wait_seconds: float) -> None:
     """Test that expired tokens are rejected."""
     # Note: We can't easily wait for minutes in property tests.
@@ -73,7 +75,8 @@ def test_login_token_expiry(ttl_minutes: int, wait_seconds: float) -> None:
             import aiosqlite
 
             expired_token = "expired-token"
-            created_at = datetime.utcnow() - timedelta(minutes=ttl_minutes + 1)
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            created_at = fixed_time - timedelta(minutes=ttl_minutes + 1)
             expires_at = created_at + timedelta(minutes=ttl_minutes)
 
             async with aiosqlite.connect(db_path) as db:

@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.database.config import DatabaseConfig
 from src.core.database.engine import DatabaseEngine
 from src.core.database.repositories.memory_repository import SQLModelMemoryRepository
@@ -37,6 +38,8 @@ class TestSQLModelMemoryRepository:
     @pytest.fixture
     def sample_summary(self) -> SessionSummary:
         """Create a sample session summary for testing."""
+        # Use fixed timestamp - tests should control time via @freeze_time decorator
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         return SessionSummary(
             id="test-summary-123",
             user_id="user-456",
@@ -44,7 +47,7 @@ class TestSQLModelMemoryRepository:
             project_id="proj-001",
             project_root="/path/to/project",
             session_id="session-abc",
-            session_start=datetime.now(timezone.utc),
+            session_start=fixed_time,
             client_agent="test-agent",
             backend_model="openai:gpt-4",
             title="Test Session Summary",
@@ -67,7 +70,7 @@ class TestSQLModelMemoryRepository:
             evidence=["Evidence 1"],
             full_analysis="Full analysis text here",
             summary_version="v1",
-            created_at=datetime.now(timezone.utc),
+            created_at=fixed_time,
         )
 
     @pytest.mark.asyncio
@@ -126,12 +129,14 @@ class TestSQLModelMemoryRepository:
         assert summaries[0].title == "Updated Title"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_get_recent_sessions_respects_limit(
         self,
         repository: SQLModelMemoryRepository,
     ) -> None:
         """Test that get_recent_sessions respects limit parameter."""
         user_id = "user-limit-test"
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create multiple summaries
         for i in range(5):
@@ -139,14 +144,14 @@ class TestSQLModelMemoryRepository:
                 id=f"summary-{i}",
                 user_id=user_id,
                 session_id=f"session-{i}",
-                session_start=datetime.now(timezone.utc) + timedelta(minutes=i),
+                session_start=fixed_time + timedelta(minutes=i),
                 backend_model="model",
                 title=f"Session {i}",
                 scope="Test scope",
                 completion_status="complete",
                 full_analysis="Analysis",
                 summary_version="v1",
-                created_at=datetime.now(timezone.utc),
+                created_at=fixed_time,
             )
             await repository.save_session_summary(summary)
 
@@ -159,13 +164,14 @@ class TestSQLModelMemoryRepository:
         assert len(summaries) == 3
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_get_recent_sessions_orders_by_session_start_desc(
         self,
         repository: SQLModelMemoryRepository,
     ) -> None:
         """Test that results are ordered by session_start descending."""
         user_id = "user-order-test"
-        base_time = datetime.now(timezone.utc)
+        base_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create summaries with different start times
         for i in range(3):
@@ -180,7 +186,7 @@ class TestSQLModelMemoryRepository:
                 completion_status="complete",
                 full_analysis="Analysis",
                 summary_version="v1",
-                created_at=datetime.now(timezone.utc),
+                created_at=base_time,
             )
             await repository.save_session_summary(summary)
 
@@ -195,12 +201,14 @@ class TestSQLModelMemoryRepository:
         assert summaries[2].id == "summary-order-0"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_get_recent_sessions_filters_by_tenant_id(
         self,
         repository: SQLModelMemoryRepository,
     ) -> None:
         """Test filtering by tenant_id."""
         user_id = "user-tenant-test"
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create summaries for different tenants
         for tenant in ["tenant-a", "tenant-b"]:
@@ -209,14 +217,14 @@ class TestSQLModelMemoryRepository:
                 user_id=user_id,
                 tenant_id=tenant,
                 session_id=f"session-{tenant}",
-                session_start=datetime.now(timezone.utc),
+                session_start=fixed_time,
                 backend_model="model",
                 title=f"Session for {tenant}",
                 scope="Test scope",
                 completion_status="complete",
                 full_analysis="Analysis",
                 summary_version="v1",
-                created_at=datetime.now(timezone.utc),
+                created_at=fixed_time,
             )
             await repository.save_session_summary(summary)
 
@@ -231,12 +239,14 @@ class TestSQLModelMemoryRepository:
         assert summaries[0].tenant_id == "tenant-a"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_get_recent_sessions_filters_by_project_id(
         self,
         repository: SQLModelMemoryRepository,
     ) -> None:
         """Test filtering by project_id."""
         user_id = "user-project-test"
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create summaries for different projects
         for proj_id in ["proj-a", "proj-b"]:
@@ -245,14 +255,14 @@ class TestSQLModelMemoryRepository:
                 user_id=user_id,
                 project_id=proj_id,
                 session_id=f"session-{proj_id}",
-                session_start=datetime.now(timezone.utc),
+                session_start=fixed_time,
                 backend_model="model",
                 title=f"Session for {proj_id}",
                 scope="Test scope",
                 completion_status="complete",
                 full_analysis="Analysis",
                 summary_version="v1",
-                created_at=datetime.now(timezone.utc),
+                created_at=fixed_time,
             )
             await repository.save_session_summary(summary)
 
@@ -266,12 +276,14 @@ class TestSQLModelMemoryRepository:
         assert summaries[0].project_id == "proj-a"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_get_recent_sessions_filters_by_project_root(
         self,
         repository: SQLModelMemoryRepository,
     ) -> None:
         """Test filtering by project_root when project_id not provided."""
         user_id = "user-root-test"
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create summaries for different project roots
         for root in ["/path/a", "/path/b"]:
@@ -280,14 +292,14 @@ class TestSQLModelMemoryRepository:
                 user_id=user_id,
                 project_root=root,
                 session_id=f"session-{root}",
-                session_start=datetime.now(timezone.utc),
+                session_start=fixed_time,
                 backend_model="model",
                 title=f"Session for {root}",
                 scope="Test scope",
                 completion_status="complete",
                 full_analysis="Analysis",
                 summary_version="v1",
-                created_at=datetime.now(timezone.utc),
+                created_at=fixed_time,
             )
             await repository.save_session_summary(summary)
 
@@ -301,13 +313,14 @@ class TestSQLModelMemoryRepository:
         assert summaries[0].project_root == "/path/a"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_delete_old_sessions(
         self,
         repository: SQLModelMemoryRepository,
     ) -> None:
         """Test deleting sessions older than a date."""
         user_id = "user-delete-test"
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create old and new sessions
         old_summary = SessionSummary(

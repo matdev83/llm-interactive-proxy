@@ -6,7 +6,6 @@ These tests mock external dependencies and verify tool calling logic.
 pytestmark = [pytest.mark.no_global_mock]
 """
 
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -43,7 +42,7 @@ class TestQwenOAuthToolCallingUnit:
             "refresh_token": "test-refresh-token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int(time.time() * 1000) + 3600000,
+            "expiry_date": 1000000 + 3600000,  # Fixed timestamp: 1000s + 1 hour in ms
         }
         # Disable health check to avoid API calls during tests
         connector.disable_health_check()

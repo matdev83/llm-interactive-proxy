@@ -13,6 +13,8 @@ from src.core.app.test_builder import build_test_app as build_app
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
 
+from tests.unit.fixtures.markers import real_time
+
 # Suppress Windows ProactorEventLoop warnings for this module
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
@@ -596,6 +598,7 @@ class TestModelsEndpointIntegration:
                 assert m1["id"] == m2["id"]
 
     @pytest.mark.integration
+    @real_time(reason="Measures actual endpoint response time to ensure performance requirements are met.")
     def test_models_endpoint_performance(self, monkeypatch):
         """Test models endpoint performance."""
         import time

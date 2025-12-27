@@ -999,6 +999,7 @@ class TestSessionStateBehavior:
         enabled_state = repository.get_session_state(session_id)
         assert enabled_state.disabled_for_session is False
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_session_state_cleanup_behavior(self):
         """
         Given: Multiple sessions with varying ages
@@ -1018,13 +1019,14 @@ class TestSessionStateBehavior:
         repository.get_session_state(recent_session)
 
         # Create old session (1 hour ago)
+        frozen_time = datetime.now()
         old_state = repository.get_session_state(old_session)
-        old_state.last_updated = (datetime.now() - timedelta(hours=1)).timestamp()
+        old_state.last_updated = (frozen_time - timedelta(hours=1)).timestamp()
         repository.update_session_state(old_state, update_timestamp=False)
 
         # Create very old session (2 hours ago)
         very_old_state = repository.get_session_state(very_old_session)
-        very_old_state.last_updated = (datetime.now() - timedelta(hours=2)).timestamp()
+        very_old_state.last_updated = (frozen_time - timedelta(hours=2)).timestamp()
         repository.update_session_state(very_old_state, update_timestamp=False)
 
         # Verify all sessions exist initially

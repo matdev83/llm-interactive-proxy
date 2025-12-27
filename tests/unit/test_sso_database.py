@@ -1,11 +1,12 @@
 """Unit tests for SSO database operations."""
 
 import tempfile
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from freezegun import freeze_time
 from src.core.auth.sso.database import DatabaseManager, TokenRepository
 from src.core.auth.sso.models import TokenRecord
 from src.core.auth.sso.token_service import TokenService
@@ -27,6 +28,7 @@ async def initialized_db(temp_db_path):
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_find_by_user_id_returns_token_for_existing_user(initialized_db):
     """Test that find_by_user_id returns token for existing user."""
     # Setup
@@ -36,6 +38,7 @@ async def test_find_by_user_id_returns_token_for_existing_user(initialized_db):
     # Create a token for a user
     plaintext_token, token_hash = token_service.generate_token()
     user_id = "test-user-123"
+    frozen_time = datetime.now(timezone.utc)
     token_record = TokenRecord(
         id=str(uuid4()),
         token_hash=token_hash,
@@ -44,9 +47,9 @@ async def test_find_by_user_id_returns_token_for_existing_user(initialized_db):
         provider="google",
         is_authenticated=True,
         is_active=True,
-        created_at=datetime.utcnow(),
-        last_authenticated_at=datetime.utcnow(),
-        auth_expires_at=datetime.utcnow() + timedelta(hours=24),
+        created_at=frozen_time,
+        last_authenticated_at=frozen_time,
+        auth_expires_at=frozen_time + timedelta(hours=24),
     )
     await token_repository.store_token(token_record)
 
@@ -74,6 +77,7 @@ async def test_find_by_user_id_returns_none_for_nonexistent_user(initialized_db)
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_find_by_user_id_returns_most_recent_token(initialized_db):
     """Test that find_by_user_id returns the most recent token when multiple exist."""
     # Setup
@@ -83,6 +87,7 @@ async def test_find_by_user_id_returns_most_recent_token(initialized_db):
     user_id = "test-user-456"
 
     # Create two tokens for the same user at different times
+    frozen_time = datetime.now(timezone.utc)
     plaintext_token1, token_hash1 = token_service.generate_token()
     token_record1 = TokenRecord(
         id=str(uuid4()),
@@ -92,9 +97,9 @@ async def test_find_by_user_id_returns_most_recent_token(initialized_db):
         provider="google",
         is_authenticated=True,
         is_active=True,
-        created_at=datetime.utcnow() - timedelta(hours=2),  # Older
-        last_authenticated_at=datetime.utcnow() - timedelta(hours=2),
-        auth_expires_at=datetime.utcnow() + timedelta(hours=22),
+        created_at=frozen_time - timedelta(hours=2),  # Older
+        last_authenticated_at=frozen_time - timedelta(hours=2),
+        auth_expires_at=frozen_time + timedelta(hours=22),
     )
     await token_repository.store_token(token_record1)
 
@@ -107,9 +112,9 @@ async def test_find_by_user_id_returns_most_recent_token(initialized_db):
         provider="google",
         is_authenticated=True,
         is_active=True,
-        created_at=datetime.utcnow(),  # Newer
-        last_authenticated_at=datetime.utcnow(),
-        auth_expires_at=datetime.utcnow() + timedelta(hours=24),
+        created_at=frozen_time,  # Newer
+        last_authenticated_at=frozen_time,
+        auth_expires_at=frozen_time + timedelta(hours=24),
     )
     await token_repository.store_token(token_record2)
 
@@ -123,6 +128,7 @@ async def test_find_by_user_id_returns_most_recent_token(initialized_db):
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_find_by_user_id_ignores_inactive_tokens(initialized_db):
     """Test that find_by_user_id ignores inactive tokens."""
     # Setup
@@ -132,6 +138,7 @@ async def test_find_by_user_id_ignores_inactive_tokens(initialized_db):
     user_id = "test-user-789"
 
     # Create an inactive token
+    frozen_time = datetime.now(timezone.utc)
     plaintext_token, token_hash = token_service.generate_token()
     token_record = TokenRecord(
         id=str(uuid4()),
@@ -141,9 +148,9 @@ async def test_find_by_user_id_ignores_inactive_tokens(initialized_db):
         provider="google",
         is_authenticated=True,
         is_active=False,  # Inactive
-        created_at=datetime.utcnow(),
-        last_authenticated_at=datetime.utcnow(),
-        auth_expires_at=datetime.utcnow() + timedelta(hours=24),
+        created_at=frozen_time,
+        last_authenticated_at=frozen_time,
+        auth_expires_at=frozen_time + timedelta(hours=24),
     )
     await token_repository.store_token(token_record)
 
@@ -155,6 +162,7 @@ async def test_find_by_user_id_ignores_inactive_tokens(initialized_db):
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_reauthentication_updates_existing_token(initialized_db):
     """Test that re-authentication updates existing token instead of creating new one."""
     # Setup
@@ -164,6 +172,7 @@ async def test_reauthentication_updates_existing_token(initialized_db):
     user_id = "test-user-reauth"
 
     # Create initial token (expired)
+    frozen_time = datetime.now(timezone.utc)
     plaintext_token, token_hash = token_service.generate_token()
     original_token_record = TokenRecord(
         id=str(uuid4()),
@@ -173,9 +182,9 @@ async def test_reauthentication_updates_existing_token(initialized_db):
         provider="google",
         is_authenticated=False,  # Expired
         is_active=True,
-        created_at=datetime.utcnow() - timedelta(hours=25),
-        last_authenticated_at=datetime.utcnow() - timedelta(hours=25),
-        auth_expires_at=datetime.utcnow() - timedelta(hours=1),  # Expired
+        created_at=frozen_time - timedelta(hours=25),
+        last_authenticated_at=frozen_time - timedelta(hours=25),
+        auth_expires_at=frozen_time - timedelta(hours=1),  # Expired
     )
     await token_repository.store_token(original_token_record)
 
@@ -184,7 +193,7 @@ async def test_reauthentication_updates_existing_token(initialized_db):
     assert existing_token is not None
 
     # Update auth status
-    new_expiry = datetime.utcnow() + timedelta(hours=24)
+    new_expiry = frozen_time + timedelta(hours=24)
     await token_repository.update_auth_status(
         existing_token.id,
         authenticated=True,
@@ -197,7 +206,7 @@ async def test_reauthentication_updates_existing_token(initialized_db):
     assert updated_token.id == original_token_record.id  # Same token ID
     assert updated_token.token_hash == token_hash  # Same hash
     assert updated_token.is_authenticated is True  # Now authenticated
-    assert updated_token.auth_expires_at > datetime.utcnow()  # New expiry
+    assert updated_token.auth_expires_at > frozen_time  # New expiry
 
     # Verify only one token exists for this user
     all_hashes = await token_repository.get_all_token_hashes()

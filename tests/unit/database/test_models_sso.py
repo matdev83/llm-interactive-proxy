@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 
+from freezegun import freeze_time
 from sqlmodel import SQLModel
 from src.core.database.models.sso import (
     AgentTokenTable,
@@ -83,9 +84,10 @@ class TestAgentTokenTable:
         assert record.last_authenticated_at is None
         assert record.auth_expires_at is None
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_with_auth_fields(self) -> None:
         """Test creating with authentication fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         expiry = now + timedelta(hours=24)
 
         record = AgentTokenTable(
@@ -126,9 +128,12 @@ class TestPendingAuthorizationTable:
         assert issubclass(PendingAuthorizationTable, SQLModel)
         assert hasattr(PendingAuthorizationTable, "__table__")
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_record(self) -> None:
         """Test creating a pending authorization record."""
-        expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+        expires = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc) + timedelta(
+            minutes=10
+        )
         record = PendingAuthorizationTable(
             id="auth-id-123",
             sso_state="state-abc",
@@ -149,6 +154,7 @@ class TestPendingAuthorizationTable:
         assert record.expires_at == expires
         assert record.client_ip == "192.168.1.1"
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_default_attempts_remaining(self) -> None:
         """Test default value for attempts_remaining."""
         record = PendingAuthorizationTable(
@@ -158,7 +164,7 @@ class TestPendingAuthorizationTable:
             user_id="user",
             provider="google",
             confirmation_code_hash="hash",
-            expires_at=datetime.now(timezone.utc),
+            expires_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             client_ip="127.0.0.1",
         )
 
@@ -193,9 +199,10 @@ class TestRateLimitTable:
         assert record.failed_attempts == 0
         assert record.blocked_until is None
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_with_all_fields(self) -> None:
         """Test creating with all fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         blocked_until = now + timedelta(hours=1)
 
         record = RateLimitTable(
@@ -222,9 +229,12 @@ class TestSSOLoginTokenTable:
         assert issubclass(SSOLoginTokenTable, SQLModel)
         assert hasattr(SSOLoginTokenTable, "__table__")
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_record(self) -> None:
         """Test creating a login token record."""
-        expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+        expires = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc) + timedelta(
+            minutes=10
+        )
         record = SSOLoginTokenTable(
             token="token-abc-123",
             expires_at=expires,
@@ -234,9 +244,12 @@ class TestSSOLoginTokenTable:
         assert record.expires_at == expires
         assert record.agent_token_id is None
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_with_agent_token_id(self) -> None:
         """Test creating with agent_token_id for re-auth."""
-        expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+        expires = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc) + timedelta(
+            minutes=10
+        )
         record = SSOLoginTokenTable(
             token="token-xyz",
             expires_at=expires,

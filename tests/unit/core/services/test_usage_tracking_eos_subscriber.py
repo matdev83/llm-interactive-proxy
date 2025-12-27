@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from src.core.database.models.usage import SessionMetricsTable
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.events.end_of_session_events import (
@@ -85,6 +86,7 @@ async def test_handle_eos_event_updates_session_metrics(
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_handle_eos_event_preserves_existing_metrics(
     subscriber: UsageTrackingEosSubscriber, mock_session_repo: SessionMetricsRepository
 ) -> None:
@@ -97,10 +99,11 @@ async def test_handle_eos_event_preserves_existing_metrics(
     )
 
     # Create existing metrics
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     existing_metrics = SessionMetricsTable(
         session_id="test-session-123",
-        start_time=datetime.now(timezone.utc),
-        last_activity=datetime.now(timezone.utc),
+        start_time=fixed_time,
+        last_activity=fixed_time,
         turn_count=5,
         total_tokens=1000,
         total_tool_calls=3,
@@ -155,6 +158,7 @@ async def test_handle_eos_event_with_error_termination(
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_handle_eos_event_with_error_termination_updates_existing(
     subscriber: UsageTrackingEosSubscriber, mock_session_repo: SessionMetricsRepository
 ) -> None:
@@ -169,10 +173,11 @@ async def test_handle_eos_event_with_error_termination_updates_existing(
     )
 
     # Create existing metrics
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     existing_metrics = SessionMetricsTable(
         session_id="test-session-123",
-        start_time=datetime.now(timezone.utc),
-        last_activity=datetime.now(timezone.utc),
+        start_time=fixed_time,
+        last_activity=fixed_time,
         turn_count=5,
         total_tokens=1000,
         total_tool_calls=3,
@@ -191,15 +196,17 @@ async def test_handle_eos_event_with_error_termination_updates_existing(
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_handle_eos_event_clears_error_fields_for_normal_termination(
     subscriber: UsageTrackingEosSubscriber, mock_session_repo: SessionMetricsRepository
 ) -> None:
     """Test that handler clears error fields for normal terminations."""
     # First, create metrics with error fields
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     existing_metrics = SessionMetricsTable(
         session_id="test-session-123",
-        start_time=datetime.now(timezone.utc),
-        last_activity=datetime.now(timezone.utc),
+        start_time=fixed_time,
+        last_activity=fixed_time,
         turn_count=5,
         total_tokens=1000,
         total_tool_calls=3,

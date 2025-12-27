@@ -1,5 +1,100 @@
 {
   "version": 1,
-  "entries": []
+  "entries": [
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_test_quality.py",
+      "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks. Cache expiration is a real-world concern that should expire after actual wall-clock time, not test-controlled time."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_schema_drift.py",
+      "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks. Cache expiration is a real-world concern that should expire after actual wall-clock time, not test-controlled time."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/benchmark_loop_detection.py",
+      "reason": "Benchmark script that measures actual performance characteristics. Requires real system time to measure elapsed execution time."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/conftest.py",
+      "reason": "Test infrastructure fixture that uses datetime.now() for log filename timestamps. Log filenames with timestamps are an infrastructure concern and should use real time."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_di_container_usage.py",
+      "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_markdown_syntax.py",
+      "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_mypy_validation.py",
+      "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_no_prints.py",
+      "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/integration/test_anthropic_translation_integration.py",
+      "reason": "Integration test that measures real server startup timing using freeze_time with time.time() for deadline checks."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/integration/test_automated_recovery_integration.py",
+      "reason": "Integration test that measures real recovery timing and event tracking. Uses time.time() to track recovery timelines and event timestamps."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_codebase_quality.py",
+      "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks. Cache expiration is a real-world concern that should expire after actual wall-clock time, not test-controlled time."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_dependency_validation.py",
+      "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks. Cache expiration is a real-world concern that should expire after actual wall-clock time, not test-controlled time."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/integration/test_backend_real_e2e.py",
+      "reason": "Real E2E integration tests that measure actual server startup timing and request/response times. Helper functions use time.time() for deadline checks and elapsed time measurements."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/integration/test_server_smoke.py",
+      "reason": "Smoke test that measures actual server startup timing. Helper function uses time.time() for deadline checks."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/integration/test_gemini_cli_acp_integration.py",
+      "reason": "Integration test with helper functions that use time.time() for deadline checks when waiting for server startup."
+    },
+          {
+            "target_type": "glob",
+            "target": "tests/integration/test_gemini_end_to_end.py",
+            "reason": "Integration test with helper functions that use time.time() for deadline checks when waiting for server startup."
+          },
+          {
+            "target_type": "glob",
+            "target": "tests/live/test_e2e_flows.py",
+            "reason": "Live E2E test that measures actual execution time and timing characteristics. Requires real system time to measure elapsed time."
+          },
+          {
+            "target_type": "glob",
+            "target": "tests/integration/test_zai_real_integration.py",
+            "reason": "Real integration test that measures actual server timing and response times. Requires real system time for timing measurements."
+          },
+          {
+            "target_type": "glob",
+            "target": "tests/mocks/connection_manager.py",
+            "reason": "Mock infrastructure that uses datetime.utcnow() for mock connection timestamps. Mock timestamps should use real time to simulate realistic behavior."
+          }
+  ]
 }
-

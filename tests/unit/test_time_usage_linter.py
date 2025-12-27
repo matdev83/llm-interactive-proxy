@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,8 +39,35 @@ def _iter_time_usage_lint_files(repo_root: Path) -> list[Path]:
     return sorted(root.rglob("*.py"))
 
 
+def _compute_fast_hash(repo_root: Path) -> tuple[str, int]:
+    """Compute fast hash of linted Python tree (paths + sizes only, no mtimes).
+
+    This is used as the first stage of caching - if this hash matches,
+    we can skip the expensive full fingerprint computation and AST scan.
+    """
+    hasher = hashlib.blake2b(digest_size=16)
+    count = 0
+    for file_path in _iter_time_usage_lint_files(repo_root):
+        try:
+            stat = file_path.stat()
+        except OSError:
+            continue
+
+        rel = file_path.relative_to(repo_root).as_posix()
+        hasher.update(rel.encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(str(stat.st_size).encode("utf-8"))
+        hasher.update(b"\0")
+        count += 1
+
+    return hasher.hexdigest(), count
+
+
 def _compute_time_usage_lint_fingerprint(repo_root: Path) -> tuple[str, int]:
-    """Compute fingerprint of linted Python tree for caching."""
+    """Compute full fingerprint of linted Python tree for caching (paths + sizes + mtimes).
+
+    This is only computed if the fast hash indicates changes may have occurred.
+    """
     hasher = hashlib.blake2b(digest_size=16)
     count = 0
     for file_path in _iter_time_usage_lint_files(repo_root):
@@ -346,33 +374,53 @@ class _TimeUsageScanner(ast.NodeVisitor):
         return False
 
     def _has_real_time_marker(self, func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
-        """Check if function has @real_time marker."""
+        """Check if function has @real_time marker with required reason parameter.
+
+        Only accepts markers that are called with a reason argument (non-empty string).
+        Rejects @pytest.mark.real_time without arguments to enforce explicit rationale.
+        """
         for decorator in func.decorator_list:
-            # Check for @real_time(...) or @pytest.mark.real_time(...)
-            if isinstance(decorator, ast.Call):
-                func_node = decorator.func
-                if isinstance(func_node, ast.Name) and func_node.id == "real_time":
-                    return True
-                elif isinstance(func_node, ast.Attribute):
-                    if (
-                        isinstance(func_node.value, ast.Attribute)
-                        and func_node.value.attr == "mark"
-                        and isinstance(func_node.value.value, ast.Name)
-                        and func_node.value.value.id == "pytest"
-                        and func_node.attr == "real_time"
-                    ):
-                        return True
-            elif isinstance(decorator, ast.Attribute):
-                # @pytest.mark.real_time (without args, but should have reason)
-                if (
-                    decorator.attr == "real_time"
-                    and isinstance(decorator.value, ast.Attribute)
-                    and decorator.value.attr == "mark"
-                    and isinstance(decorator.value.value, ast.Name)
-                    and decorator.value.value.id == "pytest"
-                ):
+            # Only accept Call nodes (markers with arguments)
+            if not isinstance(decorator, ast.Call):
+                continue
+
+            func_node = decorator.func
+
+            # Check for @real_time(...) - direct import from markers module
+            if isinstance(func_node, ast.Name) and func_node.id == "real_time":
+                # Validate reason argument exists and is non-empty
+                if self._has_valid_reason_argument(decorator):
                     return True
 
+            # Check for @pytest.mark.real_time(...)
+            elif isinstance(func_node, ast.Attribute):
+                if (
+                    func_node.attr == "real_time"
+                    and isinstance(func_node.value, ast.Attribute)
+                    and func_node.value.attr == "mark"
+                    and isinstance(func_node.value.value, ast.Name)
+                    and func_node.value.value.id == "pytest"
+                ):
+                    # Validate reason argument exists and is non-empty
+                    if self._has_valid_reason_argument(decorator):
+                        return True
+
+        return False
+
+    def _has_valid_reason_argument(self, call_node: ast.Call) -> bool:
+        """Check if call node has a non-empty reason keyword argument."""
+        for keyword in call_node.keywords:
+            if keyword.arg == "reason":
+                # Check if reason is a non-empty string literal
+                if isinstance(keyword.value, ast.Constant):
+                    reason_value = keyword.value.value
+                    if isinstance(reason_value, str) and reason_value.strip():
+                        return True
+                # Also handle older Python versions with ast.Str
+                elif isinstance(keyword.value, ast.Str):  # type: ignore[attr-defined]
+                    reason_value = keyword.value.s  # type: ignore[attr-defined]
+                    if isinstance(reason_value, str) and reason_value.strip():
+                        return True
         return False
 
     def _is_exempted(self, func: ast.FunctionDef | ast.AsyncFunctionDef | None) -> bool:
@@ -391,10 +439,7 @@ class _TimeUsageScanner(ast.NodeVisitor):
             return True
 
         # Check marker
-        if self._has_real_time_marker(func):
-            return True
-
-        return False
+        return bool(self._has_real_time_marker(func))
 
     def _add_datetime_violation(self, node: ast.Call) -> None:
         """Add violation for datetime.now() or datetime.utcnow()."""
@@ -489,10 +534,19 @@ def _scan_repo_for_time_usage(
 
 
 def _get_findings_with_cache(repo_root: Path, cache_path: Path) -> list[LintFinding]:
-    """Get findings with caching support."""
-    fingerprint, file_count = _compute_time_usage_lint_fingerprint(repo_root)
+    """Get findings with two-stage caching support.
+
+    Stage 1: Fast hash check (paths + sizes only) - very fast, avoids mtime checks
+    Stage 2: Full fingerprint check (paths + sizes + mtimes) - only if fast hash changed
+    Stage 3: Full AST scan - only if fingerprint changed
+    """
+    # Stage 1: Compute fast hash (paths + sizes only)
+    fast_hash, file_count = _compute_fast_hash(repo_root)
     cached = _load_time_usage_lint_cache(cache_path)
-    if cached and cached.get("fingerprint") == fingerprint:
+
+    # If cache exists and fast hash matches, return cached results immediately
+    # This avoids expensive mtime checks and full scan when nothing changed
+    if cached and cached.get("fast_hash") == fast_hash:
         cached_findings = cached.get("findings")
         if isinstance(cached_findings, list):
             return [
@@ -508,12 +562,46 @@ def _get_findings_with_cache(repo_root: Path, cache_path: Path) -> list[LintFind
             ]
         return []
 
+    # Stage 2: Fast hash changed, compute full fingerprint (includes mtimes)
+    fingerprint, _ = _compute_time_usage_lint_fingerprint(repo_root)
+
+    # If full fingerprint matches cache, return cached results
+    # (file was touched but content didn't change)
+    if cached and cached.get("fingerprint") == fingerprint:
+        cached_findings = cached.get("findings")
+        if isinstance(cached_findings, list):
+            # Update cache with new fast_hash (file was touched)
+            _atomic_write_json(
+                cache_path,
+                {
+                    "version": _TIME_USAGE_LINT_CACHE_VERSION,
+                    "fast_hash": fast_hash,
+                    "fingerprint": fingerprint,
+                    "file_count": file_count,
+                    "findings": cached_findings,
+                },
+            )
+            return [
+                LintFinding(
+                    file=str(entry.get("file", "")),
+                    line=int(entry.get("line", 1)),
+                    column=int(entry.get("column", 0)),
+                    rule=str(entry.get("rule", "")),
+                    message=str(entry.get("message", "")),
+                )
+                for entry in cached_findings
+                if isinstance(entry, dict)
+            ]
+        return []
+
+    # Stage 3: Fingerprint changed, run full AST scan
     allowlist = load_allowlist()
     findings = _scan_repo_for_time_usage(repo_root, allowlist)
     _atomic_write_json(
         cache_path,
         {
             "version": _TIME_USAGE_LINT_CACHE_VERSION,
+            "fast_hash": fast_hash,
             "fingerprint": fingerprint,
             "file_count": file_count,
             "findings": [
@@ -540,4 +628,495 @@ def test_time_usage_linter() -> None:
     assert not findings, "\n".join(
         f"{f.file}:{f.line}:{f.column} {f.rule} {f.message}" for f in findings
     )
+
+
+def test_scanner_detects_datetime_now(tmp_path: Path) -> None:
+    """Test that scanner detects unguarded datetime.now() calls."""
+    sample = """\
+from datetime import datetime
+
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+    assert "datetime.now()" in scanner.findings[0].message
+
+
+def test_scanner_detects_datetime_utcnow(tmp_path: Path) -> None:
+    """Test that scanner detects unguarded datetime.utcnow() calls."""
+    sample = """\
+from datetime import datetime
+
+def test_example():
+    now = datetime.utcnow()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+    assert "datetime.utcnow()" in scanner.findings[0].message
+
+
+def test_scanner_detects_datetime_datetime_utcnow(tmp_path: Path) -> None:
+    """Test that scanner detects unguarded datetime.datetime.utcnow() calls."""
+    sample = """\
+import datetime
+
+def test_example():
+    now = datetime.datetime.utcnow()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+    assert "datetime.utcnow()" in scanner.findings[0].message
+
+
+def test_scanner_detects_datetime_now_with_timezone(tmp_path: Path) -> None:
+    """Test that scanner detects datetime.now() calls with timezone arguments."""
+    sample = """\
+from datetime import datetime, timezone
+
+def test_example():
+    now = datetime.now(timezone.utc)
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+    assert "datetime.now()" in scanner.findings[0].message
+
+
+def test_scanner_detects_time_time(tmp_path: Path) -> None:
+    """Test that scanner detects unguarded time.time() calls."""
+    sample = """\
+import time
+
+def test_example():
+    now = time.time()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME003"
+    assert "time.time()" in scanner.findings[0].message
+
+
+def test_scanner_detects_import_alias_time(tmp_path: Path) -> None:
+    """Test that scanner detects time.time() via import alias."""
+    sample = """\
+from time import time
+
+def test_example():
+    now = time()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME003"
+
+
+def test_scanner_respects_freezegun_guard(tmp_path: Path) -> None:
+    """Test that scanner does not flag calls inside freeze_time context."""
+    sample = """\
+from datetime import datetime
+from freezegun import freeze_time
+
+def test_example():
+    with freeze_time("2020-01-01"):
+        now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 0
+
+
+def test_scanner_respects_fake_clock_guard(tmp_path: Path) -> None:
+    """Test that scanner does not flag time.time() inside FakeClockContext."""
+    sample = """\
+import time
+from tests.utils.fake_clock import FakeClockContext
+
+async def test_example():
+    async with FakeClockContext():
+        now = time.time()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 0
+
+
+def test_scanner_respects_freezegun_decorator(tmp_path: Path) -> None:
+    """Test that scanner respects @freeze_time decorator."""
+    sample = """\
+from datetime import datetime
+from freezegun import freeze_time
+
+@freeze_time("2020-01-01")
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 0
+
+
+def test_scanner_respects_real_time_marker(tmp_path: Path) -> None:
+    """Test that scanner respects @real_time marker."""
+    sample = """\
+from datetime import datetime
+from tests.unit.fixtures.markers import real_time
+
+@real_time(reason="This test measures actual performance")
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 0
+
+
+def test_scanner_respects_allowlist_nodeid(tmp_path: Path) -> None:
+    """Test that scanner respects allow-list nodeid entries."""
+    sample = """\
+from datetime import datetime
+
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = {
+        "version": 1,
+        "entries": [
+            {
+                "target_type": "nodeid",
+                "target": "test_sample.py::test_example",
+                "reason": "Test exception",
+            }
+        ],
+    }
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 0
+
+
+def test_scanner_respects_allowlist_glob(tmp_path: Path) -> None:
+    """Test that scanner respects allow-list glob patterns."""
+    sample = """\
+from datetime import datetime
+
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = {
+        "version": 1,
+        "entries": [
+            {
+                "target_type": "glob",
+                "target": "test_sample.py",
+                "reason": "Test exception",
+            }
+        ],
+    }
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 0
+
+
+def test_cache_fast_hash_skips_full_scan(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Test that fast hash cache hit skips full fingerprint computation and scan."""
+    repo_root = tmp_path / "repo"
+    (repo_root / "tests").mkdir(parents=True)
+    (repo_root / "tests" / "test_sample.py").write_text(
+        "from datetime import datetime\n\ndef test_example():\n    pass\n",
+        encoding="utf-8",
+    )
+
+    cache_path = repo_root / ".pytest_cache" / "time_usage_lint_cache.json"
+    fast_hash, file_count = _compute_fast_hash(repo_root)
+    fingerprint, _ = _compute_time_usage_lint_fingerprint(repo_root)
+
+    # Pre-populate cache with both fast_hash and fingerprint
+    _atomic_write_json(
+        cache_path,
+        {
+            "version": _TIME_USAGE_LINT_CACHE_VERSION,
+            "fast_hash": fast_hash,
+            "fingerprint": fingerprint,
+            "file_count": file_count,
+            "findings": [],
+        },
+    )
+
+    # Mock functions to verify they're not called
+    fingerprint_called = False
+    scan_called = False
+
+    def _boom_fingerprint(_repo_root: Path) -> tuple[str, int]:
+        nonlocal fingerprint_called
+        fingerprint_called = True
+        raise AssertionError("Expected fast hash cache hit; fingerprint should not be computed")
+
+    def _boom_scan(_repo_root: Path, _allowlist: dict[str, Any]) -> list[LintFinding]:
+        nonlocal scan_called
+        scan_called = True
+        raise AssertionError("Expected fast hash cache hit; scan should not run")
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_compute_time_usage_lint_fingerprint", _boom_fingerprint
+    )
+    monkeypatch.setattr(sys.modules[__name__], "_scan_repo_for_time_usage", _boom_scan)
+
+    # This should return cached results without calling fingerprint or scan
+    findings = _get_findings_with_cache(repo_root, cache_path)
+
+    assert findings == []
+    assert not fingerprint_called, "Fast hash cache hit should skip fingerprint computation"
+    assert not scan_called, "Fast hash cache hit should skip full scan"
+
+
+def test_cache_fingerprint_skips_scan_when_content_unchanged(
+    tmp_path: Path, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    """Test that fingerprint cache hit skips scan when file touched but content unchanged."""
+    repo_root = tmp_path / "repo"
+    (repo_root / "tests").mkdir(parents=True)
+    test_file = repo_root / "tests" / "test_sample.py"
+    test_file.write_text(
+        "from datetime import datetime\n\ndef test_example():\n    pass\n",
+        encoding="utf-8",
+    )
+
+    cache_path = repo_root / ".pytest_cache" / "time_usage_lint_cache.json"
+    fast_hash_1, file_count = _compute_fast_hash(repo_root)
+    fingerprint_1, _ = _compute_time_usage_lint_fingerprint(repo_root)
+
+    # Pre-populate cache
+    _atomic_write_json(
+        cache_path,
+        {
+            "version": _TIME_USAGE_LINT_CACHE_VERSION,
+            "fast_hash": fast_hash_1,
+            "fingerprint": fingerprint_1,
+            "file_count": file_count,
+            "findings": [],
+        },
+    )
+
+    # Touch the file (change mtime but not content)
+    import time
+
+    time.sleep(0.01)  # Ensure mtime changes
+    test_file.touch()
+
+    # Fast hash should still match (same paths + sizes)
+    fast_hash_2, _ = _compute_fast_hash(repo_root)
+    assert fast_hash_2 == fast_hash_1, "Fast hash should match when content unchanged"
+
+    # But fingerprint will differ (mtime changed)
+    fingerprint_2, _ = _compute_time_usage_lint_fingerprint(repo_root)
+    assert fingerprint_2 != fingerprint_1, "Fingerprint should differ when mtime changes"
+
+    # Mock scan to verify it's not called
+    scan_called = False
+
+    def _boom_scan(_repo_root: Path, _allowlist: dict[str, Any]) -> list[LintFinding]:
+        nonlocal scan_called
+        scan_called = True
+        raise AssertionError("Expected fingerprint cache hit; scan should not run")
+
+    monkeypatch.setattr(sys.modules[__name__], "_scan_repo_for_time_usage", _boom_scan)
+
+    # This should return cached results without calling scan
+    # (fast hash changed triggers fingerprint check, fingerprint matches)
+    findings = _get_findings_with_cache(repo_root, cache_path)
+
+    assert findings == []
+    assert not scan_called, "Fingerprint cache hit should skip full scan"
+
+
+def test_scanner_rejects_real_time_marker_without_reason(tmp_path: Path) -> None:
+    """Test that scanner rejects @real_time marker without reason parameter."""
+    sample = """\
+from datetime import datetime
+import pytest
+
+@pytest.mark.real_time
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Should detect violation because marker lacks required reason parameter
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+
+
+def test_scanner_rejects_real_time_marker_with_empty_reason(tmp_path: Path) -> None:
+    """Test that scanner rejects @real_time marker with empty reason."""
+    sample = """\
+from datetime import datetime
+from tests.unit.fixtures.markers import real_time
+
+@real_time(reason="")
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Should detect violation because reason is empty
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+
+
+def test_scanner_rejects_real_time_marker_with_whitespace_reason(tmp_path: Path) -> None:
+    """Test that scanner rejects @real_time marker with whitespace-only reason."""
+    sample = """\
+from datetime import datetime
+from tests.unit.fixtures.markers import real_time
+
+@real_time(reason="   ")
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Should detect violation because reason is whitespace-only
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
 

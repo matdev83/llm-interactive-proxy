@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from src.core.memory.capture_buffer import SessionCaptureBuffer
@@ -18,10 +19,12 @@ from src.core.memory.models import CapturedInteraction
 
 def create_interaction(content: str) -> CapturedInteraction:
     """Create a CapturedInteraction with given content."""
+    # Use fixed time - tests should use @freeze_time decorator
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     return CapturedInteraction(
         role="user",
         content=content,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=fixed_time,
     )
 
 
@@ -39,6 +42,7 @@ def create_interaction(content: str) -> CapturedInteraction:
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_5_buffer_never_exceeds_limit(
     max_buffer_size: int,
     content_sizes: list[int],
@@ -74,6 +78,7 @@ async def test_property_5_buffer_never_exceeds_limit(
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_5_overflow_returns_false(
     max_buffer_size: int,
     overflow_content_size: int,
@@ -115,6 +120,7 @@ async def test_property_5_overflow_returns_false(
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_5_overflow_marks_session_partial(
     max_buffer_size: int,
 ) -> None:
@@ -152,6 +158,7 @@ async def test_property_5_overflow_marks_session_partial(
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_5_buffer_limit_per_session(
     num_sessions: int,
     max_buffer_size: int,
@@ -178,6 +185,7 @@ async def test_property_5_buffer_limit_per_session(
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_5_empty_buffer_accepts_large_content() -> None:
     """
     Property 5: Empty buffer accepts content up to limit.
@@ -202,6 +210,7 @@ async def test_property_5_empty_buffer_accepts_large_content() -> None:
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_5_overflow_count_tracked() -> None:
     """
     Property 5: Overflow events are tracked.

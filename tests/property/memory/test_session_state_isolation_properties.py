@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from freezegun import freeze_time
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from src.core.memory.config import MemoryConfiguration
@@ -22,10 +23,12 @@ from src.core.memory.sqlite_repository import MemoryRepository
 
 def create_interaction(content: str) -> CapturedInteraction:
     """Create a test CapturedInteraction."""
+    # Use fixed time - tests should use @freeze_time decorator
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     return CapturedInteraction(
         role="user",
         content=content,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=fixed_time,
     )
 
 
@@ -52,6 +55,7 @@ def create_interaction(content: str) -> CapturedInteraction:
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_3_session_states_are_isolated(
     session_ids: list[str],
     user_ids: list[str],
@@ -104,6 +108,7 @@ async def test_property_3_session_states_are_isolated(
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_3_captured_interactions_are_isolated(
     session1_content: str,
     session2_content: str,
@@ -158,6 +163,7 @@ async def test_property_3_captured_interactions_are_isolated(
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_3_user_assignment_is_isolated(
     user_id1: str,
     user_id2: str,
@@ -189,6 +195,7 @@ async def test_property_3_user_assignment_is_isolated(
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_3_get_and_clear_only_clears_one_session() -> None:
     """
     Property 3: get_and_clear only affects the specified session.

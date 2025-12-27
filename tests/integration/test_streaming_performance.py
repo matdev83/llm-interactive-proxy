@@ -20,6 +20,8 @@ from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.streaming.streaming_content import StreamingContent
 from src.core.transport.fastapi.response_adapters import to_fastapi_streaming_response
 
+from tests.unit.fixtures.markers import real_time
+
 
 class TestStreamingNoBuffering:
     """Verify streaming contract conversions don't introduce buffering."""
@@ -37,6 +39,7 @@ class TestStreamingNoBuffering:
             await asyncio.sleep(delay)
 
     @pytest.mark.asyncio
+    @real_time(reason="This test measures actual time-to-first-byte performance and requires real system time to validate streaming latency")
     async def test_streaming_yields_chunks_immediately(self):
         """
         Requirement 5.4: Chunks should be yielded immediately without buffering.
@@ -94,6 +97,7 @@ class TestStreamingNoBuffering:
             ), "Chunks arrived out of order or buffered"
 
     @pytest.mark.asyncio
+    @real_time(reason="This test measures actual conversion performance and requires real system time to validate conversion latency")
     async def test_streaming_content_to_typed_chunk_no_buffering(self):
         """
         Requirement 5.4: StreamingContent.to_typed_chunk() should not require buffering.
@@ -123,6 +127,7 @@ class TestStreamingNoBuffering:
         assert typed_chunk.payload.text == "test content"
 
     @pytest.mark.asyncio
+    @real_time(reason="This test measures actual streaming throughput and requires real system time to validate performance characteristics")
     async def test_streaming_throughput_not_degraded(self):
         """
         Requirement 5.4: Streaming throughput should not be degraded by contract conversions.

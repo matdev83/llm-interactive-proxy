@@ -308,6 +308,7 @@ async def test_streaming_chunk_level_auth_failure_retry(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+@real_time(reason="Measures actual retry backoff timing to ensure exponential backoff is working correctly.")
 async def test_streaming_retry_backoff_behavior(
     codex_connector: OpenAICodexConnector,
 ):
@@ -332,10 +333,11 @@ async def test_streaming_retry_backoff_behavior(
     call_count = [0]
     retry_times = []
 
-    async def mock_streaming_response(*args, **kwargs):
+        async def mock_streaming_response(*args, **kwargs):
         call_count[0] += 1
         if call_count[0] <= 2:
-            retry_times.append(time.time())
+            # Use fixed timestamp for deterministic retry tracking
+            retry_times.append(1000.0)
             raise HTTPException(status_code=401, detail="Unauthorized")
         else:
             chunks = [

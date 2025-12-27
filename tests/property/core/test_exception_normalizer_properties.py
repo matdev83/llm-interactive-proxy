@@ -8,11 +8,12 @@ Feature: backend-service-refactoring
 
 from __future__ import annotations
 
-import time
+import asyncio
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from starlette.exceptions import HTTPException
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 # Strategy for generating valid HTTP status codes
 http_4xx_codes = st.integers(min_value=400, max_value=499).filter(lambda x: x != 429)
@@ -96,25 +97,29 @@ class TestExceptionTranslationProperty:
         from src.core.common.exceptions import RateLimitExceededError
         from src.core.services.exception_normalizer import ExceptionNormalizer
 
-        normalizer = ExceptionNormalizer()
+        async def run_test():
+            async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+                normalizer = ExceptionNormalizer()
 
-        # Create HTTP 429 exception with headers
-        exc = HTTPException(status_code=429, detail={"message": message})
-        if retry_after is not None:
-            exc.headers = {"Retry-After": str(retry_after)}
+                # Create HTTP 429 exception with headers
+                exc = HTTPException(status_code=429, detail={"message": message})
+                if retry_after is not None:
+                    exc.headers = {"Retry-After": str(retry_after)}
 
-        before_time = time.time()
-        result = normalizer.normalize(exc, backend_type)
-        after_time = time.time()
+                before_time = clock.now()
+                result = normalizer.normalize(exc, backend_type)
+                after_time = clock.now()
 
-        assert isinstance(result, RateLimitExceededError)
+                assert isinstance(result, RateLimitExceededError)
 
-        if retry_after is not None:
-            # reset_at should be approximately now + retry_after
-            assert result.reset_at is not None
-            expected_min = before_time + float(retry_after)
-            expected_max = after_time + float(retry_after)
-            assert expected_min <= result.reset_at <= expected_max + 1
+                if retry_after is not None:
+                    # reset_at should be approximately now + retry_after
+                    assert result.reset_at is not None
+                    expected_min = before_time + float(retry_after)
+                    expected_max = after_time + float(retry_after)
+                    assert expected_min <= result.reset_at <= expected_max + 1
+
+        asyncio.run(run_test())
 
     @given(
         backend_type=backend_types,

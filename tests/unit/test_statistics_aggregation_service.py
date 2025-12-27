@@ -13,6 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+from freezegun import freeze_time
 from src.core.domain.statistics_filter import StatisticsFilter
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_record import UsageRecord
@@ -34,6 +35,7 @@ def store_and_service():
         yield store, service
 
 
+@freeze_time("2024-01-01 12:00:00")
 def test_rolling_window_stats_basic(store_and_service):
     """Test basic rolling window statistics functionality."""
     store, service = store_and_service
@@ -68,6 +70,7 @@ def test_rolling_window_stats_basic(store_and_service):
     assert stats.time_window_seconds == 5 * 60.0
 
 
+@freeze_time("2024-01-01 12:00:00")
 def test_rolling_window_stats_with_filters(store_and_service):
     """Test rolling window statistics with additional filters."""
     store, service = store_and_service
@@ -130,6 +133,7 @@ def test_rolling_window_stats_invalid_window():
             asyncio.run(service.get_rolling_window_stats(window_minutes=-5))
 
 
+@freeze_time("2024-01-01 12:00:00")
 def test_status_code_breakdown_basic(store_and_service):
     """Test basic status code breakdown functionality."""
     store, service = store_and_service

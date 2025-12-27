@@ -14,6 +14,8 @@ from src.rate_limit import (
     parse_retry_delay,
 )
 
+from tests.utils.fake_clock import FakeClockContext
+
 
 class TestRateLimitRegistry:
     """Tests for RateLimitRegistry class."""
@@ -27,30 +29,36 @@ class TestRateLimitRegistry:
         """Test registry initialization."""
         assert registry._until == {}
 
-    def test_set_and_get_single_entry(self, registry: RateLimitRegistry) -> None:
+    @pytest.mark.asyncio
+    async def test_set_and_get_single_entry(self, registry: RateLimitRegistry) -> None:
         """Test setting and getting a single entry."""
-        backend, model, key = "openai", "gpt-4", "user1"
+        from tests.utils.fake_clock import FakeClock
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            backend, model, key = "openai", "gpt-4", "user1"
 
-        # Initially should return None
-        assert registry.get(backend, model, key) is None
+            # Initially should return None
+            assert registry.get(backend, model, key) is None
 
-        # Set a delay
-        registry.set(backend, model, key, 30.0)
+            # Set a delay
+            registry.set(backend, model, key, 30.0)
 
-        # Should now return the delay
-        result = registry.get(backend, model, key)
-        assert result is not None
-        assert abs(result - time.time() - 30.0) < 1.0  # Allow small timing differences
+            # Should now return the delay
+            result = registry.get(backend, model, key)
+            assert result is not None
+            assert result == clock.now() + 30.0
 
-    def test_set_with_none_model(self, registry: RateLimitRegistry) -> None:
+    @pytest.mark.asyncio
+    async def test_set_with_none_model(self, registry: RateLimitRegistry) -> None:
         """Test setting with None model."""
-        backend, key = "anthropic", "user2"
+        from tests.utils.fake_clock import FakeClock
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            backend, key = "anthropic", "user2"
 
-        registry.set(backend, None, key, 60.0)
+            registry.set(backend, None, key, 60.0)
 
-        result = registry.get(backend, None, key)
-        assert result is not None
-        assert abs(result - time.time() - 60.0) < 1.0
+            result = registry.get(backend, None, key)
+            assert result is not None
+            assert result == clock.now() + 60.0
 
     def test_get_nonexistent_entry(self, registry: RateLimitRegistry) -> None:
         """Test getting a nonexistent entry."""
@@ -89,24 +97,30 @@ class TestRateLimitRegistry:
         result = registry.earliest()
         assert result is None
 
-    def test_earliest_with_single_entry(self, registry: RateLimitRegistry) -> None:
+    @pytest.mark.asyncio
+    async def test_earliest_with_single_entry(self, registry: RateLimitRegistry) -> None:
         """Test earliest with a single entry."""
-        registry.set("backend1", "model1", "key1", 30.0)
+        from tests.utils.fake_clock import FakeClock
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            registry.set("backend1", "model1", "key1", 30.0)
 
-        result = registry.earliest()
-        assert result is not None
-        assert abs(result - time.time() - 30.0) < 1.0
+            result = registry.earliest()
+            assert result is not None
+            assert result == clock.now() + 30.0
 
-    def test_earliest_with_multiple_entries(self, registry: RateLimitRegistry) -> None:
+    @pytest.mark.asyncio
+    async def test_earliest_with_multiple_entries(self, registry: RateLimitRegistry) -> None:
         """Test earliest with multiple entries."""
-        # Set different delays
-        registry.set("backend1", "model1", "key1", 60.0)  # Later
-        registry.set("backend2", "model2", "key2", 30.0)  # Earlier
-        registry.set("backend3", "model3", "key3", 45.0)  # Middle
+        from tests.utils.fake_clock import FakeClock
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            # Set different delays
+            registry.set("backend1", "model1", "key1", 60.0)  # Later
+            registry.set("backend2", "model2", "key2", 30.0)  # Earlier
+            registry.set("backend3", "model3", "key3", 45.0)  # Middle
 
-        result = registry.earliest()
-        assert result is not None
-        assert abs(result - time.time() - 30.0) < 1.0  # Should return the earliest
+            result = registry.earliest()
+            assert result is not None
+            assert result == clock.now() + 30.0  # Should return the earliest
 
     def test_earliest_ignores_expired_entries(
         self, registry: RateLimitRegistry, monkeypatch: pytest.MonkeyPatch
@@ -131,31 +145,37 @@ class TestRateLimitRegistry:
         # Expired entry should be removed even without calling get()
         assert registry.get("backend2", "model2", "key2") is None
 
-    def test_earliest_with_filtered_combinations(
+    @pytest.mark.asyncio
+    async def test_earliest_with_filtered_combinations(
         self, registry: RateLimitRegistry
     ) -> None:
         """Test earliest with filtered combinations."""
-        # Set entries for different backends
-        registry.set("backend1", "model1", "key1", 30.0)
-        registry.set("backend2", "model2", "key2", 60.0)
+        from tests.utils.fake_clock import FakeClock
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            # Set entries for different backends
+            registry.set("backend1", "model1", "key1", 30.0)
+            registry.set("backend2", "model2", "key2", 60.0)
 
-        # Filter to only backend1
-        combos = [("backend1", "model1", "key1")]
-        result = registry.earliest(combos)
+            # Filter to only backend1
+            combos = [("backend1", "model1", "key1")]
+            result = registry.earliest(combos)
 
-        assert result is not None
-        assert abs(result - time.time() - 30.0) < 1.0
+            assert result is not None
+            assert result == clock.now() + 30.0
 
-    def test_earliest_with_empty_combinations(
+    @pytest.mark.asyncio
+    async def test_earliest_with_empty_combinations(
         self, registry: RateLimitRegistry
     ) -> None:
         """Test earliest with empty combinations list."""
-        registry.set("backend1", "model1", "key1", 30.0)
+        from tests.utils.fake_clock import FakeClock
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            registry.set("backend1", "model1", "key1", 30.0)
 
-        result = registry.earliest([])
-        # Empty combinations list falls back to all entries
-        assert result is not None
-        assert abs(result - time.time() - 30.0) < 1.0
+            result = registry.earliest([])
+            # Empty combinations list falls back to all entries
+            assert result is not None
+            assert result == clock.now() + 30.0
 
     def test_earliest_with_nonexistent_combinations(
         self, registry: RateLimitRegistry

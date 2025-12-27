@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta
 
 import pytest
+from freezegun import freeze_time
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from src.core.auth.sso.authorization_service import (
@@ -152,6 +153,7 @@ async def test_property_15_confirmation_code_attempt_decrement(incorrect_attempt
     user_id=st.text(min_size=1, max_size=50),  # Reduced from 100 for performance
     provider=st.sampled_from(["google", "microsoft", "github", "linkedin"]),
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_16_correct_confirmation_code_success(
     user_email, user_id, provider
 ):
@@ -180,7 +182,8 @@ async def test_property_16_correct_confirmation_code_success(
         import aiosqlite
 
         sso_state = "test_state"
-        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+        expires_at = fixed_time + timedelta(minutes=10)
 
         async with aiosqlite.connect(temp_database) as db:
             await db.execute(
@@ -199,7 +202,7 @@ async def test_property_16_correct_confirmation_code_success(
                     provider,
                     code_hash,
                     3,
-                    datetime.utcnow().isoformat(),
+                    fixed_time.isoformat(),
                     expires_at.isoformat(),
                     "127.0.0.1",
                 ),
@@ -239,6 +242,7 @@ async def test_confirmation_code_generation_format():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_confirmation_code_expiry():
     """
     Test that expired confirmation codes are rejected.
@@ -260,7 +264,8 @@ async def test_confirmation_code_expiry():
         import aiosqlite
 
         async with aiosqlite.connect(temp_database) as db:
-            expired_time = datetime.utcnow() - timedelta(minutes=1)
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            expired_time = fixed_time - timedelta(minutes=1)
             await db.execute(
                 "UPDATE pending_authorizations SET expires_at = ? WHERE sso_state = ?",
                 (expired_time.isoformat(), sso_state),

@@ -6,7 +6,6 @@ This module provides test implementations of interfaces for use in unit tests.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
@@ -273,8 +272,8 @@ class MockSessionService(ISessionService):
                         loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                     )
                 ),
-                created_at=datetime.now(timezone.utc),
-                last_active_at=datetime.now(timezone.utc),
+                created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+                last_active_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             )
         return self.sessions[session_id]
 
@@ -295,8 +294,8 @@ class MockSessionService(ISessionService):
                     loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                 )
             ),
-            created_at=datetime.now(timezone.utc),
-            last_active_at=datetime.now(timezone.utc),
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            last_active_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
         self.sessions[session_id] = session
         return session
@@ -411,7 +410,8 @@ class MockRateLimiter(IRateLimiter):
         )
 
     async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
-        reset_at = time.time() + max(cooldown_seconds, 0)
+        # Use fixed timestamp - tests should control time via FakeClockContext
+        reset_at = 1704067200.0 + max(cooldown_seconds, 0)
         existing = self.limits.get(key)
         limit = existing.limit if existing else 0
         window = existing.time_window if existing else 60
@@ -444,8 +444,8 @@ class TestDataBuilder:
                     loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                 )
             ),
-            created_at=datetime.now(timezone.utc),
-            last_active_at=datetime.now(timezone.utc),
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            last_active_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
 
     @staticmethod
@@ -470,7 +470,9 @@ class TestDataBuilder:
     def create_chat_response(content: str = "Hello there!") -> ResponseEnvelope:
         chat_response = ChatResponse(
             id="resp-123",
-            created=int(datetime.now(timezone.utc).timestamp()),
+            created=int(
+                datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc).timestamp()
+            ),
             model="gpt-4",
             choices=[
                 ChatCompletionChoice(

@@ -136,47 +136,50 @@ class TestReauthenticationTokenLinking:
 
         Requirements: 9.1, 9.3
         """
-        # Create an expired token
-        plaintext_token, token_hash = token_service.generate_token()
-        expired_time = datetime.utcnow() - timedelta(hours=1)
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            # Create an expired token
+            plaintext_token, token_hash = token_service.generate_token()
+            expired_time = fixed_time - timedelta(hours=1)
 
-        token_record = TokenRecord(
-            id="token-456",
-            token_hash=token_hash,
-            user_id="user123",
-            user_email="user@example.com",
-            provider="google",
-            is_authenticated=True,
-            is_active=True,
-            created_at=datetime.utcnow() - timedelta(days=1),
-            last_authenticated_at=datetime.utcnow() - timedelta(hours=2),
-            auth_expires_at=expired_time,
-        )
+            token_record = TokenRecord(
+                id="token-456",
+                token_hash=token_hash,
+                user_id="user123",
+                user_email="user@example.com",
+                provider="google",
+                is_authenticated=True,
+                is_active=True,
+                created_at=fixed_time - timedelta(days=1),
+                last_authenticated_at=fixed_time - timedelta(hours=2),
+                auth_expires_at=expired_time,
+            )
 
-        await token_repository.store_token(token_record)
+            await token_repository.store_token(token_record)
 
-        # Make a request with the expired token
-        request = {
-            "headers": {"authorization": f"Bearer {plaintext_token}"},
-            "messages": [],
-            "method": "POST",
-            "path": "/v1/chat/completions",
-        }
+            # Make a request with the expired token
+            request = {
+                "headers": {"authorization": f"Bearer {plaintext_token}"},
+                "messages": [],
+                "method": "POST",
+                "path": "/v1/chat/completions",
+            }
 
-        # Should return sandbox response
-        response = await auth_middleware(request)
+            # Should return sandbox response
+            response = await auth_middleware(request)
 
-        assert response is not None
-        assert "choices" in response
-        assert len(response["choices"]) > 0
+            assert response is not None
+            assert "choices" in response
+            assert len(response["choices"]) > 0
 
-        # Check that the message contains re-authentication text
-        message = response["choices"][0]["message"]["content"]
-        assert (
-            "re-authentication" in message.lower()
-            or "re-authenticate" in message.lower()
-        )
-        assert "http://localhost:8000/auth/login" in message
+            # Check that the message contains re-authentication text
+            message = response["choices"][0]["message"]["content"]
+            assert (
+                "re-authentication" in message.lower()
+                or "re-authenticate" in message.lower()
+            )
+            assert "http://localhost:8000/auth/login" in message
 
     @pytest.mark.asyncio
     async def test_sandbox_handler_includes_token_id_in_url(
@@ -242,21 +245,24 @@ class TestReauthenticationTokenLinking:
         token_repo = TokenRepository(sso_database)
         RateLimitService(db_manager)
 
-        # Create existing token (user already authenticated before)
-        plaintext_token, token_hash = token_service.generate_token()
-        existing_token = TokenRecord(
-            id="existing-token-id",
-            token_hash=token_hash,
-            user_id="user-123",
-            user_email="user@example.com",
-            provider="google",
-            is_authenticated=False,  # Session expired
-            is_active=True,
-            created_at=datetime.utcnow() - timedelta(days=7),
-            last_authenticated_at=datetime.utcnow() - timedelta(hours=25),
-            auth_expires_at=datetime.utcnow() - timedelta(hours=1),  # Expired
-        )
-        await token_repo.store_token(existing_token)
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            # Create existing token (user already authenticated before)
+            plaintext_token, token_hash = token_service.generate_token()
+            existing_token = TokenRecord(
+                id="existing-token-id",
+                token_hash=token_hash,
+                user_id="user-123",
+                user_email="user@example.com",
+                provider="google",
+                is_authenticated=False,  # Session expired
+                is_active=True,
+                created_at=fixed_time - timedelta(days=7),
+                last_authenticated_at=fixed_time - timedelta(hours=25),
+                auth_expires_at=fixed_time - timedelta(hours=1),  # Expired
+            )
+            await token_repo.store_token(existing_token)
 
         # User requests a login token for re-authentication
         login_token = await token_repo.create_login_token(
@@ -274,19 +280,19 @@ class TestReauthenticationTokenLinking:
         # Simulate successful OAuth callback and authorization
         # The web interface should update the existing token, not create a new one
 
-        # Verify token was updated (in real flow, this happens in web_interface callback)
-        await token_repo.update_auth_status(
-            token_id=existing_token.id,
-            authenticated=True,
-            expiry=datetime.utcnow() + timedelta(hours=24),
-        )
+            # Verify token was updated (in real flow, this happens in web_interface callback)
+            await token_repo.update_auth_status(
+                token_id=existing_token.id,
+                authenticated=True,
+                expiry=fixed_time + timedelta(hours=24),
+            )
 
-        # Verify the token is now authenticated
-        updated_token = await token_repo.get_by_id(existing_token.id)
-        assert updated_token is not None
-        assert updated_token.is_authenticated is True
-        assert updated_token.auth_expires_at is not None
-        assert updated_token.auth_expires_at > datetime.utcnow()
+            # Verify the token is now authenticated
+            updated_token = await token_repo.get_by_id(existing_token.id)
+            assert updated_token is not None
+            assert updated_token.is_authenticated is True
+            assert updated_token.auth_expires_at is not None
+            assert updated_token.auth_expires_at > fixed_time
 
     @pytest.mark.asyncio
     async def test_web_interface_new_user_flow(

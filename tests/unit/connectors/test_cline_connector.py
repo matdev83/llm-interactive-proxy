@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, call, patch
 
 import pytest
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 from fastapi import HTTPException
 from src.connectors.cline import ClineConnector
 from src.connectors.openai import OpenAIConnector
@@ -77,21 +78,22 @@ async def test_initialize_loads_token_from_secrets(
     http_client, config, translation_service, tmp_path
 ):
     """Connector should read the stored token and configure the API key."""
-    secrets_path = tmp_path / "secrets.json"
-    payload = {
-        "idToken": "abc123",
-        "refreshToken": "refresh-token",
-        "expiresAt": time.time() + 3600,
-        "userInfo": {"id": "user"},
-        "provider": "cline",
-    }
-    _write_auth_payload(secrets_path, payload)
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        secrets_path = tmp_path / "secrets.json"
+        payload = {
+            "idToken": "abc123",
+            "refreshToken": "refresh-token",
+            "expiresAt": clock.now() + 3600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        }
+        _write_auth_payload(secrets_path, payload)
 
-    connector = ClineConnector(http_client, config, translation_service)
-    await connector.initialize(secrets_path=secrets_path)
+        connector = ClineConnector(http_client, config, translation_service)
+        await connector.initialize(secrets_path=secrets_path)
 
-    assert connector.api_key == "workos:abc123"
-    http_client.get.assert_awaited()  # Models listing during initialize
+        assert connector.api_key == "workos:abc123"
+        http_client.get.assert_awaited()  # Models listing during initialize
 
 
 @pytest.mark.asyncio
@@ -121,36 +123,37 @@ async def test_initialize_refreshes_expired_token(
     http_client, config, translation_service, tmp_path
 ):
     """Expired tokens should trigger the refresh flow during initialization."""
-    secrets_path = tmp_path / "secrets.json"
-    stored_payload = {
-        "idToken": "expired-token",
-        "refreshToken": "refresh-me",
-        "expiresAt": time.time() - 5,
-        "userInfo": {"id": "user"},
-        "provider": "cline",
-    }
-    refreshed_payload = ClineTokenData(
-        idToken="new-token",
-        refreshToken="refresh-me",
-        expiresAt=time.time() + 600,
-        userInfo={"id": "user"},
-        provider="cline",
-    )
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        secrets_path = tmp_path / "secrets.json"
+        stored_payload = {
+            "idToken": "expired-token",
+            "refreshToken": "refresh-me",
+            "expiresAt": clock.now() - 5,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        }
+        refreshed_payload = ClineTokenData(
+            idToken="new-token",
+            refreshToken="refresh-me",
+            expiresAt=clock.now() + 600,
+            userInfo={"id": "user"},
+            provider="cline",
+        )
 
-    _write_auth_payload(secrets_path, stored_payload)
+        _write_auth_payload(secrets_path, stored_payload)
 
-    connector = ClineConnector(http_client, config, translation_service)
-    with patch.object(
-        ClineConnector,
-        "_refresh_tokens",
-        new=AsyncMock(return_value=refreshed_payload),
-    ) as mock_refresh:
-        await connector.initialize(secrets_path=secrets_path)
+        connector = ClineConnector(http_client, config, translation_service)
+        with patch.object(
+            ClineConnector,
+            "_refresh_tokens",
+            new=AsyncMock(return_value=refreshed_payload),
+        ) as mock_refresh:
+            await connector.initialize(secrets_path=secrets_path)
 
-    mock_refresh.assert_awaited_once()
-    refresh_args = mock_refresh.await_args
-    assert refresh_args.args[0] == "refresh-me"
-    assert connector.api_key == "workos:new-token"
+        mock_refresh.assert_awaited_once()
+        refresh_args = mock_refresh.await_args
+        assert refresh_args.args[0] == "refresh-me"
+        assert connector.api_key == "workos:new-token"
 
 
 @pytest.mark.asyncio
@@ -158,41 +161,42 @@ async def test_initialize_uses_codex_auth_when_secrets_missing(
     http_client, config, translation_service, tmp_path
 ):
     """Codex CLI auth should be used as a fallback when Cline secrets are missing."""
-    auth_path = tmp_path / "codex" / "auth.json"
-    auth_path.parent.mkdir(parents=True, exist_ok=True)
-    expiry = time.time() + 900
-    codex_auth = {
-        "tokens": {
-            "access_token": _make_jwt(expiry, sub="acct-user"),
-            "refresh_token": "refresh-token",
-            "account_id": "acct-user",
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        auth_path = tmp_path / "codex" / "auth.json"
+        auth_path.parent.mkdir(parents=True, exist_ok=True)
+        expiry = clock.now() + 900
+        codex_auth = {
+            "tokens": {
+                "access_token": _make_jwt(expiry, sub="acct-user"),
+                "refresh_token": "refresh-token",
+                "account_id": "acct-user",
+            }
         }
-    }
-    auth_path.write_text(json.dumps(codex_auth), encoding="utf-8")
-    secrets_path = tmp_path / "cline" / "secrets.json"
-    secrets_path.parent.mkdir(parents=True, exist_ok=True)
-    secrets_path.write_text("{}", encoding="utf-8")
+        auth_path.write_text(json.dumps(codex_auth), encoding="utf-8")
+        secrets_path = tmp_path / "cline" / "secrets.json"
+        secrets_path.parent.mkdir(parents=True, exist_ok=True)
+        secrets_path.write_text("{}", encoding="utf-8")
 
-    refreshed_payload = ClineTokenData(
-        idToken="converted-token",
-        refreshToken="converted-refresh",
-        expiresAt=expiry + 120,
-        userInfo={"id": "cline-user"},
-        provider="cline",
-    )
+        refreshed_payload = ClineTokenData(
+            idToken="converted-token",
+            refreshToken="converted-refresh",
+            expiresAt=expiry + 120,
+            userInfo={"id": "cline-user"},
+            provider="cline",
+        )
 
-    connector = ClineConnector(http_client, config, translation_service)
-    with (
-        patch.object(
-            ClineConnector,
-            "_load_tokens_from_vscode_secret_store",
-            return_value=None,
-        ),
-        patch.object(
-            ClineConnector,
-            "_refresh_tokens",
-            new=AsyncMock(return_value=refreshed_payload),
-        ),
+        connector = ClineConnector(http_client, config, translation_service)
+        with (
+            patch.object(
+                ClineConnector,
+                "_load_tokens_from_vscode_secret_store",
+                return_value=None,
+            ),
+            patch.object(
+                ClineConnector,
+                "_refresh_tokens",
+                new=AsyncMock(return_value=refreshed_payload),
+            ),
     ):
         await connector.initialize(secrets_path=secrets_path, codex_auth_path=auth_path)
 
@@ -236,36 +240,37 @@ async def test_chat_completions_reloads_updated_token(
     http_client, config, translation_service, tmp_path
 ):
     """When the secrets file changes, the connector should reload the token before the next call."""
-    secrets_path = tmp_path / "secrets.json"
-    initial_payload = {
-        "idToken": "first-token",
-        "refreshToken": "refresh-me",
-        "expiresAt": time.time() + 600,
-        "userInfo": {"id": "user"},
-        "provider": "cline",
-    }
-    updated_payload = {
-        "idToken": "second-token",
-        "refreshToken": "refresh-me",
-        "expiresAt": time.time() + 1200,
-        "userInfo": {"id": "user"},
-        "provider": "cline",
-    }
-    _write_auth_payload(secrets_path, initial_payload)
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        secrets_path = tmp_path / "secrets.json"
+        initial_payload = {
+            "idToken": "first-token",
+            "refreshToken": "refresh-me",
+            "expiresAt": clock.now() + 600,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        }
+        updated_payload = {
+            "idToken": "second-token",
+            "refreshToken": "refresh-me",
+            "expiresAt": clock.now() + 1200,
+            "userInfo": {"id": "user"},
+            "provider": "cline",
+        }
+        _write_auth_payload(secrets_path, initial_payload)
 
-    connector = ClineConnector(http_client, config, translation_service)
-    await connector.initialize(secrets_path=secrets_path)
+        connector = ClineConnector(http_client, config, translation_service)
+        await connector.initialize(secrets_path=secrets_path)
 
-    # Update secrets file and bump mtime so connector notices the change.
-    await asyncio.sleep(0.01)  # Ensure filesystem mtime granularity is exceeded
-    _write_auth_payload(secrets_path, updated_payload)
-    os.utime(secrets_path, None)
+        # Update secrets file and bump mtime so connector notices the change.
+        await asyncio.sleep(0.01)  # Ensure filesystem mtime granularity is exceeded
+        _write_auth_payload(secrets_path, updated_payload)
+        os.utime(secrets_path, None)
 
-    chat_request = ChatRequest(
-        model="cline/test",
-        messages=[ChatMessage(role="user", content="Hello")],
-        stream=False,
-    )
+        chat_request = ChatRequest(
+            model="cline/test",
+            messages=[ChatMessage(role="user", content="Hello")],
+            stream=False,
+        )
 
     with patch.object(
         OpenAIConnector,

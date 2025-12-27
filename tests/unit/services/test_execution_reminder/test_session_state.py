@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 import pytest
 from src.services.test_execution_reminder.session_state import (
     TestExecutionSessionState,
@@ -15,22 +13,28 @@ class TestSessionStateInitialization:
 
     def test_default_initialization(self) -> None:
         """Test that SessionState initializes with correct default values."""
-        state = TestExecutionSessionState()
+        import asyncio
 
-        # Should start in clean state
-        assert state.is_dirty is False
+        from tests.utils.fake_clock import FakeClock, FakeClockContext
+        async def _test():
+            async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+                state = TestExecutionSessionState()
 
-        # Modification count should be zero
-        assert state.modification_count == 0
+                # Should start in clean state
+                assert state.is_dirty is False
 
-        # Last test time should be zero (no tests run yet)
-        assert state.last_test_time == 0.0
+                # Modification count should be zero
+                assert state.modification_count == 0
 
-        # Last modification time and last seen should be set to current time
-        # (within a small tolerance)
-        current_time = time.time()
-        assert abs(state.last_modification_time - current_time) < 0.1
-        assert abs(state.last_seen - current_time) < 0.1
+                # Last test time should be zero (no tests run yet)
+                assert state.last_test_time == 0.0
+
+                # Last modification time and last seen should be set to current time
+                # (within a small tolerance)
+                current_time = clock.now()
+                assert abs(state.last_modification_time - current_time) < 0.1
+                assert abs(state.last_seen - current_time) < 0.1
+        asyncio.run(_test())
 
     def test_explicit_initialization_clean(self) -> None:
         """Test explicit initialization in clean state."""

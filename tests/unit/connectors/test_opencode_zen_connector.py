@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-import time
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import SimpleNamespace
 from typing import Any
@@ -54,12 +53,14 @@ def translation_service():
 @pytest.fixture
 def mock_credentials() -> dict[str, Any]:
     """Valid OAuth credentials fixture."""
+    # Use fixed timestamp - tests should control time via FakeClockContext or freeze_time
     return {
         "opencode": {
             "type": "oauth",
             "access": "test-access-token",
             "refresh": "test-refresh-token",
-            "expires": int(time.time()) + 3600,  # 1 hour from now
+            "expires": 1704067200
+            + 3600,  # Fixed timestamp: 1 hour from 2024-01-01 12:00:00
         }
     }
 
@@ -67,12 +68,14 @@ def mock_credentials() -> dict[str, Any]:
 @pytest.fixture
 def expired_credentials() -> dict[str, Any]:
     """Expired OAuth credentials fixture."""
+    # Use fixed timestamp - tests should control time via FakeClockContext or freeze_time
     return {
         "opencode": {
             "type": "oauth",
             "access": "expired-access-token",
             "refresh": "test-refresh-token",
-            "expires": int(time.time()) - 100,  # Expired 100 seconds ago
+            "expires": 1704067200
+            - 100,  # Fixed timestamp: expired 100 seconds before 2024-01-01 12:00:00
         }
     }
 
@@ -408,41 +411,47 @@ class TestTokenExpiry:
     def test_token_not_expired(self, connector):
         """Token should not be expired when expiry is in future."""
         with freeze_time("2024-01-01 12:00:00"):
-            connector._oauth_credentials = {"expires": time.time() + 3600}
+            # Use fixed timestamp since freeze_time doesn't affect time.time()
+            connector._oauth_credentials = {"expires": 1704067200 + 3600}
             assert connector._is_token_expired() is False
 
     def test_token_expired(self, connector):
         """Token should be expired when expiry is in past."""
         with freeze_time("2024-01-01 12:00:00"):
-            connector._oauth_credentials = {"expires": time.time() - 100}
+            # Use fixed timestamp since freeze_time doesn't affect time.time()
+            connector._oauth_credentials = {"expires": 1704067200 - 100}
             assert connector._is_token_expired() is True
 
     def test_token_within_buffer_is_expired(self, connector):
         """Token expiring within buffer (60s) should be considered expired."""
         with freeze_time("2024-01-01 12:00:00"):
+            # Use fixed timestamp since freeze_time doesn't affect time.time()
             connector._oauth_credentials = {
-                "expires": time.time() + 30
+                "expires": 1704067200 + 30
             }  # Within 60s buffer
             assert connector._is_token_expired() is True
 
     def test_token_outside_buffer_not_expired(self, connector):
         """Token expiring outside buffer should not be expired."""
         with freeze_time("2024-01-01 12:00:00"):
+            # Use fixed timestamp since freeze_time doesn't affect time.time()
             connector._oauth_credentials = {
-                "expires": time.time() + 120
+                "expires": 1704067200 + 120
             }  # Outside 60s buffer
             assert connector._is_token_expired() is False
 
     def test_milliseconds_timestamp(self, connector):
         """Should handle milliseconds timestamps (> 1e12)."""
         with freeze_time("2024-01-01 12:00:00"):
-            connector._oauth_credentials = {"expires": (time.time() + 3600) * 1000}
+            # Use fixed timestamp since freeze_time doesn't affect time.time()
+            connector._oauth_credentials = {"expires": (1704067200 + 3600) * 1000}
             assert connector._is_token_expired() is False
 
     def test_milliseconds_timestamp_expired(self, connector):
         """Should detect expired milliseconds timestamps."""
         with freeze_time("2024-01-01 12:00:00"):
-            connector._oauth_credentials = {"expires": (time.time() - 100) * 1000}
+            # Use fixed timestamp since freeze_time doesn't affect time.time()
+            connector._oauth_credentials = {"expires": (1704067200 - 100) * 1000}
             assert connector._is_token_expired() is True
 
     def test_no_credentials_returns_true(self, connector):
@@ -453,7 +462,8 @@ class TestTokenExpiry:
     def test_custom_buffer_value(self, connector):
         """Should respect custom buffer value."""
         with freeze_time("2024-01-01 12:00:00"):
-            connector._oauth_credentials = {"expires": time.time() + 90}
+            # Use fixed timestamp since freeze_time doesn't affect time.time()
+            connector._oauth_credentials = {"expires": 1704067200 + 90}
             # Default buffer 60s - should be expired
             assert connector._is_token_expired(buffer_seconds=100) is True
             # Custom buffer 30s - should not be expired
@@ -639,20 +649,23 @@ class TestChatCompletions:
 
         # Update credentials file to have an expired token (file mtime will be newer)
         with freeze_time("2024-01-01 12:00:00"):
+            # Use fixed timestamp since freeze_time doesn't affect time.time()
             expired_creds = {
                 "opencode": {
                     "type": "oauth",
                     "access": "test-access-token",
                     "refresh": "test-refresh-token",
-                    "expires": int(time.time()) - 100,  # Expired
+                    "expires": 1704067200 - 100,  # Expired
                 }
             }
-            temp_credentials_file.write_text(json.dumps(expired_creds), encoding="utf-8")
+            temp_credentials_file.write_text(
+                json.dumps(expired_creds), encoding="utf-8"
+            )
             # Ensure file is flushed and mtime is updated (important on Windows)
             temp_credentials_file.stat()  # Force stat to ensure mtime is updated
 
             # Also force in-memory credentials to appear expired to trigger reload
-            connector._oauth_credentials["expires"] = time.time() - 100
+            connector._oauth_credentials["expires"] = 1704067200 - 100
             # Reset last_modified to force reload on next check
             connector._last_modified = 0
 

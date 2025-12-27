@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from pydantic import ValidationError
 from src.core.memory.models import (
     CapturedInteraction,
@@ -130,9 +131,10 @@ class TestTestRun:
 class TestCapturedInteraction:
     """Tests for CapturedInteraction model."""
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_user_interaction(self) -> None:
         """Test user interaction capture."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         interaction = CapturedInteraction(
             timestamp=now,
             role="user",
@@ -144,9 +146,10 @@ class TestCapturedInteraction:
         assert interaction.content == "Please implement feature X"
         assert interaction.metadata == {"client": "test-client"}
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_assistant_interaction(self) -> None:
         """Test assistant interaction capture."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         interaction = CapturedInteraction(
             timestamp=now,
             role="assistant",
@@ -156,10 +159,11 @@ class TestCapturedInteraction:
         assert interaction.role == "assistant"
         assert interaction.metadata["model"] == "gpt-4o"
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_default_metadata(self) -> None:
         """Test default empty metadata."""
         interaction = CapturedInteraction(
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             role="user",
             content="Hello",
         )
@@ -169,9 +173,10 @@ class TestCapturedInteraction:
 class TestSessionData:
     """Tests for SessionData model."""
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_minimal_session_data(self) -> None:
         """Test session data with minimal required fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         data = SessionData(
             session_id="sess-123",
             user_id="user-456",
@@ -189,9 +194,10 @@ class TestSessionData:
         assert data.deterministic_file_edits == []
         assert data.deterministic_git_commits == []
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_full_session_data(self) -> None:
         """Test session data with all fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         interaction = CapturedInteraction(
             timestamp=now,
             role="user",
@@ -244,9 +250,10 @@ class TestSessionData:
 class TestSessionSummary:
     """Tests for SessionSummary model."""
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_minimal_session_summary(self) -> None:
         """Test session summary with minimal required fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         summary = SessionSummary(
             id="sum-123",
             user_id="user-456",
@@ -267,9 +274,10 @@ class TestSessionSummary:
         assert summary.goals == []
         assert summary.modified_files == []
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_full_session_summary(self) -> None:
         """Test session summary with all fields populated."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         summary = SessionSummary(
             id="sum-123",
             user_id="user-456",
@@ -316,9 +324,10 @@ class TestSessionSummary:
         assert summary.branch == "feature/mfa"
         assert summary.completion_status == "partial"
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_session_summary_is_frozen(self) -> None:
         """Test that SessionSummary is immutable."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         summary = SessionSummary(
             id="sum-123",
             user_id="user-456",

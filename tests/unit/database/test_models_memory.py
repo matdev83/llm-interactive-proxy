@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 
+from freezegun import freeze_time
 from sqlmodel import SQLModel
 from src.core.database.models.memory import (
     SessionSummaryTable,
@@ -22,13 +23,14 @@ class TestSessionSummaryTable:
         # Check that table=True was set
         assert hasattr(SessionSummaryTable, "__table__")
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_minimal_record(self) -> None:
         """Test creating a record with minimal required fields."""
         record = SessionSummaryTable(
             id="test-id-123",
             user_id="user-456",
             session_id="session-789",
-            session_start=datetime.now(timezone.utc),
+            session_start=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             backend_model="openai:gpt-4",
             title="Test Session",
             summary_version="v1",
@@ -41,9 +43,10 @@ class TestSessionSummaryTable:
         assert record.title == "Test Session"
         assert record.summary_version == "v1"
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_full_record(self) -> None:
         """Test creating a record with all fields."""
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         record = SessionSummaryTable(
             id="test-id-full",
             user_id="user-full",
@@ -86,13 +89,14 @@ class TestSessionSummaryTable:
         assert record.completion_status == "complete"
         assert record.full_analysis == "Full analysis text"
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_optional_fields_default_to_none(self) -> None:
         """Test that optional fields default to None."""
         record = SessionSummaryTable(
             id="test-id",
             user_id="user-id",
             session_id="session-id",
-            session_start=datetime.now(timezone.utc),
+            session_start=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             backend_model="model",
             title="Title",
             summary_version="v1",
@@ -108,22 +112,23 @@ class TestSessionSummaryTable:
         assert record.branch is None
         assert record.head_sha is None
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_created_at_has_default(self) -> None:
         """Test that created_at has a default value."""
-        before = datetime.now(timezone.utc)
+        # With freeze_time, the default should be set to the frozen time
         record = SessionSummaryTable(
             id="test-id",
             user_id="user-id",
             session_id="session-id",
-            session_start=datetime.now(timezone.utc),
+            session_start=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             backend_model="model",
             title="Title",
             summary_version="v1",
         )
-        after = datetime.now(timezone.utc)
 
         assert record.created_at is not None
-        assert before <= record.created_at <= after
+        # Default should be set to frozen time
+        assert record.created_at == datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
     def test_has_required_indexes(self) -> None:
         """Test that model defines required indexes."""

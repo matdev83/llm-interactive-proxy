@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from pydantic import ValidationError
 from src.core.memory.models import (
     FileEditEvent,
@@ -16,6 +17,7 @@ from src.core.memory.tool_event_collector import DeterministicToolEventCollector
 class TestFileEditEvent:
     """Tests for FileEditEvent model."""
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_file_edit_event(self) -> None:
         """Test creating a file edit event."""
         now = datetime.now(timezone.utc)
@@ -30,6 +32,7 @@ class TestFileEditEvent:
         assert event.tool == "apply_patch"
         assert event.timestamp == now
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_file_edit_event_all_actions(self) -> None:
         """Test all valid action types."""
         now = datetime.now(timezone.utc)
@@ -41,6 +44,7 @@ class TestFileEditEvent:
             )
             assert event.action == action
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_file_edit_event_optional_tool(self) -> None:
         """Test file edit without tool specified."""
         event = FileEditEvent(
@@ -50,6 +54,7 @@ class TestFileEditEvent:
         )
         assert event.tool is None
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_file_edit_event_is_frozen(self) -> None:
         """Test that FileEditEvent is immutable."""
         event = FileEditEvent(
@@ -64,6 +69,7 @@ class TestFileEditEvent:
 class TestGitCommitEvent:
     """Tests for GitCommitEvent model."""
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_git_commit_event(self) -> None:
         """Test creating a git commit event."""
         now = datetime.now(timezone.utc)
@@ -78,6 +84,7 @@ class TestGitCommitEvent:
         assert event.branch == "main"
         assert event.timestamp == now
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_git_commit_event_minimal(self) -> None:
         """Test git commit with only required fields."""
         now = datetime.now(timezone.utc)
@@ -89,6 +96,7 @@ class TestGitCommitEvent:
         assert event.message is None
         assert event.branch is None
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_git_commit_event_is_frozen(self) -> None:
         """Test that GitCommitEvent is immutable."""
         event = GitCommitEvent(
@@ -108,6 +116,7 @@ class TestDeterministicToolEventCollector:
         return DeterministicToolEventCollector()
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_record_file_edit(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -124,6 +133,7 @@ class TestDeterministicToolEventCollector:
         assert count == 1
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_record_file_edit_normalizes_path(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -165,6 +175,7 @@ class TestDeterministicToolEventCollector:
         assert file_edits[0].action == "modified"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_record_git_commit(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -181,6 +192,7 @@ class TestDeterministicToolEventCollector:
         assert count == 1
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_record_git_commit_deduplicates_by_hash(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -204,6 +216,7 @@ class TestDeterministicToolEventCollector:
         assert git_commits[0].message == "First"  # First one was kept
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_record_tool_event_dispatches_correctly(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -227,6 +240,7 @@ class TestDeterministicToolEventCollector:
         assert git_count == 1
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_get_and_clear(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -249,6 +263,7 @@ class TestDeterministicToolEventCollector:
         assert len(git_commits2) == 0
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_session_isolation(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -276,6 +291,7 @@ class TestDeterministicToolEventCollector:
         assert edits2[0].path == "file2.py"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_clear_session(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -294,6 +310,7 @@ class TestDeterministicToolEventCollector:
         assert len(git_commits) == 0
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_has_session(
         self, collector: DeterministicToolEventCollector
     ) -> None:
@@ -333,11 +350,13 @@ class TestDeterministicToolEventCollector:
         self, collector: DeterministicToolEventCollector
     ) -> None:
         """Test that file edits are returned sorted by path."""
-        now = datetime.now(timezone.utc)
-        for path in ["z.py", "a.py", "m.py"]:
-            event = FileEditEvent(path=path, action="modified", timestamp=now)
-            await collector.record_file_edit("sess-1", event, None)
+        from freezegun import freeze_time
+        with freeze_time("2024-01-01 12:00:00"):
+            now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            for path in ["z.py", "a.py", "m.py"]:
+                event = FileEditEvent(path=path, action="modified", timestamp=now)
+                await collector.record_file_edit("sess-1", event, None)
 
-        file_edits, _ = await collector.get_and_clear("sess-1")
-        paths = [e.path for e in file_edits]
-        assert paths == ["a.py", "m.py", "z.py"]
+            file_edits, _ = await collector.get_and_clear("sess-1")
+            paths = [e.path for e in file_edits]
+            assert paths == ["a.py", "m.py", "z.py"]

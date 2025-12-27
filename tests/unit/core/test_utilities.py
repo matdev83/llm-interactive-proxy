@@ -187,8 +187,8 @@ class MockSessionService(ISessionService):
                         loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                     )
                 ),
-                created_at=datetime.now(timezone.utc),
-                last_active_at=datetime.now(timezone.utc),
+                created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+                last_active_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
             )
         return self.sessions[session_id]
 
@@ -210,8 +210,8 @@ class MockSessionService(ISessionService):
                     loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                 )
             ),
-            created_at=datetime.now(timezone.utc),
-            last_active_at=datetime.now(timezone.utc),
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            last_active_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
         self.sessions[session_id] = session
         return session
@@ -482,7 +482,8 @@ class MockSessionRepository(ISessionRepository):
 
     async def cleanup_expired(self, max_age_seconds: int) -> int:
         count = 0
-        current_time = datetime.now(timezone.utc)
+        # Use fixed timestamp - tests should control time via @freeze_time decorator
+        current_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         expired_ids = [
             session_id
@@ -517,8 +518,8 @@ class TestDataBuilder:
                     loop_config=LoopDetectionConfig(loop_detection_enabled=True),  # type: ignore
                 )
             ),
-            created_at=datetime.now(timezone.utc),
-            last_active_at=datetime.now(timezone.utc),
+            created_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            last_active_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         )
 
     @staticmethod
@@ -555,7 +556,9 @@ class TestDataBuilder:
         """Create a test chat response envelope."""
         chat_response = ChatResponse(
             id="resp-123",
-            created=int(datetime.now(timezone.utc).timestamp()),
+            created=int(
+                datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc).timestamp()
+            ),
             model="gpt-4",
             choices=[
                 ChatCompletionChoice(

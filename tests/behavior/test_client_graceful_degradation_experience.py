@@ -9,7 +9,6 @@ connector internals.
 from __future__ import annotations
 
 import asyncio
-import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
@@ -147,7 +146,7 @@ class ClientExperienceConnector(GeminiOAuthBaseConnector):
                 content={
                     "id": "chatcmpl-1",
                     "object": "chat.completion.chunk",
-                    "created": int(time.time()),
+                    "created": 1234567890,  # Fixed timestamp for deterministic testing
                     "model": effective_model,
                     "choices": [
                         {

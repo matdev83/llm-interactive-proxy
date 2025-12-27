@@ -3,6 +3,7 @@
 from datetime import datetime
 
 import pytest
+from freezegun import freeze_time
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.services import register_core_services
@@ -139,6 +140,7 @@ async def test_custom_message_configuration():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_end_to_end_modify_test_complete_flow():
     """Test complete flow: modify file -> run test -> complete task."""
     # Create config with feature enabled
@@ -216,6 +218,7 @@ async def test_end_to_end_modify_test_complete_flow():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_end_to_end_modify_complete_without_test():
     """Test flow: modify file -> complete (should be blocked)."""
     # Create config with feature enabled
@@ -265,6 +268,7 @@ async def test_end_to_end_modify_complete_without_test():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_end_to_end_complete_without_modification():
     """Test flow: complete without any modification (should succeed)."""
     # Create config with feature enabled
@@ -301,6 +305,7 @@ async def test_end_to_end_complete_without_modification():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_multi_session_isolation():
     """Test that multiple sessions maintain independent state."""
     # Create config with feature enabled
@@ -365,6 +370,7 @@ async def test_multi_session_isolation():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_multi_session_concurrent_operations():
     """Test concurrent operations across multiple sessions."""
     # Create config with feature enabled
@@ -449,6 +455,7 @@ async def test_multi_session_concurrent_operations():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_configuration_with_default_message():
     """Test that default message is used when no custom message provided."""
     # Create config without custom message
@@ -474,6 +481,7 @@ async def test_configuration_with_default_message():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_configuration_with_custom_message_in_response():
     """Test that custom message appears in steering response."""
     custom_msg = "CUSTOM: Please run your tests before finishing!"
@@ -533,6 +541,7 @@ async def test_configuration_with_custom_message_in_response():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_handler_order_with_multiple_handlers():
     """Test that handler is called in correct priority order."""
     # Create config with feature enabled
@@ -576,6 +585,7 @@ async def test_handler_order_with_multiple_handlers():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_handler_does_not_swallow_non_completion_tools():
     """Test that handler only swallows completion signals, not other tools."""
     # Create config with feature enabled
@@ -633,6 +643,7 @@ async def test_handler_does_not_swallow_non_completion_tools():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_attempt_completion_tool_in_dirty_state():
     """Test that attempt_completion tool is detected and blocked in dirty state."""
     # Create config with feature enabled
@@ -682,6 +693,7 @@ async def test_attempt_completion_tool_in_dirty_state():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_attempt_completion_tool_in_clean_state():
     """Test that attempt_completion tool is allowed in clean state."""
     # Create config with feature enabled
@@ -742,6 +754,7 @@ async def test_attempt_completion_tool_in_clean_state():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_attempt_completion_without_modification():
     """Test that attempt_completion is allowed when no modifications were made."""
     # Create config with feature enabled
@@ -779,6 +792,7 @@ async def test_attempt_completion_without_modification():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_finish_reason_stop_in_dirty_state():
     """Test that finish_reason='stop' is NOT blocked (legacy behavior removed per Requirement 7.6).
 
@@ -834,6 +848,7 @@ async def test_finish_reason_stop_in_dirty_state():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_finish_reason_in_choices_array():
     """Test that finish_reason in choices array is NOT blocked (legacy behavior removed per Requirement 7.6).
 
@@ -891,6 +906,7 @@ async def test_finish_reason_in_choices_array():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_finish_reason_in_metadata():
     """Test that finish_reason in metadata is NOT blocked (legacy behavior removed per Requirement 7.6).
 
@@ -946,6 +962,7 @@ async def test_finish_reason_in_metadata():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_finish_reason_tool_calls():
     """Test that finish_reason='tool_calls' is NOT blocked (legacy behavior removed per Requirement 7.6).
 
@@ -1001,6 +1018,7 @@ async def test_finish_reason_tool_calls():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_finish_reason_length():
     """Test that finish_reason='length' is NOT blocked (legacy behavior removed per Requirement 7.6).
 
@@ -1056,6 +1074,7 @@ async def test_finish_reason_length():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_finish_reason_in_clean_state():
     """Test that finish_reason is allowed in clean state."""
     # Create config with feature enabled
@@ -1119,6 +1138,7 @@ async def test_finish_reason_in_clean_state():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_real_agent_flow_cline_attempt_completion():
     """Test end-to-end flow with Cline's attempt_completion tool."""
     # Create config with feature enabled
@@ -1198,6 +1218,7 @@ async def test_real_agent_flow_cline_attempt_completion():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_real_agent_flow_with_finish_reason():
     """Test end-to-end flow with streaming finish_reason."""
     # Create config with feature enabled
@@ -1292,6 +1313,7 @@ async def test_real_agent_flow_with_finish_reason():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_combined_tool_and_finish_reason_detection():
     """Test that both tool name and finish_reason can trigger detection."""
     # Create config with feature enabled

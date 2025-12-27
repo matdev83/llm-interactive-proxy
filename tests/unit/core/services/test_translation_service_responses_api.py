@@ -6,7 +6,6 @@ parsing and repair functionality.
 """
 
 import json
-import time
 from unittest.mock import patch
 
 import pytest
@@ -398,7 +397,7 @@ class TestResponsesApiTranslation:
         chat_response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
             usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
@@ -461,7 +460,7 @@ class TestResponsesApiTranslation:
         chat_response = CanonicalChatResponse(
             id="resp-tool-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
             usage={"prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15},
@@ -514,7 +513,7 @@ class TestResponsesApiTranslation:
         chat_response = CanonicalChatResponse(
             id="resp-456",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -544,7 +543,7 @@ class TestResponsesApiTranslation:
         chat_response = CanonicalChatResponse(
             id="resp-789",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -575,7 +574,7 @@ class TestResponsesApiTranslation:
         chat_response = CanonicalChatResponse(
             id="resp-101",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -724,7 +723,7 @@ class TestResponsesApiTranslation:
         response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -761,7 +760,7 @@ class TestResponsesApiTranslation:
         response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -798,7 +797,7 @@ class TestResponsesApiTranslation:
         response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -833,7 +832,7 @@ class TestResponsesApiTranslation:
         response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -860,7 +859,7 @@ class TestResponsesApiTranslation:
         response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -891,7 +890,7 @@ class TestResponsesApiTranslation:
         response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -979,7 +978,7 @@ class TestResponsesApiErrorHandling:
         response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -1052,7 +1051,7 @@ class TestResponsesApiIntegration:
         domain_response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )
@@ -1084,7 +1083,7 @@ class TestResponsesApiIntegration:
         response = CanonicalChatResponse(
             id="resp-123",
             object="chat.completion",
-            created=int(time.time()),
+            created=1704067200,  # Fixed timestamp
             model="gpt-4",
             choices=[choice],
         )

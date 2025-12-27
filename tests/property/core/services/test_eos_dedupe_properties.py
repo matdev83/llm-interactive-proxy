@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from hypothesis import HealthCheck, given
 from hypothesis import strategies as st
 from src.core.config.models.end_of_session import EndOfSessionConfig
@@ -166,6 +167,7 @@ async def test_property_multiple_signals_single_emission(
         HealthCheck.function_scoped_fixture,
     ],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_concurrent_sessions_independent_dedupe(
     eos_service: EndOfSessionService,
     mock_event_bus: IEventBus,
@@ -197,13 +199,14 @@ async def test_property_concurrent_sessions_independent_dedupe(
 
     # Create signals for each session
     all_signals: list[EndOfSessionSignal] = []
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     for session_id in session_ids:
         for i in range(signals_per_session):
             signal = EndOfSessionSignal(
                 session_id=session_id,
                 signal_type=EndOfSessionSignalType.DONE_SENTINEL,
                 termination_category=EndOfSessionTerminationCategory.NORMAL,
-                observed_at=datetime.now(timezone.utc),
+                observed_at=fixed_time,
                 reason=f"Signal {i}",
             )
             all_signals.append(signal)
@@ -304,6 +307,7 @@ async def test_property_random_signal_ordering_maintains_dedupe(
         HealthCheck.function_scoped_fixture,
     ],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_restart_scenario_maintains_dedupe(
     session_id: str,
     num_signals: int,
@@ -338,11 +342,12 @@ async def test_property_restart_scenario_maintains_dedupe(
     )
 
     # Process first signal
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     signal1 = EndOfSessionSignal(
         session_id=session_id,
         signal_type=EndOfSessionSignalType.DONE_SENTINEL,
         termination_category=EndOfSessionTerminationCategory.NORMAL,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=fixed_time,
     )
 
     await service1.record_signal(signal1)
@@ -364,7 +369,7 @@ async def test_property_restart_scenario_maintains_dedupe(
             session_id=session_id,
             signal_type=EndOfSessionSignalType.FINISH_REASON,
             termination_category=EndOfSessionTerminationCategory.NORMAL,
-            observed_at=datetime.now(timezone.utc),
+            observed_at=fixed_time,
             reason=f"Signal {i}",
         )
         for i in range(num_signals - 1)
@@ -395,6 +400,7 @@ async def test_property_restart_scenario_maintains_dedupe(
         HealthCheck.function_scoped_fixture,
     ],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_concurrent_signal_processing_single_emission(
     eos_service: EndOfSessionService,
     mock_event_bus: IEventBus,
@@ -423,12 +429,13 @@ async def test_property_concurrent_signal_processing_single_emission(
     mock_session_repository.claim_eos_emission.side_effect = claim_side_effect
 
     # Create multiple signals for same session
+    fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     signals = [
         EndOfSessionSignal(
             session_id=session_id,
             signal_type=EndOfSessionSignalType.DONE_SENTINEL,
             termination_category=EndOfSessionTerminationCategory.NORMAL,
-            observed_at=datetime.now(timezone.utc),
+            observed_at=fixed_time,
             reason=f"Concurrent signal {i}",
         )
         for i in range(num_concurrent_calls)

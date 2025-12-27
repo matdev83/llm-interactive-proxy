@@ -11,6 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from freezegun import freeze_time
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from src.core.memory.config import MemoryConfiguration
@@ -53,6 +54,7 @@ def create_summary(
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_12_retention_enforcement(
     retention_days: int,
     old_session_age_days: int,
@@ -72,7 +74,7 @@ async def test_property_12_retention_enforcement(
     await repository.initialize_schema()
 
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         cutoff = now - timedelta(days=retention_days)
 
         # Create old session (may or may not be deleted)
@@ -117,6 +119,7 @@ async def test_property_12_retention_enforcement(
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_12_bulk_retention(
     num_sessions: int,
     retention_days: int,
@@ -134,7 +137,7 @@ async def test_property_12_bulk_retention(
     await repository.initialize_schema()
 
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
         cutoff = now - timedelta(days=retention_days)
 
         expected_remaining = 0
@@ -166,6 +169,7 @@ async def test_property_12_bulk_retention(
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_12_delete_returns_count() -> None:
     """
     Property 12: Delete returns accurate count.
@@ -180,7 +184,7 @@ async def test_property_12_delete_returns_count() -> None:
     await repository.initialize_schema()
 
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create 5 old sessions
         for i in range(5):
@@ -208,6 +212,7 @@ async def test_property_12_delete_returns_count() -> None:
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_property_12_delete_no_matching_sessions() -> None:
     """
     Property 12: Delete with no matching sessions.
@@ -221,7 +226,7 @@ async def test_property_12_delete_no_matching_sessions() -> None:
     await repository.initialize_schema()
 
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
         # Create only recent sessions
         for i in range(3):

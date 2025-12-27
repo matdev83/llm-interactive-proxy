@@ -8,13 +8,12 @@ than the configured TTL period are removed from memory during cleanup cycles.
 
 from __future__ import annotations
 
-from time import time
-
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.services.test_execution_reminder.test_execution_reminder_handler import (
     TestExecutionReminderHandler,
 )
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 # Strategy for generating session IDs
 session_ids = st.text(
@@ -113,8 +112,9 @@ async def test_ttl_cleanup_preserves_recent_sessions(
     assert state is not None
 
     # Run cleanup immediately (session was just accessed)
-    current_time = time()
-    handler._prune_session_state(current_time)
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        current_time = clock.now()
+        handler._prune_session_state(current_time)
 
     # Session should still exist
     assert session_id in handler._session_state
@@ -158,14 +158,15 @@ async def test_ttl_cleanup_selective_removal(
     assert session2_id in handler._session_state
 
     # Manually set session1's last_seen to be expired
-    current_time = time()
-    handler._session_state[session1_id].last_seen = current_time - ttl_seconds - 10
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        current_time = clock.now()
+        handler._session_state[session1_id].last_seen = current_time - ttl_seconds - 10
 
-    # Keep session2 recent by accessing it
-    await handler._get_session_state(session2_id)
+        # Keep session2 recent by accessing it
+        await handler._get_session_state(session2_id)
 
-    # Run cleanup
-    handler._prune_session_state(current_time)
+        # Run cleanup
+        handler._prune_session_state(current_time)
 
     # Session 1 should be removed (expired)
     assert session1_id not in handler._session_state
@@ -206,15 +207,16 @@ async def test_ttl_cleanup_multiple_sessions(
     assert len(handler._session_state) == num_sessions
 
     # Make half of them expired
-    current_time = time()
-    expired_count = num_sessions // 2
-    for i in range(expired_count):
-        handler._session_state[session_ids[i]].last_seen = (
-            current_time - ttl_seconds - 10
-        )
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        current_time = clock.now()
+        expired_count = num_sessions // 2
+        for i in range(expired_count):
+            handler._session_state[session_ids[i]].last_seen = (
+                current_time - ttl_seconds - 10
+            )
 
-    # Run cleanup
-    handler._prune_session_state(current_time)
+        # Run cleanup
+        handler._prune_session_state(current_time)
 
     # Verify correct number of sessions remain
     remaining = len(handler._session_state)
@@ -261,11 +263,13 @@ async def test_max_sessions_limit_enforcement(
     num_sessions = max_sessions + 3
     session_ids = [f"session_{i}" for i in range(num_sessions)]
 
-    for session_id in session_ids:
-        await handler._mark_session_dirty(session_id)
-        # Small delay to ensure different last_seen times
-        current_time = time()
-        handler._prune_session_state(current_time)
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        for session_id in session_ids:
+            await handler._mark_session_dirty(session_id)
+            # Small delay to ensure different last_seen times
+            current_time = clock.now()
+            handler._prune_session_state(current_time)
+            clock.advance(0.001)  # Advance clock slightly for next iteration
 
     # Verify the limit is enforced
     assert len(handler._session_state) <= max_sessions
@@ -295,8 +299,14 @@ def test_ttl_cleanup_empty_state(
     assert len(handler._session_state) == 0
 
     # Run cleanup (should not raise any errors)
-    current_time = time()
-    handler._prune_session_state(current_time)
+    import asyncio
+
+    async def run_test():
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            current_time = clock.now()
+            handler._prune_session_state(current_time)
+
+    asyncio.run(run_test())
 
     # Verify still no sessions
     assert len(handler._session_state) == 0
@@ -334,19 +344,20 @@ async def test_ttl_cleanup_updates_last_seen(
     # initial_last_seen = state.last_seen  # Unused
 
     # Manually set last_seen to be old (but not expired yet)
-    current_time = time()
-    handler._session_state[session_id].last_seen = current_time - ttl_seconds + 5
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        current_time = clock.now()
+        handler._session_state[session_id].last_seen = current_time - ttl_seconds + 5
 
-    # Access the session (should update last_seen)
-    state = await handler._get_session_state(session_id)
-    assert state is not None
+        # Access the session (should update last_seen)
+        state = await handler._get_session_state(session_id)
+        assert state is not None
 
-    # Verify last_seen was updated
-    assert state.last_seen > current_time - ttl_seconds + 5
+        # Verify last_seen was updated
+        assert state.last_seen > current_time - ttl_seconds + 5
 
-    # Run cleanup with time that would have expired the old timestamp
-    future_time = current_time + 10
-    handler._prune_session_state(future_time)
+        # Run cleanup with time that would have expired the old timestamp
+        future_time = current_time + 10
+        handler._prune_session_state(future_time)
 
     # Session should still exist because last_seen was updated
     assert session_id in handler._session_state

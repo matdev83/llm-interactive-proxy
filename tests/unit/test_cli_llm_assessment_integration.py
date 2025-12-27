@@ -41,6 +41,8 @@ from src.core.services.assessment_backend_service import AssessmentBackendServic
 from src.core.services.assessment_service import AssessmentService
 from src.core.services.turn_counter_service import TurnCounterService
 
+from tests.unit.fixtures.markers import real_time
+
 
 @pytest.fixture(autouse=True)
 def clean_llm_assessment_environment():
@@ -445,6 +447,7 @@ class TestTurnCounterServiceNoBlockingSleeps:
             "time.sleep(" not in mark_assessment_source
         ), "mark_assessment_performed should not contain time.sleep"
 
+    @real_time(reason="Measures actual execution time to ensure methods don't block with sleep calls.")
     def test_turn_counter_service_methods_are_async_compatible(self):
         """Test that TurnCounterService methods are compatible with async contexts."""
         # Create a turn counter service

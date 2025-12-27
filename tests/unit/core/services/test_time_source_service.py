@@ -10,10 +10,15 @@ import pytest
 from src.core.interfaces.time_source_interface import ITimeSource
 from src.core.services.time_source_service import TimeOverride, TimeSource
 
+from tests.unit.fixtures.markers import real_time
+
 
 class TestTimeSourceDefaultBehavior:
     """Test TimeSource default behavior (no override)."""
 
+    @real_time(
+        reason="Tests that TimeSource returns real system time when no override is set"
+    )
     def test_now_utc_returns_current_utc_time(self) -> None:
         """Test that now_utc returns current UTC time."""
         source = TimeSource()
@@ -25,6 +30,9 @@ class TestTimeSourceDefaultBehavior:
         assert result.tzinfo is not None
         assert before <= result <= after
 
+    @real_time(
+        reason="Tests that TimeSource returns real system time when no override is set"
+    )
     def test_now_local_returns_current_local_time(self) -> None:
         """Test that now_local returns current local time."""
         source = TimeSource()
@@ -35,6 +43,9 @@ class TestTimeSourceDefaultBehavior:
         assert isinstance(result, datetime)
         assert before <= result <= after
 
+    @real_time(
+        reason="Tests that TimeSource returns real system time when no override is set"
+    )
     def test_unix_time_s_returns_current_epoch_seconds(self) -> None:
         """Test that unix_time_s returns current epoch seconds."""
         source = TimeSource()
@@ -45,6 +56,9 @@ class TestTimeSourceDefaultBehavior:
         assert isinstance(result, float)
         assert before <= result <= after
 
+    @real_time(
+        reason="Tests that TimeSource returns real system time when no override is set"
+    )
     def test_unix_time_s_consistent_with_now_utc(self) -> None:
         """Test that unix_time_s and now_utc are consistent."""
         source = TimeSource()
@@ -84,6 +98,9 @@ class TestTimeSourceDefaultBehavior:
             assert unix_time == expected_unix
             assert unix_time == fixed_unix
 
+    @real_time(
+        reason="Tests that TimeSource returns real system time when no override is set"
+    )
     def test_monotonic_s_returns_monotonic_time(self) -> None:
         """Test that monotonic_s returns monotonic time."""
         source = TimeSource()
@@ -95,6 +112,7 @@ class TestTimeSourceDefaultBehavior:
         assert before <= result <= after
 
     @pytest.mark.asyncio
+    @real_time(reason="Tests that TimeSource.sleep delegates to real asyncio.sleep")
     async def test_sleep_delegates_to_asyncio_sleep(self) -> None:
         """Test that sleep delegates to asyncio.sleep."""
         source = TimeSource()
@@ -154,6 +172,9 @@ class TestTimeOverride:
     """Test TimeOverride context manager."""
 
     @pytest.mark.asyncio
+    @real_time(
+        reason="Tests that TimeSource returns real system time before and after override"
+    )
     async def test_override_active_within_context(self) -> None:
         """Test that override is active within context."""
         fixed_utc = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -226,9 +247,7 @@ class TestTimeOverride:
             return source.now_utc()
 
         # Run tasks concurrently
-        results = await asyncio.gather(
-            task_with_override(), task_without_override()
-        )
+        results = await asyncio.gather(task_with_override(), task_without_override())
 
         # Task with override should get fixed time
         assert results[0] == fixed_time
@@ -237,6 +256,9 @@ class TestTimeOverride:
         assert results[1] != fixed_time
 
     @pytest.mark.asyncio
+    @real_time(
+        reason="Tests that TimeSource returns real system time after nested overrides exit"
+    )
     async def test_nested_overrides(self) -> None:
         """Test that nested overrides work correctly."""
         outer_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -270,4 +292,3 @@ class TestTimeOverride:
         # After outer override exits, should use system time
         assert source.now_utc() != outer_time
         assert source.now_utc() != inner_time
-

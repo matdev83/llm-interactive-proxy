@@ -454,18 +454,20 @@ class TestQwenOAuthConnectorUnit:
         self, connector, mock_credentials_content, mock_credentials_path
     ):
         """Test that cached token is used if file is not modified."""
-        initial_mtime = time.time()
-        with (
-            patch(
-                "pathlib.Path.home", return_value=mock_credentials_path.parent.parent
-            ),
-            patch("pathlib.Path.exists", return_value=True),
-            patch(
-                "builtins.open",
-                mock_open(read_data=json.dumps(mock_credentials_content)),
-            ),
-            patch("pathlib.Path.stat", return_value=MagicMock(st_mtime=initial_mtime)),
-        ):
+        from tests.utils.fake_clock import FakeClock, FakeClockContext
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            initial_mtime = clock.now()
+            with (
+                patch(
+                    "pathlib.Path.home", return_value=mock_credentials_path.parent.parent
+                ),
+                patch("pathlib.Path.exists", return_value=True),
+                patch(
+                    "builtins.open",
+                    mock_open(read_data=json.dumps(mock_credentials_content)),
+                ),
+                patch("pathlib.Path.stat", return_value=MagicMock(st_mtime=initial_mtime)),
+            ):
             with patch.object(
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ):

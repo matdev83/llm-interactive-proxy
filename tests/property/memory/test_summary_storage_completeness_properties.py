@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from hypothesis import HealthCheck, given
 from hypothesis import strategies as st
 from pydantic import ValidationError
@@ -66,7 +67,8 @@ def _test_run_strategy(draw: st.DrawFn) -> TestRun:
 @st.composite
 def session_summary_strategy(draw: st.DrawFn) -> SessionSummary:
     """Generate a complete SessionSummary with all required fields."""
-    now = datetime.now(timezone.utc)
+    # Use fixed time - tests should use @freeze_time decorator
+    now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     return SessionSummary(
         id=draw(st.text(min_size=8, max_size=36, alphabet="0123456789abcdef-")),
         user_id=draw(st.text(min_size=1, max_size=50)),
@@ -120,6 +122,7 @@ def session_summary_strategy(draw: st.DrawFn) -> SessionSummary:
         HealthCheck.filter_too_much
     ],  # Reduced from 30 for performance
 )
+@freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_has_all_required_fields(summary: SessionSummary) -> None:
     """
     Property 7: Summary storage completeness.
@@ -162,6 +165,7 @@ def test_property_7_summary_has_all_required_fields(summary: SessionSummary) -> 
         HealthCheck.filter_too_much
     ],  # Reduced from 15 for performance
 )
+@freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_model_format(summary: SessionSummary) -> None:
     """
     Property 7: Summary model format validation.
@@ -181,6 +185,7 @@ def test_property_7_summary_model_format(summary: SessionSummary) -> None:
     max_examples=8,  # Reduced for performance
     suppress_health_check=[HealthCheck.filter_too_much],
 )
+@freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_completion_status_valid(summary: SessionSummary) -> None:
     """
     Property 7: Summary completion status validation.
@@ -198,6 +203,7 @@ def test_property_7_summary_completion_status_valid(summary: SessionSummary) -> 
     max_examples=5,
     suppress_health_check=[HealthCheck.filter_too_much],  # Reduced from 10 to 5
 )
+@freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_nested_models_valid(summary: SessionSummary) -> None:
     """
     Property 7: Summary nested model validation.
@@ -231,6 +237,7 @@ def test_property_7_summary_nested_models_valid(summary: SessionSummary) -> None
 @property_test_settings(
     max_examples=5, suppress_health_check=[HealthCheck.filter_too_much]
 )
+@freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_is_immutable(summary: SessionSummary) -> None:
     """
     Property 7: Summary immutability.
@@ -249,6 +256,7 @@ def test_property_7_summary_is_immutable(summary: SessionSummary) -> None:
 @property_test_settings(
     max_examples=10, suppress_health_check=[HealthCheck.filter_too_much]
 )
+@freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_serializable(summary: SessionSummary) -> None:
     """
     Property 7: Summary serialization.

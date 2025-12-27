@@ -14,6 +14,7 @@ from hypothesis import strategies as st
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.stream_formatting_service import StreamFormattingService
 from src.core.services.usage_tracking_wrapper import UsageTrackingWrapper
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 def usage_data_strategy() -> st.SearchStrategy:
@@ -172,12 +173,14 @@ class TestUsageAccumulationProperty:
                 usage=usage,
             )
 
-        import time
-
-        start_time = time.time()
-        wrapped = wrapper.wrap_stream_for_usage(
-            gen(), ctp_record_id="ctp-123", ptb_record_id=None, start_time=start_time
-        )
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            start_time = clock.now()
+            wrapped = wrapper.wrap_stream_for_usage(
+                gen(),
+                ctp_record_id="ctp-123",
+                ptb_record_id=None,
+                start_time=start_time,
+            )
 
         _ = [chunk async for chunk in wrapped]
 

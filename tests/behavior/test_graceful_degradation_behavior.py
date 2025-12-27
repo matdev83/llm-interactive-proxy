@@ -29,6 +29,7 @@ from src.core.common.exceptions import BackendError, RateLimitExceededError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from tests.unit.fixtures.markers import real_time
 
 
 # Changed to inherit from ChatRequest
@@ -377,6 +378,7 @@ class TestGracefulDegradationBehavior:
         )  # No retry state created
         assert not connector._graceful_degradation.permanently_failed
 
+    @real_time(reason="Measures actual elapsed time to verify retry completes without long backoff (< 5.0s).")
     @pytest.mark.asyncio
     async def test_single_429_triggers_retry_with_no_fallback(
         self, connector, mock_request, mock_sleep
@@ -406,6 +408,7 @@ class TestGracefulDegradationBehavior:
         assert "gemini-2.5-flash" not in connector._api_call_count
         assert elapsed < 5.0  # No long backoff
 
+    @real_time(reason="Measures actual elapsed time to verify exponential backoff delays are applied correctly.")
     @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_multiple_429_triggers_exponential_backoff(
@@ -697,6 +700,7 @@ class TestConfigurationBehavior:
         assert connector._recovery_probe_task is None
         assert connector._is_in_cooldown("gemini-2.5-pro")
 
+    @real_time(reason="Measures actual elapsed time to verify custom retry delays are respected (< 0.1s with mocked sleep).")
     @pytest.mark.asyncio
     async def test_custom_retry_delays(self, mock_request, mock_sleep):
         """Test that custom retry delays are respected."""
@@ -834,6 +838,7 @@ class TestEdgeCaseBehavior:
         assert "gemini-2.5-flash" not in connector._api_call_count
         assert connector._api_call_count["gemini-2.5-pro"] >= 3
 
+    @real_time(reason="Measures actual elapsed time across multiple requests to verify jitter introduces variance in retry delays.")
     @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_jitter_prevents_thundering_herd(self, connector, mock_request):
@@ -872,6 +877,7 @@ class TestEdgeCaseBehavior:
         # Verify jitter introduced variance among sequential requests
         assert (max(durations) - min(durations)) > 0.2
 
+    @real_time(reason="Measures actual delay to verify jitter is within reasonable bounds (±25% of 10s base delay).")
     @pytest.mark.slow
     @pytest.mark.asyncio
     async def test_jitter_range_validation(self, connector, mock_request):

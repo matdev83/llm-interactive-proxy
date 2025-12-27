@@ -334,12 +334,15 @@ class TestTestExecutionReminderHandlerPruning:
         handler._session_state["old-session"] = state
 
         # Prune with current time
-        from time import time
+        import asyncio
 
-        handler._prune_session_state(time())
-
-        # Old session should be removed
-        assert "old-session" not in handler._session_state
+        from tests.utils.fake_clock import FakeClock, FakeClockContext
+        async def _test():
+            async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+                handler._prune_session_state(clock.now())
+                # Old session should be removed
+                assert "old-session" not in handler._session_state
+        asyncio.run(_test())
 
     @pytest.mark.skip(
         reason="_prune_session_state method was removed from implementation"
@@ -349,20 +352,22 @@ class TestTestExecutionReminderHandlerPruning:
         handler = TestExecutionReminderHandler(enabled=True, max_sessions=2)
 
         # Add 3 sessions
-        from time import time
 
-        from src.services.test_execution_reminder.session_state import (
-            TestExecutionSessionState,
-        )
+        from tests.utils.fake_clock import FakeClock, FakeClockContext
+        async def _test():
+            async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+                from src.services.test_execution_reminder.session_state import (
+                    TestExecutionSessionState,
+                )
 
-        now = time()
-        for i in range(3):
-            state = TestExecutionSessionState()
-            state.last_seen = now + i  # Different timestamps
-            handler._session_state[f"session-{i}"] = state
+                now = clock.now()
+                for i in range(3):
+                    state = TestExecutionSessionState()
+                    state.last_seen = now + i  # Different timestamps
+                    handler._session_state[f"session-{i}"] = state
 
-        # Prune
-        handler._prune_session_state(now + 10)
+                # Prune
+                handler._prune_session_state(now + 10)
 
         # Should only have 2 sessions (oldest removed)
         assert len(handler._session_state) == 2
@@ -377,22 +382,26 @@ class TestTestExecutionReminderHandlerPruning:
         """Test that pruning keeps sessions within TTL."""
         handler = TestExecutionReminderHandler(enabled=True, state_ttl_seconds=100)
 
-        from time import time
+        import asyncio
 
-        from src.services.test_execution_reminder.session_state import (
-            TestExecutionSessionState,
-        )
+        from tests.utils.fake_clock import FakeClock, FakeClockContext
+        async def _test():
+            async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+                from src.services.test_execution_reminder.session_state import (
+                    TestExecutionSessionState,
+                )
 
-        now = time()
-        state = TestExecutionSessionState()
-        state.last_seen = now - 50  # Within TTL
-        handler._session_state["recent-session"] = state
+                now = clock.now()
+                state = TestExecutionSessionState()
+                state.last_seen = now - 50  # Within TTL
+                handler._session_state["recent-session"] = state
 
-        # Prune
-        handler._prune_session_state(now)
+                # Prune
+                handler._prune_session_state(now)
 
-        # Recent session should be kept
-        assert "recent-session" in handler._session_state
+                # Recent session should be kept
+                assert "recent-session" in handler._session_state
+        asyncio.run(_test())
 
     @pytest.mark.skip(
         reason="_prune_session_state method was removed from implementation"
@@ -400,11 +409,15 @@ class TestTestExecutionReminderHandlerPruning:
     def test_prune_handles_empty_state(self) -> None:
         """Test that pruning handles empty session state."""
         handler = TestExecutionReminderHandler(enabled=True)
-        from time import time
+        import asyncio
 
-        # Should not raise error
-        handler._prune_session_state(time())
-        assert len(handler._session_state) == 0
+        from tests.utils.fake_clock import FakeClock, FakeClockContext
+        async def _test():
+            async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+                # Should not raise error
+                handler._prune_session_state(clock.now())
+                assert len(handler._session_state) == 0
+        asyncio.run(_test())
 
 
 class TestTestExecutionReminderHandlerCommandExtraction:

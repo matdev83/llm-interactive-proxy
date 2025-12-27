@@ -9,6 +9,8 @@ import pytest
 import requests
 from freezegun import freeze_time
 
+from tests.unit.fixtures.markers import real_time
+
 pytestmark = [
     pytest.mark.network,
     pytest.mark.integration,
@@ -163,6 +165,7 @@ def _log_has_critical_errors(path: str) -> bool:
     return False
 
 
+@real_time(reason="Smoke test that measures actual server startup timing.")
 def test_server_starts_and_logs_cleanly(tmp_path: "os.PathLike[str]") -> None:
     """Smoke test: start server, hit a simple endpoint, and verify no crashes.
 

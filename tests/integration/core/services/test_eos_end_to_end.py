@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.database.models.usage import SessionMetricsTable
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
@@ -210,6 +211,7 @@ async def test_streaming_eos_emission_with_persistence(
     assert result == content
 
 
+@freeze_time("2024-01-01 12:00:00")
 @pytest.mark.asyncio
 async def test_non_streaming_eos_emission_with_persistence(
     eos_service: EndOfSessionService,
@@ -232,7 +234,7 @@ async def test_non_streaming_eos_emission_with_persistence(
         session_id=session_id,
         signal_type=EndOfSessionSignalType.FINISH_REASON,
         termination_category=EndOfSessionTerminationCategory.NORMAL,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         reason="finish_reason: stop",
         protocol="openai",
         backend="openai",
@@ -253,6 +255,7 @@ async def test_non_streaming_eos_emission_with_persistence(
     mock_session_repo.claim_eos_emission.assert_awaited_once()
 
 
+@freeze_time("2024-01-01 12:00:00")
 @pytest.mark.asyncio
 async def test_error_driven_eos_emission(
     eos_service: EndOfSessionService,
@@ -275,7 +278,7 @@ async def test_error_driven_eos_emission(
         session_id=session_id,
         signal_type=EndOfSessionSignalType.ERROR_TERMINATION,
         termination_category=EndOfSessionTerminationCategory.ERROR,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         reason="Connection timeout",
         error_classification=EndOfSessionErrorClassification.TRANSPORT_ERROR,
         error_status_code=504,
@@ -299,6 +302,7 @@ async def test_error_driven_eos_emission(
     mock_session_repo.claim_eos_emission.assert_awaited_once()
 
 
+@freeze_time("2024-01-01 12:00:00")
 @pytest.mark.asyncio
 async def test_multiple_listeners_receive_events(
     eos_service: EndOfSessionService,
@@ -335,7 +339,7 @@ async def test_multiple_listeners_receive_events(
         session_id=session_id,
         signal_type=EndOfSessionSignalType.DONE_SENTINEL,
         termination_category=EndOfSessionTerminationCategory.NORMAL,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         backend="openai:gpt-4",
     )
 
@@ -353,6 +357,7 @@ async def test_multiple_listeners_receive_events(
     mock_reminder_handler._get_session_state.assert_called_once_with(session_id)
 
 
+@freeze_time("2024-01-01 12:00:00")
 @pytest.mark.asyncio
 async def test_db_persistence_eos_completion_state(
     eos_service: EndOfSessionService,
@@ -367,7 +372,7 @@ async def test_db_persistence_eos_completion_state(
         session_id=session_id,
         signal_type=EndOfSessionSignalType.RESPONSE_COMPLETED,
         termination_category=EndOfSessionTerminationCategory.NORMAL,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         reason="Response completed",
         protocol="anthropic",
         backend="anthropic",
@@ -429,6 +434,7 @@ async def test_event_payload_correctness_end_to_end(
     assert "stop" in (event.reason or "")
 
 
+@freeze_time("2024-01-01 12:00:00")
 @pytest.mark.asyncio
 async def test_error_classification_defaults_to_unknown(
     eos_service: EndOfSessionService,
@@ -449,7 +455,7 @@ async def test_error_classification_defaults_to_unknown(
         session_id=session_id,
         signal_type=EndOfSessionSignalType.ERROR_TERMINATION,
         termination_category=EndOfSessionTerminationCategory.ERROR,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         reason="Unknown error",
         error_classification=None,  # Missing classification
     )
@@ -465,6 +471,7 @@ async def test_error_classification_defaults_to_unknown(
     assert event.error_classification == EndOfSessionErrorClassification.UNKNOWN_ERROR
 
 
+@freeze_time("2024-01-01 12:00:00")
 @pytest.mark.asyncio
 async def test_client_termination_reason_flows_to_subscribers(
     eos_service: EndOfSessionService,
@@ -492,7 +499,7 @@ async def test_client_termination_reason_flows_to_subscribers(
         session_id=session_id,
         signal_type=EndOfSessionSignalType.CLIENT_TERMINATION,
         termination_category=EndOfSessionTerminationCategory.NORMAL,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         reason="client_disconnected",
         backend="openai:gpt-4",
     )
@@ -540,6 +547,7 @@ async def test_client_termination_reason_flows_to_subscribers(
     assert eos_metadata.get("eos_termination_category") == "normal"
 
 
+@freeze_time("2024-01-01 12:00:00")
 @pytest.mark.asyncio
 async def test_eos_event_with_none_termination_reason_handled_gracefully(
     eos_service: EndOfSessionService,
@@ -568,7 +576,7 @@ async def test_eos_event_with_none_termination_reason_handled_gracefully(
         session_id=session_id,
         signal_type=EndOfSessionSignalType.DONE_SENTINEL,
         termination_category=EndOfSessionTerminationCategory.NORMAL,
-        observed_at=datetime.now(timezone.utc),
+        observed_at=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
         reason=None,  # No explicit reason
         backend="openai:gpt-4",
     )

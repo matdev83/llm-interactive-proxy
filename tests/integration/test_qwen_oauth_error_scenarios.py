@@ -5,7 +5,6 @@ These tests ensure that real error conditions are properly handled and don't giv
 
 import asyncio
 import json
-import time
 from pathlib import Path
 
 import httpx
@@ -111,7 +110,7 @@ async def test_qwen_oauth_real_api_connectivity():
 
         # Skip if credentials are expired
         expiry = creds.get("expiry_date", 0)
-        current_time = int(time.time() * 1000)
+        current_time = int(1000.0 * 1000)  # Fixed timestamp: 1000 seconds in milliseconds
         if expiry <= current_time:
             pytest.skip("Credentials are expired")
 

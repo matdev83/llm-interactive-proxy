@@ -3,11 +3,12 @@
 Tests token extraction, validation logic, and expiry handling.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiosqlite import Error as DatabaseError
+from freezegun import freeze_time
 from src.core.auth.sso.exceptions import TokenError
 from src.core.auth.sso.middleware import AuthMiddleware
 
@@ -217,6 +218,7 @@ class TestAuthMiddleware:
         assert result.is_valid is False
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_validate_token_inactive(
         self,
         middleware: AuthMiddleware,
@@ -229,6 +231,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         inactive_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -237,7 +240,7 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=True,
             is_active=False,  # Inactive
-            created_at=datetime.utcnow(),
+            created_at=frozen_time,
             last_authenticated_at=None,
             auth_expires_at=None,
         )
@@ -248,6 +251,7 @@ class TestAuthMiddleware:
         assert result.is_valid is False
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_validate_token_expired_session(
         self,
         middleware: AuthMiddleware,
@@ -260,6 +264,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         expired_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -268,9 +273,9 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() - timedelta(hours=1),  # Expired
+            created_at=frozen_time,
+            last_authenticated_at=frozen_time,
+            auth_expires_at=frozen_time - timedelta(hours=1),  # Expired
         )
         mock_token_repository.find_by_hash.return_value = expired_token
 
@@ -287,6 +292,7 @@ class TestAuthMiddleware:
         )
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_validate_token_valid_authenticated(
         self,
         middleware: AuthMiddleware,
@@ -299,6 +305,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         valid_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -307,9 +314,9 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() + timedelta(hours=1),  # Not expired
+            created_at=frozen_time,
+            last_authenticated_at=frozen_time,
+            auth_expires_at=frozen_time + timedelta(hours=1),  # Not expired
         )
         mock_token_repository.find_by_hash.return_value = valid_token
 
@@ -321,6 +328,7 @@ class TestAuthMiddleware:
         assert result.token_id == "token-id"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_validate_token_valid_unauthenticated(
         self,
         middleware: AuthMiddleware,
@@ -333,6 +341,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         unauthenticated_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -341,7 +350,7 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=False,  # Not authenticated
             is_active=True,
-            created_at=datetime.utcnow(),
+            created_at=frozen_time,
             last_authenticated_at=None,
             auth_expires_at=None,
         )
@@ -407,6 +416,7 @@ class TestAuthMiddleware:
         mock_sandbox_handler.generate_login_banner.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_call_unauthenticated_token(
         self,
         middleware: AuthMiddleware,
@@ -421,6 +431,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         unauthenticated_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -429,7 +440,7 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=False,
             is_active=True,
-            created_at=datetime.utcnow(),
+            created_at=frozen_time,
             last_authenticated_at=None,
             auth_expires_at=None,
         )
@@ -441,6 +452,7 @@ class TestAuthMiddleware:
         mock_sandbox_handler.generate_login_banner.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_call_sandbox_history_detected(
         self,
         middleware: AuthMiddleware,
@@ -458,6 +470,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         valid_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -466,9 +479,9 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() + timedelta(hours=1),
+            created_at=frozen_time,
+            last_authenticated_at=frozen_time,
+            auth_expires_at=frozen_time + timedelta(hours=1),
         )
         mock_token_repository.find_by_hash.return_value = valid_token
         mock_sandbox_handler.detect_sandbox_history.return_value = True
@@ -479,6 +492,7 @@ class TestAuthMiddleware:
         mock_sandbox_handler.generate_login_banner.assert_awaited_once()
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_call_valid_authenticated_no_sandbox(
         self,
         middleware: AuthMiddleware,
@@ -496,6 +510,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         valid_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -504,9 +519,9 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() + timedelta(hours=1),
+            created_at=frozen_time,
+            last_authenticated_at=frozen_time,
+            auth_expires_at=frozen_time + timedelta(hours=1),
         )
         mock_token_repository.find_by_hash.return_value = valid_token
         mock_sandbox_handler.detect_sandbox_history.return_value = False
@@ -518,6 +533,7 @@ class TestAuthMiddleware:
         mock_sandbox_handler.generate_login_banner.assert_not_awaited()
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_call_empty_messages_list(
         self,
         middleware: AuthMiddleware,
@@ -535,6 +551,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         valid_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -543,9 +560,9 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() + timedelta(hours=1),
+            created_at=frozen_time,
+            last_authenticated_at=frozen_time,
+            auth_expires_at=frozen_time + timedelta(hours=1),
         )
         mock_token_repository.find_by_hash.return_value = valid_token
         mock_sandbox_handler.detect_sandbox_history.return_value = False
@@ -555,6 +572,7 @@ class TestAuthMiddleware:
         assert response is None
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_call_missing_messages_key(
         self,
         middleware: AuthMiddleware,
@@ -569,6 +587,7 @@ class TestAuthMiddleware:
         mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
         mock_token_service.verify_token.return_value = True
 
+        frozen_time = datetime.now(timezone.utc)
         valid_token = TokenRecord(
             id="token-id",
             token_hash="hash1",
@@ -577,9 +596,9 @@ class TestAuthMiddleware:
             provider="google",
             is_authenticated=True,
             is_active=True,
-            created_at=datetime.utcnow(),
-            last_authenticated_at=datetime.utcnow(),
-            auth_expires_at=datetime.utcnow() + timedelta(hours=1),
+            created_at=frozen_time,
+            last_authenticated_at=frozen_time,
+            auth_expires_at=frozen_time + timedelta(hours=1),
         )
         mock_token_repository.find_by_hash.return_value = valid_token
         mock_sandbox_handler.detect_sandbox_history.return_value = False

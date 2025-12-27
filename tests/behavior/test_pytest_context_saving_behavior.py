@@ -23,6 +23,7 @@ from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
 from src.core.services.tool_call_handlers.pytest_context_saving_handler import (
     PytestContextSavingHandler,
 )
+from tests.unit.fixtures.markers import real_time
 
 
 class TestPytestCommandDetectionBehavior:
@@ -848,6 +849,7 @@ class TestIntegrationAndPerformanceBehavior:
         # Then
         mock_logger.info.assert_not_called()  # No modification, no log
 
+    @real_time(reason="Measures actual processing time to verify performance remains reasonable (< 5.0s for 1000 commands).")
     def test_performance_with_large_command_sets(self):
         """
         Given: Many pytest commands that need processing

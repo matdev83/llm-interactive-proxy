@@ -35,6 +35,8 @@ from src.core.config.app_config import AppConfig
 from src.core.config.config_loader import _collect_api_keys
 from src.core.services.translation_service import TranslationService
 
+from tests.unit.fixtures.markers import real_time
+
 pytestmark = [
     pytest.mark.integration,
     pytest.mark.network,
@@ -273,6 +275,7 @@ def _has_valid_antigravity_credentials() -> tuple[bool, str]:
 
 
 @pytest.mark.slow
+@real_time(reason="Real E2E test that measures actual server startup timing and request/response times.")
 def test_openrouter_free_model_roundtrip() -> None:
     """Full flow: proxy + OpenAI client hitting OpenRouter with a free model."""
     api_key = _get_openrouter_api_key()
@@ -362,6 +365,7 @@ def test_openrouter_free_model_roundtrip() -> None:
 
 
 @pytest.mark.slow
+@real_time(reason="Real E2E test that measures actual server startup timing and request/response times.")
 def test_gemini_oauth_plan_end_to_end() -> None:
     """Full flow for gemini-oauth-plan using gemini-2.5-flash."""
     ok, reason = _has_valid_plan_credentials()

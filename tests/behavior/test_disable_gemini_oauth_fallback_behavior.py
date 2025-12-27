@@ -24,6 +24,7 @@ from src.connectors.gemini_oauth_base import (
 )
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
+from tests.unit.fixtures.markers import real_time
 
 
 @dataclass
@@ -330,6 +331,7 @@ class TestDisableGeminiOAuthFallbackBehavior:
             with contextlib.suppress(asyncio.CancelledError):
                 await connector_fallback_enabled._recovery_probe_task
 
+    @real_time(reason="Measures actual elapsed time to verify failure occurs faster without fallback (< 6.0s).")
     @pytest.mark.asyncio
     async def test_fallback_disabled_faster_failure(
         self,
