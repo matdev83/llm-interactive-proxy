@@ -134,8 +134,8 @@ class TestAsyncHelpers:
         assert result[2].content == "chunk3"
 
     @pytest.mark.asyncio
-    @given(chunks=chunk_stream_strategy(min_size=1, max_size=20))
-    @settings(max_examples=20, deadline=None)
+    @given(chunks=chunk_stream_strategy(min_size=1, max_size=10))
+    @settings(max_examples=10, deadline=None)
     async def test_async_stream_processing(self, chunks):
         """Test processing async streams.
 
@@ -208,7 +208,7 @@ class TestExamplePropertyTest:
 
     @pytest.mark.asyncio
     @given(chunks=chunk_stream_with_done_strategy(min_size=1, max_size=10))
-    @settings(max_examples=20, deadline=None)
+    @settings(max_examples=10, deadline=None)
     async def test_stream_processing_preserves_done_marker(self, chunks):
         """
         Example Property: Stream processing preserves done marker

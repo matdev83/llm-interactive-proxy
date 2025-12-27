@@ -20,22 +20,29 @@ from src.core.transport.fastapi.response_adapters import to_fastapi_streaming_re
 
 
 @pytest.fixture(autouse=True)
-def clean_memory_state():
+def clean_memory_state(request):
     """Reset memory tracking state before each test.
 
     This prevents cross-test interference when running in parallel or sequentially
     with other tests that may have left tracemalloc in an inconsistent state.
+    Only runs expensive cleanup for tests that actually use tracemalloc.
     """
+    # Check if this test uses tracemalloc via marker
+    uses_tracemalloc = request.node.get_closest_marker("uses_tracemalloc") is not None
+
     # Stop any existing tracemalloc session from previous tests
     if tracemalloc.is_tracing():
         tracemalloc.stop()
-    # Force garbage collection to minimize baseline memory
-    gc.collect()
+    # Only force garbage collection for tests that use tracemalloc
+    if uses_tracemalloc:
+        gc.collect()
     yield
     # Cleanup after test
     if tracemalloc.is_tracing():
         tracemalloc.stop()
-    gc.collect()
+    # Only force garbage collection for tests that use tracemalloc
+    if uses_tracemalloc:
+        gc.collect()
 
 
 # Strategy for generating large streaming content
@@ -105,6 +112,7 @@ class TestConstantMemoryUsage:
     """
 
     @pytest.mark.asyncio
+    @pytest.mark.uses_tracemalloc
     @settings(max_examples=5, deadline=None)
     @given(
         chunk_count=st.integers(min_value=200, max_value=400),
@@ -213,6 +221,7 @@ class TestConstantMemoryUsage:
             tracemalloc.stop()
 
     @pytest.mark.asyncio
+    @pytest.mark.uses_tracemalloc
     @settings(
         max_examples=5,
         deadline=1000,
@@ -339,6 +348,7 @@ class TestIncrementalMiddlewareProcessing:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.uses_tracemalloc
     @settings(max_examples=5, deadline=1000)
     @given(
         chunk_count=st.integers(min_value=20, max_value=100),
