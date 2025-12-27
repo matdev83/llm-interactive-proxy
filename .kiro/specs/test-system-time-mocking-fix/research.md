@@ -1,104 +1,99 @@
-# Gap Analysis: test-system-time-mocking-fix
+# Research & Design Decisions
+
+---
+**Purpose**: Capture discovery findings, architectural investigations, and rationale that inform the technical design.
+
+**Project Context**: Universal LLM Proxy - FastAPI async, DI containers, staged initialization, adapter pattern.
+---
 
 ## Summary
-- The codebase already contains two complementary time-control mechanisms for tests: `tests/utils/fake_clock.py` (patches `asyncio.sleep` + `time.time`) and `freezegun` (dependency present in `pyproject.toml` and used by several tests).
-- The test suite still contains a large number of direct wall-clock reads (example patterns: `datetime.now(...)`, `datetime.now()`, `time.time()`), and many of these are not clearly scoped under a fake/frozen time context.
-- Some production modules use `from time import time`, which bypasses patching strategies that only replace `time.time` and creates a recurring source of “mocked time not respected” issues.
-- There is no unified, verifiable enforcement mechanism that flags non-compliant real-time reads (or requires an explicit exception rationale).
+- **Feature**: `test-system-time-mocking-fix`
+- **Discovery Scope**: Extension (cross-cutting test determinism + minimal production seams)
+- **Key Findings**:
+  - The repo already uses two complementary time-control techniques in tests: `tests/utils/fake_clock.py` (controls `asyncio.sleep` and `time.time`) and `freezegun` (controls `datetime` wall-clock and is already a declared dependency).
+  - There are many direct wall-clock reads in tests (not consistently scoped under controlled time), and there is no unified, verifiable regression guard.
+  - Some production modules use `from time import time`, which bypasses patching strategies that replace `time.time` and is a recurring source of “mocked time not respected” issues.
 
-## Current State Investigation
+## Research Log
 
-### Existing Assets (Reusable Components)
-- **Fake clock utilities**: `tests/utils/fake_clock.py`
-  - `FakeClock`: deterministic “now/advance/sleep” primitive.
-  - `FakeClockContext`: async context manager that patches `asyncio.sleep` and `time.time` to use a ContextVar-driven clock (with safe fallback to the original functions outside the context).
-  - Known limitation: ContextVar scoping means it does not transparently cover cross-thread execution, and it only patches `time.time` (not imported aliases like `from time import time`).
-- **Datetime/time freezing**: `freezegun` (present in `pyproject.toml`, used in e.g. `tests/live/test_e2e_flows.py` and `tests/integration/test_backend_real_e2e.py`)
-  - Provides deterministic “wall clock” behavior for `datetime` and many time reads during the context.
-- **Existing test guidance**: `tests/utils/PROPERTY_TESTING_README.md` explicitly recommends using fake clocks to avoid flaky timing dependencies.
-- **Test quality infrastructure**: `tests/unit/test_test_quality.py` demonstrates “test-as-enforcer” patterns (running ruff/black and validating constraints).
+### Existing Codebase Analysis
+- **Components Reviewed**:
+  - `tests/utils/fake_clock.py` (existing FakeClockContext)
+  - Tests using `freezegun` (multiple regression/integration/live suites)
+  - `src/services/test_execution_reminder/session_state.py` (uses `from time import time`)
+  - `tests/unit/test_test_quality.py` (existing enforcement-style tests)
+- **Patterns Identified**:
+  - Fake clock is ContextVar-based and patches `asyncio.sleep` and `time.time` only.
+  - `freezegun` is used with `freeze_time()` and `frozen_time.tick(...)` for deterministic “wait loops”.
+  - Test suite runs with `xdist` by default; global time freezing can have unintended consequences (e.g., time-derived filenames) if applied indiscriminately.
+- **Implications**:
+  - One technique does not currently cover all time API surfaces; the project needs a clear policy and (ideally) a single central time access boundary so tests don’t depend on patching internals.
 
-### Existing Time Usage Patterns (Representative)
-- **Wall-clock timestamps in test data**: examples include `tests/test_helpers.py` (`created` timestamps) and many unit tests creating timestamped models (e.g. `tests/unit/memory/test_tool_event_collector.py`).
-- **Timeout/deadline loops**: `time.time()` used for “wait until ready” patterns in integration/live tests and some behavior tests.
-- **Naive local time**: a smaller set of `datetime.now()` without timezone (e.g. `tests/conftest.py`, `tests/integration/test_test_execution_reminder_integration.py`).
-- **Production time reads affecting tests**: `src/services/test_execution_reminder/session_state.py` and `src/services/test_execution_reminder/test_execution_reminder_handler.py` use `from time import time`.
+### Time-Control Technique Feasibility
+- **Context**: User asked whether the suite can use only one time-control pattern.
+- **Findings**:
+  - `FakeClockContext` does not patch `datetime.now` and therefore does not cover datetime wall-clock semantics.
+  - `freezegun` does not provide a native deterministic scheduler for `asyncio.sleep` the same way FakeClockContext does; it is primarily for wall-clock control.
+  - Conclusion: the suite cannot realistically standardize on only one of the two existing techniques without introducing a new, unified boundary or expanding one tool’s scope significantly.
+- **Implications**:
+  - Design should favor a single “source of truth” clock boundary used by code under test, while still allowing targeted tools as transitional mechanisms.
 
-## Requirements Feasibility Analysis
+## Architecture Pattern Evaluation
 
-### Requirement-to-Asset Map (with Gaps)
+| Option | Description | Strengths | Risks / Limitations | Notes |
+|--------|-------------|-----------|---------------------|-------|
+| Extend Existing Components | Keep relying on patching (`FakeClockContext` and `freezegun`) and standardize usage + add enforcement | Minimal production impact | Patch coverage gaps remain; patch bypass via imported aliases persists; fragile over time | Useful as a short-term bridge |
+| Service + Interface | Introduce a centralized time source abstraction and route time reads through it; override in tests | Strongest long-term determinism; reduces patch brittleness; clearer contracts | Requires incremental migration of callsites; must avoid broad behavior change | Preferred for “don’t repeat this effort” goal |
+| Hybrid Approach | Central time source + enforcement + selective patching in legacy tests | Balances migration cost and robustness | More moving parts during transition | Recommended rollout strategy |
 
-| Requirement | Existing Assets | Gap / Constraint | Tag |
-|---|---|---|---|
-| Requirement 1: Eliminate unsafe real-time reads in tests | `tests/utils/fake_clock.py`, `freezegun` | No global enforcement to detect remaining real-time reads; large existing surface area means “fix all” must be incremental and scoped | Missing |
-| Requirement 2: Explicit exceptions for legitimate real-time usage | Markers exist (`network`, `no_global_mock`, `live`) | No standard “real-time-dependent” marker/rationale convention; exceptions not consistently reviewable | Missing |
-| Requirement 3: Consistent test-controlled time semantics | `FakeClockContext` + `freezegun` | `FakeClockContext` does not affect `from time import time` usages; it does not cover `datetime.now`; cross-thread behavior is limited | Constraint |
-| Requirement 4: Evaluate and remediate case-by-case | Existing code review + scattered patterns | No inventory/report of occurrences by category; no “decision log” for why a given call is kept or replaced | Missing |
-| NFR Determinism / CI compatibility | Current suite uses fake clocks in some places | Large portion of tests still rely on wall clock by default; `xdist` + time-based log filenames can create subtle collisions if time is globally frozen | Unknown |
+## Design Decisions
 
-### Complexity Signals
-- High count of occurrences suggests the work is less about adding new capability and more about standardizing patterns, adding enforcement, and incrementally refactoring tests.
-- The existence of both `FakeClockContext` and `freezegun` indicates the project already accepts “time virtualization” as a testing technique, but it is not consistently applied.
+### Decision: Central Time Source Boundary
+- **Context**: Prevent repeated “true time sneaks into tests” cleanups by making time reads controllable and explicit.
+- **Alternatives Considered**:
+  1. Patch-only approach (FakeClockContext + freezegun).
+  2. Central time source boundary used by code under test.
+- **Selected Approach**: Central time source boundary with test override capability (plus a transitional hybrid rollout).
+- **Rationale**: Reduces reliance on fragile patching; makes determinism a property of contracts rather than incidental monkeypatching; aligns with DI and explicit interfaces patterns in the repo.
+- **Trade-offs**: Requires migrating production and shared helpers to use the boundary; some tests remain legitimate exceptions.
+- **Follow-up**: Identify high-impact callsites first (tests and code paths that compute timestamps used in assertions).
 
-## Implementation Approach Options
+### Decision: Exception Policy for Legitimate Real-Time Tests
+- **Context**: Some tests (live/network/benchmark/time-measurement) legitimately require real time.
+- **Alternatives Considered**:
+  1. Ad-hoc, undocumented exceptions.
+  2. A dedicated marker + required rationale and an allow-list mechanism for enforcement.
+- **Selected Approach**: Dedicated marker and explicit rationale, plus an allow-list mechanism used by the regression guard.
+- **Rationale**: Reviewable and enforceable, prevents “silent drift”.
+- **Trade-offs**: Requires discipline and minor maintenance overhead.
+- **Follow-up**: Decide marker naming and rationale format.
 
-### Option A: Extend Existing Test Utilities (Test-Focused)
-**What**: Standardize usage of `FakeClockContext` (for async timing) and `freezegun` (for wall-clock datetime) in tests; update test helper builders to accept explicit timestamps; add an enforcement test that scans for disallowed patterns unless explicitly exempted.
+### Decision: Regression Guard Location and Scope
+- **Context**: Prevent reintroduction of direct wall-clock reads in tests and deterministic code paths.
+- **Alternatives Considered**:
+  1. CI lint-only checks.
+  2. A pytest “quality” test that fails with actionable file/line output.
+- **Selected Approach**: pytest-based regression guard aligned with existing “test-as-enforcer” patterns.
+- **Rationale**: Consistent with project conventions; produces actionable failures during normal workflows.
+- **Trade-offs**: Needs careful allow-listing to avoid blocking legitimate suites.
+- **Follow-up**: Define banned patterns list and exempted directories/markers.
 
-**Where**:
-- Extend `tests/utils/fake_clock.py` (or add adjacent helpers) to cover common cases and provide clear recipes.
-- Update targeted hotspots (examples): `tests/test_helpers.py`, `tests/integration/test_test_execution_reminder_integration.py`.
-- Add a new “time determinism” test alongside other enforcers (patterned after `tests/unit/test_test_quality.py`).
+## Testing Strategy Research
 
-**Trade-offs**:
-- ✅ Minimal production surface area, fast iteration
-- ✅ Aligns with existing “test utilities” pattern
-- ❌ Requires careful exemption/allow-listing to avoid blocking legitimate integration/live/benchmark tests
-- ❌ Can’t fully solve production-import bypass (`from time import time`) without either targeted patching or production refactor
+### Existing Test Patterns
+- Unit tests in `tests/unit/` frequently construct timestamped models directly.
+- Integration/regression tests use `freezegun` for deterministic “wait loops” (via `frozen_time.tick(...)`).
+- Many async regression tests already use `FakeClockContext` to avoid sleeping and speed up deterministic scheduling.
 
-### Option B: Create a Production Clock Abstraction (DI-Friendly)
-**What**: Introduce a “clock” interface/service in `src/` and route time reads through it, enabling deterministic control in tests via DI injection.
+### Risks & Mitigations
+- Risk: Global freezing causes collisions for time-derived filenames and brittle cross-suite behavior.  
+  Mitigation: Prefer per-test/per-suite scoping; avoid global freeze hooks.
+- Risk: Imported aliases (e.g., `from time import time`) bypass patching and make determinism inconsistent.  
+  Mitigation: Migrate deterministic paths to the centralized time source boundary.
 
-**Where**:
-- New interface under `src/core/interfaces/` and implementation under `src/core/services/` (or a common module).
-- Register via staged initialization/DI.
-- Update production callsites that currently use `datetime.now(...)`/`time()` directly (potentially many).
-
-**Trade-offs**:
-- ✅ Cleanest semantics and long-term maintainability
-- ✅ Reduces reliance on monkeypatching and global patching
-- ❌ Large refactor scope; high risk of touching unrelated behavior
-- ❌ High effort due to many existing `datetime.now(...)` callsites
-
-### Option C: Hybrid (Enforcement + Targeted Seams)
-**What**: Add test-side enforcement + incrementally refactor tests to use fake/frozen time; only refactor production in a narrow, low-risk way where it directly blocks determinism (e.g., replace `from time import time` with module-qualified access in a small number of files).
-
-**Where**:
-- Same test-side work as Option A (enforcement + targeted refactors).
-- Narrow production refactors in `src/services/test_execution_reminder/` to ensure patchability with existing fake clock tooling.
-
-**Trade-offs**:
-- ✅ Keeps production changes minimal and low-risk
-- ✅ Directly addresses known “mocked time not respected” class of issues
-- ❌ Still requires case-by-case treatment and explicit exceptions
-
-## Effort & Risk
-- **Effort**: M (3–7 days) — large test surface area, but existing utilities reduce new invention; most work is categorization and incremental refactors.
-- **Risk**: Medium — enforcement can cause churn if exemptions are not designed carefully; global time freezing may interfere with log naming and xdist behavior if applied too broadly.
-
-## Research Needed (Defer to Design Phase)
-- Define the canonical “test-controlled time” mechanism per category:
-  - async delays/timeouts (`FakeClockContext`)
-  - wall-clock datetimes (`freezegun` vs fixed constants)
-- Decide which time functions are considered “unsafe” for this feature’s enforcement (e.g., `datetime.now`, `time.time`, `date.today`) and which are acceptable (e.g., `time.monotonic` for duration-only assertions).
-- Establish an exception mechanism:
-  - marker name (e.g., `real_time`)
-  - required rationale format/location
-  - whether exemptions are per-test, per-file, or per-directory (e.g., `tests/live/`, `tests/benchmark_*`)
-- Validate whether freezing time affects logging conventions (e.g., `tests/conftest.py` log filename timestamping) and how to avoid collisions.
-
-## Recommendations for Design Phase
-- Prefer **Option C (Hybrid)** as the default strategy: test-side enforcement + incremental remediation, plus minimal production seam fixes where patchability is currently blocked.
-- Make enforcement incremental: start by banning the most problematic patterns (naive `datetime.now()` and ad-hoc `time.time()` outside controlled contexts) and expand coverage as exemptions and patterns stabilize.
-- Carry forward an explicit inventory-first workflow: classify occurrences into “replace with constant”, “wrap in fake/frozen time”, or “approved exception with rationale”.
+## References
+- `tests/utils/fake_clock.py` - Fake clock utilities
+- `pyproject.toml` - `freezegun` dependency and pytest configuration
+- `tests/unit/test_test_quality.py` - enforcement-style tests pattern
+- `.kiro/specs/test-system-time-mocking-fix/requirements.md` - requirements and IDs
 

@@ -41,7 +41,8 @@
     {
       "root": "tests",
       "extraPaths": [".", "src"],
-      "reportPrivateUsage": "none"
+      "reportPrivateUsage": "none",
+      "reportProtectedAccess": "none"
     },
     {
       "root": "scripts",
