@@ -130,7 +130,7 @@ class TestBackendImportsIntegration:
         )
 
     def test_backend_imports_makes_all_connector_classes_available(
-        self, clean_import_state: None
+        self,
     ) -> None:
         """
         Test that importing backend_imports makes connector classes importable.

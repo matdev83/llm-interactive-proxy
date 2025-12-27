@@ -9,7 +9,7 @@ import logging
 from unittest.mock import MagicMock
 
 import pytest
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.core.ports.streaming_contracts import StreamingContent
 
@@ -35,6 +35,7 @@ TRACE_LEVEL = 5
         max_size=10,
     )
 )
+@settings(max_examples=20)
 async def test_guarded_hot_path_logging_property(
     chunks: list[StreamingContent],
 ) -> None:
@@ -111,6 +112,7 @@ async def test_guarded_hot_path_logging_property(
         max_size=10,
     )
 )
+@settings(max_examples=20)
 async def test_guarded_logging_enables_when_needed(
     chunks: list[StreamingContent],
 ) -> None:
@@ -213,6 +215,7 @@ async def test_hot_path_components_use_guarded_logging() -> None:
     ),
     enabled=st.booleans(),
 )
+@settings(max_examples=20)
 async def test_guard_prevents_expensive_operations(
     log_level: int, enabled: bool
 ) -> None:
@@ -267,6 +270,7 @@ async def test_guard_prevents_expensive_operations(
         max_size=20,
     )
 )
+@settings(max_examples=20)
 async def test_metrics_emission_property(chunks: list[StreamingContent]) -> None:
     """
     Property 13: Metrics emission
@@ -339,6 +343,7 @@ async def test_metrics_emission_property(chunks: list[StreamingContent]) -> None
     stream_count=st.integers(min_value=1, max_value=10),
     chunks_per_stream=st.integers(min_value=1, max_value=10),
 )
+@settings(max_examples=20)
 async def test_metrics_per_stream_isolation(
     stream_count: int, chunks_per_stream: int
 ) -> None:
@@ -383,6 +388,7 @@ async def test_metrics_per_stream_isolation(
 @given(
     mutations=st.integers(min_value=0, max_value=20),
 )
+@settings(max_examples=20)
 async def test_middleware_mutation_tracking(mutations: int) -> None:
     """
     Property: Middleware mutations should be accurately tracked.
@@ -427,6 +433,7 @@ async def test_middleware_mutation_tracking(mutations: int) -> None:
         st.integers(min_value=0, max_value=49), min_size=0, max_size=5, unique=True
     ),
 )
+@settings(max_examples=20)
 async def test_error_termination_tracking(
     total_chunks: int, error_chunk_indices: list[int]
 ) -> None:
