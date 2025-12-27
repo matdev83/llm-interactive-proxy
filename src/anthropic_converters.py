@@ -9,8 +9,36 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
+from src.core.common.logging_utils import redact_dict
 
 logger = logging.getLogger(__name__)
+
+
+# Fields that may contain sensitive data and should be redacted from logs
+SENSITIVE_REQUEST_FIELDS = {"api_key", "authorization", "token", "secret", "password", "credentials"}
+
+
+def _redact_sensitive_fields(data: Any) -> Any:
+    """Redact sensitive fields from request/response objects before logging.
+
+    Args:
+        data: The object to redact (dict, BaseModel, or other)
+
+    Returns:
+        A redacted version of the data suitable for safe logging
+    """
+    if isinstance(data, BaseModel):
+        # Handle Pydantic models by converting to dict and redacting
+        return redact_dict(data.model_dump(exclude_none=True))
+    elif isinstance(data, dict):
+        # Handle plain dictionaries
+        return redact_dict(data, redacted_fields=SENSITIVE_REQUEST_FIELDS)
+    elif isinstance(data, list):
+        # Handle lists of items (e.g., messages list)
+        return [_redact_sensitive_fields(item) for item in data]
+    else:
+        # For non-container types, return as-is (strings, numbers, etc.)
+        return data
 
 
 class AnthropicModel(BaseModel):
@@ -111,7 +139,8 @@ def anthropic_to_openai_request(
     """Convert Anthropic `MessagesRequest` into a CanonicalChatRequest."""
 
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("Converting Anthropic to OpenAI request: %r", anthropic_request)
+        redacted_request = _redact_sensitive_fields(anthropic_request)
+        logger.debug("Converting Anthropic to OpenAI request: %r", redacted_request)
 
     messages: list[dict[str, Any]] = []
 
@@ -381,16 +410,17 @@ def anthropic_to_openai_request(
         extra_body=extra_body if extra_body else None,
     )
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("Converted Anthropic to OpenAI request: %r", result)
+        redacted_result = _redact_sensitive_fields(result)
+        logger.debug("Converted Anthropic to OpenAI request: %r", redacted_result)
     return result
-
 
 def openai_to_anthropic_response(
     openai_response: Any,
 ) -> AnthropicMessagesResponse | AnthropicErrorResponse:
     """Convert an OpenAI chat completion response into Anthropic format."""
     if logger.isEnabledFor(logging.DEBUG):
-        logger.debug("Converting OpenAI to Anthropic response: %r", openai_response)
+        redacted_response = _redact_sensitive_fields(openai_response)
+        logger.debug("Converting OpenAI to Anthropic response: %r", redacted_response)
     oai_dict = _normalize_openai_response_to_dict(openai_response)
     # Defensive: handle empty or missing choices gracefully
     choices = oai_dict.get("choices") or []
