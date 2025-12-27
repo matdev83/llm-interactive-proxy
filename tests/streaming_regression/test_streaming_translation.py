@@ -110,9 +110,10 @@ async def test_openai_frontend_gemini_backend_streaming() -> None:
 
     stats = backend.get_timing_stats()
     if stats["chunks_sent"] > 1:
-        assert (
-            stats["avg_delay"] > 0.01
-        ), f"Backend delays too small: {stats['avg_delay']:.3f}s"
+        assert stats["all_at_once"] is False, (
+            "Backend stream appears buffered: "
+            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
+        )
 
     print(
         f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
@@ -165,9 +166,10 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
 
     stats = backend.get_timing_stats()
     if stats["chunks_sent"] > 1:
-        assert (
-            stats["avg_delay"] > 0.01
-        ), f"Backend delays too small: {stats['avg_delay']:.3f}s"
+        assert stats["all_at_once"] is False, (
+            "Backend stream appears buffered: "
+            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
+        )
 
     print(
         f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
@@ -221,9 +223,10 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
 
     stats = backend.get_timing_stats()
     if stats["chunks_sent"] > 1:
-        assert (
-            stats["avg_delay"] > 0.01
-        ), f"Backend delays too small: {stats['avg_delay']:.3f}s"
+        assert stats["all_at_once"] is False, (
+            "Backend stream appears buffered: "
+            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
+        )
 
     print(
         f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
@@ -277,9 +280,10 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
 
     stats = backend.get_timing_stats()
     if stats["chunks_sent"] > 1:
-        assert (
-            stats["avg_delay"] > 0.01
-        ), f"Backend delays too small: {stats['avg_delay']:.3f}s"
+        assert stats["all_at_once"] is False, (
+            "Backend stream appears buffered: "
+            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
+        )
 
     print(
         f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
@@ -334,9 +338,10 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
 
     stats = backend.get_timing_stats()
     if stats["chunks_sent"] > 1:
-        assert (
-            stats["avg_delay"] > 0.01
-        ), f"Backend delays too small: {stats['avg_delay']:.3f}s"
+        assert stats["all_at_once"] is False, (
+            "Backend stream appears buffered: "
+            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
+        )
 
     print(
         f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
@@ -391,9 +396,10 @@ async def test_gemini_frontend_anthropic_backend_streaming() -> None:
 
     stats = backend.get_timing_stats()
     if stats["chunks_sent"] > 1:
-        assert (
-            stats["avg_delay"] > 0.01
-        ), f"Backend delays too small: {stats['avg_delay']:.3f}s"
+        assert stats["all_at_once"] is False, (
+            "Backend stream appears buffered: "
+            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
+        )
 
     print(
         f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"

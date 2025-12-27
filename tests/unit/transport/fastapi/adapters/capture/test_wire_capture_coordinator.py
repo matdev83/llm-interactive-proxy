@@ -11,6 +11,7 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.transport.fastapi.adapters.capture.wire_capture_coordinator import (
     WireCaptureCoordinator,
 )
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockWireCapture(IWireCapture):
@@ -135,7 +136,10 @@ class TestWireCaptureCoordinator:
         async def run_test():
             coordinator.schedule_capture(envelope, {"test": "data"})
             # Give background task time to execute
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
 
         asyncio.run(run_test())
 
@@ -156,7 +160,10 @@ class TestWireCaptureCoordinator:
         async def run_test():
             coordinator.schedule_capture(envelope, {"test": "data"})
             # Give background task time to execute
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
 
         asyncio.run(run_test())
 
@@ -217,7 +224,10 @@ class TestWireCaptureCoordinator:
 
         async def run_test():
             coordinator.schedule_capture(envelope, {"test": "data"}, context)
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
 
         asyncio.run(run_test())
 
@@ -234,7 +244,10 @@ class TestWireCaptureCoordinator:
 
         async def run_test():
             coordinator.schedule_capture(envelope, {"test": "data"})
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
 
         asyncio.run(run_test())
 

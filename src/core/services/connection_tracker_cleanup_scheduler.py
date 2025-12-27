@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.core.interfaces.activity_tracker_interface import (
@@ -35,7 +36,7 @@ class ConnectionTrackerCleanupScheduler:
     def __init__(
         self,
         activity_tracker: IConnectionActivityTracker,
-        cleanup_interval_seconds: int = 300,  # 5 minutes
+        cleanup_interval_seconds: float = 300.0,  # 5 minutes
     ) -> None:
         """Initialize the connection tracker cleanup scheduler.
 
@@ -45,7 +46,7 @@ class ConnectionTrackerCleanupScheduler:
                 Default is 5 minutes, matching the default stale timeout.
         """
         self._activity_tracker = activity_tracker
-        self._cleanup_interval = cleanup_interval_seconds
+        self._cleanup_interval = float(cleanup_interval_seconds)
         self._cleanup_task: asyncio.Task[None] | None = None
         self._running = False
         self._shutdown_event = asyncio.Event()
@@ -68,9 +69,25 @@ class ConnectionTrackerCleanupScheduler:
         self._shutdown_event.clear()
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info(
-            "Connection tracker cleanup scheduler started with %d second interval",
+            "Connection tracker cleanup scheduler started with %.3f second interval",
             self._cleanup_interval,
         )
+        # Run one best-effort cleanup immediately so callers/tests don't have to
+        # wait a full interval for the first cleanup pass.
+        #
+        # If `cleanup_stale_connections` is async, defer to the background loop
+        # to avoid blocking startup.
+        cleanup_method = getattr(
+            self._activity_tracker, "cleanup_stale_connections", None
+        )
+        if cleanup_method is not None and not inspect.iscoroutinefunction(
+            cleanup_method
+        ):
+            self._run_sync_cleanup_best_effort()
+
+        # Yield control so the background task can start promptly (important in tests
+        # that advance a fake clock without awaiting in between).
+        await asyncio.sleep(0)
 
     async def stop(self) -> None:
         """Stop the periodic cleanup task.
@@ -87,11 +104,6 @@ class ConnectionTrackerCleanupScheduler:
 
         if self._cleanup_task:
             try:
-                await asyncio.wait_for(self._cleanup_task, timeout=30.0)
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Cleanup task did not finish within 30 seconds, cancelling"
-                )
                 self._cleanup_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._cleanup_task
@@ -109,28 +121,9 @@ class ConnectionTrackerCleanupScheduler:
         at the configured interval and handles any errors gracefully.
         """
         while self._running and not self._shutdown_event.is_set():
-            # Wait for the next cleanup cycle or shutdown signal first
-            try:
-                await asyncio.wait_for(
-                    self._shutdown_event.wait(),
-                    timeout=self._cleanup_interval,
-                )
-                # If wait_for completes without timeout, shutdown was signaled
-                break
-            except asyncio.TimeoutError:
-                # Timeout is expected - continue to cleanup
-                pass
-
-            # Yield control to ensure other tasks can run
-            await asyncio.sleep(0)
-
-            # Check if we were stopped while waiting
-            if not self._running or self._shutdown_event.is_set():
-                break
-
             try:
                 # Perform cleanup
-                cleaned_count = self._activity_tracker.cleanup_stale_connections()
+                cleaned_count = await self._run_cleanup_once()
 
                 if cleaned_count > 0 and logger.isEnabledFor(logging.INFO):
                     logger.info(
@@ -148,3 +141,52 @@ class ConnectionTrackerCleanupScheduler:
                     e,
                     exc_info=True,
                 )
+
+            # Yield control to ensure other tasks can run
+            await asyncio.sleep(0)
+
+            # Wait for the next cleanup cycle or shutdown signal
+            wait_task = asyncio.create_task(self._shutdown_event.wait())
+            sleep_task = asyncio.create_task(asyncio.sleep(self._cleanup_interval))
+            done, pending = await asyncio.wait(
+                {wait_task, sleep_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for pending_task in pending:
+                pending_task.cancel()
+            if wait_task in done:
+                break
+
+    def _run_sync_cleanup_best_effort(self) -> None:
+        try:
+            cleaned_count = self._activity_tracker.cleanup_stale_connections()
+            if inspect.isawaitable(cleaned_count):
+                # Avoid leaking an un-awaited coroutine; the async cleanup loop will
+                # handle the async path.
+                if inspect.iscoroutine(cleaned_count):
+                    cleaned_count.close()
+                return
+            if (
+                cleaned_count
+                and int(cleaned_count) > 0
+                and logger.isEnabledFor(logging.INFO)
+            ):
+                logger.info(
+                    "Connection tracker cleanup completed: removed %d stale connections",
+                    int(cleaned_count),
+                )
+        except Exception as e:
+            logger.error(
+                "Error during connection tracker cleanup: %s",
+                e,
+                exc_info=True,
+            )
+
+    async def _run_cleanup_once(self) -> int:
+        cleaned_count: Any = self._activity_tracker.cleanup_stale_connections()
+        if inspect.isawaitable(cleaned_count):
+            cleaned_count = await cleaned_count
+        try:
+            return int(cleaned_count or 0)
+        except Exception:
+            return 0

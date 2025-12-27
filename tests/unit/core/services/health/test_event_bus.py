@@ -9,6 +9,7 @@ from typing import ClassVar
 import pytest
 from src.core.domain.events import Event
 from src.core.services.event_bus import EventBus
+from tests.utils.fake_clock import FakeClockContext
 
 
 @dataclass(frozen=True)
@@ -135,7 +136,10 @@ class TestEventBus:
         event_processed = asyncio.Event()
 
         async def slow_handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
             received.append(event)
             event_processed.set()
 

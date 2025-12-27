@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import Mock
 
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockMemoryService:
@@ -20,13 +21,19 @@ class MockMemoryService:
 
     async def is_enabled_for_session(self, session_id):
         # Simulate realistic async check
-        await asyncio.sleep(0.001)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+            clock.advance(0.001)
+            await sleep_task
         async with self.enable_lock:
             return session_id in self.enabled_sessions
 
     async def enable_for_session(self, session_id, user_id=None, **kwargs):
         # Simulate slow async operation to create race window
-        await asyncio.sleep(self.sleep_time)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(self.sleep_time))
+            clock.advance(self.sleep_time)
+            await sleep_task
         async with self.enable_lock:
             if session_id not in self.enabled_sessions:
                 self.enabled_sessions[session_id] = True

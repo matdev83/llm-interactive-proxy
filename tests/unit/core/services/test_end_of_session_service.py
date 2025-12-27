@@ -520,7 +520,11 @@ class TestDispatchTimeout:
 
         # Make publish hang indefinitely
         async def slow_publish(*args, **kwargs):
-            await asyncio.sleep(1.0)
+            from tests.utils.fake_clock import FakeClockContext
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(1.0))
+                clock.advance(1.0)
+                await sleep_task
 
         mock_event_bus.publish = AsyncMock(side_effect=slow_publish)
 
@@ -554,7 +558,11 @@ class TestDispatchTimeout:
 
         # Make publish hang longer than timeout
         async def slow_publish(*args, **kwargs):
-            await asyncio.sleep(0.1)
+            from tests.utils.fake_clock import FakeClockContext
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
 
         mock_event_bus.publish = AsyncMock(side_effect=slow_publish)
 

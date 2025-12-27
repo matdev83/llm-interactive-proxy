@@ -13,6 +13,7 @@ from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.buffered_wire_capture_service import BufferedWireCapture
+from tests.utils.fake_clock import FakeClockContext
 
 # Suppress Windows ProactorEventLoop resource warnings in this module only
 pytestmark = pytest.mark.filterwarnings(
@@ -148,7 +149,10 @@ async def test_buffered_wire_capture_end_to_end(test_app, cleanup_wire_capture):
     )
 
     # Simulate some processing time
-    await asyncio.sleep(0.05)
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+        clock.advance(0.05)
+        await sleep_task
 
     # Capture inbound response
     await wire_capture.capture_inbound_response(

@@ -87,7 +87,10 @@ async def test_service_collection_consecutive_dispose():
     collection = ServiceCollection()
 
     async def mock_close():
-        await asyncio.sleep(0.01)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)
+            await sleep_task
 
     class MockClient:
         async def aclose(self):

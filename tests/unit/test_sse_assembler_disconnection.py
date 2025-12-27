@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 import pytest
 from src.core.ports.sse_assembler import SSEAssembler
 from src.core.ports.streaming_contracts import StreamingContent
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestSSEAssemblerDisconnection:
@@ -47,9 +48,12 @@ class TestSSEAssemblerDisconnection:
         assembler = SSEAssembler()
 
         async def endless_stream():
-            while True:
-                yield StreamingContent(content="data", is_done=False)
-                await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                while True:
+                    yield StreamingContent(content="data", is_done=False)
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                    clock.advance(0.1)
+                    await sleep_task
 
         sse_stream = assembler.assemble_stream(endless_stream())
 

@@ -16,6 +16,7 @@ from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.domain.request_context import RequestContext
 from src.core.services.backend_registry import BackendRegistry
 from src.core.services.model_replacement_service import ModelReplacementService
+from tests.utils.fake_clock import FakeClockContext
 
 
 def create_test_service(
@@ -237,9 +238,12 @@ async def test_concurrent_session_operations() -> None:
 
     # Complete turns concurrently for different sessions
     async def complete_turns(session_id: str, num_turns: int) -> None:
-        for _ in range(num_turns):
-            service.complete_turn(session_id)
-            await asyncio.sleep(0.001)  # Small delay to simulate real usage
+        async with FakeClockContext() as clock:
+            for _ in range(num_turns):
+                service.complete_turn(session_id)
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)  # Small delay to simulate real usage
+                await sleep_task
 
     # Complete different numbers of turns for each session
     tasks = [complete_turns(session_ids[i], i % 5 + 1) for i in range(num_sessions)]

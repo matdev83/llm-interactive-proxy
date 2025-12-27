@@ -18,6 +18,7 @@ from src.core.auth.sso.database import DatabaseManager, TokenRepository
 from src.core.auth.sso.middleware import AuthMiddleware
 from src.core.auth.sso.models import TokenRecord
 from src.core.auth.sso.rate_limit_service import RateLimitService
+from tests.utils.fake_clock import FakeClockContext
 from src.core.auth.sso.sandbox_handler import SandboxHandler
 from src.core.auth.sso.token_service import TokenService
 
@@ -427,7 +428,10 @@ class TestReauthenticationTokenLinking:
         )
 
         # Wait a tiny bit to ensure expiration
-        await asyncio.sleep(0.1)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task
 
         # Try to verify the expired token
         is_valid, agent_token_id = (

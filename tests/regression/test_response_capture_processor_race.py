@@ -4,6 +4,7 @@ import asyncio
 
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.memory.response_capture_processor import ResponseCaptureProcessor
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockMemoryCapture:
@@ -13,7 +14,10 @@ class MockMemoryCapture:
         self.captured = []
 
     async def capture_response(self, session_id: str, **kwargs):
-        await asyncio.sleep(0.001)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+            clock.advance(0.001)
+            await sleep_task
         self.captured.append({"session_id": session_id, "kwargs": kwargs})
 
 
@@ -116,9 +120,12 @@ async def test_reset_during_concurrent_operations():
             await processor.process(content)
 
     async def reset_periodically():
-        for _ in range(5):
-            await asyncio.sleep(0.01)
-            processor.reset()
+        async with FakeClockContext() as clock:
+            for _ in range(5):
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
+                processor.reset()
 
     # Run appends and resets concurrently
     task1 = asyncio.create_task(append_content())

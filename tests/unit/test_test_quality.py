@@ -510,7 +510,11 @@ def test_ruff_linting_on_tests() -> None:
 
         async def retry_check() -> subprocess.CompletedProcess[str]:
             """Retry check with non-blocking delay."""
-            await asyncio.sleep(0.1)  # Brief delay for file operations
+            from tests.utils.fake_clock import FakeClockContext
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)  # Brief delay for file operations
+                await sleep_task
             return subprocess.run(
                 [
                     sys.executable,

@@ -14,6 +14,7 @@ from src.core.interfaces.tool_call_repair_service_interface import (
     ToolCallRepairResult,
 )
 from src.core.services.tool_call_repair_service import ToolCallRepairService
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestToolCallRepairConcurrency:
@@ -163,7 +164,11 @@ class TestToolCallRepairConcurrency:
         async def process_tool_call_async(content: str, index: int) -> None:
             """Process tool call in async context."""
             # Add small random delay to increase chance of race condition
-            await asyncio.sleep(0.001 * (index % 3))
+            delay = 0.001 * (index % 3)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(delay))
+                clock.advance(delay)
+                await sleep_task
 
             result = service.repair_tool_calls(content)
             assert result is not None

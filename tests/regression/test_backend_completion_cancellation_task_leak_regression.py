@@ -98,7 +98,10 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         async def slow_cancel_callback():
             """Simulate slow cancellation callback."""
             # Use fake clock for deterministic time simulation
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
 
         # Create an empty async generator for content to avoid stream processing
         async def empty_content():
@@ -299,7 +302,10 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         async def failing_cancel_callback():
             """Simulate failing cancellation callback."""
             # FakeClockContext will be active when callback is called
-            await asyncio.sleep(0.01)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
             raise RuntimeError("Cancellation callback failed")
 
         # Create an empty async generator for content to avoid stream processing

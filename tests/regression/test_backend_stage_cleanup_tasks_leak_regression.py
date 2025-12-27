@@ -12,6 +12,7 @@ import asyncio
 import httpx
 import pytest
 from src.core.app.stages.backend import BackendStage
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestBackendStageCleanupTasksLeakRegression:
@@ -204,7 +205,10 @@ class TestBackendStageCleanupTasksLeakRegression:
                     try:
                         # Simulate exception during gather
                         async def failing_cleanup():
-                            await asyncio.sleep(0.1)
+                            async with FakeClockContext() as clock:
+                                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                                clock.advance(0.1)
+                                await sleep_task
                             raise RuntimeError("Cleanup failed")
 
                         failing_task = asyncio.create_task(failing_cleanup())

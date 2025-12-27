@@ -110,7 +110,10 @@ async def test_reactor_middleware_only_processes_new_tool_calls():
     config = AppConfig()
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -182,7 +185,10 @@ async def test_reactor_middleware_no_duplicate_executions_integration():
     config = AppConfig()
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -232,7 +238,10 @@ async def test_all_reactor_handlers_work_with_filtering():
     config = AppConfig()
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -450,7 +459,10 @@ async def test_unified_steering_emits_both_log_formats_when_legacy_enabled(
     config = app_config_legacy_log_enabled
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
 
     reactor_middleware = service_provider.get_required_service(
@@ -506,7 +518,10 @@ async def test_unified_steering_emits_only_structured_log_when_legacy_disabled(
     config = app_config_legacy_log_disabled
     builder = ApplicationBuilder().add_default_stages()
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
 
     reactor_middleware = service_provider.get_required_service(

@@ -5,6 +5,7 @@ from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.domain.chat import ChatRequest
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
+from tests.utils.fake_clock import FakeClockContext
 
 # Skip entire module - tests depend on _refresh_instance_registry which is not yet implemented
 pytestmark = pytest.mark.skip(
@@ -239,7 +240,10 @@ class TestBackendRouting:
         async def slow_chat(*args, **kwargs):
             import asyncio
 
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
             return MagicMock(metadata={})
 
         backend.chat_completions = AsyncMock(side_effect=slow_chat)

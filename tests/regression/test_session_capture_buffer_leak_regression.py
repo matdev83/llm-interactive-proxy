@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 import pytest
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.models import CapturedInteraction
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestSessionCaptureBufferLeakRegression:
@@ -155,7 +156,10 @@ class TestSessionCaptureBufferLeakRegression:
             initial_access = buffer._buffers[session_id].last_accessed
 
         # Wait a bit to ensure time progresses
-        await asyncio.sleep(0.01)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)
+            await sleep_task
 
         # Add another interaction to same session
         interaction2 = CapturedInteraction(

@@ -18,6 +18,7 @@ from src.core.auth.sso.authorization_service import (
     AuthorizationService,
 )
 from src.core.auth.sso.config import AuthorizationConfig
+from tests.utils.fake_clock import FakeClockContext
 from src.core.auth.sso.database import DatabaseManager
 from src.core.auth.sso.rate_limit_service import RateLimitService
 
@@ -133,7 +134,10 @@ async def test_property_15_confirmation_code_attempt_decrement(incorrect_attempt
                 break
 
             # Small delay to avoid timing issues (reduced from 0.01s to 0.001s)
-            await asyncio.sleep(0.001)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)
+                await sleep_task
 
 
 # Feature: sso-authentication, Property 16: Correct Confirmation Code Success
@@ -311,7 +315,10 @@ async def test_confirmation_code_attempts_exhausted():
                 assert result.attempts_remaining == 0
 
             # Small delay to avoid timing issues (reduced from 0.01s to 0.001s)
-            await asyncio.sleep(0.001)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)
+                await sleep_task
 
         # Try one more time - should still require re-authentication
         result = await service.verify_confirmation_code(

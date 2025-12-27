@@ -191,7 +191,11 @@ class TestLoopDetectionE2ESessionIsolation:
             result = await processor.process(content)
             assert not result.is_cancellation
             # Simulate small delay between chunks
-            await asyncio.sleep(0.01)
+            from tests.utils.fake_clock import FakeClockContext
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
 
         # Verify detector accumulated all content
         detector = processor._session_detectors[session_id]

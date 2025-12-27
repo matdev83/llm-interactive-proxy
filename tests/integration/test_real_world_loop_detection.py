@@ -16,6 +16,7 @@ from src.core.domain.streaming_response_processor import (
 )
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.loop_detection.hybrid_detector import HybridLoopDetector
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestRealWorldLoopDetection:
@@ -151,9 +152,12 @@ class TestRealWorldLoopDetection:
         ]
 
         async def mock_stream() -> AsyncIterator[str]:
-            for chunk in chunks:
-                yield chunk
-                await asyncio.sleep(0.0001)  # Minimal delay for faster testing
+            async with FakeClockContext() as clock:
+                for chunk in chunks:
+                    yield chunk
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.0001))
+                    clock.advance(0.0001)  # Minimal delay for faster testing
+                    await sleep_task
 
         # Create the processor
         processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)
@@ -197,9 +201,12 @@ class TestRealWorldLoopDetection:
         ]
 
         async def mock_stream() -> AsyncIterator[str]:
-            for chunk in chunks:
-                yield chunk
-                await asyncio.sleep(0.001)  # Reduced delay for faster testing
+            async with FakeClockContext() as clock:
+                for chunk in chunks:
+                    yield chunk
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                    clock.advance(0.001)  # Reduced delay for faster testing
+                    await sleep_task
 
         # Create the processor
         processor = LoopDetectionProcessor(loop_detector_factory=lambda: detector)

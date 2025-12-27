@@ -40,12 +40,18 @@ class SlowWriter(IUsageRecordWriter):
 
     async def batch_insert(self, records: list[UsageRecord]) -> int:
         """Process slowly."""
-        await asyncio.sleep(0.0001)  # Very short delay for test performance
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.0001))
+            clock.advance(0.0001)  # Very short delay for test performance
+            await sleep_task
         return len(records)
 
     async def batch_update(self, records: list[UsageRecord]) -> int:
         """Process slowly."""
-        await asyncio.sleep(0.0001)  # Very short delay for test performance
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.0001))
+            clock.advance(0.0001)  # Very short delay for test performance
+            await sleep_task
         return len(records)
 
 

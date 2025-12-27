@@ -121,13 +121,14 @@ class FakeClockContext:
         """Enter the context."""
         # Patch asyncio.sleep
         self._original_sleep = asyncio.sleep
-        self._original_time = {
-            "time": time_module.time,
-            "monotonic": time_module.monotonic,
-            "perf_counter": time_module.perf_counter,
-        }
+        self._original_time = time_module.time
 
         async def fake_sleep(delay: float, result: Any = None) -> Any:
+            # Many code paths (and pytest/asyncio internals) use `await asyncio.sleep(0)`
+            # as a cooperative yield. Treat non-positive delays as an immediate yield.
+            if delay <= 0:
+                await self._original_sleep(0)  # type: ignore[misc]
+                return result
             await self.clock.sleep(delay)
             return result
 
@@ -136,8 +137,6 @@ class FakeClockContext:
 
         asyncio.sleep = fake_sleep  # type: ignore[assignment]
         time_module.time = fake_time  # type: ignore[assignment]
-        time_module.monotonic = fake_time  # type: ignore[assignment]
-        time_module.perf_counter = fake_time  # type: ignore[assignment]
 
         return self.clock
 
@@ -148,6 +147,4 @@ class FakeClockContext:
             asyncio.sleep = self._original_sleep  # type: ignore[assignment]
 
         if self._original_time is not None:
-            time_module.time = self._original_time["time"]  # type: ignore[assignment]
-            time_module.monotonic = self._original_time["monotonic"]  # type: ignore[assignment]
-            time_module.perf_counter = self._original_time["perf_counter"]  # type: ignore[assignment]
+            time_module.time = self._original_time  # type: ignore[assignment]

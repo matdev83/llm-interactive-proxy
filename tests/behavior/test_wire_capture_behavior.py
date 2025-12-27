@@ -463,7 +463,11 @@ class TestBufferManagementBehavior:
                 )
 
             # Give a moment for async processing
-            await asyncio.sleep(0.1)
+            from tests.utils.fake_clock import FakeClockContext
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
 
             # Then - Buffer should have been flushed (file should contain entries)
             assert service._file_path is not None

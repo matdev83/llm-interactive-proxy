@@ -17,6 +17,7 @@ from src.core.domain.cbor_capture import (
     CaptureSession,
 )
 from src.core.services.cbor_wire_capture_service import CborWireCaptureService
+from tests.utils.fake_clock import FakeClockContext
 
 
 @pytest.fixture
@@ -532,7 +533,10 @@ class TestCborWireCaptureService:
             session_id="ts-test",
             request_payload=b"test1",
         )
-        await asyncio.sleep(0.05)  # 50ms delay for more reliable timing
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+            clock.advance(0.05)  # 50ms delay for more reliable timing
+            await sleep_task
         await capture_service.capture_inbound_request(
             context=None,
             session_id="ts-test",

@@ -18,6 +18,7 @@ from src.core.transport.fastapi.response_adapters import (
     to_fastapi_response,
     to_fastapi_streaming_response,
 )
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockWireCapture(IWireCapture):
@@ -136,7 +137,10 @@ async def test_non_streaming_json_response_with_wire_capture():
     assert response.status_code == 200
 
     # Wait a bit for background task to complete
-    await asyncio.sleep(0.1)
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+        clock.advance(0.1)
+        await sleep_task
 
     # Verify wire capture was scheduled
     assert len(wire_capture.captured_responses) == 1
@@ -160,7 +164,10 @@ async def test_non_streaming_json_response_with_wire_capture_disabled():
     assert response.status_code == 200
 
     # Wait a bit for background task to complete
-    await asyncio.sleep(0.1)
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+        clock.advance(0.1)
+        await sleep_task
 
     # Verify wire capture was NOT scheduled
     assert len(wire_capture.captured_responses) == 0

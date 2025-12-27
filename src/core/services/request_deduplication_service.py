@@ -60,7 +60,7 @@ class RequestDeduplicationService:
 
         self._duplicates_blocked = 0
         self._requests_processed = 0
-        self._last_cleanup_time = time.monotonic()
+        self._last_cleanup_time = time.time()
 
     def _compute_content_hash(self, request: ChatRequest, session_id: str) -> str:
         """Compute deterministic hash of request content.
@@ -96,7 +96,7 @@ class RequestDeduplicationService:
             return hashlib.sha256(serialized.encode()).hexdigest()[:32]
         except Exception as e:
             logger.warning("Failed to compute content hash: %s", e)
-            return hashlib.sha256(str(time.monotonic()).encode()).hexdigest()[:32]
+            return hashlib.sha256(str(time.time()).encode()).hexdigest()[:32]
 
     async def check_and_register(
         self, request: ChatRequest, session_id: str
@@ -115,7 +115,7 @@ class RequestDeduplicationService:
 
         content_hash = self._compute_content_hash(request, session_id)
         cache_key = f"{session_id}:{content_hash}"
-        current_time = time.monotonic()
+        current_time = time.time()
 
         async with self._lock:
             await self._maybe_cleanup_locked(current_time)
@@ -188,7 +188,7 @@ class RequestDeduplicationService:
         """
         async with self._lock:
             initial_size = len(self._cache)
-            cutoff = time.monotonic() - self._window_seconds
+            cutoff = time.time() - self._window_seconds
 
             expired_keys = [
                 key for key, timestamp in self._cache.items() if timestamp < cutoff

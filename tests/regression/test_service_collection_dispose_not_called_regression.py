@@ -10,6 +10,7 @@ import asyncio
 import httpx
 import pytest
 from src.core.di.container import ServiceCollection
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestServiceCollectionDisposeNotCalledRegression:
@@ -47,7 +48,10 @@ class TestServiceCollectionDisposeNotCalledRegression:
         await services.dispose()
 
         # Verify cleanup tasks were awaited
-        await asyncio.sleep(0.1)  # Give tasks time to complete
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)  # Give tasks time to complete
+            await sleep_task
         pending_after = [t for t in services._cleanup_tasks if not t.done()]
         assert (
             len(pending_after) == 0
@@ -92,7 +96,10 @@ class TestServiceCollectionDisposeNotCalledRegression:
         await services.dispose()
 
         # Verify all cleanup tasks were completed
-        await asyncio.sleep(0.1)  # Give tasks time to complete
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)  # Give tasks time to complete
+            await sleep_task
         pending_after = [t for t in services._cleanup_tasks if not t.done()]
         assert len(pending_after) == 0, "All cleanup tasks should be completed"
 

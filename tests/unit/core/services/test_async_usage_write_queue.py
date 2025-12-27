@@ -166,7 +166,10 @@ class TestAsyncUsageWriteQueueAsync:
         await queue.start()
 
         # Wait for flush
-        await asyncio.sleep(0.1)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task
 
         await queue.stop()
 
@@ -257,7 +260,10 @@ class TestAsyncUsageWriteQueuePerformance:
             queue.enqueue_insert(create_test_record())
 
         await queue.start()
-        await asyncio.sleep(0.1)  # Wait for flushes
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)  # Wait for flushes
+            await sleep_task
         await queue.stop()
 
         # Should have processed in batches of 10 or less

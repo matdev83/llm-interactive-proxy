@@ -14,6 +14,7 @@ import sys
 
 import pytest
 from src.connectors.gemini_base.token_manager import TokenManager
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockCredentialProvider:
@@ -62,7 +63,10 @@ async def test_subprocess_leak_with_circular_ref() -> None:
         gc.collect()
 
         # Wait a bit (reduced from 0.1s to 0.05s for performance)
-        await asyncio.sleep(0.05)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+            clock.advance(0.05)
+            await sleep_task
 
         # Check if process is still running
         # With circular references, __del__ may not be called
@@ -178,7 +182,10 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
     gc.collect()
 
     # Wait a bit
-    await asyncio.sleep(0.05)
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+        clock.advance(0.05)
+        await sleep_task
 
     # Check how many processes are still running
     [p for _, p in processes if p.poll() is None]

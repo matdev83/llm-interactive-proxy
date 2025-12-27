@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -27,7 +28,7 @@ from src.core.services.session_metrics_initializer import (
 def mock_session_repository() -> SessionMetricsRepository:
     """Create a mock session metrics repository."""
     mock = MagicMock(spec=SessionMetricsRepository)
-    mock.upsert = AsyncMock()
+    cast(Any, mock).upsert = AsyncMock()
     return mock
 
 
@@ -80,7 +81,8 @@ class TestSuccessCase:
             total_tool_calls=0,
             is_completed=False,
         )
-        mock_session_repository.upsert = AsyncMock(return_value=mock_metrics)
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(return_value=mock_metrics)
 
         # Execute
         await initializer.ensure_session_metrics(
@@ -88,8 +90,8 @@ class TestSuccessCase:
         )
 
         # Verify: upsert was called with correct metrics
-        mock_session_repository.upsert.assert_awaited_once()
-        call_args = mock_session_repository.upsert.call_args[0][0]
+        mock_repo.upsert.assert_awaited_once()
+        call_args = mock_repo.upsert.call_args[0][0]
         assert isinstance(call_args, SessionMetricsTable)
         assert call_args.session_id == "test-session-123"
         assert call_args.start_time == sample_observed_at
@@ -118,7 +120,8 @@ class TestSuccessCase:
             total_tool_calls=2,
             is_completed=False,
         )
-        mock_session_repository.upsert = AsyncMock(return_value=existing_metrics)
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(return_value=existing_metrics)
 
         # Execute
         await initializer.ensure_session_metrics(
@@ -126,7 +129,7 @@ class TestSuccessCase:
         )
 
         # Verify: upsert was called (repository handles update logic)
-        mock_session_repository.upsert.assert_awaited_once()
+        mock_repo.upsert.assert_awaited_once()
 
 
 class TestTimeoutCase:
@@ -149,7 +152,8 @@ class TestTimeoutCase:
             await asyncio.sleep(DEFAULT_TIMEOUT_SECONDS + 0.5)
             return metrics
 
-        mock_session_repository.upsert = AsyncMock(side_effect=slow_upsert)
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(side_effect=slow_upsert)
 
         # Create initializer with short timeout for faster test
         initializer = SessionMetricsInitializer(
@@ -171,14 +175,14 @@ class TestTimeoutCase:
             clock.advance(0.1)
             # Wait for timeout to complete
             await task
+            elapsed = clock.now() - start_time
             # Advance clock further to allow slow_upsert to complete (if it hadn't timed out)
             clock.advance(DEFAULT_TIMEOUT_SECONDS + 0.5)
-            elapsed = clock.now() - start_time
 
         # Verify: returned quickly (within timeout + small buffer)
         assert elapsed < DEFAULT_TIMEOUT_SECONDS
         # Verify: upsert was called (but timed out)
-        mock_session_repository.upsert.assert_awaited_once()
+        mock_repo.upsert.assert_awaited_once()
 
 
 class TestDatabaseUnavailable:
@@ -195,7 +199,8 @@ class TestDatabaseUnavailable:
         """Test that database errors are logged but don't raise."""
         # Setup: mock database error
         db_error = Exception("Database connection failed")
-        mock_session_repository.upsert = AsyncMock(side_effect=db_error)
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(side_effect=db_error)
 
         # Execute: should not raise
         await initializer.ensure_session_metrics(
@@ -203,7 +208,7 @@ class TestDatabaseUnavailable:
         )
 
         # Verify: upsert was called
-        mock_session_repository.upsert.assert_awaited_once()
+        mock_repo.upsert.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_database_timeout_logs_but_doesnt_raise(
@@ -219,10 +224,14 @@ class TestDatabaseUnavailable:
 
         async def slow_upsert(metrics: SessionMetricsTable) -> SessionMetricsTable:
             # Use fake clock for deterministic time simulation
-            await asyncio.sleep(0.2)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.2))
+                clock.advance(0.2)
+                await sleep_task
             return metrics
 
-        mock_session_repository.upsert = AsyncMock(side_effect=slow_upsert)
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(side_effect=slow_upsert)
 
         # Create initializer with very short timeout
         initializer = SessionMetricsInitializer(
@@ -247,7 +256,7 @@ class TestDatabaseUnavailable:
             clock.advance(0.2)
 
         # Verify: upsert was called
-        mock_session_repository.upsert.assert_awaited_once()
+        mock_repo.upsert.assert_awaited_once()
 
 
 class TestConcurrentInitialization:
@@ -272,7 +281,8 @@ class TestConcurrentInitialization:
             total_tool_calls=0,
             is_completed=False,
         )
-        mock_session_repository.upsert = AsyncMock(return_value=mock_metrics)
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(return_value=mock_metrics)
 
         # Execute: multiple concurrent calls
         await asyncio.gather(
@@ -285,7 +295,7 @@ class TestConcurrentInitialization:
         )
 
         # Verify: all calls completed (atomic upsert handles concurrency)
-        assert mock_session_repository.upsert.await_count == 5
+        assert mock_repo.upsert.await_count == 5
 
 
 class TestSessionKeyMapping:
@@ -320,18 +330,19 @@ class TestSessionKeyMapping:
             total_tool_calls=0,
             is_completed=False,
         )
-        mock_session_repository.upsert = AsyncMock(return_value=mock_metrics)
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(return_value=mock_metrics)
 
         # Execute: HTTP session
         await initializer.ensure_session_metrics(
             http_key, observed_at=sample_observed_at
         )
-        http_call = mock_session_repository.upsert.call_args_list[0][0][0]
+        http_call = mock_repo.upsert.call_args_list[0][0][0]
         assert http_call.session_id == "trace-abc123"
 
         # Execute: Codebuff session
         await initializer.ensure_session_metrics(
             codebuff_key, observed_at=sample_observed_at
         )
-        codebuff_call = mock_session_repository.upsert.call_args_list[1][0][0]
+        codebuff_call = mock_repo.upsert.call_args_list[1][0][0]
         assert codebuff_call.session_id == "codebuff:ws-456"

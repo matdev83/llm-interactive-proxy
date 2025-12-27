@@ -441,13 +441,20 @@ async def test_non_deliverable_result_after_cancellation(
     )
 
     # Cancel session while backend call is in progress
-    await asyncio.sleep(0.02)  # Small delay to let call start
+    from tests.utils.fake_clock import FakeClockContext
+    async with FakeClockContext() as clock:
+        sleep_task1 = asyncio.create_task(asyncio.sleep(0.02))
+        clock.advance(0.02)  # Small delay to let call start
+        await sleep_task1
     cancellation_coordinator.cancel_session(
         session_key_a, ClientTerminationReason.CLIENT_DISCONNECTED
     )
 
     # Wait for call to complete (backend has 0.05s delay, so this should be enough)
-    await asyncio.sleep(0.1)
+    async with FakeClockContext() as clock:
+        sleep_task2 = asyncio.create_task(asyncio.sleep(0.1))
+        clock.advance(0.1)
+        await sleep_task2
 
     # Result should be treated as non-deliverable
     with pytest.raises(SessionCancelledError):

@@ -11,6 +11,7 @@ of background task cleanup in Gemini connectors.
 import asyncio
 
 import pytest
+from tests.utils.fake_clock import FakeClockContext
 
 # Try to import Gemini connector, skip test if not available
 try:
@@ -40,13 +41,16 @@ class TestGeminiBackgroundTaskLeakRegression:
         # Create some background tasks to simulate connector behavior
         background_tasks = []
 
-        for _i in range(3):  # Reduced from 5 for performance
+        async with FakeClockContext() as clock:
+            for _i in range(3):  # Reduced from 5 for performance
 
-            async def background_operation():
-                await asyncio.sleep(0.0001)  # Reduced from 0.001 for performance
+                async def background_operation():
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.0001))
+                    clock.advance(0.0001)  # Reduced from 0.001 for performance
+                    await sleep_task
 
-            task = asyncio.create_task(background_operation())
-            background_tasks.append(task)
+                task = asyncio.create_task(background_operation())
+                background_tasks.append(task)
 
         # Wait for tasks to complete
         await asyncio.gather(*background_tasks, return_exceptions=True)
@@ -73,13 +77,16 @@ class TestGeminiBackgroundTaskLeakRegression:
         # Simulate file watcher task creation (reduced sleep and count for performance)
         file_watcher_tasks = []
 
-        for _i in range(3):
+        async with FakeClockContext() as clock:
+            for _i in range(3):
 
-            async def file_watcher_operation():
-                await asyncio.sleep(0.01)
+                async def file_watcher_operation():
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                    clock.advance(0.01)
+                    await sleep_task
 
-            task = asyncio.create_task(file_watcher_operation())
-            file_watcher_tasks.append(task)
+                task = asyncio.create_task(file_watcher_operation())
+                file_watcher_tasks.append(task)
 
         await asyncio.gather(*file_watcher_tasks, return_exceptions=True)
 

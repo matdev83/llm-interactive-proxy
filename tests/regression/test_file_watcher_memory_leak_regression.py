@@ -22,7 +22,10 @@ class TestFileWatcherMemoryLeakRegression:
 
         async def mock_reload_callback() -> None:
             # Use fake clock for deterministic time simulation
-            await asyncio.sleep(0.01)  # Simulate some async work
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)  # Simulate some async work
+                await sleep_task
 
         def mock_stop_callback() -> None:
             pass
@@ -64,7 +67,10 @@ class TestFileWatcherMemoryLeakRegression:
             nonlocal call_count
             call_count += 1
             # Use fake clock for deterministic time simulation
-            await asyncio.sleep(0.005)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.005))
+                clock.advance(0.005)
+                await sleep_task
 
         def mock_stop_callback() -> None:
             pass
@@ -100,7 +106,10 @@ class TestFileWatcherMemoryLeakRegression:
             nonlocal call_count
             call_count += 1
             # Use fake clock for deterministic time simulation
-            await asyncio.sleep(0.02)  # Reduced from 0.05
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.02))
+                clock.advance(0.02)  # Reduced from 0.05
+                await sleep_task
 
         def mock_stop_callback() -> None:
             pass

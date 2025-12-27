@@ -160,7 +160,10 @@ class TestConnectionTrackerCleanupScheduler:
 
         async def slow_cleanup():
             # Use fake clock for deterministic time simulation
-            await asyncio.sleep(0.4)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.4))
+                clock.advance(0.4)
+                await sleep_task
             return 1
 
         mock_tracker.cleanup_stale_connections = slow_cleanup

@@ -31,7 +31,10 @@ class TestEventBusPendingTasksLeakRegression:
         num_events = 300  # Reduced from 500 for faster test execution
 
         async def quick_handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.0003)  # Further reduced for faster completion
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.0003))
+                clock.advance(0.0003)  # Further reduced for faster completion
+                await sleep_task
 
         # Subscribe handler
         event_bus.subscribe(TestEvent, quick_handler)
@@ -81,7 +84,10 @@ class TestEventBusPendingTasksLeakRegression:
         task_refs = []
 
         async def slow_handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.001)  # Reduced from 0.01 for faster test execution
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)  # Reduced from 0.01 for faster test execution
+                await sleep_task
 
         event_bus.subscribe(TestEvent, slow_handler)
 
@@ -139,7 +145,10 @@ class TestEventBusPendingTasksLeakRegression:
         event_bus = EventBus()
 
         async def slow_handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
 
         event_bus.subscribe(TestEvent, slow_handler)
 
@@ -183,7 +192,10 @@ class TestEventBusPendingTasksLeakRegression:
         event_bus = EventBus()
 
         async def handler(event: TestEvent) -> None:
-            await asyncio.sleep(0.0005)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.0005))
+                clock.advance(0.0005)
+                await sleep_task
 
         event_bus.subscribe(TestEvent, handler)
 

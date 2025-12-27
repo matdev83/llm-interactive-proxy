@@ -29,7 +29,10 @@ class TestAppLifecycleBackgroundTasksNoCleanupRegression:
         for i in range(num_tasks):
 
             async def dummy_task(task_id: int = i):
-                await asyncio.sleep(0.001)
+                async with FakeClockContext() as clock:
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                    clock.advance(0.001)
+                    await sleep_task
                 return task_id
 
             task = asyncio.create_task(dummy_task())
@@ -68,7 +71,10 @@ class TestAppLifecycleBackgroundTasksNoCleanupRegression:
         for i in range(num_tasks):
 
             async def dummy_task(task_id: int = i):
-                await asyncio.sleep(0.001)
+                async with FakeClockContext() as clock:
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                    clock.advance(0.001)
+                    await sleep_task
                 return task_id
 
             task = asyncio.create_task(dummy_task())

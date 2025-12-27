@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi.responses import StreamingResponse
 from src.core.domain.chat import ChatRequest
+from tests.utils.fake_clock import FakeClockContext
 
 
 def test_wait_for_rate_limited_backends(monkeypatch: Any, client: Any) -> None:
@@ -54,8 +55,13 @@ def test_wait_for_rate_limited_backends(monkeypatch: Any, client: Any) -> None:
         context: Any = None,
     ) -> StreamingResponse:
         # Simulate two backoffs that would normally be driven by 429 Retry-After headers
-        await asyncio.sleep(0.1)
-        await asyncio.sleep(0.3)
+        async with FakeClockContext() as clock:
+            sleep_task1 = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task1
+            sleep_task2 = asyncio.create_task(asyncio.sleep(0.3))
+            clock.advance(0.3)
+            await sleep_task2
 
         # Success path: return SSE-like text in a simple JSON envelope expected by compat layer
         from fastapi.responses import StreamingResponse

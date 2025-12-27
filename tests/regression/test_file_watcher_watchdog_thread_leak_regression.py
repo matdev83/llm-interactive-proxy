@@ -14,6 +14,7 @@ from tempfile import TemporaryDirectory
 
 import pytest
 from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherState
+from tests.utils.fake_clock import FakeClockContext
 
 
 def count_watchdog_threads() -> int:
@@ -33,7 +34,10 @@ def count_watchdog_threads() -> int:
 async def mock_reload_callback() -> None:
     """Mock reload callback."""
     # Use fake clock for deterministic time simulation
-    await asyncio.sleep(0.01)
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+        clock.advance(0.01)
+        await sleep_task
 
 
 def mock_stop_callback() -> None:

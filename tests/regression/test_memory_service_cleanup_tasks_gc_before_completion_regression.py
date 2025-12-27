@@ -10,6 +10,7 @@ import gc
 import pytest
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.service import MemoryService
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockRepository:
@@ -49,7 +50,10 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
 
         # Create cleanup tasks that take some time to complete
         async def slow_cleanup():
-            await asyncio.sleep(0.03)  # Reduced from 0.05 for faster completion
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.03))
+                clock.advance(0.03)  # Reduced from 0.05 for faster completion
+                await sleep_task
             return "done"
 
         async with memory_service._state_lock:
@@ -87,7 +91,10 @@ class TestMemoryServiceCleanupTasksGCBeforeCompletionRegression:
             )
 
         # Wait for tasks to complete
-        await asyncio.sleep(0.1)  # Reduced from 0.15
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)  # Reduced from 0.15
+            await sleep_task
 
         # Now cleanup should await and remove tasks
         await memory_service.cleanup()
