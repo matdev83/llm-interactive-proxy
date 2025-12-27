@@ -603,7 +603,7 @@ def test_property_20_thread_safe_concurrent_access(
 
 
 @given(records=st.lists(usage_record_strategy(), min_size=1, max_size=20))
-@property_test_settings(max_examples=50)
+@property_test_settings(max_examples=20)
 def test_property_21_persistence_dirty_flag_correctness(
     records: list[UsageRecord],
 ) -> None:

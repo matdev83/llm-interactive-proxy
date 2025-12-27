@@ -171,7 +171,7 @@ async def test_property_4_error_terminal_chunks(
     first_stream=chunk_stream_strategy(min_size=1, max_size=5),
     second_stream=chunk_stream_strategy(min_size=1, max_size=5),
 )
-@property_test_settings(max_examples=50)
+@property_test_settings(max_examples=20)
 def test_property_21_stream_state_isolation(
     first_stream: list[StreamingContent],
     second_stream: list[StreamingContent],

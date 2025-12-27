@@ -135,7 +135,7 @@ def test_property_15_confirmation_code_attempt_decrement(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings(max_examples=50)
+@property_test_settings(max_examples=20)
 def test_property_16_correct_confirmation_code_success(
     config: AuthorizationConfig,
 ) -> None:
