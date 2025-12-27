@@ -28,6 +28,31 @@ from src.core.common.exceptions import (
 pytestmark = [pytest.mark.behavior]
 
 
+@pytest.fixture(scope="module")
+def health_check_service_source():
+    return inspect.getsource(GeminiHealthCheckService)
+
+
+@pytest.fixture(scope="module")
+def credential_coordinator_source():
+    return inspect.getsource(GeminiCredentialCoordinator)
+
+
+@pytest.fixture(scope="module")
+def error_mapper_source():
+    return inspect.getsource(GeminiErrorMapper)
+
+
+@pytest.fixture(scope="module")
+def connector_source():
+    return inspect.getsource(GeminiOAuthBaseConnector)
+
+
+@pytest.fixture(scope="module")
+def streaming_executor_source():
+    return inspect.getsource(StreamingExecutor)
+
+
 class TestErrorPropagationInvariants:
     """Test error propagation semantics for routing and failover services."""
 
@@ -119,25 +144,28 @@ class TestRateLimitHandling:
 class TestHealthCheckBehavior:
     """Test health check behavior invariants."""
 
-    def test_health_check_does_not_introduce_new_endpoints(self) -> None:
+    def test_health_check_does_not_introduce_new_endpoints(
+        self, health_check_service_source: str
+    ) -> None:
         """Verify health check uses existing endpoints only."""
-        source = inspect.getsource(GeminiHealthCheckService)
-
         # Should use fetchAvailableModels or loadCodeAssist
-        assert "fetchAvailableModels" in source or "loadCodeAssist" in source
+        assert (
+            "fetchAvailableModels" in health_check_service_source
+            or "loadCodeAssist" in health_check_service_source
+        )
 
-    def test_health_check_uses_only_specified_endpoints(self) -> None:
+    def test_health_check_uses_only_specified_endpoints(
+        self, health_check_service_source: str
+    ) -> None:
         """Verify health check uses only fetchAvailableModels and loadCodeAssist endpoints.
 
         Requirement: 7.3 - The system shall not introduce new health check endpoints.
         """
-        source = inspect.getsource(GeminiHealthCheckService)
-
         # Must use fetchAvailableModels (primary)
-        assert "fetchAvailableModels" in source
+        assert "fetchAvailableModels" in health_check_service_source
 
         # Must use loadCodeAssist (fallback)
-        assert "loadCodeAssist" in source
+        assert "loadCodeAssist" in health_check_service_source
 
         # Should not use any other endpoints
         # Check that no other v1internal endpoints are used
@@ -145,7 +173,7 @@ class TestHealthCheckBehavior:
 
         # Find all v1internal endpoint references
         endpoint_pattern = r"v1internal:(\w+)"
-        endpoints = re.findall(endpoint_pattern, source)
+        endpoints = re.findall(endpoint_pattern, health_check_service_source)
 
         # Should only contain fetchAvailableModels and loadCodeAssist
         allowed_endpoints = {"fetchAvailableModels", "loadCodeAssist"}
@@ -182,24 +210,24 @@ class TestHealthCheckBehavior:
         # Should not raise despite health check failure
         import asyncio
 
-        asyncio.get_event_loop().run_until_complete(service.ensure_healthy())
+        asyncio.run(service.ensure_healthy())
         assert service._health_checked is True
 
 
 class TestCredentialRedaction:
     """Test credential redaction in logs and captures."""
 
-    def test_credentials_not_logged_directly(self) -> None:
+    def test_credentials_not_logged_directly(
+        self, credential_coordinator_source: str
+    ) -> None:
         """Verify credentials are not logged directly in production code paths.
 
         The actual credential redaction happens at the logging layer, not
         at the model level. Verify that production code follows safe patterns.
         """
-        source = inspect.getsource(GeminiCredentialCoordinator)
-
         # Production code should not log raw credentials
         # Check that there are no dangerous logging patterns
-        lines = source.split("\n")
+        lines = credential_coordinator_source.split("\n")
         dangerous_patterns = ['credentials)}"]', "access_token={", "refresh_token={"]
 
         for line in lines:
@@ -208,7 +236,9 @@ class TestCredentialRedaction:
                     pattern not in line
                 ), f"Found potentially unsafe credential logging: {line}"
 
-    def test_secret_redaction_in_log_output(self) -> None:
+    def test_secret_redaction_in_log_output(
+        self, credential_coordinator_source: str
+    ) -> None:
         """Verify production code doesn't log credentials directly.
 
         Requirement: 8.1 - The system shall keep secrets redacted in logs and wire captures.
@@ -217,9 +247,6 @@ class TestCredentialRedaction:
         values. Actual redaction happens at the logging layer, but we verify that
         production code follows safe patterns.
         """
-        # Check credential coordinator source for unsafe logging patterns
-        coordinator_source = inspect.getsource(GeminiCredentialCoordinator)
-
         # Production code should not log raw credentials
         # Check for dangerous patterns that would expose secrets
         dangerous_patterns = [
@@ -240,14 +267,16 @@ class TestCredentialRedaction:
                 logger_pattern = (
                     r"logger\.(debug|info|warning|error)\([^)]*credentials[^)]*\)"
                 )
-                matches = re.findall(logger_pattern, coordinator_source, re.IGNORECASE)
+                matches = re.findall(
+                    logger_pattern, credential_coordinator_source, re.IGNORECASE
+                )
 
                 # If matches found, verify they don't log raw credential values
                 for _match in matches:
                     # Extract the log message part
                     log_call_match = re.search(
                         r"logger\.(?:debug|info|warning|error)\(([^)]+)\)",
-                        coordinator_source,
+                        credential_coordinator_source,
                     )
                     if log_call_match:
                         log_message = log_call_match.group(1)
@@ -261,11 +290,12 @@ class TestCredentialRedaction:
         # Verify credential coordinator uses safe logging patterns
         # (e.g., logging that credentials were loaded, not their values)
         assert (
-            "logger.info" in coordinator_source or "logger.debug" in coordinator_source
+            "logger.info" in credential_coordinator_source
+            or "logger.debug" in credential_coordinator_source
         )
         # Verify it doesn't log credential values directly
-        assert 'f"access_token: {access_token}"' not in coordinator_source
-        assert 'f"token: {token}"' not in coordinator_source
+        assert 'f"access_token: {access_token}"' not in credential_coordinator_source
+        assert 'f"token: {token}"' not in credential_coordinator_source
 
     def test_to_dict_preserves_credentials_for_internal_use(self) -> None:
         """Verify to_dict still works for internal credential passing."""
@@ -285,28 +315,33 @@ class TestCredentialRedaction:
 class TestCredentialLoadingMechanisms:
     """Test credential loading mechanism invariants (Requirement 8.3)."""
 
-    def test_credential_coordinator_uses_credential_loader(self) -> None:
+    def test_credential_coordinator_uses_credential_loader(
+        self, credential_coordinator_source: str
+    ) -> None:
         """Verify credential coordinator delegates to CredentialLoader."""
-        source = inspect.getsource(GeminiCredentialCoordinator)
-
         # Should use CredentialLoader for loading
-        assert "CredentialLoader" in source
+        assert "CredentialLoader" in credential_coordinator_source
 
-    def test_credential_coordinator_uses_token_manager(self) -> None:
+    def test_credential_coordinator_uses_token_manager(
+        self, credential_coordinator_source: str
+    ) -> None:
         """Verify credential coordinator uses TokenManager for refresh."""
-        source = inspect.getsource(GeminiCredentialCoordinator)
-
         # Should use TokenManager for refresh
-        assert "TokenManager" in source
+        assert "TokenManager" in credential_coordinator_source
 
-    def test_credential_coordinator_uses_file_watcher(self) -> None:
+    def test_credential_coordinator_uses_file_watcher(
+        self, credential_coordinator_source: str
+    ) -> None:
         """Verify credential coordinator uses FileWatcher for hot reload."""
-        source = inspect.getsource(GeminiCredentialCoordinator)
-
         # Should use FileWatcher for watching changes
-        assert "FileWatcher" in source or "file_watcher" in source.lower()
+        assert (
+            "FileWatcher" in credential_coordinator_source
+            or "file_watcher" in credential_coordinator_source.lower()
+        )
 
-    def test_credential_file_watching_behavior(self) -> None:
+    def test_credential_file_watching_behavior(
+        self, credential_coordinator_source: str
+    ) -> None:
         """Verify credential file watching behavior is preserved.
 
         Requirement: 8.3 - Credential loading mechanisms preserved.
@@ -316,16 +351,14 @@ class TestCredentialLoadingMechanisms:
             FileWatcherState,
         )
 
-        source = inspect.getsource(GeminiCredentialCoordinator)
-
         # Should start file watching during initialization
         assert (
-            "start_file_watching" in source
-            or "FileWatcher.start_file_watching" in source
+            "start_file_watching" in credential_coordinator_source
+            or "FileWatcher.start_file_watching" in credential_coordinator_source
         )
 
         # Should have method to handle file changes
-        assert "_handle_credentials_file_change" in source
+        assert "_handle_credentials_file_change" in credential_coordinator_source
 
         # Verify FileWatcher has required methods
         watcher_source = inspect.getsource(FileWatcher)
@@ -340,26 +373,30 @@ class TestCredentialLoadingMechanisms:
 class TestLoggingStructure:
     """Test logging structure invariants (Requirement 7.2)."""
 
-    def test_error_mapper_logs_with_exc_info(self) -> None:
+    def test_error_mapper_logs_with_exc_info(self, error_mapper_source: str) -> None:
         """Verify error mapper logs exceptions with exc_info=True."""
-        source = inspect.getsource(GeminiErrorMapper)
-
         # Should log with exc_info=True for debugging
-        assert "exc_info=True" in source or "exc_info" in source
+        assert (
+            "exc_info=True" in error_mapper_source or "exc_info" in error_mapper_source
+        )
 
-    def test_health_check_logs_failures(self) -> None:
+    def test_health_check_logs_failures(self, health_check_service_source: str) -> None:
         """Verify health check logs failures appropriately."""
-        source = inspect.getsource(GeminiHealthCheckService)
-
         # Should have logging statements
-        assert "logger" in source.lower() or "logging" in source
+        assert (
+            "logger" in health_check_service_source.lower()
+            or "logging" in health_check_service_source
+        )
 
-    def test_credential_coordinator_logs_operations(self) -> None:
+    def test_credential_coordinator_logs_operations(
+        self, credential_coordinator_source: str
+    ) -> None:
         """Verify credential coordinator logs important operations."""
-        source = inspect.getsource(GeminiCredentialCoordinator)
-
         # Should have logging
-        assert "logger" in source.lower() or "logging" in source
+        assert (
+            "logger" in credential_coordinator_source.lower()
+            or "logging" in credential_coordinator_source
+        )
 
 
 class TestCapturePayloadCompatibility:
@@ -454,20 +491,22 @@ class TestCapturePayloadCompatibility:
 class TestAuthRetrySemantics:
     """Test 401 auth retry semantics for reliability."""
 
-    def test_connector_has_auth_retry_constant(self) -> None:
+    def test_connector_has_auth_retry_constant(self, connector_source: str) -> None:
         """Verify auth retry timeout constant exists."""
-        source = inspect.getsource(GeminiOAuthBaseConnector)
-        assert "AUTH_RETRY_TIMEOUT" in source
+        assert "AUTH_RETRY_TIMEOUT" in connector_source
 
-    def test_streaming_executor_has_401_handling(self) -> None:
+    def test_streaming_executor_has_401_handling(
+        self, streaming_executor_source: str
+    ) -> None:
         """Verify streaming executor handles 401 errors."""
-        source = inspect.getsource(StreamingExecutor)
-        assert "401" in source or "status_code" in source
+        assert (
+            "401" in streaming_executor_source
+            or "status_code" in streaming_executor_source
+        )
 
-    def test_connector_has_retry_flag(self) -> None:
+    def test_connector_has_retry_flag(self, connector_source: str) -> None:
         """Verify connector uses retry flag to prevent infinite loops."""
-        source = inspect.getsource(GeminiOAuthBaseConnector)
-        assert "_auth_retry_attempted" in source
+        assert "_auth_retry_attempted" in connector_source
 
 
 class TestValidationBehavior:
@@ -583,39 +622,39 @@ class TestHealthCheckEndpointValidation:
     Requirement: 7.3 - Health check uses correct endpoint URLs and fallback order.
     """
 
-    def test_health_check_uses_correct_endpoint_urls(self) -> None:
+    def test_health_check_uses_correct_endpoint_urls(
+        self, health_check_service_source: str
+    ) -> None:
         """Verify health check constructs correct endpoint URLs."""
-        source = inspect.getsource(GeminiHealthCheckService)
-
         # Should use fetchAvailableModels endpoint
-        assert "fetchAvailableModels" in source
-        assert "v1internal:fetchAvailableModels" in source
+        assert "fetchAvailableModels" in health_check_service_source
+        assert "v1internal:fetchAvailableModels" in health_check_service_source
 
         # Should use loadCodeAssist as fallback
-        assert "loadCodeAssist" in source
-        assert "v1internal:loadCodeAssist" in source
+        assert "loadCodeAssist" in health_check_service_source
+        assert "v1internal:loadCodeAssist" in health_check_service_source
 
-    def test_health_check_endpoint_fallback_order(self) -> None:
+    def test_health_check_endpoint_fallback_order(
+        self, health_check_service_source: str
+    ) -> None:
         """Verify health check endpoint fallback order is correct."""
-        source = inspect.getsource(GeminiHealthCheckService._perform_health_check)
-
         # fetchAvailableModels should be tried first
-        fetch_index = source.find("fetchAvailableModels")
-        load_index = source.find("loadCodeAssist")
+        fetch_index = health_check_service_source.find("fetchAvailableModels")
+        load_index = health_check_service_source.find("loadCodeAssist")
 
         assert (
             fetch_index < load_index
         ), "fetchAvailableModels should be tried before loadCodeAssist"
 
-    def test_health_check_does_not_use_other_endpoints(self) -> None:
+    def test_health_check_does_not_use_other_endpoints(
+        self, health_check_service_source: str
+    ) -> None:
         """Verify health check doesn't use endpoints other than allowed ones."""
-        source = inspect.getsource(GeminiHealthCheckService)
-
         # Find all v1internal endpoint references
         import re
 
         endpoint_pattern = r"v1internal:(\w+)"
-        endpoints = re.findall(endpoint_pattern, source)
+        endpoints = re.findall(endpoint_pattern, health_check_service_source)
 
         # Should only contain fetchAvailableModels and loadCodeAssist
         allowed_endpoints = {"fetchAvailableModels", "loadCodeAssist"}

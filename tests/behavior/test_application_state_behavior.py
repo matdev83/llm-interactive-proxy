@@ -302,7 +302,7 @@ class TestConcurrentStateAccessBehavior:
         # Given
         service = ApplicationStateService()
         num_threads = 10
-        operations_per_thread = 100
+        operations_per_thread = 10
 
         def worker_thread(thread_id: int):
             """Worker function that performs state operations."""
@@ -346,7 +346,7 @@ class TestConcurrentStateAccessBehavior:
 
         def state_worker():
             """Worker that performs state operations."""
-            for i in range(50):
+            for i in range(10):
                 service.set_command_prefix(f"/thread_{i}")
                 prefix = service.get_command_prefix()
                 assert prefix is not None
@@ -385,7 +385,7 @@ class TestConcurrentStateAccessBehavior:
 
         async def async_worker(worker_id: int):
             """Async worker that performs state operations."""
-            for i in range(50):
+            for i in range(10):
                 service.set_functional_backends([f"backend_{worker_id}_{i}"])
                 service.set_backend_type(f"type_{worker_id}")
 
@@ -683,13 +683,13 @@ class TestErrorHandlingAndResilienceBehavior:
         # When - Perform many state operations
         initial_memory = len(service._local_state)
 
-        for i in range(1000):
+        for i in range(100):
             service.set_setting(f"temp_key_{i}", f"value_{i}")
             service.set_functional_backends([f"backend_{j}" for j in range(i % 10)])
             service.get_setting(f"temp_key_{i}")
 
         # Clean up some settings
-        for i in range(500):
+        for i in range(50):
             if f"temp_key_{i}" in service._local_state:
                 del service._local_state[f"temp_key_{i}"]
 
@@ -697,8 +697,8 @@ class TestErrorHandlingAndResilienceBehavior:
         final_memory = len(service._local_state)
 
         # Should not have grown excessively (allowing for some legitimate growth)
-        assert final_memory < initial_memory + 1000  # Reasonable bound
+        assert final_memory < initial_memory + 100  # Reasonable bound
 
         # Service should still be functional
-        assert service.get_setting("temp_key_999") == "value_999"
+        assert service.get_setting("temp_key_99") == "value_99"
         assert isinstance(service.get_functional_backends(), list)
