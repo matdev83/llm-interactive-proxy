@@ -44,9 +44,9 @@ async def test_code_assist_empty_response_returns_empty_envelope():
 
     def mock_iter_content(*args, **kwargs):
         # Simulate SSE stream with empty candidates response
+        # Yield data at once instead of byte-by-byte for performance
         data = b'data: {"candidates": []}\ndata: [DONE]\n'
-        for byte in data:
-            yield bytes([byte])
+        yield data
 
     mock_response.iter_content = mock_iter_content
     mock_response.close = MagicMock()
@@ -119,9 +119,9 @@ async def test_chat_completions_with_tiktoken_usage_calculation():
 
     def mock_iter_content(*args, **kwargs):
         # Simulate SSE stream with content chunk and finish
+        # Yield entire data at once instead of byte-by-byte for performance
         data = b'data: {"candidates": [{"content": {"parts": [{"text": "World"}]}}]}\ndata: {"candidates": [{"finishReason": "STOP"}]}\ndata: [DONE]\n'
-        for byte in data:
-            yield bytes([byte])
+        yield data
 
     mock_sse_response.iter_content = mock_iter_content
     mock_sse_response.close = MagicMock()
@@ -213,10 +213,10 @@ async def test_chat_completions_streaming_with_tiktoken_usage_calculation():
     mock_response.status_code = 200
 
     def mock_iter_content(*args, **kwargs):
-        # Simulate character-by-character streaming as the real API does
+        # Simulate streaming with chunks instead of byte-by-byte for performance
         data = b'data: {"choices": [{"delta": {"content": "Streamed "}}]}\ndata: {"choices": [{"delta": {"content": "World"}}]}\ndata: {"choices": [{"delta": {}, "finish_reason": "stop"}]}\ndata: [DONE]\n'
-        for byte in data:
-            yield bytes([byte])
+        # Yield in chunks to simulate streaming without byte-by-byte overhead
+        yield data
 
     mock_response.iter_content = mock_iter_content
 
@@ -316,8 +316,8 @@ async def test_code_assist_streaming_cancel_callback_absent():
 
     def _iter_content(chunk_size: int = 1, decode_unicode: bool = False):
         data = b'data: {"choices": [{"delta": {"content": "Hi"}}]}\n' b"data: [DONE]\n"
-        for byte in data:
-            yield bytes([byte])
+        # Yield data at once instead of byte-by-byte for performance
+        yield data
 
     stream_response.iter_content.side_effect = _iter_content
     stream_response.close = MagicMock()
