@@ -1,5 +1,6 @@
 # Generate a detailed drift report
 from pathlib import Path
+
 import yaml
 
 # Check schema existence for all backend configs

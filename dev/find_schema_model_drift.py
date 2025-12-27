@@ -1,33 +1,29 @@
 #!/usr/bin/env python
 """Find all schema/model drift issues."""
 import sys
-from pathlib import Path
 from dataclasses import fields
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import yaml
-from src.core.config.models.misc import UsageTrackingConfig, CodebuffConfig, EmptyResponseConfig
-from src.core.config.models.routing import RoutingConfig
-from src.core.config.models.auth import AuthConfig, BruteForceProtectionConfig
-from src.core.config.models.rewriting import RewritingConfig, EditPrecisionConfig
-from src.core.config.models.backends import BackendConfig
-from src.core.config.models.session import (
-    ToolCallReactorConfig,
-    PlanningPhaseConfig,
-    SessionContinuityConfig,
-    StreamingSamplerConfig,
-)
+from src.core.config.models.auth import AuthConfig
 from src.core.config.models.end_of_session import EndOfSessionConfig
+from src.core.config.models.misc import (
+    CodebuffConfig,
+    EmptyResponseConfig,
+    UsageTrackingConfig,
+)
+from src.core.config.models.routing import RoutingConfig
+from src.core.database.config import DatabaseConfig
+from src.core.domain.configuration.assessment_config import AssessmentConfig
+from src.core.domain.configuration.compaction_config import CompactionConfig
 from src.core.domain.configuration.health_check_config import (
     HealthCheckConfig,
-    PingCheckConfig,
     HttpCheckConfig,
+    PingCheckConfig,
 )
-from src.core.domain.configuration.compaction_config import CompactionConfig
-from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.memory.config import MemoryConfiguration
-from src.core.database.config import DatabaseConfig
 
 already_fixed_schemas = {
     "config/schemas/app_config.schema.yaml",

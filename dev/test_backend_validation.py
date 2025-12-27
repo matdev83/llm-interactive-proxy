@@ -1,9 +1,10 @@
-from pathlib import Path
 import sys
+from pathlib import Path
+
 sys.path.insert(0, '.')
-from src.core.config.yaml_validation import validate_yaml_against_schema
-import tempfile
+
 import yaml
+from src.core.config.yaml_validation import validate_yaml_against_schema
 
 backend_configs = [
     "config/backends/gemini-cli-acp/backend.yaml",

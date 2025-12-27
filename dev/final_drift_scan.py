@@ -1,6 +1,8 @@
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import yaml
+
 sys.path.insert(0, '.')
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
@@ -62,7 +64,7 @@ if zai_config.exists() and zai_schema.exists():
         print(f"  FAIL: {zai_config.name}")
         print(f"    {str(e)[:100]}")
 else:
-    print(f"  SKIP: config or schema not found")
+    print("  SKIP: config or schema not found")
 
 # 4. Tool call reactor configs
 print("\n4. Tool call reactor configs:")
@@ -97,7 +99,7 @@ if reasoning_config.exists() and reasoning_schema.exists():
         print(f"  FAIL: {reasoning_config.name}")
         print(f"    {str(e)[:100]}")
 else:
-    print(f"  SKIP: config or schema not found")
+    print("  SKIP: config or schema not found")
 
 # 6. OpenAI Codex backend configs
 print("\n6. OpenAI Codex backend configs:")

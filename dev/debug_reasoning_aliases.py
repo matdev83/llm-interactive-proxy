@@ -1,7 +1,8 @@
 """Debug reasoning_aliases.yaml.example validation."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent))

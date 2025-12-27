@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 """Check for drift between dataclass configs and schemas."""
 import sys
-from pathlib import Path
 from dataclasses import fields
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import yaml
-from src.core.domain.configuration.compaction_config import CompactionConfig
 from src.core.domain.configuration.assessment_config import AssessmentConfig
+from src.core.domain.configuration.compaction_config import CompactionConfig
 
 
 def check_dataclass_vs_schema(dataclass_class, schema_path, schema_section):
@@ -34,7 +34,7 @@ def check_dataclass_vs_schema(dataclass_class, schema_path, schema_section):
     if extra_in_schema:
         print(f"  EXTRA in schema: {sorted(extra_in_schema)}")
     if not missing_in_schema and not extra_in_schema:
-        print(f"  [OK] Fields match")
+        print("  [OK] Fields match")
     
     return len(missing_in_schema) == 0 and len(extra_in_schema) == 0
 

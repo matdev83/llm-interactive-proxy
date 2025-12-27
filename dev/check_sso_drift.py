@@ -3,6 +3,7 @@
 
 import sys
 from pathlib import Path
+
 import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,8 +16,15 @@ with schema_path.open() as f:
 schema_props = set(schema.get("properties", {}).keys())
 
 # Load SSO config code model to check if it has fields not in schema
-from src.core.auth.sso.config import SSOConfig, ProviderConfig, AuthorizationConfig, CaptchaConfig
 import dataclasses
+
+from src.core.auth.sso.config import (
+    AuthorizationConfig,
+    CaptchaConfig,
+    ProviderConfig,
+    SSOConfig,
+)
+
 
 # Get fields from dataclasses
 def get_dataclass_fields(cls):

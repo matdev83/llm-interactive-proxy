@@ -1,7 +1,9 @@
 import sys
+
 sys.path.insert(0, '.')
 
 from pathlib import Path
+
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
 config_path = Path('config/reasoning_aliases.yaml.example')

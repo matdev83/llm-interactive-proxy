@@ -1,7 +1,6 @@
 """Find config files that aren't being validated."""
 
 from pathlib import Path
-import yaml
 
 # List all config files
 all_yaml_files = [

@@ -1,13 +1,12 @@
 """List all config model classes and their fields."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import importlib.util
-import pkgutil
-from typing import Any
+
 
 def inspect_module(module_path: Path, module_name: str):
     """Inspect a Python module for DomainModel classes."""

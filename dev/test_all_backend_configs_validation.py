@@ -1,12 +1,12 @@
 """Test that all backend config files validate against their schemas."""
 
-from pathlib import Path
 import sys
+from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.core.config.yaml_validation import validate_yaml_against_schema
 import yaml
+from src.core.config.yaml_validation import validate_yaml_against_schema
 
 # Find all backend config files
 backend_configs = list(Path('config/backends').rglob('*.yaml'))
@@ -34,7 +34,7 @@ for config_path in backend_configs:
             backend_type = config.get('backend_type')
             
             if not backend_type:
-                print(f"  [SKIP] No backend_type defined")
+                print("  [SKIP] No backend_type defined")
                 continue
             
             if backend_type in backend_type_to_schema:

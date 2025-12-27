@@ -1,6 +1,7 @@
 # Test if backend configs would work with BackendConfig model
-from pathlib import Path
 import sys
+from pathlib import Path
+
 sys.path.insert(0, '.')
 import yaml
 from src.core.config.models.backends import BackendConfig
@@ -25,7 +26,7 @@ for config_path in backend_configs:
         
         # Try to create BackendConfig from this data
         backend_config = BackendConfig(**config_data)
-        print(f"  PASS: BackendConfig created successfully")
+        print("  PASS: BackendConfig created successfully")
         print(f"  api_key: {backend_config.api_key}")
         print(f"  timeout: {backend_config.timeout}")
         print(f"  extra fields: {list(backend_config.extra.keys())}")

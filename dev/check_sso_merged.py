@@ -26,6 +26,7 @@ test_config = {
 
 # Write to temp file
 import tempfile
+
 with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
     yaml.dump(test_config, f)
     temp_path = Path(f.name)
@@ -34,7 +35,7 @@ try:
     validate_yaml_against_schema(temp_path, schema_path)
     print("[OK] Validation passed! sso_auth.example.yaml is compatible with app_config schema.")
 except Exception as e:
-    print(f"[FAIL] Validation failed:")
+    print("[FAIL] Validation failed:")
     # Try to extract error details from ConfigurationError
     from src.core.common.exceptions import ConfigurationError
     if isinstance(e, ConfigurationError) and hasattr(e, 'details'):

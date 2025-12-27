@@ -1,9 +1,9 @@
 """
 Quick test to see if the monkeypatch is working correctly in the test.
 """
-from pathlib import Path
-import tempfile
 import os
+import tempfile
+from pathlib import Path
 
 
 def test_monkeypatch_approach():

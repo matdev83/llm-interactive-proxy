@@ -1,12 +1,12 @@
 
-import sys
 import os
+import sys
 
 # Add src to python path
 sys.path.append(os.getcwd())
 
-from src.core.domain.model_utils import parse_model_with_params
 from src.connectors.hybrid_backend.services.model_spec_parser import ModelSpecParser
+from src.core.domain.model_utils import parse_model_with_params
 
 try:
     result = parse_model_with_params("openai:gpt-4")

@@ -3,7 +3,7 @@
 import re
 
 # Read the file
-with open(r"tests\unit\core\domain\test_model_utils_uri.py", "r", encoding="utf-8") as f:
+with open(r"tests\unit\core\domain\test_model_utils_uri.py", encoding="utf-8") as f:
     content = f.read()
 
 # Replace all patterns like:
