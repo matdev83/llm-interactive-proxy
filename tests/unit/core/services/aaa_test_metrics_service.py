@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from src.core.services import metrics_service
 
 
@@ -55,15 +56,25 @@ class TestMetricsService:
         assert stats.min == 0.5
         assert stats.max == 1.0
 
-    def test_timer_context_manager(self):
+    def test_timer_context_manager(self, monkeypatch: pytest.MonkeyPatch):
         """Test the timer context manager."""
+        current_time = {"value": 1000.0}
+
+        def fake_perf_counter() -> float:
+            return current_time["value"]
+
+        monkeypatch.setattr(time, "perf_counter", fake_perf_counter)
+        monkeypatch.setattr(
+            "src.core.services.metrics_service.time.perf_counter", fake_perf_counter
+        )
+
         with metrics_service.timer("test.operation"):
-            time.sleep(0.01)  # Sleep for 10ms
+            current_time["value"] += 0.01  # Advance time by 10ms
 
         stats = metrics_service.get_timer_stats("test.operation")
         assert stats.count == 1
-        assert stats.total >= 0.01  # Should be at least 10ms
-        assert stats.average >= 0.01
+        assert stats.total == pytest.approx(0.01, rel=0.001)  # Should be exactly 10ms
+        assert stats.average == pytest.approx(0.01, rel=0.001)
 
     def test_timer_stats_empty(self):
         """Test getting stats for a timer with no measurements."""

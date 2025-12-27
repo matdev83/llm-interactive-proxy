@@ -7,6 +7,7 @@ to ensure they correctly track metrics and samples.
 
 import time
 
+import pytest
 from src.core.ports.streaming_metrics import (
     StreamingMetrics,
     StreamingSampler,
@@ -101,23 +102,33 @@ class TestStreamingMetrics:
         global_metrics = metrics.get_global_metrics()
         assert global_metrics["chunks_sent"] == 3
 
-    def test_timer_operations(self) -> None:
+    def test_timer_operations(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test timer start/stop operations."""
+        current_time = {"value": 1000.0}
+
+        def fake_perf_counter() -> float:
+            return current_time["value"]
+
+        monkeypatch.setattr(time, "perf_counter", fake_perf_counter)
+        monkeypatch.setattr(
+            "src.core.ports.streaming_metrics.time.perf_counter", fake_perf_counter
+        )
+
         metrics = StreamingMetrics()
         stream_id = "test_stream_timer"
 
         # Start timer
         metrics.start_timer(stream_id, "test_operation")
 
-        # Simulate some work
-        time.sleep(0.01)
+        # Advance time to simulate work
+        current_time["value"] += 0.01
 
         # Stop timer
         elapsed = metrics.stop_timer(stream_id, "test_operation")
 
         assert elapsed is not None
-        # Allow slight scheduler jitter while ensuring millisecond precision
-        assert elapsed >= 0.009
+        # With mocked time, elapsed should be exactly 0.01
+        assert elapsed == pytest.approx(0.01, rel=0.001)
 
     def test_timer_not_started(self) -> None:
         """Test stopping a timer that was never started."""

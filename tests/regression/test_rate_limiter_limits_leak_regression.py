@@ -4,9 +4,8 @@ This test verifies that _limits dictionary is properly bounded and cleaned up
 when limits are set but never used, preventing unbounded memory growth.
 """
 
-import time
-
 import pytest
+from freezegun import freeze_time
 from src.core.services.rate_limiter import InMemoryRateLimiter
 
 
@@ -101,25 +100,26 @@ class TestRateLimiterLimitsLeakRegression:
     @pytest.mark.asyncio
     async def test_limits_tracked_in_last_access_dict(self) -> None:
         """Test that limits_last_access is properly maintained."""
-        limiter = InMemoryRateLimiter(default_limit=10, default_time_window=60)
+        with freeze_time() as frozen_time:
+            limiter = InMemoryRateLimiter(default_limit=10, default_time_window=60)
 
-        # Set a limit
-        key = "test_key"
-        await limiter.set_limit(key, limit=20, time_window=60)
+            # Set a limit
+            key = "test_key"
+            await limiter.set_limit(key, limit=20, time_window=60)
 
-        # Should have entry in both dicts
-        assert key in limiter._limits
-        assert key in limiter._limits_last_access
+            # Should have entry in both dicts
+            assert key in limiter._limits
+            assert key in limiter._limits_last_access
 
-        # Check limit - should update last access
-        initial_access = limiter._limits_last_access[key]
-        time.sleep(0.01)  # Minimal sleep to ensure time difference
-        await limiter.check_limit(key)
-        updated_access = limiter._limits_last_access[key]
+            # Check limit - should update last access
+            initial_access = limiter._limits_last_access[key]
+            frozen_time.tick(0.01)  # Advance time to ensure time difference
+            await limiter.check_limit(key)
+            updated_access = limiter._limits_last_access[key]
 
-        assert (
-            updated_access > initial_access
-        ), "Last access time should be updated when limit is checked."
+            assert (
+                updated_access > initial_access
+            ), "Last access time should be updated when limit is checked."
 
     @pytest.mark.asyncio
     async def test_limits_cleaned_up_when_usage_expires(self) -> None:

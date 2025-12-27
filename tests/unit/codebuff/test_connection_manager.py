@@ -6,7 +6,7 @@ heartbeat monitoring, and subscription management.
 """
 
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.codebuff.connection_manager import ConnectionManager
@@ -88,12 +88,15 @@ class TestConnectionManager:
         session = await manager.get_session(websocket)
         initial_last_seen = session.last_seen
 
-        # Wait a bit to ensure timestamp difference
-        import time
+        # Advance time to ensure timestamp difference
+        with patch("src.codebuff.connection_manager.datetime") as mock_datetime:
+            # Set up mock to return advancing times
+            base_time = datetime.utcnow()
+            mock_datetime.utcnow.side_effect = [
+                base_time + timedelta(microseconds=10000),  # 0.01 seconds later
+            ]
 
-        time.sleep(0.01)
-
-        await manager.update_last_seen(websocket)
+            await manager.update_last_seen(websocket)
 
         session = await manager.get_session(websocket)
         assert session.last_seen > initial_last_seen

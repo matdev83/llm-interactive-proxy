@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 # DoS protection limits
 MAX_JSON_PAYLOAD_SIZE = 10 * 1024 * 1024  # 10MB maximum JSON payload
+MAX_JSON_ARRAY_ELEMENTS = 100_000  # Max elements in any array (DoS protection)
 
 
 class JSONStringParser(IParserStrategy):
@@ -58,6 +59,16 @@ class JSONStringParser(IParserStrategy):
             raise ValueError(f"Expected str, got {type(raw_data).__name__}")
 
         # DoS protection: Check payload size before parsing
+        if len(raw_data) > MAX_JSON_PAYLOAD_SIZE:
+            logger.warning(
+                "JSON payload too large: %d characters (limit: %d bytes)",
+                len(raw_data),
+                MAX_JSON_PAYLOAD_SIZE,
+            )
+            raise ValueError(
+                f"JSON payload too large: {len(raw_data)} characters (limit: {MAX_JSON_PAYLOAD_SIZE} bytes)"
+            )
+
         payload_size = len(raw_data.encode("utf-8"))
         if payload_size > MAX_JSON_PAYLOAD_SIZE:
             logger.warning(
@@ -73,7 +84,9 @@ class JSONStringParser(IParserStrategy):
             parsed_json = json.loads(raw_data)
             # DoS protection: Validate JSON structure (depth and array size)
             try:
-                validate_json_structure(parsed_json)
+                validate_json_structure(
+                    parsed_json, max_array_elements=MAX_JSON_ARRAY_ELEMENTS
+                )
             except JSONValidationError as e:
                 logger.warning("JSON structure validation failed: %s", e)
                 raise ValueError(f"JSON structure validation failed: {e}") from e

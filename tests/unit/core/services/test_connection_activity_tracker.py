@@ -331,8 +331,20 @@ class TestConnectionActivityTracker:
         # All connections should be cleaned up
         assert self.tracker.get_connection_count() == 0
 
-    def test_cleanup_stale_connections(self) -> None:
+    def test_cleanup_stale_connections(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test cleanup of stale connections."""
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        monkeypatch.setattr(time, "time", fake_time)
+        monkeypatch.setattr(
+            "src.core.services.connection_activity_tracker.time.time", fake_time
+        )
+
         # Create tracker with very short timeout for testing
         tracker = ConnectionActivityTracker(stale_timeout_seconds=0.1)
 
@@ -344,15 +356,15 @@ class TestConnectionActivityTracker:
             session_id="stale",
             backend_name="test",
             connection_type=ConnectionType.STREAMING,
-            started_at=time.time() - 1.0,  # Started 1 second ago
+            started_at=current_time["value"] - 1.0,  # Started 1 second ago
         )
         with tracker._lock:
             tracker._connections[("test", "stale")] = stale_conn
 
         assert tracker.get_connection_count() == 1
 
-        # Wait for timeout
-        time.sleep(0.15)
+        # Advance time beyond timeout
+        current_time["value"] += 0.15
 
         # Cleanup should remove the stale connection
         removed = tracker.cleanup_stale_connections()

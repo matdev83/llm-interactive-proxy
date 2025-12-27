@@ -35,7 +35,7 @@ class ConnectionManager:
 
     def __init__(
         self,
-        heartbeat_timeout_seconds: int = 60,
+        heartbeat_timeout_seconds: float = 60,
         max_connections: int = _MAX_CONNECTIONS,
     ) -> None:
         """Initialize the connection manager.

@@ -7,6 +7,7 @@ Fixed: Added MAX_SSE_PAYLOAD_SIZE (10MB) and MAX_JSON_DEPTH (100) limits.
 """
 
 import json
+from typing import Any
 
 import pytest
 from src.core.domain.streaming.parsing.sse_bytes_parser import (
@@ -25,22 +26,18 @@ class TestSSEBytesParserDoSRegression:
 
     def create_deeply_nested_json(self, depth: int) -> str:
         """Create a deeply nested JSON structure."""
-        result = {"payload": "data"}
+        result: dict[str, Any] = {"payload": "data"}
         for _ in range(depth):
             result = {"nested": result}
         return json.dumps(result)
 
     def create_large_json(self, size_mb: int) -> str:
         """Create a large JSON payload."""
-        large_array = []
+        # Use a large string to guarantee we exceed the target size; list-based
+        # generation can under-shoot depending on JSON serialization overhead.
         target_size = size_mb * 1024 * 1024
-
-        obj_count = min(target_size // 100, 1000000)
-
-        for i in range(obj_count):
-            large_array.append({"id": i, "data": "x" * 50, "value": 42})
-
-        return json.dumps(large_array)
+        large_content = "x" * target_size
+        return json.dumps({"data": large_content})
 
     def test_large_payloads_rejected(self, parser: SSEBytesParser) -> None:
         """Test that large payloads (>10MB) are rejected."""
@@ -50,7 +47,9 @@ class TestSSEBytesParserDoSRegression:
         assert result is not None, "Normal payload should be accepted"
 
         # Test payload over limit (should be rejected) - reduced size for performance
-        large_json = self.create_large_json(11)  # 11MB > 10MB limit (reduced from 15MB for performance)
+        large_json = self.create_large_json(
+            11
+        )  # 11MB > 10MB limit (reduced from 15MB for performance)
         large_payload = f"data: {large_json}".encode()
 
         with pytest.raises(ValueError, match="too large"):

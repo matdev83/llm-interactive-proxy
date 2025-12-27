@@ -249,20 +249,38 @@ def test_cleanup_does_not_affect_other_sessions(
 
 
 def test_ttl_expiry_removes_old_sessions(
-    coordinator: SessionCancellationCoordinator, http_session_key: SessionKey
+    coordinator: SessionCancellationCoordinator,
+    http_session_key: SessionKey,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Test that TTL expiry automatically removes old session state."""
     import time
+
+    current_time = {"value": 1000.0}
+
+    def fake_time() -> float:
+        return current_time["value"]
+
+    # Patch time.time globally - TTLCache uses it internally
+    monkeypatch.setattr(time, "time", fake_time)
+    # Also patch it in cachetools if it's imported there
+    try:
+        import cachetools
+
+        if hasattr(cachetools, "time"):
+            monkeypatch.setattr(cachetools.time, "time", fake_time)
+    except Exception:
+        pass
 
     coordinator.cancel_session(
         http_session_key, ClientTerminationReason.CLIENT_DISCONNECTED
     )
     assert coordinator.is_cancelled(http_session_key)
 
-    # Wait for TTL to expire (0.1 second in test fixture)
-    time.sleep(0.15)
+    # Advance time beyond TTL expiry (0.1 second in test fixture)
+    current_time["value"] += 0.15
 
-    # Accessing should trigger expiry check
+    # Accessing should trigger expiry check (TTLCache checks expiry on access)
     assert not coordinator.is_cancelled(http_session_key)
 
 

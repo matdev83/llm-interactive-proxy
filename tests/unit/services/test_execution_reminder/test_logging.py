@@ -283,21 +283,32 @@ class TestLogging:
 
         # Create 4 sessions to definitely trigger max limit
         # The pruning happens when we try to add beyond the max
-        for i in range(4):
-            context = ToolCallContext(
-                session_id=f"test-session-{i}",
-                backend_name="test-backend",
-                model_name="test-model",
-                tool_name="write_file",
-                tool_arguments={"path": "test.py", "content": "print('hello')"},
-                full_response=None,
-            )
-            await handler.can_handle(context)
+        import time
 
-            # Add a small delay to ensure different last_seen timestamps
-            import time
+        current_time = {"value": 1000.0}
 
-            time.sleep(0.001)
+        def fake_time() -> float:
+            return current_time["value"]
+
+        with mock.patch("time.time", fake_time), mock.patch(
+            "src.services.test_execution_reminder.session_state.time", fake_time
+        ), mock.patch(
+            "src.services.test_execution_reminder.test_execution_reminder_handler.time.time",
+            fake_time,
+        ):
+            for i in range(4):
+                context = ToolCallContext(
+                    session_id=f"test-session-{i}",
+                    backend_name="test-backend",
+                    model_name="test-model",
+                    tool_name="write_file",
+                    tool_arguments={"path": "test.py", "content": "print('hello')"},
+                    full_response=None,
+                )
+                await handler.can_handle(context)
+
+                # Advance time to ensure different last_seen timestamps
+                current_time["value"] += 0.001
 
         # Should log max sessions enforcement with WARNING level
         # Check that we have at least some session cleanup logging

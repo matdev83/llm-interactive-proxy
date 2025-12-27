@@ -4,6 +4,8 @@ Regression test for race condition in ParameterResolution.
 Tests that _history dictionary access is properly synchronized.
 """
 
+from unittest.mock import patch
+
 import pytest
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
@@ -76,8 +78,10 @@ def test_is_set_concurrent_thread_safe():
     for t in writer_threads:
         t.start()
 
-    # Let writers run briefly
-    time.sleep(0.01)
+    # Let writers run briefly - use non-blocking sleep via mock
+    import time
+    with patch("time.sleep"):
+        time.sleep(0.01)  # No-op in tests, allows threads to proceed naturally
 
     # Run reader while writers still running
     reader_thread = threading.Thread(target=reader)

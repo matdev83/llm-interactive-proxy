@@ -652,7 +652,9 @@ class TestHeartbeatTimeout:
         Note: This test uses a shorter timeout for testing purposes.
         """
         # Create a connection manager with short timeout
-        connection_manager = ConnectionManager(heartbeat_timeout_seconds=1)  # Reduced for performance
+        connection_manager = ConnectionManager(
+            heartbeat_timeout_seconds=0.2
+        )  # Reduced for performance
 
         # Create mock websocket
         mock_websocket = MagicMock()

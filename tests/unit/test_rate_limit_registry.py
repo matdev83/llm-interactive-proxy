@@ -57,19 +57,28 @@ class TestRateLimitRegistry:
         result = registry.get("nonexistent", "model", "key")
         assert result is None
 
-    def test_entry_expiration(self, registry: RateLimitRegistry) -> None:
+    def test_entry_expiration(
+        self, registry: RateLimitRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that entries expire and are cleaned up."""
         backend, model, key = "openai", "gpt-4", "user1"
 
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        monkeypatch.setattr(time, "time", fake_time)
+
         # Set a very short delay
-        registry.set(backend, model, key, 0.05)  # Reduced from 0.1 for faster test
+        registry.set(backend, model, key, 0.05)
 
         # Should return the delay initially
         result = registry.get(backend, model, key)
         assert result is not None
 
-        # Wait for expiration
-        time.sleep(0.1)  # Reduced from 0.2 for faster test
+        # Advance time beyond expiration
+        current_time["value"] = 1000.0 + 0.1
 
         # Should return None and clean up the entry
         result = registry.get(backend, model, key)

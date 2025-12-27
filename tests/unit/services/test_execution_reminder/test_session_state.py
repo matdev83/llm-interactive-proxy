@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from src.services.test_execution_reminder.session_state import (
     TestExecutionSessionState,
 )
@@ -156,77 +157,150 @@ class TestSessionStateTransitions:
 class TestTimestampTracking:
     """Test suite for timestamp tracking."""
 
-    def test_mark_dirty_updates_last_modification_time(self) -> None:
+    def test_mark_dirty_updates_last_modification_time(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that mark_dirty updates last_modification_time."""
-        state = TestExecutionSessionState()
+        import src.services.test_execution_reminder.session_state as session_state_module
+
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch the time function in the module
+        monkeypatch.setattr(session_state_module, "time", fake_time)
+
+        # Create state with explicit timestamps to avoid default_factory capturing real time
+        state = TestExecutionSessionState(
+            last_modification_time=current_time["value"],
+            last_seen=current_time["value"],
+        )
         initial_time = state.last_modification_time
 
-        # Wait a tiny bit to ensure time difference
-        time.sleep(0.01)
+        # Advance time to ensure time difference
+        current_time["value"] += 0.01
 
         # Mark dirty
         state.mark_dirty()
 
         # Last modification time should be updated
         assert state.last_modification_time > initial_time
+        assert state.last_modification_time == pytest.approx(1000.01, rel=0.001)
 
-    def test_mark_dirty_updates_last_seen(self) -> None:
+    def test_mark_dirty_updates_last_seen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that mark_dirty updates last_seen."""
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time before creating state instance
+        # session_state uses "from time import time", so patch the imported function
+        monkeypatch.setattr(
+            "src.services.test_execution_reminder.session_state.time", fake_time
+        )
+
         state = TestExecutionSessionState()
         initial_time = state.last_seen
 
-        # Wait a tiny bit to ensure time difference
-        time.sleep(0.01)
+        # Advance time to ensure time difference
+        current_time["value"] += 0.01
 
         # Mark dirty
         state.mark_dirty()
 
         # Last seen should be updated
         assert state.last_seen > initial_time
+        assert state.last_seen == pytest.approx(1000.01, rel=0.001)
 
-    def test_mark_clean_updates_last_test_time(self) -> None:
+    def test_mark_clean_updates_last_test_time(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that mark_clean updates last_test_time."""
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time before creating state instance
+        # session_state uses "from time import time", so patch the imported function
+        monkeypatch.setattr(
+            "src.services.test_execution_reminder.session_state.time", fake_time
+        )
+
         state = TestExecutionSessionState(is_dirty=True)
         initial_time = state.last_test_time
 
-        # Wait a tiny bit to ensure time difference
-        time.sleep(0.01)
+        # Advance time to ensure time difference
+        current_time["value"] += 0.01
 
         # Mark clean
         state.mark_clean()
 
         # Last test time should be updated
         assert state.last_test_time > initial_time
+        assert state.last_test_time == pytest.approx(1000.01, rel=0.001)
 
-    def test_mark_clean_updates_last_seen(self) -> None:
+    def test_mark_clean_updates_last_seen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that mark_clean updates last_seen."""
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time before creating state instance
+        # session_state uses "from time import time", so patch the imported function
+        monkeypatch.setattr(
+            "src.services.test_execution_reminder.session_state.time", fake_time
+        )
+
         state = TestExecutionSessionState(is_dirty=True)
         initial_time = state.last_seen
 
-        # Wait a tiny bit to ensure time difference
-        time.sleep(0.01)
+        # Advance time to ensure time difference
+        current_time["value"] += 0.01
 
         # Mark clean
         state.mark_clean()
 
         # Last seen should be updated
         assert state.last_seen > initial_time
+        assert state.last_seen == pytest.approx(1000.01, rel=0.001)
 
-    def test_update_last_seen_only(self) -> None:
+    def test_update_last_seen_only(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that update_last_seen only updates last_seen timestamp."""
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time before creating state instance
+        # session_state uses "from time import time", so patch the imported function
+        monkeypatch.setattr(
+            "src.services.test_execution_reminder.session_state.time", fake_time
+        )
+
         state = TestExecutionSessionState()
         initial_modification_time = state.last_modification_time
         initial_test_time = state.last_test_time
         initial_last_seen = state.last_seen
 
-        # Wait a tiny bit to ensure time difference
-        time.sleep(0.01)
+        # Advance time to ensure time difference
+        current_time["value"] += 0.01
 
         # Update last seen
         state.update_last_seen()
 
         # Only last_seen should be updated
         assert state.last_seen > initial_last_seen
+        assert state.last_seen == pytest.approx(1000.01, rel=0.001)
         assert state.last_modification_time == initial_modification_time
         assert state.last_test_time == initial_test_time
 
@@ -253,16 +327,29 @@ class TestTimestampTracking:
         # last_test_time and last_seen should be approximately equal
         assert abs(state.last_test_time - state.last_seen) < 0.01
 
-    def test_timestamps_increase_monotonically(self) -> None:
+    def test_timestamps_increase_monotonically(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that timestamps increase monotonically with operations."""
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time before creating state instance
+        # session_state uses "from time import time", so patch the imported function
+        monkeypatch.setattr(
+            "src.services.test_execution_reminder.session_state.time", fake_time
+        )
+
         state = TestExecutionSessionState()
 
         # Record initial timestamps
         timestamps = [state.last_seen]
 
-        # Perform operations with small delays
+        # Perform operations with time advances
         for _ in range(3):
-            time.sleep(0.01)
+            current_time["value"] += 0.01
             state.mark_dirty()
             timestamps.append(state.last_seen)
 
@@ -270,27 +357,53 @@ class TestTimestampTracking:
         for i in range(len(timestamps) - 1):
             assert timestamps[i + 1] > timestamps[i]
 
-    def test_last_modification_time_not_updated_by_mark_clean(self) -> None:
+    def test_last_modification_time_not_updated_by_mark_clean(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that mark_clean does not update last_modification_time."""
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time before creating state instance
+        # session_state uses "from time import time", so patch the imported function
+        monkeypatch.setattr(
+            "src.services.test_execution_reminder.session_state.time", fake_time
+        )
+
         state = TestExecutionSessionState(is_dirty=True)
         state.mark_dirty()
         modification_time = state.last_modification_time
 
-        # Wait and mark clean
-        time.sleep(0.01)
+        # Advance time and mark clean
+        current_time["value"] += 0.01
         state.mark_clean()
 
         # last_modification_time should not change
         assert state.last_modification_time == modification_time
 
-    def test_last_test_time_not_updated_by_mark_dirty(self) -> None:
+    def test_last_test_time_not_updated_by_mark_dirty(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test that mark_dirty does not update last_test_time."""
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time before creating state instance
+        # session_state uses "from time import time", so patch the imported function
+        monkeypatch.setattr(
+            "src.services.test_execution_reminder.session_state.time", fake_time
+        )
+
         state = TestExecutionSessionState()
         state.mark_clean()
         test_time = state.last_test_time
 
-        # Wait and mark dirty
-        time.sleep(0.01)
+        # Advance time and mark dirty
+        current_time["value"] += 0.01
         state.mark_dirty()
 
         # last_test_time should not change

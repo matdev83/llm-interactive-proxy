@@ -7,6 +7,7 @@ are properly bounded to prevent unbounded memory growth.
 import random
 
 import pytest
+from freezegun import freeze_time
 from src.core.services.replacement_metrics import ReplacementMetrics
 
 
@@ -132,31 +133,30 @@ class TestReplacementMetricsTimestampLeakRegression:
         self, metrics: ReplacementMetrics
     ) -> None:
         """Test that prune_history removes old timestamps."""
-        import time
+        with freeze_time() as frozen_time:
+            # Record some activations
+            for i in range(100):
+                session_id = f"session_{i}"
+                metrics.record_activation(session_id, turn_count=1)
 
-        # Record some activations
-        for i in range(100):
-            session_id = f"session_{i}"
-            metrics.record_activation(session_id, turn_count=1)
+            initial_count = len(metrics.activation_timestamps)
+            assert initial_count > 0, "Should have some timestamps before pruning."
 
-        initial_count = len(metrics.activation_timestamps)
-        assert initial_count > 0, "Should have some timestamps before pruning."
+            # Prune with very short window (should remove all recent timestamps)
+            # Note: This tests prune logic, but in practice timestamps are recent
+            # so they won't be pruned. The important thing is that method exists
+            # and works correctly when timestamps are old.
+            metrics.prune_history(max_age_seconds=0.1)
 
-        # Prune with very short window (should remove all recent timestamps)
-        # Note: This tests prune logic, but in practice timestamps are recent
-        # so they won't be pruned. The important thing is that method exists
-        # and works correctly when timestamps are old.
-        metrics.prune_history(max_age_seconds=0.1)
+            # Advance time and prune again
+            frozen_time.tick(0.15)
+            metrics.prune_history(max_age_seconds=0.1)
 
-        # Wait a bit and prune again
-        time.sleep(0.15)
-        metrics.prune_history(max_age_seconds=0.1)
+            # Verify prune_history method exists and works
+            assert hasattr(
+                metrics, "prune_history"
+            ), "ReplacementMetrics should have prune_history method."
 
-        # Verify prune_history method exists and works
-        assert hasattr(
-            metrics, "prune_history"
-        ), "ReplacementMetrics should have prune_history method."
-
-        # The actual count depends on timing, but method should work
-        final_count = len(metrics.activation_timestamps)
-        assert final_count >= 0, "Timestamp count should be non-negative."
+            # The actual count depends on timing, but method should work
+            final_count = len(metrics.activation_timestamps)
+            assert final_count >= 0, "Timestamp count should be non-negative."

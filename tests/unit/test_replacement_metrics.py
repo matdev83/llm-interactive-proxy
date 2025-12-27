@@ -125,20 +125,37 @@ class TestReplacementMetrics:
         assert metrics.total_probability_checks == 1
         assert metrics.probability_checks_by_session["session1"] == 1
 
-    def test_get_activation_rate_all_time(self) -> None:
+    def test_get_activation_rate_all_time(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test calculating activation rate over all time."""
+        import src.core.services.replacement_metrics as metrics_module
+
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time.time in the module - this affects calls made after patching
+        # Note: default_factory captures time.time at class definition, so start_time
+        # will use real time, but subsequent calls will use mocked time
+        monkeypatch.setattr(metrics_module.time, "time", fake_time)
+
         metrics = ReplacementMetrics()
+        # Manually set start_time to use mocked time
+        metrics.start_time = current_time["value"]
 
         # Record some activations
         metrics.record_activation("session1", 3)
-        time.sleep(0.1)  # Small delay to ensure elapsed time > 0
+        current_time["value"] += 0.1  # Advance time to ensure elapsed time > 0
         metrics.record_activation("session2", 2)
 
         rate = metrics.get_activation_rate()
 
         # Rate should be positive and reasonable
+        # With mocked time: 2 activations in 0.1 seconds = 20 activations/second
         assert rate > 0
-        assert rate < 1000  # Sanity check
+        assert rate == pytest.approx(20.0, rel=0.1)  # 2 activations / 0.1 seconds
 
     def test_get_activation_rate_time_window(self) -> None:
         """Test calculating activation rate within a time window."""
@@ -215,20 +232,35 @@ class TestReplacementMetrics:
 
         assert avg == 0.0
 
-    def test_get_opt_out_rate_all_time(self) -> None:
+    def test_get_opt_out_rate_all_time(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test calculating opt-out rate over all time."""
+        import src.core.services.replacement_metrics as metrics_module
+
+        current_time = {"value": 1000.0}
+
+        def fake_time() -> float:
+            return current_time["value"]
+
+        # Patch time.time in the module
+        monkeypatch.setattr(metrics_module.time, "time", fake_time)
+
         metrics = ReplacementMetrics()
+        # Manually set start_time to use mocked time
+        metrics.start_time = current_time["value"]
 
         # Record some opt-outs
         metrics.record_opt_out("session1", "header")
-        time.sleep(0.1)  # Small delay to ensure elapsed time > 0
+        current_time["value"] += 0.1  # Advance time to ensure elapsed time > 0
         metrics.record_opt_out("session2", "session")
 
         rate = metrics.get_opt_out_rate()
 
         # Rate should be positive and reasonable
+        # With mocked time: 2 opt-outs in 0.1 seconds = 20 opt-outs/second
         assert rate > 0
-        assert rate < 1000  # Sanity check
+        assert rate == pytest.approx(20.0, rel=0.1)  # 2 opt-outs / 0.1 seconds
 
     def test_get_opt_out_rate_time_window(self) -> None:
         """Test calculating opt-out rate within a time window."""
