@@ -132,8 +132,8 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
     )
 
     backend = AnthropicStreamingEmulator(
-        chunks=chunks, chunk_delay=0.001
-    )  # Reduced from 0.005 for performance
+        chunks=chunks, chunk_delay=0.01
+    )  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 
@@ -187,8 +187,8 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
     )
 
     backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.001
-    )  # Reduced from 0.01 for performance
+        chunks=chunks, chunk_delay=0.01
+    )  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 
@@ -243,8 +243,8 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
     )
 
     backend = GeminiStreamingEmulator(
-        chunks=chunks, chunk_delay=0.001
-    )  # Reduced from 0.01 for performance
+        chunks=chunks, chunk_delay=0.01
+    )  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 
@@ -299,8 +299,8 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
     )
 
     backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.001
-    )  # Reduced from 0.01 for performance
+        chunks=chunks, chunk_delay=0.01
+    )  # Reduced from 0.02 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 

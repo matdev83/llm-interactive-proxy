@@ -5,6 +5,8 @@ from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.services.tool_call_reactor_middleware import ToolCallReactorMiddleware
 
+from tests.utils.fake_clock import FakeClockContext
+
 
 @pytest.mark.asyncio
 async def test_tool_call_reactor_handlers_are_wired_up(
@@ -20,7 +22,10 @@ async def test_tool_call_reactor_handlers_are_wired_up(
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -74,7 +79,10 @@ async def test_pytest_context_saving_handler_wires_when_enabled():
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -294,7 +302,10 @@ async def test_droid_path_fix_handler_wires_when_enabled():
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -319,7 +330,10 @@ async def test_droid_path_fix_handler_not_wired_when_disabled():
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
     reactor_middleware = service_provider.get_required_service(
         ToolCallReactorMiddleware
@@ -362,7 +376,10 @@ async def test_unified_steering_policy_priority_overrides():
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
 
     from src.services.steering import UnifiedSteeringHandler
@@ -402,7 +419,10 @@ async def test_unified_steering_legacy_log_enabled(
 
     # Act
     app = await builder.build(config)
-    await asyncio.sleep(0.001)  # Reduced from 0.02 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+        clock.advance(0.001)  # Reduced from 0.02 for performance
+        await sleep_task
     service_provider = app.state.service_provider
 
     from src.services.steering import UnifiedSteeringHandler

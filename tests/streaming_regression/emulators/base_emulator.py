@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from collections.abc import AsyncIterator, Sequence
+from time import perf_counter as _perf_counter
 from typing import Any
 
 from src.connectors.base import LLMBackend
@@ -79,7 +79,7 @@ class StreamingEmulatorBase(LLMBackend):
 
                 # Record timestamp after delay, right before yielding
                 # This reflects when chunks are actually sent, not when they're queued
-                self.chunk_timestamps.append(time.perf_counter())
+                self.chunk_timestamps.append(_perf_counter())
 
                 # Convert to ProcessedResponse
                 if isinstance(chunk, bytes):

@@ -13,6 +13,7 @@ from unittest.mock import patch
 
 import pytest
 from src.core.app.stages.infrastructure import InfrastructureStage
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestInfrastructureStageHttpClientCleanup:
@@ -56,7 +57,10 @@ class TestInfrastructureStageHttpClientCleanup:
                 await stage.execute(services, config)
 
             # Verify client cleanup was called
-            await asyncio.sleep(0.1)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+                clock.advance(0.1)
+                await sleep_task
             assert (
                 mock_client.is_closed
             ), "HTTP client should be closed on registration failure"
@@ -66,72 +70,80 @@ class TestInfrastructureStageHttpClientCleanup:
         """Test that multiple cleanup tasks are tracked and completed."""
         stage = InfrastructureStage()
 
-        # Create simple mock clients
-        class MockClient:
-            def __init__(self, index):
-                self.index = index
-                self.is_closed = False
+        # Wrap entire test in FakeClockContext
+        async with FakeClockContext() as clock:
+            # Create simple mock clients
+            class MockClient:
+                def __init__(self, index):
+                    self.index = index
+                    self.is_closed = False
 
-            async def aclose(self):
-                await asyncio.sleep(0.01)
-                self.is_closed = True
+                async def aclose(self):
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                    clock.advance(0.01)
+                    await sleep_task
+                    self.is_closed = True
 
-        mock_clients = [MockClient(i) for i in range(3)]
+            mock_clients = [MockClient(i) for i in range(3)]
 
-        # Manually simulate cleanup tasks being created
-        tasks = []
-        for client in mock_clients:
-            cleanup_task = asyncio.create_task(client.aclose())
-            stage._cleanup_tasks.add(cleanup_task)
-            cleanup_task.add_done_callback(stage._cleanup_tasks.discard)
-            tasks.append(cleanup_task)
+            # Manually simulate cleanup tasks being created
+            tasks = []
+            for client in mock_clients:
+                cleanup_task = asyncio.create_task(client.aclose())
+                stage._cleanup_tasks.add(cleanup_task)
+                cleanup_task.add_done_callback(stage._cleanup_tasks.discard)
+                tasks.append(cleanup_task)
 
-        # Wait for all cleanup tasks to complete explicitly
-        await asyncio.gather(*tasks)
+            # Wait for all cleanup tasks to complete explicitly
+            await asyncio.gather(*tasks)
 
-        # All clients should be closed
-        for client in mock_clients:
-            assert client.is_closed, f"Client {client.index} should be closed"
+            # All clients should be closed
+            for client in mock_clients:
+                assert client.is_closed, f"Client {client.index} should be closed"
 
-        # Cleanup tasks set should be empty (all tasks completed and removed)
-        assert (
-            len(stage._cleanup_tasks) == 0
-        ), "All cleanup tasks should be completed and removed"
+            # Cleanup tasks set should be empty (all tasks completed and removed)
+            assert (
+                len(stage._cleanup_tasks) == 0
+            ), "All cleanup tasks should be completed and removed"
 
     @pytest.mark.asyncio
     async def test_cleanup_with_failing_tasks(self):
         """Test that exceptions in cleanup tasks don't cause cleanup to hang."""
         stage = InfrastructureStage()
 
-        # Create clients that fail during cleanup
-        class FailingClient:
-            def __init__(self, index):
-                self.index = index
-                self.is_closed = False
+        # Wrap entire test in FakeClockContext
+        async with FakeClockContext() as clock:
+            # Create clients that fail during cleanup
+            class FailingClient:
+                def __init__(self, index):
+                    self.index = index
+                    self.is_closed = False
 
-            async def aclose(self):
-                await asyncio.sleep(0.05)
-                if self.index % 2 == 0:
-                    raise Exception(f"Client {self.index} cleanup failed")
-                self.is_closed = True
+                async def aclose(self):
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+                    clock.advance(0.05)
+                    await sleep_task
+                    if self.index % 2 == 0:
+                        raise Exception(f"Client {self.index} cleanup failed")
+                    self.is_closed = True
 
-        failing_clients = [FailingClient(i) for i in range(3)]
+            failing_clients = [FailingClient(i) for i in range(3)]
 
-        # Create cleanup tasks
-        for client in failing_clients:
-            cleanup_task = asyncio.create_task(client.aclose())
-            stage._cleanup_tasks.add(cleanup_task)
-            cleanup_task.add_done_callback(stage._cleanup_tasks.discard)
+            # Create cleanup tasks
+            for client in failing_clients:
+                cleanup_task = asyncio.create_task(client.aclose())
+                stage._cleanup_tasks.add(cleanup_task)
+                cleanup_task.add_done_callback(stage._cleanup_tasks.discard)
 
-        # Call cleanup method
-        await stage._cleanup_http_client()
+            # Call cleanup method
+            await stage._cleanup_http_client()
 
-        # All tasks should be complete (set should be empty)
-        assert len(stage._cleanup_tasks) == 0, "All cleanup tasks should be cleaned up"
+            # All tasks should be complete (set should be empty)
+            assert len(stage._cleanup_tasks) == 0, "All cleanup tasks should be cleaned up"
 
-        # Verify that some clients closed successfully
-        closed_count = sum(1 for client in failing_clients if client.is_closed)
-        assert closed_count > 0, "At least some clients should have closed successfully"
+            # Verify that some clients closed successfully
+            closed_count = sum(1 for client in failing_clients if client.is_closed)
+            assert closed_count > 0, "At least some clients should have closed successfully"
 
     @pytest.mark.asyncio
     async def test_cleanup_timeout_cancels_pending_tasks(self):
@@ -204,7 +216,10 @@ class TestInfrastructureStageHttpClientCleanup:
         stage._cleanup_tasks.add(cleanup_task)
         cleanup_task.add_done_callback(stage._cleanup_tasks.discard)
 
-        await asyncio.sleep(0.1)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task
 
         await stage._cleanup_http_client()
         assert len(stage._cleanup_tasks) == 0
@@ -229,7 +244,10 @@ class TestInfrastructureStageHttpClientCleanup:
         assert len(stage._cleanup_tasks) == 1
 
         # Wait for task to complete
-        await asyncio.sleep(0.1)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task
 
         # Task should be removed via callback
         assert len(stage._cleanup_tasks) == 0
@@ -239,31 +257,39 @@ class TestInfrastructureStageHttpClientCleanup:
         """Test that exceptions in cleanup tasks don't prevent other tasks from cleaning up."""
         stage = InfrastructureStage()
 
-        # Create a mix of successful and failing cleanups
-        async def failing_cleanup():
-            await asyncio.sleep(0.01)
-            raise Exception("Cleanup failed")
+        # Wrap entire test in FakeClockContext
+        async with FakeClockContext() as clock:
+            # Create a mix of successful and failing cleanups
+            async def failing_cleanup():
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
+                raise Exception("Cleanup failed")
 
-        async def successful_cleanup():
-            await asyncio.sleep(0.01)
+            async def successful_cleanup():
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
 
-        # Create tasks
-        tasks = [
-            asyncio.create_task(failing_cleanup()),
-            asyncio.create_task(successful_cleanup()),
-            asyncio.create_task(failing_cleanup()),
-            asyncio.create_task(successful_cleanup()),
-        ]
+            # Create tasks
+            tasks = [
+                asyncio.create_task(failing_cleanup()),
+                asyncio.create_task(successful_cleanup()),
+                asyncio.create_task(failing_cleanup()),
+                asyncio.create_task(successful_cleanup()),
+            ]
 
-        for task in tasks:
-            stage._cleanup_tasks.add(task)
-            task.add_done_callback(stage._cleanup_tasks.discard)
+            for task in tasks:
+                stage._cleanup_tasks.add(task)
+                task.add_done_callback(stage._cleanup_tasks.discard)
 
-        # Wait a bit then cleanup
-        await asyncio.sleep(0.1)
+            # Wait a bit then cleanup
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task
 
-        # Cleanup should handle exceptions gracefully
-        await stage._cleanup_http_client()
+            # Cleanup should handle exceptions gracefully
+            await stage._cleanup_http_client()
 
-        # All tasks should be cleaned up
-        assert len(stage._cleanup_tasks) == 0
+            # All tasks should be cleaned up
+            assert len(stage._cleanup_tasks) == 0

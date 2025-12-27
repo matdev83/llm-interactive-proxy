@@ -4,7 +4,6 @@ This test verifies that event bus subscribers are properly unsubscribed
 during shutdown to prevent memory leaks from strong references.
 """
 
-import asyncio
 from unittest.mock import MagicMock
 
 import pytest

@@ -10,6 +10,7 @@ import pytest_asyncio
 from src.core.services.production_concurrency_guard import (
     ConcurrencyGuard,
 )
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestConcurrencyGuardThreadSafety:
@@ -33,7 +34,10 @@ class TestConcurrencyGuardThreadSafety:
             try:
                 async with guard.acquire(f"operation_{i}"):
                     success_count += 1
-                    await asyncio.sleep(0.01)
+                    async with FakeClockContext() as clock:
+                        sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                        clock.advance(0.01)
+                        await sleep_task
             except Exception as e:
                 if "limit reached" in str(e):
                     reject_count += 1
@@ -69,7 +73,10 @@ class TestConcurrencyGuardThreadSafety:
 
         async def operation(i):
             async with guard.acquire(f"op_{i}"):
-                await asyncio.sleep(0.01)
+                async with FakeClockContext() as clock:
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                    clock.advance(0.01)
+                    await sleep_task
                 # Verify operation is in active set
                 assert (
                     len([x for x in guard._active_operations if f"op_{i}" in str(x)])
@@ -92,9 +99,12 @@ class TestConcurrencyGuardThreadSafety:
         guard = ConcurrencyGuard(max_concurrent=5, name="test-guard")
 
         # Run operations sequentially
-        for i in range(3):
-            async with guard.acquire(f"op_{i}"):
-                await asyncio.sleep(0.01)
+        async with FakeClockContext() as clock:
+            for i in range(3):
+                async with guard.acquire(f"op_{i}"):
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                    clock.advance(0.01)
+                    await sleep_task
 
         # All operations should be cleaned up
         assert (

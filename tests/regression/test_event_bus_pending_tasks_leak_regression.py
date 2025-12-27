@@ -10,6 +10,7 @@ import gc
 
 import pytest
 from src.core.services.event_bus import EventBus
+from tests.utils.fake_clock import FakeClockContext
 
 
 class TestEvent:
@@ -39,15 +40,20 @@ class TestEventBusPendingTasksLeakRegression:
         for _i in range(num_events):
             event_bus.publish_nowait(TestEvent())
 
-        # Give tasks time to start
-        await asyncio.sleep(0.01)  # Reduced from 0.02
+        # Give tasks time to start and complete
+        async with FakeClockContext() as clock:
+            sleep_task1 = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)  # Reduced from 0.02
+            await sleep_task1
 
-        # Check pending tasks count
-        len([t for t in event_bus._pending_tasks if not t.done()])
-        len(event_bus._pending_tasks)
+            # Check pending tasks count
+            len([t for t in event_bus._pending_tasks if not t.done()])
+            len(event_bus._pending_tasks)
 
-        # Wait for all tasks to complete
-        await asyncio.sleep(0.08)  # Reduced from 0.1
+            # Wait for all tasks to complete
+            sleep_task2 = asyncio.create_task(asyncio.sleep(0.08))
+            clock.advance(0.08)  # Reduced from 0.1
+            await sleep_task2
 
         # Force garbage collection to allow WeakSet to clean up
         gc.collect()
@@ -90,10 +96,13 @@ class TestEventBusPendingTasksLeakRegression:
 
         # Wait for tasks to complete - reduced wait time, check completion instead of fixed delay
         # Wait up to 0.05s, checking every 0.01s for completion
-        for _ in range(5):
-            await asyncio.sleep(0.01)
-            if all(t.done() for t in task_refs if t in event_bus._pending_tasks):
-                break
+        async with FakeClockContext() as clock:
+            for _ in range(5):
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
+                if all(t.done() for t in task_refs if t in event_bus._pending_tasks):
+                    break
 
         # Force GC
         gc.collect()
@@ -139,18 +148,23 @@ class TestEventBusPendingTasksLeakRegression:
             event_bus.publish_nowait(TestEvent())
 
         # Give tasks time to start (but not complete)
-        await asyncio.sleep(0.01)  # Very short delay to let tasks start
+        async with FakeClockContext() as clock:
+            sleep_task1 = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)  # Very short delay to let tasks start
+            await sleep_task1
 
-        # Verify tasks are pending (may be 0 if they completed very quickly)
-        [t for t in event_bus._pending_tasks if not t.done()]
-        # If no pending tasks, they completed too quickly - test is still valid
-        # as shutdown() should handle empty pending tasks gracefully
+            # Verify tasks are pending (may be 0 if they completed very quickly)
+            [t for t in event_bus._pending_tasks if not t.done()]
+            # If no pending tasks, they completed too quickly - test is still valid
+            # as shutdown() should handle empty pending tasks gracefully
 
-        # Shutdown should await pending tasks
-        await event_bus.shutdown()
+            # Shutdown should await pending tasks
+            await event_bus.shutdown()
 
-        # Verify all tasks completed
-        await asyncio.sleep(0.1)
+            # Verify all tasks completed
+            sleep_task2 = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task2
         pending_after = [t for t in event_bus._pending_tasks if not t.done()]
         assert (
             len(pending_after) == 0
@@ -179,11 +193,14 @@ class TestEventBusPendingTasksLeakRegression:
             event_bus.publish_nowait(TestEvent())
 
         # Wait for tasks to complete with early exit check
-        for _ in range(20):
-            await asyncio.sleep(0.02)
-            pending = [t for t in event_bus._pending_tasks if not t.done()]
-            if not pending:
-                break
+        async with FakeClockContext() as clock:
+            for _ in range(20):
+                sleep_task = asyncio.create_task(asyncio.sleep(0.02))
+                clock.advance(0.02)
+                await sleep_task
+                pending = [t for t in event_bus._pending_tasks if not t.done()]
+                if not pending:
+                    break
 
         # Force GC
         gc.collect()

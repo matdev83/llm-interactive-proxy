@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+from tests.utils.fake_clock import FakeClockContext
 
 
 @pytest.fixture
@@ -15,18 +16,21 @@ def lifecycle_manager():
 async def test_shutdown_tasks_concurrent_additions(lifecycle_manager):
     """Test that concurrent additions to _shutdown_tasks don't lose tasks."""
 
-    # Create 100 tasks concurrently
-    async def create_and_add_task():
-        async def noop():
-            await asyncio.sleep(0.01)
-            return
+    async with FakeClockContext() as clock:
+        # Create 100 tasks concurrently
+        async def create_and_add_task():
+            async def noop():
+                sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+                clock.advance(0.01)
+                await sleep_task
+                return
 
-        task = asyncio.create_task(noop())
-        lifecycle_manager._shutdown_tasks.add(task)
-        return task
+            task = asyncio.create_task(noop())
+            lifecycle_manager._shutdown_tasks.add(task)
+            return task
 
-    tasks = [create_and_add_task() for _ in range(100)]
-    created_tasks = await asyncio.gather(*tasks)
+        tasks = [create_and_add_task() for _ in range(100)]
+        created_tasks = await asyncio.gather(*tasks)
 
     # All tasks should be tracked
     assert len(lifecycle_manager._shutdown_tasks) == 100

@@ -248,8 +248,9 @@ class TestBackendCompletionCancellationTaskLeakRegression:
 
             # Wait for cancellation callbacks to complete
             # Use fake clock for deterministic time simulation
-            await asyncio.sleep(0.05)  # Reduced from 0.2 for performance
-            clock.advance(0.05)
+            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+            clock.advance(0.05)  # Reduced from 0.2 for performance
+            await sleep_task
 
         # Check that tasks don't accumulate excessively
         final_tasks = len(asyncio.all_tasks())
@@ -297,6 +298,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
         # Create mock backend with failing cancel callback
         async def failing_cancel_callback():
             """Simulate failing cancellation callback."""
+            # FakeClockContext will be active when callback is called
             await asyncio.sleep(0.01)
             raise RuntimeError("Cancellation callback failed")
 
@@ -422,7 +424,10 @@ class TestBackendCompletionCancellationTaskLeakRegression:
                     session_key, reason=None  # type: ignore[arg-type]
                 )
 
-                await asyncio.sleep(0.001)  # Reduced from 0.01 for performance
+                async with FakeClockContext() as clock:
+                    sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                    clock.advance(0.001)  # Reduced from 0.01 for performance
+                    await sleep_task
 
                 completion_task.cancel()
                 with contextlib.suppress(
@@ -434,9 +439,13 @@ class TestBackendCompletionCancellationTaskLeakRegression:
                 pass
 
         # Wait for callbacks to complete (even if they fail)
-        await asyncio.sleep(0.05)  # Reduced from 0.3 for performance
+        # Wrap entire test in FakeClockContext so callback uses fake clock
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+            clock.advance(0.05)  # Reduced from 0.3 for performance
+            await sleep_task
 
-        final_tasks = len(asyncio.all_tasks())
+            final_tasks = len(asyncio.all_tasks())
         task_increase = final_tasks - initial_tasks
 
         # Failing callbacks should not cause task accumulation

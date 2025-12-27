@@ -8,6 +8,7 @@ import asyncio
 
 import pytest
 from src.core.di.container import ServiceCollection
+from tests.utils.fake_clock import FakeClockContext
 
 
 @pytest.mark.asyncio
@@ -29,13 +30,19 @@ async def test_service_collection_cleanup_tasks_race_condition():
 
     async def mock_cleanup_task(task_id: int):
         """Mock cleanup task that tracks completion"""
-        await asyncio.sleep(0.01)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+            clock.advance(0.01)
+            await sleep_task
         tasks_completed.append(task_id)
 
     async def add_tasks_concurrently():
         """Simulate adding cleanup tasks"""
-        for i in range(5):
-            await asyncio.sleep(0.001)
+        async with FakeClockContext() as clock:
+            for i in range(5):
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)
+                await sleep_task
 
             # Create a mock httpx.AsyncClient-like object
             class MockClient:
@@ -53,7 +60,10 @@ async def test_service_collection_cleanup_tasks_race_condition():
 
     async def dispose_while_adding():
         """Dispose collection while tasks are being added"""
-        await asyncio.sleep(0.005)  # Wait for some tasks to be added
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.005))
+            clock.advance(0.005)  # Wait for some tasks to be added
+            await sleep_task
         await collection.dispose()
 
     # Run both operations concurrently
@@ -105,13 +115,19 @@ async def test_service_collection_cleanup_tasks_serial_add():
             self.task_id = task_id
 
         async def aclose(self):
-            await asyncio.sleep(0.001)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)
+                await sleep_task
 
     # Add instances sequentially
-    for i in range(3):
-        client = MockClient(i)
-        collection.add_instance(f"service_{i}", client)
-        await asyncio.sleep(0.001)
+    async with FakeClockContext() as clock:
+        for i in range(3):
+            client = MockClient(i)
+            collection.add_instance(f"service_{i}", client)
+            sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+            clock.advance(0.001)
+            await sleep_task
 
     # Dispose
     await collection.dispose()

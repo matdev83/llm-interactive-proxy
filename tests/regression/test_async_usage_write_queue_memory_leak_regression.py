@@ -20,6 +20,7 @@ from src.core.services.async_usage_write_queue import (
     AsyncUsageWriteQueue,
     IUsageRecordWriter,
 )
+from tests.utils.fake_clock import FakeClockContext
 
 
 class FailingWriter(IUsageRecordWriter):
@@ -88,7 +89,10 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
             queue.enqueue_insert(record)
 
         # Wait a bit for processing attempts
-        await asyncio.sleep(0.03)  # Reduced from 0.05
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.03))
+            clock.advance(0.03)  # Reduced from 0.05
+            await sleep_task
 
         # Check pending_records size - should be limited
         pending_count = queue.pending_count
@@ -157,7 +161,10 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
         )
 
         # Wait a bit for processing
-        await asyncio.sleep(0.05)  # Reduced from 0.1
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
+            clock.advance(0.05)  # Reduced from 0.1
+            await sleep_task
 
         # Check again - should still be limited
         pending_count_after = queue.pending_count
@@ -189,7 +196,10 @@ class TestAsyncUsageWriteQueueMemoryLeakRegression:
             queue.enqueue_insert(record)
 
         # Wait a bit
-        await asyncio.sleep(0.08)  # Reduced from 0.15
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.08))
+            clock.advance(0.08)  # Reduced from 0.15
+            await sleep_task
 
         # Check that pending count is limited
         pending_count = queue.pending_count

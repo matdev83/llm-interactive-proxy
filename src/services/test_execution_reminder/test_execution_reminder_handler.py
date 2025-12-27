@@ -72,7 +72,7 @@ class TestExecutionReminderHandler(IToolCallHandler):
         self._message = message or DEFAULT_STEERING_MESSAGE
         self._enabled = enabled
         self._session_state: dict[str, TestExecutionSessionState] = {}
-        self._state_ttl_seconds = max(float(state_ttl_seconds), 0.001)
+        self._state_ttl_seconds = max(float(state_ttl_seconds), 1.0)
         self._max_sessions = max(max_sessions, 1)
         self._test_runner_registry = test_runner_registry or TestRunnerRegistry()
         self._lock = threading.RLock()

@@ -109,6 +109,25 @@ class ConnectionTrackerCleanupScheduler:
         at the configured interval and handles any errors gracefully.
         """
         while self._running and not self._shutdown_event.is_set():
+            # Wait for the next cleanup cycle or shutdown signal first
+            try:
+                await asyncio.wait_for(
+                    self._shutdown_event.wait(),
+                    timeout=self._cleanup_interval,
+                )
+                # If wait_for completes without timeout, shutdown was signaled
+                break
+            except asyncio.TimeoutError:
+                # Timeout is expected - continue to cleanup
+                pass
+
+            # Yield control to ensure other tasks can run
+            await asyncio.sleep(0)
+
+            # Check if we were stopped while waiting
+            if not self._running or self._shutdown_event.is_set():
+                break
+
             try:
                 # Perform cleanup
                 cleaned_count = self._activity_tracker.cleanup_stale_connections()
@@ -129,15 +148,3 @@ class ConnectionTrackerCleanupScheduler:
                     e,
                     exc_info=True,
                 )
-
-            # Wait for the next cleanup cycle or shutdown signal
-            try:
-                await asyncio.wait_for(
-                    self._shutdown_event.wait(),
-                    timeout=self._cleanup_interval,
-                )
-                # If wait_for completes without timeout, shutdown was signaled
-                break
-            except asyncio.TimeoutError:
-                # Timeout is expected - continue to next cleanup cycle
-                continue

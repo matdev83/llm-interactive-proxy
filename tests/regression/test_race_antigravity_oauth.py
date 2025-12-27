@@ -7,6 +7,7 @@ Tests that the _models_lock is properly used in _load_models_from_api.
 import asyncio
 
 import pytest
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockAntigravityOAuthConnector:
@@ -20,7 +21,10 @@ class MockAntigravityOAuthConnector:
     async def _load_models_with_lock(self, models):
         """Simulate the fixed model loading with lock."""
         async with self._models_lock:
-            await asyncio.sleep(0.001)  # Simulate I/O
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)  # Simulate I/O
+                await sleep_task
             self.available_models = models
             self._available_models_set = set(models)
 
@@ -66,7 +70,10 @@ async def test_concurrent_state_reads():
     for _ in range(20):
 
         async def read_task():
-            await asyncio.sleep(0.0001)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.0001))
+                clock.advance(0.0001)
+                await sleep_task
             return connector.get_state()
 
         tasks.append(read_task())

@@ -6,6 +6,7 @@ and handle them correctly in an integrated environment.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,6 +29,7 @@ from src.services.test_execution_reminder.eos_subscriber import (
 from src.services.test_execution_reminder.test_execution_reminder_handler import (
     TestExecutionReminderHandler,
 )
+from tests.utils.fake_clock import FakeClockContext
 
 
 @pytest.fixture
@@ -144,9 +146,10 @@ async def test_all_subscribers_receive_eos_event(
     await event_bus.publish(event)
 
     # Give subscribers time to process (they run concurrently)
-    import asyncio
-
-    await asyncio.sleep(0.01)  # Reduced from 0.1 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+        clock.advance(0.01)  # Reduced from 0.1 for performance
+        await sleep_task
 
     # Verify ProxyMem subscriber was called
     mock_memory_service.mark_session_complete.assert_called_once_with(
@@ -219,9 +222,10 @@ async def test_subscriber_failures_are_isolated(
     await event_bus.publish(event)
 
     # Give subscribers time to process
-    import asyncio
-
-    await asyncio.sleep(0.01)  # Reduced from 0.1 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+        clock.advance(0.01)  # Reduced from 0.1 for performance
+        await sleep_task
 
     # Verify other subscribers still processed the event
     # UsageTracking should have been called
@@ -304,9 +308,10 @@ async def test_eos_emission_when_client_terminates_before_backend_response(
     await eos_service.record_signal(signal)
 
     # Give time for event processing
-    import asyncio
-
-    await asyncio.sleep(0.1)
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+        clock.advance(0.1)
+        await sleep_task
 
     # Verify EoS event was emitted
     assert len(events_received) == 1
@@ -366,9 +371,10 @@ async def test_multiple_subscriber_failures_isolated(
     await event_bus.publish(event)
 
     # Give subscribers time to process
-    import asyncio
-
-    await asyncio.sleep(0.01)  # Reduced from 0.1 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+        clock.advance(0.01)  # Reduced from 0.1 for performance
+        await sleep_task
 
     # Verify remaining subscribers were still called
     mock_session_repo.create.assert_called_once()
@@ -403,9 +409,10 @@ async def test_subscriber_failure_logs_correlation_identifier(
         await event_bus.publish(event)
 
         # Give subscriber time to process
-        import asyncio
-
-        await asyncio.sleep(0.1)
+        async with FakeClockContext() as clock:
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)
+            await sleep_task
 
     # Verify error was logged with session_id correlation
     assert session_id in caplog.text or "session_id" in caplog.text.lower()
@@ -445,9 +452,10 @@ async def test_subscriber_payload_preserved_on_failure(
     await event_bus.publish(event)
 
     # Give subscribers time to process
-    import asyncio
-
-    await asyncio.sleep(0.01)  # Reduced from 0.1 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+        clock.advance(0.01)  # Reduced from 0.1 for performance
+        await sleep_task
 
     # Verify usage subscriber received correct payload despite other failure
     mock_session_repo.create.assert_called_once()
@@ -504,7 +512,10 @@ async def test_subscriber_non_blocking_under_load(
     await asyncio.gather(*[event_bus.publish(event) for event in events])
 
     # Give subscribers time to process
-    await asyncio.sleep(0.01)  # Reduced from 0.2 for performance
+    async with FakeClockContext() as clock:
+        sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+        clock.advance(0.01)  # Reduced from 0.2 for performance
+        await sleep_task
 
     # Verify all events were processed (usage subscriber should have been called for all)
     assert mock_session_repo.create.call_count == 10

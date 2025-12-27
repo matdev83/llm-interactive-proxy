@@ -38,8 +38,9 @@ class TestFileWatcherMemoryLeakRegression:
                 )
 
             # Wait for all tasks to complete
-            await asyncio.sleep(0.08)  # Reduced from 0.15
-            clock.advance(0.08)
+            sleep_task = asyncio.create_task(asyncio.sleep(0.08))
+            clock.advance(0.08)  # Reduced from 0.15
+            await sleep_task
 
         # Check final task count
         final_tasks = len(asyncio.all_tasks())
@@ -75,8 +76,9 @@ class TestFileWatcherMemoryLeakRegression:
             )
 
             # Wait for task to complete
-            await asyncio.sleep(0.02)
+            sleep_task = asyncio.create_task(asyncio.sleep(0.02))
             clock.advance(0.02)
+            await sleep_task
 
         # Task should be cleaned up
         assert (
@@ -109,12 +111,14 @@ class TestFileWatcherMemoryLeakRegression:
                 FileWatcher.schedule_credentials_reload(
                     state, mock_reload_callback, mock_stop_callback
                 )
-                await asyncio.sleep(0.005)  # Reduced from 0.01
-                clock.advance(0.005)
+                sleep_task = asyncio.create_task(asyncio.sleep(0.005))
+                clock.advance(0.005)  # Reduced from 0.01
+                await sleep_task
 
             # Wait for all tasks to complete
-            await asyncio.sleep(0.1)  # Reduced from 0.3
-            clock.advance(0.1)
+            sleep_task = asyncio.create_task(asyncio.sleep(0.1))
+            clock.advance(0.1)  # Reduced from 0.3
+            await sleep_task
 
         # Should not have multiple concurrent tasks
         # Due to debouncing and cleanup, we expect at most 1-2 calls

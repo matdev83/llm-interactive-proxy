@@ -7,6 +7,7 @@ deterministic way, without relying on actual wall-clock time.
 from __future__ import annotations
 
 import asyncio
+import time as time_module
 from typing import Any
 
 
@@ -120,12 +121,23 @@ class FakeClockContext:
         """Enter the context."""
         # Patch asyncio.sleep
         self._original_sleep = asyncio.sleep
+        self._original_time = {
+            "time": time_module.time,
+            "monotonic": time_module.monotonic,
+            "perf_counter": time_module.perf_counter,
+        }
 
         async def fake_sleep(delay: float, result: Any = None) -> Any:
             await self.clock.sleep(delay)
             return result
 
+        def fake_time() -> float:
+            return self.clock.now()
+
         asyncio.sleep = fake_sleep  # type: ignore[assignment]
+        time_module.time = fake_time  # type: ignore[assignment]
+        time_module.monotonic = fake_time  # type: ignore[assignment]
+        time_module.perf_counter = fake_time  # type: ignore[assignment]
 
         return self.clock
 
@@ -134,3 +146,8 @@ class FakeClockContext:
         # Restore original functions
         if self._original_sleep is not None:
             asyncio.sleep = self._original_sleep  # type: ignore[assignment]
+
+        if self._original_time is not None:
+            time_module.time = self._original_time["time"]  # type: ignore[assignment]
+            time_module.monotonic = self._original_time["monotonic"]  # type: ignore[assignment]
+            time_module.perf_counter = self._original_time["perf_counter"]  # type: ignore[assignment]

@@ -139,6 +139,7 @@ class TestSessionCaptureBufferLeakRegression:
         self, buffer: SessionCaptureBuffer
     ) -> None:
         """Test that accessing a session updates its last_accessed time."""
+        import asyncio
 
         session_id = "test_session"
         interaction1 = CapturedInteraction(
@@ -153,11 +154,8 @@ class TestSessionCaptureBufferLeakRegression:
         async with buffer._lock:
             initial_access = buffer._buffers[session_id].last_accessed
 
-        # Wait a bit using fake clock
-        from tests.utils.fake_clock import FakeClockContext
-
-        async with FakeClockContext() as clock:
-            clock.advance(0.1)
+        # Wait a bit to ensure time progresses
+        await asyncio.sleep(0.01)
 
         # Add another interaction to same session
         interaction2 = CapturedInteraction(

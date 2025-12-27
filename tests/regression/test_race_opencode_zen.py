@@ -7,6 +7,7 @@ Tests that the _token_lock is properly used in _load_oauth_credentials.
 import asyncio
 
 import pytest
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockOpencodeZenConnector:
@@ -20,7 +21,10 @@ class MockOpencodeZenConnector:
     async def _load_oauth_credentials_with_lock(self, new_creds):
         """Simulate the fixed credential loading with lock."""
         async with self._token_lock:
-            await asyncio.sleep(0.001)  # Simulate I/O
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)  # Simulate I/O
+                await sleep_task
             self._oauth_credentials = new_creds
             self._last_modified = 123.45
 
@@ -64,7 +68,10 @@ async def test_concurrent_state_reads():
     for _ in range(20):
 
         async def read_task():
-            await asyncio.sleep(0.0001)
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.0001))
+                clock.advance(0.0001)
+                await sleep_task
             return await connector.get_state()
 
         tasks.append(read_task())

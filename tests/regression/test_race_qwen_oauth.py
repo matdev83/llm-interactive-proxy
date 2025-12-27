@@ -7,6 +7,7 @@ Tests that _token_refresh_lock is properly used in _load_oauth_credentials.
 import asyncio
 
 import pytest
+from tests.utils.fake_clock import FakeClockContext
 
 
 class MockQwenOAuthConnector:
@@ -20,7 +21,10 @@ class MockQwenOAuthConnector:
     async def _load_oauth_credentials_with_lock(self, new_creds):
         """Simulate of fixed credential loading with lock."""
         async with self._token_refresh_lock:
-            await asyncio.sleep(0.001)  # Simulate I/O
+            async with FakeClockContext() as clock:
+                sleep_task = asyncio.create_task(asyncio.sleep(0.001))
+                clock.advance(0.001)  # Simulate I/O
+                await sleep_task
             self._oauth_credentials = new_creds
             return True
 

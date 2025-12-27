@@ -281,9 +281,7 @@ class TestTimestampTracking:
         assert state.last_seen > initial_time
         assert state.last_seen == pytest.approx(1000.01, rel=0.001)
 
-    def test_update_last_seen_only(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_update_last_seen_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test that update_last_seen only updates last_seen timestamp."""
         current_time = {"value": 1000.0}
 
