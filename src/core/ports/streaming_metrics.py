@@ -9,6 +9,7 @@ hot-path performance.
 from __future__ import annotations
 
 import logging
+import random
 import threading
 import time
 from collections.abc import MutableMapping
@@ -310,12 +311,18 @@ class StreamingSampler:
 
     This class provides sampling capabilities for debugging streaming
     issues without overwhelming logs with data.
+
+    Thread-safety: All mutations are protected by a lock for
+    concurrent access from multiple threads/async tasks.
     """
 
     sample_rate: float = 0.01  # Sample 1% of requests by default
     max_samples: int = 100  # Maximum number of samples to keep
     _samples: list[dict[str, Any]] = field(default_factory=list)
     _sample_count: int = 0
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
 
     def should_sample(self) -> bool:
         """Determine if the current request should be sampled.
@@ -323,9 +330,9 @@ class StreamingSampler:
         Returns:
             True if this request should be sampled
         """
-        import random
+        with self._lock:
+            self._sample_count += 1
 
-        self._sample_count += 1
         return random.random() < self.sample_rate
 
     def add_sample(
@@ -343,18 +350,19 @@ class StreamingSampler:
             data: The data to sample
             metadata: Optional metadata about the sample
         """
-        if len(self._samples) >= self.max_samples:
-            # Remove oldest sample
-            self._samples.pop(0)
+        with self._lock:
+            if len(self._samples) >= self.max_samples:
+                # Remove oldest sample
+                self._samples.pop(0)
 
-        sample = {
-            "stream_id": stream_id,
-            "type": sample_type,
-            "data": data,
-            "metadata": metadata or {},
-            "timestamp": time.time(),
-        }
-        self._samples.append(sample)
+            sample = {
+                "stream_id": stream_id,
+                "type": sample_type,
+                "data": data,
+                "metadata": metadata or {},
+                "timestamp": time.time(),
+            }
+            self._samples.append(sample)
 
         # Log sample with guarded logging
         if logger.isEnabledFor(TRACE_LEVEL):
@@ -378,7 +386,8 @@ class StreamingSampler:
         Returns:
             List of matching samples
         """
-        samples = self._samples
+        with self._lock:
+            samples = list(self._samples)  # Shallow copy to avoid lock contention
 
         if stream_id:
             samples = [s for s in samples if s["stream_id"] == stream_id]
@@ -393,8 +402,9 @@ class StreamingSampler:
 
         This is primarily useful for testing.
         """
-        self._samples.clear()
-        self._sample_count = 0
+        with self._lock:
+            self._samples.clear()
+            self._sample_count = 0
 
 
 # Global sampler instance

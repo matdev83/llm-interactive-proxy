@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -10,25 +11,32 @@ logger = logging.getLogger(__name__)
 
 
 class RateLimitRegistry:
-    """Tracks when a backend/model/key combination can be retried."""
+    """Tracks when a backend/model/key combination can be retried.
+
+    Thread-safety: All public methods use threading.Lock to protect
+    concurrent access from multiple threads.
+    """
 
     def __init__(self, max_size: int = 10000) -> None:
         self._until: dict[tuple[str, str, str], float] = {}
         self._max_size = max_size
+        self._lock = threading.Lock()
 
     def set(
         self, backend: str, model: str | None, key_name: str, delay_seconds: float
     ) -> None:
-        if len(self._until) >= self._max_size:
-            self._cleanup_expired()
+        with self._lock:
             if len(self._until) >= self._max_size:
-                # Evict oldest inserted (FIFO behavior with dict)
-                first_key = next(iter(self._until))
-                del self._until[first_key]
+                self._cleanup_expired()
+                if len(self._until) >= self._max_size:
+                    # Evict oldest inserted (FIFO behavior with dict)
+                    first_key = next(iter(self._until))
+                    del self._until[first_key]
 
-        self._until[(backend, model or "", key_name)] = time.time() + delay_seconds
+            self._until[(backend, model or "", key_name)] = time.time() + delay_seconds
 
     def _cleanup_expired(self) -> None:
+        """Remove expired entries. Caller must hold lock."""
         now = time.time()
         expired_keys = [k for k, ts in self._until.items() if now >= ts]
         for k in expired_keys:
@@ -36,18 +44,19 @@ class RateLimitRegistry:
 
     def get(self, backend: str, model: str | None, key_name: str) -> float | None:
         key = (backend, model or "", key_name)
-        ts = self._until.get(key)
-        if ts is None:
-            return None
-        if time.time() >= ts:
-            del self._until[key]
-            return None
-        return ts
+        with self._lock:
+            ts = self._until.get(key)
+            if ts is None:
+                return None
+            if time.time() >= ts:
+                del self._until[key]
+                return None
+            return ts
 
     def earliest(
         self, combos: Iterable[tuple[str, str, str]] | None = None
     ) -> float | None:
-        """Return the earliest retry timestamp for the given combinations."""
+        """Return earliest retry timestamp for given combinations."""
         keys: Iterable[tuple[str, str, str]]
         if combos is None:
             keys = list(self._until.keys())
@@ -66,17 +75,18 @@ class RateLimitRegistry:
         valid_times: list[float] = []
         expired_keys: list[tuple[str, str, str]] = []
 
-        for key in keys:
-            ts = self._until.get(key)
-            if ts is None:
-                continue
-            if now >= ts:
-                expired_keys.append(key)
-                continue
-            valid_times.append(ts)
+        with self._lock:
+            for key in keys:
+                ts = self._until.get(key)
+                if ts is None:
+                    continue
+                if now >= ts:
+                    expired_keys.append(key)
+                    continue
+                valid_times.append(ts)
 
-        for key in expired_keys:
-            self._until.pop(key, None)
+            for key in expired_keys:
+                self._until.pop(key, None)
 
         if not valid_times:
             return None
