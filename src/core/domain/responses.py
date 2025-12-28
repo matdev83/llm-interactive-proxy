@@ -19,7 +19,7 @@ class ResponseEnvelope(InternalDTO):
     appropriate transport-specific response types.
     """
 
-    content: Any  # Response content (dict, string, bytes, etc.)
+    content: dict[str, Any] | str | bytes | None  # Response content (JSON dict, string, bytes, or None)
     headers: dict[str, str] | None = None
     status_code: int = 200
     media_type: str = "application/json"

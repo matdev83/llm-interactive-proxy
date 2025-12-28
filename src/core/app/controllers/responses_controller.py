@@ -6,6 +6,7 @@ import logging
 import re
 import sre_parse
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 from sre_constants import MAXREPEAT
 from typing import Any, cast
 
@@ -31,6 +32,9 @@ from src.core.interfaces.client_end_of_session_service_interface import (
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.session_metrics_initializer_interface import (
+    ISessionMetricsInitializer,
+)
 from src.core.interfaces.translation_service_interface import (
     ITranslationService,
 )
@@ -61,6 +65,7 @@ class ResponsesController:
         translation_service: ITranslationService | None = None,
         wire_capture: IWireCapture | None = None,
         client_eos_service: IClientEndOfSessionService | None = None,
+        metrics_initializer: ISessionMetricsInitializer | None = None,
     ) -> None:
         """Initialize the controller.
 
@@ -69,16 +74,18 @@ class ResponsesController:
             translation_service: Translation service for request conversion
             wire_capture: Optional wire capture service
             client_eos_service: Optional client end-of-session service for termination reporting
+            metrics_initializer: Optional session metrics initializer for proactive metrics creation
         """
         self._processor = request_processor
         if translation_service is None:
             raise InitializationError(
-                "Translation service must be provided by the DI container"
+                "Translation service must be provided by DI container"
             )
 
         self._translation_service = translation_service
         self._wire_capture = wire_capture
         self._client_eos_service = client_eos_service
+        self._metrics_initializer = metrics_initializer
 
     async def handle_responses_request(
         self,
@@ -144,6 +151,35 @@ class ResponsesController:
                 request_id=request_id,
                 schema_name=schema_name,
             )
+            # Requirement 5.5: Proactive session metrics initialization
+            # Initialize session metrics early in lifecycle before backend work begins
+            # This ensures metrics exist for EoS emission even if client disconnects immediately
+            # Design.md line 434-437: Two-phase approach - proactive (primary) + defensive fallback
+            if self._metrics_initializer is not None and ctx.request_id:
+                try:
+                    session_key = resolve_session_key_from_request_context(ctx)
+                    if session_key is not None:
+                        await self._metrics_initializer.ensure_session_metrics(
+                            session_key, observed_at=datetime.now(timezone.utc)
+                        )
+                except Exception as exc:
+                    # Requirement 3.9: Fail-open behavior - log but don't raise
+                    # Design.md line 413: Log with high-signal error code for visibility
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to initialize session metrics proactively: %s",
+                            exc,
+                            exc_info=True,
+                            extra={
+                                "request_id": ctx.request_id,
+                                "error_code": "SESSION_METRICS_INIT_FAILED",
+                            },
+                        )
+            # Process request using the request processor
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Processing request through pipeline - request_id={request_id}"
+                )
             # Process the request using the request processor
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(

@@ -14,14 +14,14 @@ class ProcessedResponse:
 
     def __init__(
         self,
-        content: Any = "",
+        content: dict[str, Any] | str | bytes | None = "",
         usage: UsageSummary | None = None,
         metadata: dict[str, JsonValue] | None = None,
     ):
         """Initialize a processed response.
 
         Args:
-            content: The response content
+            content: The response content (JSON dict, string, bytes, or None)
             usage: Usage information (canonical UsageSummary contract)
             metadata: Additional metadata (JSON-serializable values)
         """

@@ -122,7 +122,21 @@
   - Replace `Any` and `dict[str, Any]` in interfaces that exchange canonical contracts (RequestContext, BackendTarget, UsageSummary, ResponseEnvelope)
   - Focus on cross-layer seams: backend completion collaborators, request/response processors, transport adapters
   - Preserve backward compatibility where needed with compatibility overloads
+  - **Note**: `IContractCoercionService` was deemed unnecessary as request adapters and controllers now handle coercion directly to `CanonicalChatRequest`.
   - _Requirements: 3.1, 3.2, 3.4 _
+
+- [x] 9. Phase B+: Narrow ResponseEnvelope.content type
+- [x] 9.1 Narrow ResponseEnvelope.content from Any to specific union
+  - Changed `ResponseEnvelope.content` from `Any` to `dict[str, Any] | str | bytes | None`
+  - Changed `ProcessedResponse.content` to match the same type
+  - Updated documentation in typed-data-contracts.md to reflect the change
+  - _Requirements: 2.5, 3.1, 3.2 _
+
+- [x] 9.2 Update documentation to reflect Phase B+ completion
+  - Updated typed-data-contracts.md to document the narrowed ResponseEnvelope.content type
+  - Updated all Phase B+ deliverables to reflect completion status
+  - _Requirements: 8.1, 8.2 _
+
   - **Note**: `IContractCoercionService` was deemed unnecessary as request adapters and controllers now handle coercion directly to `CanonicalChatRequest`.
   - **Note**: Narrowing `ResponseEnvelope.content` from `Any` is deferred to Phase B+ as documented in design.
 

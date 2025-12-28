@@ -6,6 +6,7 @@ Handles all chat completion related API endpoints.
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
@@ -25,6 +26,9 @@ from src.core.domain.chat import (
 )
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
+from src.core.interfaces.session_metrics_initializer_interface import (
+    ISessionMetricsInitializer,
+)
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.transport.fastapi.exception_adapters import (
@@ -46,6 +50,7 @@ class ChatController:
         request_processor: IRequestProcessor | None,
         translation_service: ITranslationService | None = None,
         wire_capture: Any | None = None,
+        metrics_initializer: ISessionMetricsInitializer | None = None,
     ) -> None:
         """Initialize the controller.
 
@@ -53,6 +58,7 @@ class ChatController:
             request_processor: The request processor service
             translation_service: Optional translation service
             wire_capture: Optional wire capture service
+            metrics_initializer: Optional session metrics initializer for proactive metrics creation
         """
         self._processor = request_processor
         self._translation_service = (
@@ -61,6 +67,7 @@ class ChatController:
             else self._resolve_translation_service_from_provider(None)
         )
         self._wire_capture = wire_capture
+        self._metrics_initializer = metrics_initializer
 
     @staticmethod
     def _resolve_translation_service_from_provider(
@@ -455,6 +462,35 @@ class ChatController:
             # Ensure session_id is available in context if provided in request
             if domain_request.session_id:
                 ctx.session_id = domain_request.session_id
+
+            # Requirement 5.5: Proactive session metrics initialization
+            # Initialize session metrics early in lifecycle before backend work begins
+            # This ensures metrics exist for EoS emission even if client disconnects immediately
+            # Design.md line 434-437: Two-phase approach - proactive (primary) + defensive fallback
+            if self._metrics_initializer is not None and ctx.request_id:
+                try:
+                    from src.core.transport.session_key_resolver import (
+                        resolve_session_key_from_request_context,
+                    )
+
+                    session_key = resolve_session_key_from_request_context(ctx)
+                    if session_key is not None:
+                        await self._metrics_initializer.ensure_session_metrics(
+                            session_key, observed_at=datetime.now(timezone.utc)
+                        )
+                except Exception as exc:
+                    # Requirement 3.9: Fail-open behavior - log but don't raise
+                    # Design.md line 413: Log with high-signal error code for visibility
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to initialize session metrics proactively: %s",
+                            exc,
+                            exc_info=True,
+                            extra={
+                                "request_id": ctx.request_id,
+                                "error_code": "SESSION_METRICS_INIT_FAILED",
+                            },
+                        )
 
             # Capture inbound request for wire capture debugging
             if self._wire_capture and self._wire_capture.enabled():

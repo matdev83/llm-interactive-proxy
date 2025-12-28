@@ -1,0 +1,63 @@
+{
+  "include": ["src"],
+  "exclude": [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.mypy_cache",
+    "**/.ruff_cache",
+    "**/.venv",
+    "**/build",
+    "**/dist",
+    "**/htmlcov",
+    "**/node_modules",
+    "var",
+    "logs",
+    "docs",
+    "dev",
+    "tests",
+    "scripts"
+  ],
+  "stubPath": "stubs",
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.10",
+  "pythonPlatform": "Windows",
+  "typeCheckingMode": "standard",
+  "useLibraryCodeForTypes": true,
+
+  "//": "High-signal/noise profile for CI-style runs on src/. Prefer catching likely bugs over style/hygiene issues covered by ruff/black.",
+
+  "reportUnnecessaryIsInstance": "none",
+  "reportUnnecessaryComparison": "none",
+  "reportUnnecessaryCast": "none",
+  "reportUnusedFunction": "none",
+  "reportUnusedImport": "none",
+  "reportUnusedVariable": "none",
+  "reportUnusedClass": "none",
+  "reportPrivateUsage": "none",
+
+  "reportUnknownVariableType": "none",
+  "reportUnknownMemberType": "none",
+  "reportUnknownArgumentType": "none",
+  "reportUnknownParameterType": "none",
+  "reportUnknownLambdaType": "none",
+  "reportMissingTypeArgument": "none",
+  "reportMissingParameterType": "none",
+  "reportMissingTypeStubs": "none",
+
+  "reportArgumentType": "error",
+  "reportCallIssue": "error",
+  "reportAttributeAccessIssue": "error",
+  "reportIndexIssue": "error",
+  "reportOptionalMemberAccess": "error",
+  "reportOptionalCall": "error",
+  "reportPossiblyUnboundVariable": "error",
+  "reportUndefinedVariable": "error",
+
+  "executionEnvironments": [
+    {
+      "root": "src",
+      "extraPaths": [".", "src"]
+    }
+  ]
+}

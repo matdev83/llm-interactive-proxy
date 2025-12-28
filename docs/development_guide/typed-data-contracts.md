@@ -129,7 +129,7 @@ The following contracts are the canonical representations used for cross-layer d
 **Purpose**: Transport-agnostic container for non-streaming responses.
 
 **Key Fields**:
-- `content: Any` - Response content (dict, string, bytes, etc.)
+- `content: dict[str, Any] | str | bytes | None` - Response content (JSON dict, string, bytes, or None)
 - `usage: UsageSummary | None` - Token usage summary
 - `metadata: dict[str, JsonValue] | None` - Response metadata
 - `headers: dict[str, str] | None` - HTTP headers
@@ -141,7 +141,7 @@ The following contracts are the canonical representations used for cross-layer d
 - Adapted by transport layer to HTTP responses
 - Captured in wire capture for replay
 
-**Note**: `content` field remains `Any` in Phase A for backward compatibility. Phase B+ will narrow this to a union of known response types.
+**Note**: `content` field narrowed from `Any` to `dict[str, Any] | str | bytes | None` in Phase B+. This provides type safety while maintaining flexibility for the known response types used across the codebase.
 
 #### `StreamingResponseEnvelope`
 

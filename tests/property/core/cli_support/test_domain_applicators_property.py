@@ -40,6 +40,7 @@ DOMAIN_BOUNDARIES: dict[str, set[str]] = {
     "RoutingApplicator": {"routing"},
     "CompactionApplicator": {"compaction"},
     "SandboxingApplicator": {"sandboxing"},
+    "EndOfSessionApplicator": {"end_of_session"},
 }
 
 
@@ -242,6 +243,7 @@ class TestDomainApplicatorIsolation:
             "RoutingApplicator",
             "CompactionApplicator",
             "SandboxingApplicator",
+            "EndOfSessionApplicator",
         ],
     )
     def test_domain_applicator_isolation(self, applicator_name: str) -> None:

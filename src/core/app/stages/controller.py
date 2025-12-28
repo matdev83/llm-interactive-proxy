@@ -15,6 +15,7 @@ import logging
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
+from src.core.interfaces.translation_service_interface import ITranslationService
 
 from .base import InitializationStage
 
@@ -79,15 +80,31 @@ class ControllerStage(InitializationStage):
             request_processor: IRequestProcessor = provider.get_required_service(
                 cast(type, IRequestProcessor)
             )
-            translation_service = (
-                ChatController._resolve_translation_service_from_provider(provider)
+            # Get translation service - use helper method inline
+            from src.core.services.translation_service import (
+                TranslationService as ConcreteTranslationService,
             )
+            translation_service = provider.get_service(cast(type, ITranslationService))
+            if translation_service is None:
+                translation_service = provider.get_service(ConcreteTranslationService)
             # Get wire capture service if available
             wire_capture = provider.get_service(cast(type, IWireCapture))
+            # Get session metrics initializer if available
+            metrics_initializer = None
+            try:
+                from src.core.interfaces.session_metrics_initializer_interface import (
+                    ISessionMetricsInitializer,
+                )
+                metrics_initializer = provider.get_service(
+                    cast(type, ISessionMetricsInitializer)
+                )
+            except Exception:
+                metrics_initializer = None
             return ChatController(
                 request_processor,
                 translation_service=translation_service,
                 wire_capture=wire_capture,
+                metrics_initializer=metrics_initializer,
             )
 
         # Register as singleton
@@ -185,6 +202,9 @@ class ControllerStage(InitializationStage):
             from src.core.interfaces.client_end_of_session_service_interface import (
                 IClientEndOfSessionService,
             )
+            from src.core.interfaces.session_metrics_initializer_interface import (
+                ISessionMetricsInitializer,
+            )
             from src.core.interfaces.translation_service_interface import (
                 ITranslationService,
             )
@@ -208,10 +228,20 @@ class ControllerStage(InitializationStage):
                 cast(type, IClientEndOfSessionService)
             )
 
+            # Optional: session metrics initializer for proactive metrics creation
+            metrics_initializer: ISessionMetricsInitializer | None = None
+            try:
+                metrics_initializer = provider.get_service(
+                    cast(type, ISessionMetricsInitializer)
+                )
+            except Exception:
+                metrics_initializer = None
+
             return ResponsesController(
                 request_processor,
                 translation_service=translation_service,
                 client_eos_service=client_eos_service,
+                metrics_initializer=metrics_initializer,
             )
 
         # Register as singleton

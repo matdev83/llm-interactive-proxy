@@ -17,19 +17,18 @@ Usage:
 import json
 import shutil
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 
-def load_spec_json(spec_path: Path) -> Dict | None:
+def load_spec_json(spec_path: Path) -> dict | None:
     """Load and parse spec.json file."""
     spec_json_path = spec_path / "spec.json"
     if not spec_json_path.exists():
         return None
     
     try:
-        with open(spec_json_path, "r", encoding="utf-8") as f:
+        with open(spec_json_path, encoding="utf-8") as f:
             return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         print(f"  WARNING: Could not parse {spec_json_path}: {e}")
         return None
 
@@ -49,7 +48,7 @@ def has_completion_marker_file(spec_path: Path) -> bool:
     return False
 
 
-def is_completed(spec_data: Dict, spec_path: Path) -> bool:
+def is_completed(spec_data: dict, spec_path: Path) -> bool:
     """Check if a spec is marked as completed."""
     # First check for completion marker files
     if has_completion_marker_file(spec_path):
@@ -84,7 +83,7 @@ def is_completed(spec_data: Dict, spec_path: Path) -> bool:
     return False
 
 
-def analyze_specs(specs_dir: Path) -> Tuple[List[str], List[str]]:
+def analyze_specs(specs_dir: Path) -> tuple[list[str], list[str]]:
     """Analyze all specs and categorize them."""
     completed = []
     pending = []

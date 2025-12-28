@@ -9,15 +9,12 @@ from __future__ import annotations
 
 import logging
 
-from pydantic.types import JsonValue
-
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.command_processor_interface import ICommandProcessor
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.model_replacement_service_interface import (
     IModelReplacementService,
 )

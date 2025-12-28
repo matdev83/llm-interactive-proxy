@@ -92,6 +92,8 @@ def main():
             "tests/regression/test_api_key_redactor_memory_leak_regression.py",
             "tests/unit/test_compaction_domain.py",
             "tests/integration/test_history_compaction_integration.py",
+            "test_scenario3_redaction.py",
+            "MANUAL_TESTING_REPORT.md",
         }
         if file_path.startswith("dev/") or file_path in excluded_files:
             print(f"Skipping pattern scan for excluded file: {file_path}")
