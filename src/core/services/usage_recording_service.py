@@ -7,6 +7,7 @@ to backend, verbatim backend response, mutated egress to client).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -33,13 +34,14 @@ class UsageRecordingService(IUsageRecordingService):
     """
 
     def __init__(self, store: InMemoryUsageStore):
-        """Initialize the usage recording service.
+        """Initialize usage recording service.
 
         Args:
             store: In-memory storage for usage records
         """
         self._store = store
         self._turn_counters: dict[str, int] = {}
+        self._counters_lock = asyncio.Lock()
 
     async def record_request(
         self,
@@ -87,11 +89,12 @@ class UsageRecordingService(IUsageRecordingService):
         if prompt_tokens < 0:
             raise ValueError("prompt_tokens must be non-negative")
 
-        # Get or increment turn number for this session
-        if session_id not in self._turn_counters:
-            self._turn_counters[session_id] = 0
-        self._turn_counters[session_id] += 1
-        turn_number = self._turn_counters[session_id]
+        # Get or increment turn number for this session (thread-safe)
+        async with self._counters_lock:
+            if session_id not in self._turn_counters:
+                self._turn_counters[session_id] = 0
+            self._turn_counters[session_id] += 1
+            turn_number = self._turn_counters[session_id]
 
         # Generate unique record ID
         record_id = str(uuid.uuid4())

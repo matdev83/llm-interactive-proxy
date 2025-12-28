@@ -11,7 +11,6 @@ import logging
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
-from threading import Lock
 
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
@@ -62,11 +61,11 @@ class EndOfSessionService(IEndOfSessionService):
         self._event_bus = event_bus
         self._config = config
         self._session_repository = session_repository
-        # In-memory cache for hot-path dedupe (thread-safe LRU via OrderedDict)
+        # In-memory cache for hot-path dedupe (async-safe LRU via OrderedDict)
         # Cache entries store timestamps for TTL expiration (design.md requires TTL ~5m)
         # Format: {session_id: timestamp}
         self._ended_sessions: OrderedDict[str, float] = OrderedDict()
-        self._cache_lock = Lock()
+        self._cache_lock = asyncio.Lock()
 
     async def record_signal(self, signal: EndOfSessionSignal) -> None:
         """Normalize a signal and emit EoS event once per session.
@@ -103,7 +102,7 @@ class EndOfSessionService(IEndOfSessionService):
             return
 
         # Fast-path dedupe check (in-memory cache)
-        if self.has_ended(signal.session_id):
+        if await self.has_ended(signal.session_id):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Session %s already ended (in-memory cache), skipping emission",
@@ -132,7 +131,7 @@ class EndOfSessionService(IEndOfSessionService):
                         signal.session_id,
                     )
                 # Update cache for future fast-path checks
-                self._mark_ended(signal.session_id)
+                await self._mark_ended(signal.session_id)
                 return
 
             # Claim succeeded - emit event
@@ -149,7 +148,7 @@ class EndOfSessionService(IEndOfSessionService):
                 )
 
             # Update cache immediately after successful claim
-            self._mark_ended(signal.session_id)
+            await self._mark_ended(signal.session_id)
 
             # Determine error classification (default to unknown_error for error terminations)
             error_classification = signal.error_classification
@@ -185,7 +184,7 @@ class EndOfSessionService(IEndOfSessionService):
             # Fail-open: if DB claim failed, still emit EoS using in-memory dedupe
             # This ensures EoS events are emitted even when persistence is unavailable
             # Check in-memory cache to preserve "at most once per session" behavior
-            if self.has_ended(signal.session_id):
+            if await self.has_ended(signal.session_id):
                 # Already emitted in fail-open mode, skip
                 logger.debug(
                     "EoS already emitted (fail-open cache) for session %s, skipping duplicate",
@@ -213,7 +212,7 @@ class EndOfSessionService(IEndOfSessionService):
             )
 
             # Mark as ended in cache before emitting to prevent race conditions
-            self._mark_ended(signal.session_id)
+            await self._mark_ended(signal.session_id)
 
             # Determine error classification (default to unknown_error for error terminations)
             error_classification = signal.error_classification
@@ -313,12 +312,10 @@ class EndOfSessionService(IEndOfSessionService):
             )
             # Note: Handlers continue running in background due to shield
 
-    def has_ended(self, session_id: str) -> bool:
-        """Return True if EoS event has been emitted for session.
+    async def has_ended(self, session_id: str) -> bool:
+        """Check if session has already ended (hot-path dedupe).
 
-        This is a fast in-memory check for hot-path dedupe with TTL expiration.
-        The result may be stale immediately after a concurrent emission, but provides
-        a quick filter before attempting the atomic DB claim.
+        This provides a quick filter before attempting the atomic DB claim.
 
         Args:
             session_id: Session identifier to check
@@ -326,7 +323,7 @@ class EndOfSessionService(IEndOfSessionService):
         Returns:
             True if session has ended (EoS event emitted) and cache entry is valid, False otherwise
         """
-        with self._cache_lock:
+        async with self._cache_lock:
             if session_id not in self._ended_sessions:
                 return False
 
@@ -339,7 +336,7 @@ class EndOfSessionService(IEndOfSessionService):
 
             return True
 
-    def _mark_ended(self, session_id: str) -> None:
+    async def _mark_ended(self, session_id: str) -> None:
         """Mark session as ended in in-memory cache.
 
         This updates the LRU cache with TTL tracking, moving the session to the end
@@ -349,7 +346,7 @@ class EndOfSessionService(IEndOfSessionService):
         Args:
             session_id: Session identifier to mark
         """
-        with self._cache_lock:
+        async with self._cache_lock:
             # Prune expired entries first
             self._prune_expired_entries()
 

@@ -92,7 +92,7 @@ class EndOfSessionToolCallHandler(IToolCallHandler):
             return False
 
         # Early exit if session has already ended (hot-path dedupe)
-        if self._eos_service.has_ended(context.session_id):
+        if await self._eos_service.has_ended(context.session_id):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "EoS tool call handler: Session %s already ended, skipping",

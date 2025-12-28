@@ -50,12 +50,12 @@ class IEndOfSessionService(ABC):
         """
 
     @abstractmethod
-    def has_ended(self, session_id: str) -> bool:
+    async def has_ended(self, session_id: str) -> bool:
         """Return True if EoS event has been emitted for session.
 
         This is a fast in-memory check for hot-path dedupe. The result may
         be stale immediately after a concurrent emission, but provides a
-        quick filter before attempting the atomic DB claim.
+        quick filter before attempting atomic DB claim.
 
         Args:
             session_id: Session identifier to check

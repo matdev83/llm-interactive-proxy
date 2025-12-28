@@ -41,15 +41,17 @@ class SessionCompletionDetector:
         self._max_completed_sessions = 10000
         self._cleanup_task: asyncio.Task | None = None
         self._running = False
+        self._lock = asyncio.Lock()
 
-    def record_activity(self, session_id: str) -> None:
+    async def record_activity(self, session_id: str) -> None:
         """Record activity for a session.
 
         Args:
             session_id: The session identifier.
         """
-        if session_id not in self._completed_sessions:
-            self._last_activity[session_id] = time.time()
+        async with self._lock:
+            if session_id not in self._completed_sessions:
+                self._last_activity[session_id] = time.time()
 
     async def on_session_close(
         self,
@@ -119,12 +121,13 @@ class SessionCompletionDetector:
         timeout_seconds = self._config.session_timeout_minutes * 60
 
         timed_out = []
-        for session_id, last_activity in list(self._last_activity.items()):
-            if session_id in self._completed_sessions:
-                continue
+        async with self._lock:
+            for session_id, last_activity in list(self._last_activity.items()):
+                if session_id in self._completed_sessions:
+                    continue
 
-            if now - last_activity > timeout_seconds:
-                timed_out.append(session_id)
+                if now - last_activity > timeout_seconds:
+                    timed_out.append(session_id)
 
         for session_id in timed_out:
             if await self._memory_service.is_enabled_for_session(session_id):
@@ -147,15 +150,16 @@ class SessionCompletionDetector:
             branch: Optional git branch.
             head_sha: Optional git HEAD SHA.
         """
-        if session_id in self._completed_sessions:
-            return
+        async with self._lock:
+            if session_id in self._completed_sessions:
+                return
 
-        self._completed_sessions.add(session_id)
-        self._last_activity.pop(session_id, None)
+            self._completed_sessions.add(session_id)
+            self._last_activity.pop(session_id, None)
 
-        # Enforce size limit to prevent unbounded memory growth
-        if len(self._completed_sessions) > self._max_completed_sessions:
-            self._maybe_cleanup_completed_sessions()
+            # Enforce size limit to prevent unbounded memory growth
+            if len(self._completed_sessions) > self._max_completed_sessions:
+                self._maybe_cleanup_completed_sessions()
 
         await self._memory_service.mark_session_complete(
             session_id,
@@ -176,8 +180,11 @@ class SessionCompletionDetector:
     def _maybe_cleanup_completed_sessions(self) -> None:
         """Clean up old completed session IDs to prevent unbounded growth.
 
-        Evicts the oldest completed session IDs when the set exceeds the limit.
-        Uses FIFO-style cleanup by removing half the entries.
+        Evicts oldest completed session IDs when set exceeds limit.
+        Uses FIFO-style cleanup by removing half of entries.
+
+        NOTE: This method must only be called while holding self._lock
+        to ensure thread-safe access to _completed_sessions.
         """
         target_size = self._max_completed_sessions // 2
         # Convert to list and slice to remove oldest entries

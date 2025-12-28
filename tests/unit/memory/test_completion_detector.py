@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
@@ -32,24 +33,26 @@ def create_mock_config(timeout_minutes: int = 30) -> MagicMock:
 class TestSessionCompletionDetector:
     """Tests for SessionCompletionDetector."""
 
-    def test_record_activity_tracks_session(self) -> None:
+    @pytest.mark.asyncio
+    async def test_record_activity_tracks_session(self) -> None:
         """Test that activity is recorded."""
         service = create_mock_memory_service()
         config = create_mock_config()
         detector = SessionCompletionDetector(service, config)
 
-        detector.record_activity("session-1")
+        await detector.record_activity("session-1")
 
         assert "session-1" in detector._last_activity
 
-    def test_record_activity_ignores_completed_sessions(self) -> None:
+    @pytest.mark.asyncio
+    async def test_record_activity_ignores_completed_sessions(self) -> None:
         """Test that completed sessions don't get activity recorded."""
         service = create_mock_memory_service()
         config = create_mock_config()
         detector = SessionCompletionDetector(service, config)
 
         detector._completed_sessions.add("session-1")
-        detector.record_activity("session-1")
+        await detector.record_activity("session-1")
 
         assert "session-1" not in detector._last_activity
 
@@ -181,3 +184,71 @@ class TestSessionCompletionDetector:
         assert task1 is task2
 
         await detector.stop_timeout_checker()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_activity_and_completion(self) -> None:
+        """Test that concurrent activity recording and completion are safe.
+
+        This verifies that lock prevents races between:
+        1. record_activity checking _completed_sessions
+        2. _complete_session adding to _completed_sessions
+
+        Without a lock, a race could allow:
+        - Activity recorded after session is marked complete
+        - Session completed multiple times
+        """
+        service = create_mock_memory_service()
+        config = create_mock_config()
+        detector = SessionCompletionDetector(service, config)
+
+        session_id = "test-session-concurrent"
+
+        # Launch concurrent activity recordings and completions
+        tasks = [
+            detector.record_activity(session_id) for _ in range(100)
+        ]
+        # Also try to complete session concurrently
+        completion_tasks = [
+            detector.on_session_close(session_id)
+            for _ in range(10)  # Try to complete 10 times
+        ]
+
+        # All should complete without errors
+        await asyncio.gather(*tasks, *completion_tasks, return_exceptions=True)
+
+        # Session should be marked complete exactly once
+        assert session_id in detector._completed_sessions
+        assert service.mark_session_complete.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_concurrent_different_sessions(self) -> None:
+        """Test that concurrent requests for different sessions work correctly.
+
+        This ensures lock doesn't cause unnecessary contention when
+        requests are for different sessions (they still need the lock
+        to prevent check-then-act race, but we verify they don't interfere).
+        """
+        service = create_mock_memory_service()
+        config = create_mock_config()
+        detector = SessionCompletionDetector(service, config)
+
+        num_sessions = 20
+        activities_per_session = 10
+
+        # Create activity for multiple sessions concurrently
+        tasks = []
+        for session_idx in range(num_sessions):
+            session_id = f"test-session-{session_idx}"
+            for _ in range(activities_per_session):
+                tasks.append(detector.record_activity(session_id))
+
+        await asyncio.gather(*tasks)
+
+        # All sessions should be tracked
+        assert len(detector._last_activity) == num_sessions
+
+        # Each session should have been recorded once
+        for session_idx in range(num_sessions):
+            session_id = f"test-session-{session_idx}"
+            assert session_id in detector._last_activity
+

@@ -85,7 +85,7 @@ class BackendCompletionFlowEosAdapter:
             return
 
         # Early exit if session has already ended (hot-path dedupe)
-        if self._eos_service.has_ended(session_id):
+        if await self._eos_service.has_ended(session_id):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "EoS adapter: Session %s already ended, skipping error termination signal",
