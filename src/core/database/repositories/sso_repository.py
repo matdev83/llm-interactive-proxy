@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 import sqlalchemy
+import sqlalchemy.exc
 from sqlmodel import select
 
 from src.core.auth.sso.exceptions import SSOException

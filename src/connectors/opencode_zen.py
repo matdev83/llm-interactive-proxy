@@ -590,9 +590,9 @@ class OpencodeZenConnector(OpenAIConnector):
 
         # Update request_data with the stripped model name to ensure it propagates to streaming logic
         # which might extract the model from request_data directly
-        if hasattr(request_data, "model_copy") and callable(request_data.model_copy):
+        if hasattr(request_data, "model_copy") and callable(getattr(request_data, "model_copy", None)):
             # It's a Pydantic model, create a copy with updated field
-            request_data = request_data.model_copy(update={"model": model_name})
+            request_data = request_data.model_copy(update={"model": model_name})  # type: ignore[attr-defined]
         elif isinstance(request_data, dict):
             # It's a dict, update in place (or copy if preferred, but in-place is standard for dicts here)
             request_data["model"] = model_name

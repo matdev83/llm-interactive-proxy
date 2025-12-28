@@ -40,7 +40,7 @@ class DailyRequestCounter:
 
     def _get_current_pacific_date(self) -> str:
         pacific_tz = pytz.timezone("America/Los_Angeles")
-        return datetime.now(pacific_tz).strftime("%Y-%m-%d")
+        return datetime.now(pacific_tz).strftime("%Y-%m-%d")  # type: ignore[arg-type]
 
     def _load_state(self) -> None:
         if not self.persistence_path.exists():

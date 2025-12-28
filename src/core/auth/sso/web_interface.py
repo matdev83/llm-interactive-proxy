@@ -389,8 +389,8 @@ def create_sso_router(
 
                 if not state:
                     form_relay = form.get("RelayState")
-                if isinstance(form_relay, str):
-                    state = form_relay
+                    if isinstance(form_relay, str):
+                        state = form_relay
             except Exception as e:
                 # Continue with query params if form parsing fails
                 if logger.isEnabledFor(logging.WARNING):

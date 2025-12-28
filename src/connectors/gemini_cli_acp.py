@@ -723,7 +723,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                 )
 
                 response_envelope = ResponseEnvelope(
-                    content=canonical_response,
+                    content=canonical_response.model_dump(),
                     headers={},
                     status_code=200,
                 )

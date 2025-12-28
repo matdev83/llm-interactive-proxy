@@ -493,7 +493,13 @@ class AnthropicController:
                     # convert it to a simple streaming response
                     async def simple_stream() -> AsyncIterator[bytes]:
                         if hasattr(adapted_response, "body"):
-                            yield adapted_response.body
+                            body_content = adapted_response.body
+                            if isinstance(body_content, memoryview):
+                                yield body_content.tobytes()
+                            elif isinstance(body_content, bytes):
+                                yield body_content
+                            else:
+                                yield str(body_content).encode("utf-8")
                         else:
                             yield b'data: {"error": "Unable to stream response"}\n\n'
 

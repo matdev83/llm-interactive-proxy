@@ -58,7 +58,10 @@ class InjectionPolicy:
         if hasattr(message, "model_dump") and callable(message.model_dump):
             try:
                 dumped = message.model_dump()
-                role_value = dumped.get("role")
+                if isinstance(dumped, dict):
+                    role_value = dumped.get("role")
+                else:
+                    role_value = None
                 if isinstance(role_value, str):
                     return role_value
             except (AttributeError, TypeError, ValueError) as e:

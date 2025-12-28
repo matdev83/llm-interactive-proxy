@@ -352,6 +352,7 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
         Returns:
             True if credentials loaded successfully, False otherwise.
         """
+        # CredentialStorageAdapter implements CredentialStorage protocol
         return await CredentialLoader.load_oauth_credentials(
-            self._storage_adapter, force_reload=force_reload, silent=silent
+            self._storage_adapter, force_reload=force_reload, silent=silent  # type: ignore[arg-type]
         )

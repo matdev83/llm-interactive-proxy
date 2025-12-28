@@ -446,7 +446,7 @@ def _register_dangerous_command_service(
         # Check if dangerous commands feature is enabled
         dangerous_commands_enabled = False
         if hasattr(app_config, "dangerous_commands"):
-            dangerous_config = app_config.dangerous_commands
+            dangerous_config = getattr(app_config, "dangerous_commands", None)  # type: ignore[attr-defined]
             dangerous_commands_enabled = getattr(dangerous_config, "enabled", False)
         elif hasattr(app_config, "unified_security"):
             unified_config = app_config.unified_security

@@ -820,9 +820,9 @@ class ReasoningStreamProcessor:
             else:
                 call_id = f"tool_call_{len(order)}"
 
-        existing = accumulator.get(call_id)
-        if existing is None:
-            existing = {
+        existing_raw = accumulator.get(call_id)
+        if existing_raw is None:
+            existing: dict[str, Any] = {
                 "id": call_id,
                 "type": tool_call.get("type") or "function",
             }
@@ -831,6 +831,15 @@ class ReasoningStreamProcessor:
             if index is not None:
                 index_map[index] = call_id
         else:
+            # Ensure existing is a dict (accumulator is dict[str, dict[str, Any]])
+            if not isinstance(existing_raw, dict):
+                existing = {
+                    "id": call_id,
+                    "type": tool_call.get("type") or "function",
+                }
+                accumulator[call_id] = existing
+            else:
+                existing = existing_raw
             if index is not None:
                 index_map.setdefault(index, call_id)
             if tool_call.get("type") and not existing.get("type"):

@@ -492,6 +492,9 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
             )
         else:
             response_body = response.body
+            # Convert memoryview to bytes if needed
+            if isinstance(response_body, memoryview):
+                response_body = response_body.tobytes()
             try:
                 data = json.loads(response_body)
                 is_rewritten = False

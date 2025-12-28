@@ -970,10 +970,12 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             # Extract usage from Gemini response
             usage = self._extract_gemini_usage(data)
 
+            canonical_response = self.translation_service.to_domain_response(
+                data, source_format="gemini"
+            )
+
             return ResponseEnvelope(
-                content=self.translation_service.to_domain_response(
-                    data, source_format="gemini"
-                ),
+                content=canonical_response.model_dump() if canonical_response else None,
                 headers=dict(response.headers),
                 status_code=response.status_code,
                 usage=usage,

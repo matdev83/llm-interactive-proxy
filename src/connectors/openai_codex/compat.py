@@ -420,12 +420,14 @@ class CompatibilityLayer(ICompatibilityLayer):
             finish_reason = None
             inner = chunk.raw
 
-            if hasattr(inner, "choices") and inner.choices:
-                for choice in inner.choices:
-                    fr = getattr(choice, "finish_reason", None)
-                    if fr:
-                        finish_reason = fr
-                        break
+            if hasattr(inner, "choices"):
+                choices_attr = getattr(inner, "choices", None)
+                if choices_attr:
+                    for choice in choices_attr:  # type: ignore[union-attr]
+                        fr = getattr(choice, "finish_reason", None)
+                        if fr:
+                            finish_reason = fr
+                            break
             elif isinstance(inner, dict) and "choices" in inner:
                 for choice in inner.get("choices", []):
                     fr = choice.get("finish_reason")
@@ -435,7 +437,11 @@ class CompatibilityLayer(ICompatibilityLayer):
 
             # Handle ProcessedResponse wrapper - unwrap to get actual content
             if hasattr(chunk.raw, "content"):
-                _process_content(chunk.raw.content, finish_reason)
+                content_attr = getattr(chunk.raw, "content", None)
+                if content_attr is not None:
+                    _process_content(content_attr, finish_reason)
+                else:
+                    _process_content(chunk.raw, finish_reason)
             else:
                 _process_content(chunk.raw, finish_reason)
 

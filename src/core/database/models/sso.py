@@ -18,7 +18,7 @@ class SchemaVersionTable(SQLModel, table=True):
     Tracks database schema versions for migration purposes.
     """
 
-    __tablename__ = "schema_version"
+    __tablename__ = "schema_version"  # type: ignore[assignment]
 
     version: int = Field(primary_key=True)
     applied_at: datetime = Field(
@@ -33,7 +33,7 @@ class AgentTokenTable(SQLModel, table=True):
     Stores tokens used by AI agents to authenticate with the proxy.
     """
 
-    __tablename__ = "agent_tokens"
+    __tablename__ = "agent_tokens"  # type: ignore[assignment]
 
     id: str = Field(primary_key=True, max_length=64)
     token_hash: str = Field(nullable=False, unique=True, max_length=256)
@@ -62,7 +62,7 @@ class PendingAuthorizationTable(SQLModel, table=True):
     Stores pending authorization requests with confirmation codes.
     """
 
-    __tablename__ = "pending_authorizations"
+    __tablename__ = "pending_authorizations"  # type: ignore[assignment]
 
     id: str = Field(primary_key=True, max_length=64)
     sso_state: str = Field(nullable=False, unique=True, max_length=256)
@@ -93,7 +93,7 @@ class RateLimitTable(SQLModel, table=True):
     Tracks failed attempts and blocks for rate limiting.
     """
 
-    __tablename__ = "rate_limits"
+    __tablename__ = "rate_limits"  # type: ignore[assignment]
 
     identifier: str = Field(primary_key=True, max_length=256)
     failed_attempts: int = Field(default=0, nullable=False)
@@ -110,7 +110,7 @@ class SSOLoginTokenTable(SQLModel, table=True):
     Stores temporary tokens for SSO login link validation.
     """
 
-    __tablename__ = "sso_login_tokens"
+    __tablename__ = "sso_login_tokens"  # type: ignore[assignment]
 
     token: str = Field(primary_key=True, max_length=256)
     created_at: datetime = Field(

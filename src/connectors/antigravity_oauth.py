@@ -386,111 +386,131 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     usage=response.usage,
                 )
 
-                # Update envelope content
-                response.content = canonical_response
+                # Update envelope content - convert CanonicalChatResponse to dict
+                response.content = canonical_response.model_dump()
 
         # Handle streaming responses
-        elif (
-            isinstance(response, ResponseEnvelope)
-            and hasattr(response, "content")
-            and hasattr(response.content, "__aiter__")
-        ):
-            # We need to intercept the stream, buffer it, and check for XML tool calls
-            # This adds latency but is necessary for correctness with this model/backend combo
-            original_iterator = response.content
+        elif isinstance(response, ResponseEnvelope) and response.content is not None:
+            # Check if content is an async iterator (streaming)
+            from collections.abc import AsyncIterator
 
-            async def _intercept_stream():
-                # Stream processing with bounded memory usage
-                # We only need to buffer content for XML tool call detection
-                # and keep track of the first chunk type for reconstruction
-                content_buffer = ""
-                first_chunk_type = None
-                original_chunks = []
+            if isinstance(response.content, AsyncIterator):
+                # We need to intercept the stream, buffer it, and check for XML tool calls
+                # This adds latency but is necessary for correctness with this model/backend combo
+                original_iterator = response.content
 
-                # Process stream in a single pass with bounded memory
-                async for chunk in original_iterator:
-                    if first_chunk_type is None:
-                        first_chunk_type = type(chunk)
+                async def _intercept_stream():
+                    # Stream processing with bounded memory usage
+                    # We only need to buffer content for XML tool call detection
+                    # and keep track of the first chunk type for reconstruction
+                    content_buffer = ""
+                    first_chunk_type = None
+                    original_chunks = []
 
-                    # Store original chunk for potential re-yielding
-                    original_chunks.append(chunk)
+                    # Process stream in a single pass with bounded memory
+                    async for chunk in original_iterator:
+                        if first_chunk_type is None:
+                            first_chunk_type = type(chunk)
 
-                    # Extract and accumulate content for XML detection
-                    if hasattr(chunk, "content"):
-                        chunk_content = chunk.content
-                        if isinstance(chunk_content, dict):
-                            # It might be a CanonicalStreamChunk dict
-                            choices = chunk_content.get("choices", [])
-                            if choices:
-                                delta = choices[0].get("delta", {})
-                                content_part = delta.get("content", "")
-                                if content_part:
-                                    content_buffer += content_part
-                        elif isinstance(chunk_content, str):
-                            content_buffer += chunk_content
+                        # Store original chunk for potential re-yielding
+                        original_chunks.append(chunk)
 
-                    # Early exit if we detect tool calls and have enough content
-                    if "<Tool>" in content_buffer and "</Tool>" in content_buffer:
-                        # We have a complete tool call, break to process it
-                        break
+                        # Extract and accumulate content for XML detection
+                        if hasattr(chunk, "content"):
+                            chunk_content = chunk.content
+                            if isinstance(chunk_content, dict):
+                                # It might be a CanonicalStreamChunk dict
+                                choices = chunk_content.get("choices", [])
+                                if choices:
+                                    delta = choices[0].get("delta", {})
+                                    content_part = delta.get("content", "")
+                                    if content_part:
+                                        content_buffer += content_part
+                            elif isinstance(chunk_content, str):
+                                content_buffer += chunk_content
 
-                # Check for XML tool calls in the accumulated content
-                tool_calls = []
-                if "<Tool>" in content_buffer:
-                    tool_pattern = r"<Tool>(.*?)</Tool>"
-                    match = re.search(tool_pattern, content_buffer, re.DOTALL)
-                    if match:
-                        tool_json = match.group(1)
-                        # DoS protection: Check size before parsing
-                        if len(tool_json.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    "Tool JSON payload too large in stream: %d bytes (limit: %d bytes), skipping parsing",
-                                    len(tool_json.encode("utf-8")),
-                                    MAX_JSON_PARSE_SIZE,
-                                )
-                        else:
-                            try:
-                                tools_data = json.loads(tool_json)
-                                if isinstance(tools_data, list):
-                                    for tool_data in tools_data:
-                                        if tool_data.get("type") == "tool_use":
-                                            tool_calls.append(
-                                                {
-                                                    "id": tool_data.get("id", ""),
-                                                    "type": "function",
-                                                    "function": {
-                                                        "name": tool_data.get(
-                                                            "name", ""
-                                                        ),
-                                                        "arguments": json.dumps(
-                                                            tool_data.get("input", {})
-                                                        ),
-                                                    },
-                                                }
-                                            )
-                                # Remove XML from content
-                                content_buffer = content_buffer.replace(
-                                    match.group(0), ""
-                                ).strip()
-                            except Exception as e:
+                        # Early exit if we detect tool calls and have enough content
+                        if "<Tool>" in content_buffer and "</Tool>" in content_buffer:
+                            # We have a complete tool call, break to process it
+                            break
+
+                    # Check for XML tool calls in the accumulated content
+                    tool_calls = []
+                    if "<Tool>" in content_buffer:
+                        tool_pattern = r"<Tool>(.*?)</Tool>"
+                        match = re.search(tool_pattern, content_buffer, re.DOTALL)
+                        if match:
+                            tool_json = match.group(1)
+                            # DoS protection: Check size before parsing
+                            if len(tool_json.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
                                 if logger.isEnabledFor(logging.WARNING):
                                     logger.warning(
-                                        "Failed to parse XML tool call in stream: %s", e
+                                        "Tool JSON payload too large in stream: %d bytes (limit: %d bytes), skipping parsing",
+                                        len(tool_json.encode("utf-8")),
+                                        MAX_JSON_PARSE_SIZE,
                                     )
+                            else:
+                                try:
+                                    tools_data = json.loads(tool_json)
+                                    if isinstance(tools_data, list):
+                                        for tool_data in tools_data:
+                                            if tool_data.get("type") == "tool_use":
+                                                tool_calls.append(
+                                                    {
+                                                        "id": tool_data.get("id", ""),
+                                                        "type": "function",
+                                                        "function": {
+                                                            "name": tool_data.get(
+                                                                "name", ""
+                                                            ),
+                                                            "arguments": json.dumps(
+                                                                tool_data.get("input", {})
+                                                            ),
+                                                        },
+                                                    }
+                                                )
+                                    # Remove XML from content
+                                    content_buffer = content_buffer.replace(
+                                        match.group(0), ""
+                                    ).strip()
+                                except Exception as e:
+                                    if logger.isEnabledFor(logging.WARNING):
+                                        logger.warning(
+                                            "Failed to parse XML tool call in stream: %s", e
+                                        )
 
-                if tool_calls:
-                    # Yield tool call chunks
-                    import uuid
+                    if tool_calls and first_chunk_type is not None:
+                        # Yield tool call chunks
+                        import uuid
 
-                    (
-                        tool_calls[0]["id"]
-                        if tool_calls
-                        else f"call_{uuid.uuid4().hex[:8]}"
-                    )
+                        (
+                            tool_calls[0]["id"]
+                            if tool_calls
+                            else f"call_{uuid.uuid4().hex[:8]}"
+                        )
 
-                    # Yield content first if any
-                    if content_buffer:
+                        # Yield content first if any
+                        if content_buffer:
+                            yield first_chunk_type(
+                                content={
+                                    "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
+                                    "object": "chat.completion.chunk",
+                                    "created": int(time.time()),
+                                    "model": effective_model,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {
+                                                "role": "assistant",
+                                                "content": content_buffer,
+                                            },
+                                            "finish_reason": None,
+                                        }
+                                    ],
+                                }
+                            )
+
+                        # Yield tool calls
                         yield first_chunk_type(
                             content={
                                 "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
@@ -500,42 +520,23 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                 "choices": [
                                     {
                                         "index": 0,
-                                        "delta": {
-                                            "role": "assistant",
-                                            "content": content_buffer,
-                                        },
-                                        "finish_reason": None,
+                                        "delta": {"tool_calls": tool_calls},
+                                        "finish_reason": "tool_calls",
                                     }
                                 ],
                             }
                         )
+                    else:
+                        # Re-yield original chunks (streaming without buffering)
+                        for chunk in original_chunks:
+                            yield chunk
 
-                    # Yield tool calls
-                    yield first_chunk_type(
-                        content={
-                            "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
-                            "object": "chat.completion.chunk",
-                            "created": int(time.time()),
-                            "model": effective_model,
-                            "choices": [
-                                {
-                                    "index": 0,
-                                    "delta": {"tool_calls": tool_calls},
-                                    "finish_reason": "tool_calls",
-                                }
-                            ],
-                        }
-                    )
-                else:
-                    # Re-yield original chunks (streaming without buffering)
-                    for chunk in original_chunks:
-                        yield chunk
+                        # Continue yielding remaining chunks from original iterator
+                        if original_iterator is not None:
+                            async for chunk in original_iterator:
+                                yield chunk
 
-                    # Continue yielding remaining chunks from original iterator
-                    async for chunk in original_iterator:
-                        yield chunk
-
-            response.content = _intercept_stream()
+                response.content = _intercept_stream()
 
         return response
 
@@ -565,7 +566,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         if not reasoning_effort:
             reasoning_obj = None
             if hasattr(request_data, "reasoning"):
-                reasoning_obj = request_data.reasoning
+                reasoning_obj = getattr(request_data, "reasoning", None)
             elif isinstance(request_data, dict):
                 reasoning_obj = request_data.get("reasoning")
 
@@ -576,7 +577,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         if not reasoning_effort:
             extra_body = None
             if hasattr(request_data, "extra_body"):
-                extra_body = request_data.extra_body
+                extra_body = getattr(request_data, "extra_body", None)
             elif isinstance(request_data, dict):
                 extra_body = request_data.get("extra_body")
 

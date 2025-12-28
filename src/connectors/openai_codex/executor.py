@@ -612,12 +612,12 @@ class ResponseExecutor(IResponseExecutor):
         """
         # Try to get account ID from credential manager (preferred)
         if hasattr(self._credential_manager, "get_account_id"):
-            account_id = self._credential_manager.get_account_id()
+            account_id = getattr(self._credential_manager, "get_account_id")()  # type: ignore[misc]
             return account_id if isinstance(account_id, str) else None
 
         # Fallback: Try to get account ID from connector if it has the method
         if hasattr(self._base_connector, "_codex_account_id"):
-            account_id = self._base_connector._codex_account_id()
+            account_id = getattr(self._base_connector, "_codex_account_id")()  # type: ignore[misc]
             return account_id if isinstance(account_id, str) else None
         return None
 

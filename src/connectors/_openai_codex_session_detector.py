@@ -18,12 +18,27 @@ logger = logging.getLogger(__name__)
 
 # Import telemetry
 try:
-    from src.connectors._openai_codex_telemetry import get_telemetry
+    from src.connectors._openai_codex_telemetry import CompatibilityTelemetry, get_telemetry
 except ImportError:
     # Fallback if telemetry module is not available
-    def get_telemetry():  # type: ignore
+    # Create a minimal stub CompatibilityTelemetry class
+    class CompatibilityTelemetry:  # type: ignore[no-redef]
+        """Fallback stub for telemetry when module is not available."""
+
+        def log_detection_event(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def log_translation_event(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def log_error_event(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    _fallback_telemetry = CompatibilityTelemetry()
+
+    def get_telemetry() -> CompatibilityTelemetry:
         """Fallback telemetry getter."""
-        return None
+        return _fallback_telemetry
 
 
 @dataclass(frozen=True)

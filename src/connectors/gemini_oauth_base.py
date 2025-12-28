@@ -63,14 +63,14 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
     _quota_exceeded: bool = False
 
     @staticmethod
-    def _parse_duration_string(duration_str: str) -> float:
+    def _parse_duration_string(duration: str) -> float:
         """Parse duration string like '2h21m41.46050292s' into seconds."""
         total_seconds = 0.0
-        if not duration_str:
+        if not duration:
             return total_seconds
 
         # Simple regex to capture hours, minutes, seconds
-        match = re.match(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?", duration_str)
+        match = re.match(r"(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?", duration)
         if match:
             h, m, s = match.groups()
             if h:

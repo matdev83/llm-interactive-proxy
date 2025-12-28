@@ -253,9 +253,9 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
             if dangerous_service is not None:
                 dangerous_config = None
                 if hasattr(config, "dangerous_commands"):
-                    dangerous_config = config.dangerous_commands
+                    dangerous_config = getattr(config, "dangerous_commands", None)  # type: ignore[attr-defined]
                 elif hasattr(config, "unified_security"):
-                    unified_config = config.unified_security
+                    unified_config = getattr(config, "unified_security", None)  # type: ignore[attr-defined]
                     if unified_config is not None:
                         dangerous_config = getattr(
                             unified_config, "dangerous_commands", None

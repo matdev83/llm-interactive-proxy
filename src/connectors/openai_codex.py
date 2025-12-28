@@ -47,6 +47,7 @@ from src.connectors._openai_codex_session_detector import SessionDetector
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex.compat import CompatibilityLayer
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.connectors.openai_codex.contracts import (
     CodexConnectorDependencies,
     CodexConnectorSettings,
@@ -1277,13 +1278,25 @@ class OpenAICodexConnector(OpenAIConnector):
                                             if hasattr(translated, "raw")
                                             else translated
                                         )
+                                        # Ensure processed_chunk is ProcessedResponse
+                                        if not isinstance(processed_chunk, ProcessedResponse):
+                                            # Wrap in ProcessedResponse if needed
+                                            processed_chunk = ProcessedResponse(
+                                                content=processed_chunk if isinstance(processed_chunk, (dict, str, bytes)) else str(processed_chunk)
+                                            )
                                     except Exception as exc:
                                         logger.debug(
                                             "Compatibility layer translation failed: %s",
                                             exc,
                                         )
 
-                                yield processed_chunk
+                                # Ensure we yield ProcessedResponse
+                                if isinstance(processed_chunk, ProcessedResponse):
+                                    yield processed_chunk
+                                else:
+                                    yield ProcessedResponse(
+                                        content=processed_chunk if isinstance(processed_chunk, (dict, str, bytes)) else str(processed_chunk)
+                                    )
 
                         if restart_stream:
                             if stream_handle.cancel_callback is not None:
@@ -1380,11 +1393,10 @@ class OpenAICodexConnector(OpenAIConnector):
 
                 if is_kilocode and tool_results:
                     if stream_val:
-                        if hasattr(response, "content") and hasattr(
-                            response.content, "__aiter__"
-                        ):
+                        from collections.abc import AsyncIterator
+                        if hasattr(response, "content") and isinstance(response.content, AsyncIterator):
                             formatted_stream = self._format_kilo_stream_response(
-                                response.content, tool_results
+                                response.content, tool_results  # type: ignore[arg-type]
                             )
                             return StreamingResponseEnvelope(
                                 content=formatted_stream,

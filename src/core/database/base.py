@@ -34,7 +34,7 @@ class BaseModel(SQLModel):
     All database models should inherit from this class.
     """
 
-    class Config:
+    class Config:  # type: ignore[misc]
         """SQLModel configuration."""
 
         # Allow arbitrary types for complex fields

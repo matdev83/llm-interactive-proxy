@@ -19,7 +19,7 @@ class SessionSummaryTable(SQLModel, table=True):
     and completion status for cross-session context retrieval.
     """
 
-    __tablename__ = "session_summaries"
+    __tablename__ = "session_summaries"  # type: ignore[assignment]
 
     # Primary key
     id: str = Field(primary_key=True, max_length=64)
@@ -90,7 +90,7 @@ class UserProjectDirTable(SQLModel, table=True):
     Maps user+project_root pairs to stable project IDs.
     """
 
-    __tablename__ = "user_project_dirs"
+    __tablename__ = "user_project_dirs"  # type: ignore[assignment]
 
     # Auto-increment primary key
     id: int | None = Field(default=None, primary_key=True)

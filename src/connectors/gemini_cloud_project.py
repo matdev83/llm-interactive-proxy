@@ -114,9 +114,9 @@ class GeminiOAuthClientConfig(BaseModel):
 
     def __iter__(self):
         """Allow unpacking for backward compatibility."""
-        yield self.client_id
-        yield self.client_secret
-        yield self.scopes
+        yield ("client_id", self.client_id)
+        yield ("client_secret", self.client_secret)
+        yield ("scopes", self.scopes)
 
 
 # Gemini CLI OAuth configuration loader (reads from ~/.gemini or env)
@@ -1253,7 +1253,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 url=url,
                 json=request_body,
                 headers={"Content-Type": "application/json"},
-                timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
+                timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),  # type: ignore[arg-type]
             )
 
             if api_response.status_code >= 400:
@@ -1368,7 +1368,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                             params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),
+                            timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),  # type: ignore[arg-type]
                             stream=True,  # Enable streaming mode for real-time data
                         )
                     except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]

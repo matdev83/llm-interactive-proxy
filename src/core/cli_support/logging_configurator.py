@@ -114,7 +114,7 @@ class LoggingConfigurator:
         new_name = f"{p.stem}-{timestamp}{p.suffix}"
         return str(p.with_name(new_name))
 
-    def apply_pid_suffixes(self, cfg: AppConfig) -> AppConfig:
+    def apply_pid_suffixes(self, config: AppConfig) -> AppConfig:
         """Return config with timestamp-suffixed log and capture files.
 
         This method applies timestamp suffixes to both log_file and capture_file
@@ -122,7 +122,7 @@ class LoggingConfigurator:
         for backward compatibility, but the implementation uses timestamps.
 
         Args:
-            cfg: Application configuration to update.
+            config: Application configuration to update.
 
         Returns:
             A new AppConfig with timestamp-suffixed log and capture file paths.
@@ -133,20 +133,20 @@ class LoggingConfigurator:
         updated_logging: dict[str, Any] = {}
 
         # Apply timestamp suffix to log_file
-        new_log = self.apply_timestamp_suffix(cfg.logging.log_file)
-        if new_log != cfg.logging.log_file:
+        new_log = self.apply_timestamp_suffix(config.logging.log_file)
+        if new_log != config.logging.log_file:
             updated_logging["log_file"] = new_log
 
         # Apply timestamp suffix to capture_file if present
-        current_capture = getattr(cfg.logging, "capture_file", None)
+        current_capture = getattr(config.logging, "capture_file", None)
         new_capture = self.apply_timestamp_suffix(current_capture)
         if new_capture != current_capture:
             updated_logging["capture_file"] = new_capture
 
         # If no updates needed, return original config
         if not updated_logging:
-            return cfg
+            return config
 
         # Create new config with updated logging
-        new_logging = cfg.logging.model_copy(update=updated_logging)
-        return cfg.model_copy(update={"logging": new_logging})
+        new_logging = config.logging.model_copy(update=updated_logging)
+        return config.model_copy(update={"logging": new_logging})

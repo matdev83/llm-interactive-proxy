@@ -133,8 +133,8 @@ class XmlToolCallPostProcessor:
             usage=response.usage,
         )
 
-        # Update envelope content
-        response.content = canonical_response
+        # Update envelope content - convert CanonicalChatResponse to dict
+        response.content = canonical_response.model_dump()
         return response
 
     async def process_streaming(

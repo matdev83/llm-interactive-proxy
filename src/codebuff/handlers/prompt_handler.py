@@ -372,11 +372,25 @@ class PromptHandler:
                     # Handle dict chunks
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
                     text = delta.get("content", "")
-                elif hasattr(chunk, "choices"):
-                    # Handle object chunks
-                    text = chunk.choices[0].delta.content if chunk.choices else ""
+                elif hasattr(chunk, "choices") and chunk.choices:  # type: ignore[attr-defined]
+                    # Handle object chunks with choices attribute
+                    # Note: ProcessedResponse doesn't have choices, but some chunks might
+                    try:
+                        text = chunk.choices[0].delta.content if chunk.choices else ""  # type: ignore[attr-defined]
+                    except (AttributeError, IndexError, TypeError):
+                        text = str(chunk)
                 else:
-                    text = str(chunk)
+                    # ProcessedResponse or other chunk types
+                    if hasattr(chunk, "content"):
+                        content = chunk.content  # type: ignore[attr-defined]
+                        if isinstance(content, str):
+                            text = content
+                        elif isinstance(content, bytes):
+                            text = content.decode("utf-8", errors="replace")
+                        else:
+                            text = str(chunk)
+                    else:
+                        text = str(chunk)
 
                 if text:
                     # Send response chunk

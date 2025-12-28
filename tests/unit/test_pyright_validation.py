@@ -38,6 +38,20 @@ def _calculate_directory_hash(directory: Path) -> str:
     return hasher.hexdigest()
 
 
+def _calculate_pyright_inputs_hash(src_dir: Path, config_file: Path) -> str:
+    """Calculate a hash for pyright inputs to support cache invalidation."""
+    hasher = hashlib.md5()
+    hasher.update(_calculate_directory_hash(src_dir).encode())
+
+    try:
+        config_stat = config_file.stat()
+        hasher.update(f"{config_file}:{config_stat.st_mtime}".encode())
+    except OSError:
+        hasher.update(f"{config_file}:missing".encode())
+
+    return hasher.hexdigest()
+
+
 def _normalize_pyright_output(text: str) -> str:
     """Normalize pyright output to remove problematic Unicode characters.
 
@@ -72,11 +86,19 @@ def _normalize_pyright_output(text: str) -> str:
     for unicode_char, replacement in replacements.items():
         result = result.replace(unicode_char, replacement)
 
+    # Some environments (notably when output passes through an OEM code page) can
+    # mis-decode UTF-8 non-breaking spaces (0xC2 0xA0) as the two-character
+    # sequence "┬á". Replace these artifacts with a normal space so diagnostics
+    # remain readable in logs and failure messages.
+    result = result.replace("\u252c\u00e1", " ")
+
     # Also normalize any UTF-8 encoding errors that might have occurred
     # by ensuring the string is properly encoded/decoded
     with contextlib.suppress(UnicodeEncodeError, UnicodeDecodeError):
         # Re-encode and decode to ensure clean UTF-8
-        result = result.encode("utf-8", errors="replace").decode("utf-8", errors="replace")
+        result = result.encode("utf-8", errors="replace").decode(
+            "utf-8", errors="replace"
+        )
 
     return result
 
@@ -108,10 +130,14 @@ class TestPyrightValidation:
         # Get the path to the src directory
         project_root = Path(__file__).parent.parent.parent
         src_path = project_root / "src"
+        pyright_config_path = project_root / "pyrightconfig.src.json"
 
         # Ensure src directory exists
         assert src_path.exists(), f"Source directory not found at {src_path}"
         assert src_path.is_dir(), f"Source path {src_path} is not a directory"
+        assert (
+            pyright_config_path.exists()
+        ), f"Pyright src config not found at {pyright_config_path}"
 
         # Find pyright command
         pyright_cmd = _find_pyright_command()
@@ -122,7 +148,7 @@ class TestPyrightValidation:
         cache_file = cache_dir / "pyright_validation_cache.json"
 
         # Calculate hash for cache invalidation
-        src_hash = _calculate_directory_hash(src_path)
+        src_hash = _calculate_pyright_inputs_hash(src_path, pyright_config_path)
 
         # Load existing cache
         cache: dict[str, str | int | float] = {}
@@ -138,7 +164,7 @@ class TestPyrightValidation:
         cache_timeout = 3600.0  # 1 hour
 
         cache_timestamp = cache.get("timestamp", 0)
-        if isinstance(cache_timestamp, (int, float)):
+        if isinstance(cache_timestamp, int | float):
             timestamp = float(cache_timestamp)
         else:
             timestamp = 0.0
@@ -160,7 +186,7 @@ class TestPyrightValidation:
             cached_stderr = _normalize_pyright_output(str(cache.get("stderr", "")))
 
             return subprocess.CompletedProcess(
-                args=[pyright_cmd, str(src_path)],
+                args=[pyright_cmd, "--project", str(pyright_config_path)],
                 returncode=returncode,
                 stdout=cached_stdout,
                 stderr=cached_stderr,
@@ -168,10 +194,10 @@ class TestPyrightValidation:
 
         # Cache miss - run pyright
         # Run pyright on the src directory
-        # Pyright uses pyrightconfig.json automatically if present
+        # Use a dedicated high-signal config for src/ to keep CI output actionable.
         try:
             result = subprocess.run(
-                [pyright_cmd, str(src_path)],
+                [pyright_cmd, "--project", str(pyright_config_path)],
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -223,8 +249,8 @@ class TestPyrightValidation:
         type checking errors are detected. This helps ensure code
         quality and catches type-related issues early.
 
-        The test uses the project's pyrightconfig.json configuration file
-        to ensure consistent type checking behavior.
+        The test uses the project's pyrightconfig.src.json configuration file
+        to ensure consistent type checking behavior with a high signal/noise ratio.
 
         The pyright execution is cached at session level to improve performance.
         """
@@ -238,7 +264,7 @@ class TestPyrightValidation:
                 f"STDOUT:\n{pyright_result.stdout}\n\n"
                 f"STDERR:\n{pyright_result.stderr}\n\n"
                 f"This indicates there are type checking errors in the source code.\n"
-                f"Please run 'pyright src' locally to see the specific errors and fix them."
+                f"Please run 'pyright --project pyrightconfig.src.json' locally to see the specific errors and fix them."
             )
 
             pytest.fail(error_msg)
@@ -252,20 +278,20 @@ class TestPyrightValidation:
 
     def test_pyright_config_exists(self) -> None:
         """
-        Test that pyright configuration exists in pyrightconfig.json.
+        Test that pyright src configuration exists in pyrightconfig.src.json.
 
         This ensures that the pyright validation is using the correct
         configuration for the project.
         """
         project_root = Path(__file__).parent.parent.parent
-        pyrightconfig_path = project_root / "pyrightconfig.json"
+        pyrightconfig_path = project_root / "pyrightconfig.src.json"
 
         assert (
             pyrightconfig_path.exists()
-        ), f"pyrightconfig.json not found at {pyrightconfig_path}"
+        ), f"pyrightconfig.src.json not found at {pyrightconfig_path}"
         assert (
             pyrightconfig_path.is_file()
-        ), f"pyrightconfig.json at {pyrightconfig_path} is not a file"
+        ), f"pyrightconfig.src.json at {pyrightconfig_path} is not a file"
 
         # Verify it contains valid JSON configuration
         try:

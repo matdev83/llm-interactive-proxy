@@ -769,6 +769,8 @@ class ClineAuthMixin:
         nonce = blob[3:15]
         ciphertext = blob[15:-16]
         tag = blob[-16:]
+        if AESGCM is None:
+            raise ValueError("AESGCM not available")
         aesgcm = AESGCM(aes_key)
         return aesgcm.decrypt(nonce, ciphertext + tag, None)
 

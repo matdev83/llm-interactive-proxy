@@ -32,14 +32,14 @@ else:
 class _PassthroughStreamNormalizer(IProcessingStreamNormalizer):
     async def process_stream(
         self,
-        iterator: AsyncIterator[Any],
+        stream: AsyncIterator[Any],
         output_format: str = "objects",
         cancel_callback: Any | None = None,
     ) -> AsyncGenerator[StreamingContent | bytes, None]:
         # Simple passthrough that converts bytes to StreamingContent or passes through as-is
         if output_format == "bytes":
             # For bytes output, yield items as-is if they're bytes, or convert
-            async for item in iterator:
+            async for item in stream:
                 if isinstance(item, bytes):
                     yield item
                 else:
@@ -48,7 +48,7 @@ class _PassthroughStreamNormalizer(IProcessingStreamNormalizer):
             # For objects output, create StreamingContent objects
             from src.core.domain.streaming_content import StreamingContent
 
-            async for item in iterator:
+            async for item in stream:
                 # If item is already StreamingContent, use it directly
                 # Otherwise, convert using from_raw (which handles transport-neutral formats only)
                 # Note: This is a fallback path - provider-specific formats should be
@@ -219,13 +219,13 @@ def normalize_streaming_response(
                     iterator, output_format="objects"
                 )
             async for chunk in processed_stream:
-                if hasattr(chunk, "to_bytes"):
+                if isinstance(chunk, bytes):
+                    yield chunk
+                elif hasattr(chunk, "to_bytes") and callable(getattr(chunk, "to_bytes", None)):
                     try:
-                        yield chunk.to_bytes()
+                        yield chunk.to_bytes()  # type: ignore[attr-defined]
                     except Exception:
                         yield str(chunk).encode("utf-8")
-                elif isinstance(chunk, bytes):
-                    yield chunk
                 else:
                     yield str(chunk).encode("utf-8")
         else:

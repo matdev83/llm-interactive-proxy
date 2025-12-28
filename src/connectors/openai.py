@@ -824,8 +824,8 @@ class OpenAIConnector(LLMBackend):
                     return
                 cancel_state["called"] = True
 
+            target_id: str | None = None
             if supports_protocol_cancel:
-                target_id: str | None = None
                 if response_id_future.done():
                     target_id = response_id_future.result()
                 else:
@@ -867,9 +867,12 @@ class OpenAIConnector(LLMBackend):
                 if hasattr(chunk, "model_dump"):
                     try:
                         chunk_dict = chunk.model_dump()
+                        if isinstance(chunk_dict, dict):
+                            chunk_id = chunk_dict.get("id")
+                        else:
+                            chunk_id = None
                     except Exception:
                         return None
-                    chunk_id = chunk_dict.get("id")
                     if isinstance(chunk_id, str) and chunk_id:
                         return chunk_id
 

@@ -284,7 +284,7 @@ class HybridOrchestrator:
                 and hasattr(self._connector, "_execute_execution_phase")
                 and callable(self._connector._execute_execution_phase)
             ):
-                result = await self._connector._execute_execution_phase(
+                result = await self._connector._execute_execution_phase(  # type: ignore[misc]
                     request_data=request_data,
                     augmented_messages=augmented_messages,
                     execution_backend=execution_backend,
@@ -433,7 +433,7 @@ class HybridOrchestrator:
                 and hasattr(self._connector, "_execute_reasoning_phase")
                 and callable(self._connector._execute_reasoning_phase)
             ):
-                reasoning_result = await self._connector._execute_reasoning_phase(
+                reasoning_result = await self._connector._execute_reasoning_phase(  # type: ignore[misc]
                     messages=processed_messages,
                     reasoning_backend=reasoning_backend,
                     reasoning_model=reasoning_model,
@@ -592,7 +592,13 @@ class HybridOrchestrator:
                 response.metadata.setdefault("reasoning_format", "hybrid_injected")
                 response.metadata.setdefault("reasoning_backend", reasoning_backend)
                 response.metadata.setdefault("reasoning_model", reasoning_model)
-            response.content = filtered_content
+            # Convert filtered_content to proper type for ResponseEnvelope.content
+            if isinstance(filtered_content, (dict, str, bytes)) or filtered_content is None:
+                response.content = filtered_content
+            elif hasattr(filtered_content, "model_dump"):
+                response.content = filtered_content.model_dump()  # type: ignore[attr-defined]
+            else:
+                response.content = str(filtered_content)
 
         total_time = time.time() - start_time
         execution_time = total_time - reasoning_time

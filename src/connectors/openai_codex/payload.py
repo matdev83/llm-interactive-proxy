@@ -45,7 +45,7 @@ class PayloadBuilder(IPayloadBuilder):
 
     def __init__(
         self,
-        connector: OpenAICodexConnector,
+        connector: "OpenAICodexConnector",
         request_translator: IRequestTranslator,
         prompt_resolver: IPromptResolver,
         tool_schema_resolver: IToolSchemaResolver,
@@ -230,7 +230,7 @@ class PayloadBuilder(IPayloadBuilder):
 
         # Check for pre-resolved effort (from chat_completions)
         if hasattr(request_data, "_codex_resolved_reasoning_effort"):
-            resolved = request_data._codex_resolved_reasoning_effort
+            resolved = getattr(request_data, "_codex_resolved_reasoning_effort", None)  # type: ignore[attr-defined]
             if isinstance(resolved, str):
                 return resolved
 

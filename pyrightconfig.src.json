@@ -10,6 +10,8 @@
     "**/dist",
     "**/htmlcov",
     "**/node_modules",
+    "src/core/database/migrations",
+    "src/core/database/migrations/**",
     "var",
     "logs",
     "docs",
@@ -24,8 +26,6 @@
   "pythonPlatform": "Windows",
   "typeCheckingMode": "standard",
   "useLibraryCodeForTypes": true,
-
-  "//": "High-signal/noise profile for CI-style runs on src/. Prefer catching likely bugs over style/hygiene issues covered by ruff/black.",
 
   "reportUnnecessaryIsInstance": "none",
   "reportUnnecessaryComparison": "none",

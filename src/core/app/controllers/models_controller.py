@@ -180,7 +180,7 @@ def get_backend_factory_service() -> BackendFactory:
     translation: TranslationService | None = None
     provider_get_service = getattr(provider, "get_service", None)
     if callable(provider_get_service):
-        translation = provider_get_service(TranslationService)
+        translation = provider_get_service(TranslationService)  # type: ignore[assignment]
     else:
         try:
             translation = provider.get_required_service(TranslationService)
@@ -344,11 +344,11 @@ async def _list_models_impl(
                     if temp_backend is not None:
                         if hasattr(temp_backend, "close"):
                             with contextlib.suppress(Exception):
-                                temp_backend.close()
+                                temp_backend.close()  # type: ignore[attr-defined]
                         elif hasattr(temp_backend, "aclose"):
                             with contextlib.suppress(RuntimeError, Exception):
                                 cleanup_task = asyncio.create_task(
-                                    temp_backend.aclose()
+                                    temp_backend.aclose()  # type: ignore[attr-defined]
                                 )
                                 # Store reference to prevent garbage collection
                                 _ = cleanup_task

@@ -26,7 +26,7 @@ class UsageRecordTable(SQLModel, table=True):
     including token counts, timing, and backend-reported usage.
     """
 
-    __tablename__ = "usage_records"
+    __tablename__ = "usage_records"  # type: ignore[assignment]
 
     # Primary key
     id: str = Field(primary_key=True, max_length=64)
@@ -219,7 +219,7 @@ class SessionMetricsTable(SQLModel, table=True):
     Stores aggregated metrics per session for quick lookups.
     """
 
-    __tablename__ = "session_metrics"
+    __tablename__ = "session_metrics"  # type: ignore[assignment]
 
     # Primary key
     session_id: str = Field(primary_key=True, max_length=128)

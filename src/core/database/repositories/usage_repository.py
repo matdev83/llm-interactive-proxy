@@ -200,7 +200,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                 statement = self._apply_filters(statement, filters)
 
             # Apply ordering (most recent first)
-            statement = statement.order_by(UsageRecordTable.timestamp.desc())
+            statement = statement.order_by(UsageRecordTable.timestamp.desc())  # type: ignore[attr-defined]
 
             # Apply pagination
             if offset:
@@ -229,33 +229,33 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                 # Apply where clauses directly
                 if filters.backend_type:
                     statement = statement.where(
-                        UsageRecordTable.backend_type == filters.backend_type
+                        UsageRecordTable.backend_type == filters.backend_type  # type: ignore[arg-type]
                     )
                 if filters.model:
-                    statement = statement.where(UsageRecordTable.model == filters.model)
+                    statement = statement.where(UsageRecordTable.model == filters.model)  # type: ignore[arg-type]
                 if filters.frontend_type:
                     statement = statement.where(
-                        UsageRecordTable.frontend_type == filters.frontend_type
+                        UsageRecordTable.frontend_type == filters.frontend_type  # type: ignore[arg-type]
                     )
                 if filters.leg:
                     statement = statement.where(
-                        UsageRecordTable.leg == filters.leg.value
+                        UsageRecordTable.leg == filters.leg.value  # type: ignore[arg-type]
                     )
                 if filters.proxy_user:
                     statement = statement.where(
-                        UsageRecordTable.proxy_user == filters.proxy_user
+                        UsageRecordTable.proxy_user == filters.proxy_user  # type: ignore[arg-type]
                     )
                 if filters.http_status_code:
                     statement = statement.where(
-                        UsageRecordTable.http_status_code == filters.http_status_code
+                        UsageRecordTable.http_status_code == filters.http_status_code  # type: ignore[arg-type]
                     )
                 if filters.start_date:
                     statement = statement.where(
-                        UsageRecordTable.timestamp >= filters.start_date
+                        UsageRecordTable.timestamp >= filters.start_date  # type: ignore[arg-type]
                     )
                 if filters.end_date:
                     statement = statement.where(
-                        UsageRecordTable.timestamp <= filters.end_date
+                        UsageRecordTable.timestamp <= filters.end_date  # type: ignore[arg-type]
                     )
 
             result = await session.execute(statement)
@@ -278,7 +278,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             # Base query for aggregations
             statement = select(
                 func.count().label("request_count"),
-                func.count(UsageRecordTable.http_status_code).label("response_count"),
+                func.count(UsageRecordTable.http_status_code).label("response_count"),  # type: ignore[arg-type]
                 func.count(func.distinct(UsageRecordTable.session_id)).label(
                     "unique_sessions"
                 ),
@@ -315,33 +315,33 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             if filters:
                 if filters.backend_type:
                     statement = statement.where(
-                        UsageRecordTable.backend_type == filters.backend_type
+                        UsageRecordTable.backend_type == filters.backend_type  # type: ignore[arg-type]
                     )
                 if filters.model:
-                    statement = statement.where(UsageRecordTable.model == filters.model)
+                    statement = statement.where(UsageRecordTable.model == filters.model)  # type: ignore[arg-type]
                 if filters.frontend_type:
                     statement = statement.where(
-                        UsageRecordTable.frontend_type == filters.frontend_type
+                        UsageRecordTable.frontend_type == filters.frontend_type  # type: ignore[arg-type]
                     )
                 if filters.leg:
                     statement = statement.where(
-                        UsageRecordTable.leg == filters.leg.value
+                        UsageRecordTable.leg == filters.leg.value  # type: ignore[arg-type]
                     )
                 if filters.proxy_user:
                     statement = statement.where(
-                        UsageRecordTable.proxy_user == filters.proxy_user
+                        UsageRecordTable.proxy_user == filters.proxy_user  # type: ignore[arg-type]
                     )
                 if filters.http_status_code:
                     statement = statement.where(
-                        UsageRecordTable.http_status_code == filters.http_status_code
+                        UsageRecordTable.http_status_code == filters.http_status_code  # type: ignore[arg-type]
                     )
                 if filters.start_date:
                     statement = statement.where(
-                        UsageRecordTable.timestamp >= filters.start_date
+                        UsageRecordTable.timestamp >= filters.start_date  # type: ignore[arg-type]
                     )
                 if filters.end_date:
                     statement = statement.where(
-                        UsageRecordTable.timestamp <= filters.end_date
+                        UsageRecordTable.timestamp <= filters.end_date  # type: ignore[arg-type]
                     )
 
             result = await session.execute(statement)
@@ -369,7 +369,6 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                 avg_duration=row.avg_duration,
             )
 
-
     async def get_status_code_breakdown(
         self, filters: StatisticsFilter | None = None
     ) -> dict[str, dict[int, int]]:
@@ -382,13 +381,15 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             Dictionary mapping "backend_instance_id:model" to status code counts
         """
         async with self._engine.session() as session:
-            statement = select(
-                UsageRecordTable.backend_instance_id,
-                UsageRecordTable.backend_type,
-                UsageRecordTable.model,
-                UsageRecordTable.http_status_code,
+            statement = select(  # type: ignore[call-overload]
+                UsageRecordTable.backend_instance_id,  # type: ignore[arg-type]
+                UsageRecordTable.backend_type,  # type: ignore[arg-type]
+                UsageRecordTable.model,  # type: ignore[arg-type]
+                UsageRecordTable.http_status_code,  # type: ignore[arg-type]
                 func.count().label("count"),
-            ).where(UsageRecordTable.http_status_code.isnot(None))
+            ).where(  # type: ignore[attr-defined]
+                UsageRecordTable.http_status_code.isnot(None)
+            )
 
             # Apply filters
             if filters:
@@ -429,7 +430,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                 key = f"{instance_id}:{row.model}"
                 if key not in breakdown:
                     breakdown[key] = {}
-                breakdown[key][row.http_status_code] = row.count
+                breakdown[key][row.http_status_code] = row.count  # type: ignore[assignment]
 
             return breakdown
 
@@ -445,8 +446,8 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             Dictionary mapping frontend_type to RepositoryUsageStats
         """
         async with self._engine.session() as session:
-            statement = select(
-                UsageRecordTable.frontend_type,
+            statement = select(  # type: ignore[call-overload]
+                UsageRecordTable.frontend_type,  # type: ignore[arg-type]
                 func.count().label("total_requests"),
                 func.sum(
                     func.case(
@@ -491,9 +492,9 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             Dictionary mapping backend_instance_id to RepositoryUsageStats
         """
         async with self._engine.session() as session:
-            statement = select(
-                UsageRecordTable.backend_instance_id,
-                UsageRecordTable.backend_type,
+            statement = select(  # type: ignore[call-overload]
+                UsageRecordTable.backend_instance_id,  # type: ignore[arg-type]
+                UsageRecordTable.backend_type,  # type: ignore[arg-type]
                 func.count().label("total_requests"),
                 func.sum(
                     func.case(
@@ -531,7 +532,6 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
 
             return stats
 
-
     async def delete_older_than(self, cutoff_date: datetime) -> int:
         """Delete records older than the cutoff date.
 
@@ -544,7 +544,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
         async with self._engine.session() as session:
             from sqlalchemy import delete
 
-            statement = delete(UsageRecordTable).where(
+            statement = delete(UsageRecordTable).where(  # type: ignore[arg-type]
                 UsageRecordTable.timestamp < cutoff_date
             )
             result = await session.execute(statement)
@@ -585,7 +585,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
         if filters.leg:
             statement = statement.where(UsageRecordTable.leg == filters.leg.value)
         if filters.user_agent:
-            statement = statement.where(
+            statement = statement.where(  # type: ignore[arg-type,attr-defined]
                 UsageRecordTable.user_agent.contains(filters.user_agent)
             )
         if filters.proxy_user:
@@ -687,9 +687,9 @@ class SessionMetricsRepository(AsyncRepository[SessionMetricsTable]):
         async with self._engine.session() as session:
             statement = (
                 select(SessionMetricsTable)
-                .where(SessionMetricsTable.last_activity >= since)
-                .where(SessionMetricsTable.is_completed == False)
-                .order_by(SessionMetricsTable.last_activity.desc())
+                .where(SessionMetricsTable.last_activity >= since)  # type: ignore[arg-type]
+                .where(SessionMetricsTable.is_completed == False)  # type: ignore[arg-type]
+                .order_by(SessionMetricsTable.last_activity.desc())  # type: ignore[attr-defined]
                 .limit(limit)
             )
             result = await session.execute(statement)
@@ -732,8 +732,8 @@ class SessionMetricsRepository(AsyncRepository[SessionMetricsTable]):
                 # idempotency using both is_completed and eos_emitted_at
                 statement = (
                     update(SessionMetricsTable)
-                    .where(SessionMetricsTable.session_id == session_id)
-                    .where(SessionMetricsTable.eos_emitted_at.is_(None))
+                    .where(SessionMetricsTable.session_id == session_id)  # type: ignore[arg-type]
+                    .where(SessionMetricsTable.eos_emitted_at.is_(None))  # type: ignore[attr-defined]
                     .values(
                         eos_emitted_at=emitted_at,
                         eos_signal_type=signal_type,
@@ -773,7 +773,7 @@ class SessionMetricsRepository(AsyncRepository[SessionMetricsTable]):
         """
         async with self._engine.session() as session:
             try:
-                statement = select(SessionMetricsTable.eos_emitted_at).where(
+                statement = select(SessionMetricsTable.eos_emitted_at).where(  # type: ignore[call-overload,arg-type]
                     SessionMetricsTable.session_id == session_id
                 )
                 result = await session.execute(statement)

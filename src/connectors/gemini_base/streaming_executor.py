@@ -194,7 +194,7 @@ class SSELineProcessor:
                 rate_limit_error
             )
 
-        details = (
+        details: dict[str, Any] = (
             rate_limit_error.details
             if isinstance(rate_limit_error.details, dict)
             else {"raw": rate_limit_error.details}
@@ -436,7 +436,7 @@ class StreamingExecutor:
                     code=504,
                 )
                 yield ProcessedResponse(
-                    content=error_chunk,
+                    content=error_chunk.model_dump(),
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -451,7 +451,7 @@ class StreamingExecutor:
                     code=503,
                 )
                 yield ProcessedResponse(
-                    content=error_chunk,
+                    content=error_chunk.model_dump(),
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -463,7 +463,7 @@ class StreamingExecutor:
                 )
                 error_chunk = self._build_auth_error_chunk(prepared.effective_model)
                 yield ProcessedResponse(
-                    content=error_chunk,
+                    content=error_chunk.model_dump(),
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -533,7 +533,7 @@ class StreamingExecutor:
                                 code=502,
                             )
                             yield ProcessedResponse(
-                                content=error_chunk,
+                                content=error_chunk.model_dump(),
                                 metadata=self._build_error_metadata(error_chunk),
                             )
                             done = True
@@ -547,7 +547,7 @@ class StreamingExecutor:
                             code=500,
                         )
                         yield ProcessedResponse(
-                            content=error_chunk,
+                            content=error_chunk.model_dump(),
                             metadata=self._build_error_metadata(error_chunk),
                         )
                         done = True
@@ -685,6 +685,8 @@ class StreamingExecutor:
                         for processed_chunk in _process_decoded_line(decoded_line):
                             content = processed_chunk.content
                             is_stop_chunk = False
+                            finish_reason: str | None = None
+                            choices: list[dict[str, Any]] = []
 
                             if isinstance(content, dict):
                                 choices = content.get("choices", [])
@@ -698,7 +700,7 @@ class StreamingExecutor:
                                 is_stop_chunk = True
 
                             # Defensive: capture stop chunks even if above branch misses
-                            if not is_stop_chunk:
+                            if not is_stop_chunk and choices:
                                 fallback_finish = (
                                     choices[0].get("delta", {}) or {}
                                 ).get("finish_reason") or choices[0].get(
@@ -818,7 +820,7 @@ class StreamingExecutor:
                     error_type="quota_exceeded",
                 )
                 yield ProcessedResponse(
-                    content=error_chunk,
+                    content=error_chunk.model_dump(),
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -890,7 +892,7 @@ class StreamingExecutor:
             )
 
             yield ProcessedResponse(
-                content=error_chunk,
+                content=error_chunk.model_dump(),
                 metadata=self._build_error_metadata(error_chunk),
             )
         finally:
@@ -1056,7 +1058,7 @@ class StreamingExecutor:
                 error_type=code,
             )
             yield ProcessedResponse(
-                content=error_chunk,
+                content=error_chunk.model_dump(),
                 metadata=self._build_error_metadata(error_chunk),
             )
             return
@@ -1140,7 +1142,7 @@ class StreamingExecutor:
                 error_type=code,  # e.g., "invalid_request_error"
             )
             yield ProcessedResponse(
-                content=error_chunk,
+                content=error_chunk.model_dump(),
                 metadata=self._build_error_metadata(error_chunk),
             )
             return

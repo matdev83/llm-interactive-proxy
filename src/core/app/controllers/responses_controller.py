@@ -1051,7 +1051,7 @@ class ResponsesController:
                     close_method = getattr(response.content, "aclose", None)
                     if callable(close_method):
                         with contextlib.suppress(Exception):
-                            await close_method()
+                            await close_method()  # type: ignore[misc]
 
         return _generator()
 

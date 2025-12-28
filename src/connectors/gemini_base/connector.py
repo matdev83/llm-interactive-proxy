@@ -288,7 +288,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         )  # Pass translation_service to super
         self.name = name
         self.is_functional = False
-        self._oauth_credentials: dict[str, Any] | None = None
+        # _oauth_credentials is accessed via property, stored in __dict__ for backward compatibility
         self._credentials_path: Path | None = None
         self._last_modified: float = 0
         self.translation_service = translation_service
@@ -1066,9 +1066,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     and hasattr(registry, "_available_models_set")
                     and hasattr(registry, "_models_from_api")
                 ):
-                    self.available_models = registry._available_models
-                    self._available_models_set = registry._available_models_set
-                    self._models_from_api = registry._models_from_api
+                    # Access private attributes for backward compatibility with concrete implementations
+                    self.available_models = getattr(registry, "_available_models", None)  # type: ignore[attr-defined]
+                    self._available_models_set = getattr(registry, "_available_models_set", None)  # type: ignore[attr-defined]
+                    self._models_from_api = getattr(registry, "_models_from_api", None)  # type: ignore[attr-defined]
             except Exception as e:
                 logger.warning(
                     f"Failed to load models during initialization: {e}", exc_info=True
@@ -1098,9 +1099,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 and hasattr(registry, "_available_models_set")
                 and hasattr(registry, "_models_from_api")
             ):
-                self.available_models = registry._available_models
-                self._available_models_set = registry._available_models_set
-                self._models_from_api = registry._models_from_api
+                # Access private attributes for backward compatibility with concrete implementations
+                self.available_models = getattr(registry, "_available_models", None)  # type: ignore[attr-defined]
+                self._available_models_set = getattr(registry, "_available_models_set", None)  # type: ignore[attr-defined]
+                self._models_from_api = getattr(registry, "_models_from_api", None)  # type: ignore[attr-defined]
         else:
             # Fallback to old logic
             if self.available_models:
