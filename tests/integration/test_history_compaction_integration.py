@@ -418,6 +418,135 @@ class TestHistoryCompactionObservability:
         assert "stale_resources" in context
         assert "view_file:/x.py" in context["stale_resources"]
 
+    @pytest.mark.asyncio
+    async def test_metrics_included_in_compaction_log(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verify metrics from to_metrics() are included in structured logs (Req 4.1)."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+
+        compaction_service = MagicMock(spec=HistoryCompactionService)
+        compaction_result = CompactionResult(
+            messages=[ChatMessage(role="user", content="after")],
+            compacted_count=3,
+            bytes_saved=1500,
+            tokens_saved_estimate=375,
+            original_message_count=8,
+            stale_resources={"view_file:/a.py", "view_file:/b.py", "view_file:/c.py"},
+        )
+        compaction_service.compact_history = AsyncMock(return_value=compaction_result)
+
+        # Mock config with compaction enabled
+        app_config = MagicMock(spec=AppConfig)
+        app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
+
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
+            history_compaction_service=compaction_service,
+            config=app_config,
+        )
+
+        original_request = ChatRequest(
+            model="gemini",
+            messages=[ChatMessage(role="user", content="before")],
+            stream=False,
+        )
+
+        with caplog.at_level(logging.INFO):
+            await manager.prepare_backend_request(
+                original_request, _make_no_command_result()
+            )
+
+        # Find the compaction log record
+        record = next(
+            (
+                r
+                for r in caplog.records
+                if "Compacted conversation history" in r.message
+            ),
+            None,
+        )
+        assert record is not None, "Compaction log not found"
+
+        # Verify metrics field exists in log extra
+        metrics = getattr(record, "metrics", None)
+        assert metrics is not None, "Metrics field not found in log extra"
+        assert isinstance(metrics, dict), "Metrics should be a dict"
+
+        # Verify all required metrics are present (Req 4.1)
+        assert metrics["compaction_messages_compacted"] == 3
+        assert metrics["compaction_bytes_saved"] == 1500
+        assert metrics["compaction_tokens_saved_estimate"] == 375
+        assert metrics["compaction_original_count"] == 8
+        assert metrics["compaction_stale_resources_count"] == 3
+        assert metrics["compaction_failed_open"] == 0
+
+        # Verify existing log fields are preserved
+        assert getattr(record, "original_messages", None) == 8
+        assert getattr(record, "compacted_messages", None) == 3
+        assert getattr(record, "bytes_saved", None) == 1500
+        assert getattr(record, "tokens_saved_estimate", None) == 375
+
+    @pytest.mark.asyncio
+    async def test_metrics_to_metrics_called_on_compaction(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Verify to_metrics() is called when compaction occurs."""
+        backend_processor = AsyncMock()
+        response_processor = MagicMock()
+
+        compaction_service = MagicMock(spec=HistoryCompactionService)
+        compaction_result = CompactionResult(
+            messages=[ChatMessage(role="user", content="after")],
+            compacted_count=2,
+            bytes_saved=1000,
+            tokens_saved_estimate=250,
+            original_message_count=5,
+            stale_resources={"view_file:/a.py"},
+        )
+        compaction_service.compact_history = AsyncMock(return_value=compaction_result)
+
+        # Mock config with compaction enabled
+        app_config = MagicMock(spec=AppConfig)
+        app_config.compaction = CompactionConfig(enabled=True, token_threshold=0)
+
+        manager = create_backend_request_manager(
+            backend_processor=backend_processor,
+            response_processor=response_processor,
+            history_compaction_service=compaction_service,
+            config=app_config,
+        )
+
+        original_request = ChatRequest(
+            model="gemini",
+            messages=[ChatMessage(role="user", content="before")],
+            stream=False,
+        )
+
+        with caplog.at_level(logging.INFO):
+            await manager.prepare_backend_request(
+                original_request, _make_no_command_result()
+            )
+
+        # Find the compaction log record
+        record = next(
+            (
+                r
+                for r in caplog.records
+                if "Compacted conversation history" in r.message
+            ),
+            None,
+        )
+        assert record is not None
+
+        # Verify metrics field matches the expected output of to_metrics()
+        metrics = getattr(record, "metrics", None)
+        assert metrics is not None
+        expected_metrics = compaction_result.to_metrics()
+        assert metrics == expected_metrics, "Metrics should match to_metrics() output"
+
 
 class TestHistoryCompactionTokenThreshold:
     """Test token budget threshold-triggered compaction scenarios."""

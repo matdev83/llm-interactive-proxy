@@ -172,7 +172,7 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                     if compaction_result.was_compacted and logger.isEnabledFor(
                         logging.INFO
                     ):
-                        # Use structured logging with observability context
+                        # Use structured logging with observability context (Req 4.1)
                         logger.info(
                             "Compacted conversation history",
                             extra={
@@ -181,6 +181,8 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                                 "bytes_saved": compaction_result.bytes_saved,
                                 "tokens_saved_estimate": compaction_result.tokens_saved_estimate,
                                 "original_tokens_estimate": token_estimate,
+                                # Export metrics for observability (Req 4.1)
+                                "metrics": compaction_result.to_metrics(),
                             },
                         )
                     if compaction_result.was_compacted:
