@@ -35,6 +35,8 @@ class StreamingMetrics:
 
     Metrics are tracked per stream using stream_id for isolation.
     Uses TTLCache to prevent memory leaks if end_stream() is not called.
+
+    Thread-safety: All mutations are protected by a lock for concurrent access.
     """
 
     # Per-stream metrics: stream_id -> metric_name -> count
@@ -60,16 +62,25 @@ class StreamingMetrics:
         }
     )
 
+    # Lock for thread-safe mutations (protects all instance-level state)
+    _lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
+
     def _get_or_init_stream_metrics(self, stream_id: str) -> dict[str, int]:
-        """Get metrics for a stream, initializing if needed."""
-        if stream_id not in self._stream_metrics:
-            self._stream_metrics[stream_id] = {
+        """Get metrics for a stream, initializing if needed.
+
+        Note: This method should be called with the lock already held.
+        """
+        return self._stream_metrics.setdefault(
+            stream_id,
+            {
                 "chunks_sent": 0,
                 "sentinels_emitted": 0,
                 "middleware_mutations": 0,
                 "error_terminations": 0,
-            }
-        return self._stream_metrics[stream_id]
+            },
+        )
 
     def increment_chunks_sent(self, stream_id: str | None = None) -> None:
         """Increment the chunks_sent counter.
@@ -77,9 +88,20 @@ class StreamingMetrics:
         Args:
             stream_id: Optional stream identifier for per-stream tracking
         """
-        if stream_id:
-            self._get_or_init_stream_metrics(stream_id)["chunks_sent"] += 1
-        self._global_metrics["chunks_sent"] += 1
+        with self._lock:
+            self._global_metrics["chunks_sent"] += 1
+            if stream_id:
+                # Use setdefault for atomic check-then-act
+                stream_metrics = self._stream_metrics.setdefault(
+                    stream_id,
+                    {
+                        "chunks_sent": 0,
+                        "sentinels_emitted": 0,
+                        "middleware_mutations": 0,
+                        "error_terminations": 0,
+                    },
+                )
+                stream_metrics["chunks_sent"] += 1
 
     def increment_sentinels_emitted(self, stream_id: str | None = None) -> None:
         """Increment the sentinels_emitted counter.
@@ -87,9 +109,20 @@ class StreamingMetrics:
         Args:
             stream_id: Optional stream identifier for per-stream tracking
         """
-        if stream_id:
-            self._get_or_init_stream_metrics(stream_id)["sentinels_emitted"] += 1
-        self._global_metrics["sentinels_emitted"] += 1
+        with self._lock:
+            self._global_metrics["sentinels_emitted"] += 1
+            if stream_id:
+                # Use setdefault for atomic check-then-act
+                stream_metrics = self._stream_metrics.setdefault(
+                    stream_id,
+                    {
+                        "chunks_sent": 0,
+                        "sentinels_emitted": 0,
+                        "middleware_mutations": 0,
+                        "error_terminations": 0,
+                    },
+                )
+                stream_metrics["sentinels_emitted"] += 1
 
     def increment_middleware_mutations(self, stream_id: str | None = None) -> None:
         """Increment the middleware_mutations counter.
@@ -97,9 +130,10 @@ class StreamingMetrics:
         Args:
             stream_id: Optional stream identifier for per-stream tracking
         """
-        if stream_id:
-            self._get_or_init_stream_metrics(stream_id)["middleware_mutations"] += 1
-        self._global_metrics["middleware_mutations"] += 1
+        with self._lock:
+            if stream_id:
+                self._get_or_init_stream_metrics(stream_id)["middleware_mutations"] += 1
+            self._global_metrics["middleware_mutations"] += 1
 
     def increment_error_terminations(self, stream_id: str | None = None) -> None:
         """Increment the error_terminations counter.
@@ -107,9 +141,10 @@ class StreamingMetrics:
         Args:
             stream_id: Optional stream identifier for per-stream tracking
         """
-        if stream_id:
-            self._get_or_init_stream_metrics(stream_id)["error_terminations"] += 1
-        self._global_metrics["error_terminations"] += 1
+        with self._lock:
+            if stream_id:
+                self._get_or_init_stream_metrics(stream_id)["error_terminations"] += 1
+            self._global_metrics["error_terminations"] += 1
 
     def start_timer(self, stream_id: str, timer_name: str) -> None:
         """Start a timer for a specific operation.
@@ -118,9 +153,11 @@ class StreamingMetrics:
             stream_id: Stream identifier
             timer_name: Name of the timer (e.g., "normalization", "processing")
         """
-        if stream_id not in self._stream_timers:
-            self._stream_timers[stream_id] = {}
-        self._stream_timers[stream_id][timer_name] = time.perf_counter()
+        start_time = time.perf_counter()
+        with self._lock:
+            if stream_id not in self._stream_timers:
+                self._stream_timers[stream_id] = {}
+            self._stream_timers[stream_id][timer_name] = start_time
 
     def stop_timer(self, stream_id: str, timer_name: str) -> float | None:
         """Stop a timer and return the elapsed time.
@@ -132,16 +169,18 @@ class StreamingMetrics:
         Returns:
             Elapsed time in seconds, or None if timer wasn't started
         """
-        if stream_id not in self._stream_timers:
-            return None
+        end_time = time.perf_counter()
+        with self._lock:
+            if stream_id not in self._stream_timers:
+                return None
 
-        start_time = self._stream_timers[stream_id].get(timer_name)
-        if start_time is None:
-            return None
+            start_time = self._stream_timers[stream_id].get(timer_name)
+            if start_time is None:
+                return None
 
-        elapsed = time.perf_counter() - start_time
-        del self._stream_timers[stream_id][timer_name]
-        return elapsed
+            elapsed = end_time - start_time
+            del self._stream_timers[stream_id][timer_name]
+            return elapsed
 
     def get_stream_metrics(self, stream_id: str) -> dict[str, int]:
         """Get metrics for a specific stream.
@@ -152,7 +191,8 @@ class StreamingMetrics:
         Returns:
             Dictionary of metrics for the stream
         """
-        return dict(self._stream_metrics.get(stream_id, {}))
+        with self._lock:
+            return dict(self._stream_metrics.get(stream_id, {}))
 
     def get_global_metrics(self) -> dict[str, int]:
         """Get global aggregated metrics.
@@ -160,7 +200,8 @@ class StreamingMetrics:
         Returns:
             Dictionary of global metrics
         """
-        return dict(self._global_metrics)
+        with self._lock:
+            return dict(self._global_metrics)
 
     def start_stream(self, stream_id: str) -> None:
         """Mark the start of a new stream.
@@ -168,15 +209,20 @@ class StreamingMetrics:
         Args:
             stream_id: Stream identifier
         """
-        # Initialize metrics for this stream
-        self._stream_metrics[stream_id] = {
-            "chunks_sent": 0,
-            "sentinels_emitted": 0,
-            "middleware_mutations": 0,
-            "error_terminations": 0,
-        }
-        self._global_metrics["total_streams"] += 1
-        self.start_timer(stream_id, "total_duration")
+        start_time = time.perf_counter()
+        with self._lock:
+            # Initialize metrics for this stream
+            self._stream_metrics[stream_id] = {
+                "chunks_sent": 0,
+                "sentinels_emitted": 0,
+                "middleware_mutations": 0,
+                "error_terminations": 0,
+            }
+            self._global_metrics["total_streams"] += 1
+            # Initialize timers dict for this stream
+            if stream_id not in self._stream_timers:
+                self._stream_timers[stream_id] = {}
+            self._stream_timers[stream_id]["total_duration"] = start_time
 
     def end_stream(self, stream_id: str) -> None:
         """Mark the end of a stream and log metrics.
@@ -184,13 +230,14 @@ class StreamingMetrics:
         Args:
             stream_id: Stream identifier
         """
-        # Stop the total duration timer
+        # Stop total duration timer (returns elapsed, already handles locks internally)
         duration = self.stop_timer(stream_id, "total_duration")
 
-        # Get final metrics for this stream
-        metrics = self.get_stream_metrics(stream_id)
+        # Get final metrics for this stream (snapshot under lock)
+        with self._lock:
+            metrics = dict(self._stream_metrics.get(stream_id, {}))
 
-        # Log metrics with guarded logging
+        # Log metrics with guarded logging (snapshot already copied, no lock needed)
         if logger.isEnabledFor(logging.INFO):
             logger.info(
                 "Stream completed",
@@ -204,26 +251,28 @@ class StreamingMetrics:
                 },
             )
 
-        # Clean up stream-specific data
-        if stream_id in self._stream_metrics:
-            del self._stream_metrics[stream_id]
-        if stream_id in self._stream_timers:
-            del self._stream_timers[stream_id]
+        # Clean up stream-specific data under lock
+        with self._lock:
+            if stream_id in self._stream_metrics:
+                del self._stream_metrics[stream_id]
+            if stream_id in self._stream_timers:
+                del self._stream_timers[stream_id]
 
     def reset(self) -> None:
         """Reset all metrics.
 
         This is primarily useful for testing.
         """
-        self._stream_metrics.clear()
-        self._stream_timers.clear()
-        self._global_metrics = {
-            "chunks_sent": 0,
-            "sentinels_emitted": 0,
-            "middleware_mutations": 0,
-            "error_terminations": 0,
-            "total_streams": 0,
-        }
+        with self._lock:
+            self._stream_metrics.clear()
+            self._stream_timers.clear()
+            self._global_metrics = {
+                "chunks_sent": 0,
+                "sentinels_emitted": 0,
+                "middleware_mutations": 0,
+                "error_terminations": 0,
+                "total_streams": 0,
+            }
 
 
 # Global metrics instance
