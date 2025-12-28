@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import json
 import tempfile
-import time
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
@@ -27,6 +26,8 @@ import pytest
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
+
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 class TestQwenOAuthCredentialValidation:
@@ -71,10 +72,9 @@ class TestQwenOAuthCredentialValidation:
             yield credentials_dir
 
     @pytest.fixture
-    def valid_credentials(self) -> dict[str, Any]:
+    async def valid_credentials(self) -> dict[str, Any]:
         """Create valid OAuth credentials for testing."""
-        # Token expires 1 hour from now
-        expiry_time = int((time.time() + 3600) * 1000)  # Convert to milliseconds
+        expiry_time = 4102444800 * 1000
         return {
             "access_token": "valid_access_token_123",
             "refresh_token": "valid_refresh_token_456",
@@ -84,10 +84,9 @@ class TestQwenOAuthCredentialValidation:
         }
 
     @pytest.fixture
-    def expired_credentials(self) -> dict[str, Any]:
+    async def expired_credentials(self) -> dict[str, Any]:
         """Create expired OAuth credentials for testing."""
-        # Token expired 1 hour ago
-        expiry_time = int((time.time() - 3600) * 1000)  # Convert to milliseconds
+        expiry_time = 1
         return {
             "access_token": "expired_access_token_123",
             "refresh_token": "expired_refresh_token_456",
@@ -452,14 +451,15 @@ class TestRuntimeValidation(TestQwenOAuthCredentialValidation):
         connector.is_functional = True
         connector._initialization_failed = False
         connector._credential_validation_errors = []
-        connector._last_validation_time = time.time()  # Recent validation
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            connector._last_validation_time = clock.now()  # Recent validation
 
-        # Should not perform validation due to throttling
-        with patch.object(connector, "_is_token_expired") as mock_expired:
-            result = await connector._validate_runtime_credentials()
+            # Should not perform validation due to throttling
+            with patch.object(connector, "_is_token_expired") as mock_expired:
+                result = await connector._validate_runtime_credentials()
 
-            assert result is True
-            mock_expired.assert_not_called()  # Should not check expiry due to throttling
+                assert result is True
+                mock_expired.assert_not_called()  # Should not check expiry due to throttling
 
 
 class TestErrorResponses(TestQwenOAuthCredentialValidation):

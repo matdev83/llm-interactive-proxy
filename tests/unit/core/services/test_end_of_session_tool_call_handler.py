@@ -26,11 +26,11 @@ from src.core.services.end_of_session_tool_call_handler import (
 
 
 @pytest.fixture
-def mock_eos_service() -> IEndOfSessionService:
+def mock_eos_service() -> MagicMock:
     """Create a mock EoS service."""
     mock = MagicMock(spec=IEndOfSessionService)
     mock.record_signal = AsyncMock()
-    mock.has_ended = MagicMock(return_value=False)  # Default to not ended
+    mock.has_ended = AsyncMock(return_value=False)  # Default to not ended
     return mock
 
 
@@ -47,7 +47,7 @@ def default_config() -> EndOfSessionConfig:
 
 @pytest.fixture
 def handler(
-    mock_eos_service: IEndOfSessionService, default_config: EndOfSessionConfig
+    mock_eos_service: MagicMock, default_config: EndOfSessionConfig
 ) -> EndOfSessionToolCallHandler:
     """Create EndOfSessionToolCallHandler instance for testing."""
     return EndOfSessionToolCallHandler(
@@ -88,7 +88,7 @@ class TestConfigGating:
     @pytest.mark.asyncio
     async def test_disabled_config_returns_false(
         self,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
         completion_tool_context: ToolCallContext,
     ):
         """Test that disabled config prevents handling."""
@@ -105,7 +105,7 @@ class TestConfigGating:
     @pytest.mark.asyncio
     async def test_detect_tool_completion_false_returns_false(
         self,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
         completion_tool_context: ToolCallContext,
     ):
         """Test that detect_tool_completion=False prevents handling."""
@@ -173,7 +173,7 @@ class TestSignalEmission:
     async def test_emits_signal_with_correct_type(
         self,
         handler: EndOfSessionToolCallHandler,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
         completion_tool_context: ToolCallContext,
     ):
         """Test that signal is emitted with correct type."""
@@ -191,7 +191,7 @@ class TestSignalEmission:
     async def test_missing_session_id_skips_emission(
         self,
         handler: EndOfSessionToolCallHandler,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that missing session_id prevents emission."""
         context = ToolCallContext(
@@ -216,7 +216,7 @@ class TestNonInterference:
     async def test_returns_non_swallowing_result(
         self,
         handler: EndOfSessionToolCallHandler,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
         completion_tool_context: ToolCallContext,
     ):
         """Test that handler returns non-swallowing result."""
@@ -233,7 +233,7 @@ class TestFailOpen:
     async def test_service_error_logged_but_not_raised(
         self,
         handler: EndOfSessionToolCallHandler,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
         completion_tool_context: ToolCallContext,
     ):
         """Test that service errors are logged but not raised."""

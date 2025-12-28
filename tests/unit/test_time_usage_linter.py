@@ -11,6 +11,7 @@ import hashlib
 import json
 import sys
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -117,7 +118,7 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     tmp_path.replace(path)
 
 
-class GuardType:
+class GuardType(str, Enum):
     """Types of guard contexts."""
 
     FREEZEGUN = "freezegun"
@@ -127,7 +128,9 @@ class GuardType:
 class _TimeUsageScanner(ast.NodeVisitor):
     """AST visitor to detect unguarded real-time reads in tests."""
 
-    def __init__(self, *, file_path: Path, repo_root: Path, allowlist: dict[str, Any]) -> None:
+    def __init__(
+        self, *, file_path: Path, repo_root: Path, allowlist: dict[str, Any]
+    ) -> None:
         """Initialize scanner.
 
         Args:
@@ -149,8 +152,10 @@ class _TimeUsageScanner(ast.NodeVisitor):
         self._guard_stack: list[GuardType] = []
 
         # Track current test function for marker checking
-        self._current_test_function: ast.FunctionDef | None = None
-        self._test_functions: list[ast.FunctionDef] = []
+        self._current_test_function: ast.FunctionDef | ast.AsyncFunctionDef | None = (
+            None
+        )
+        self._test_functions: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
 
     def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
         """Track module imports."""
@@ -172,6 +177,9 @@ class _TimeUsageScanner(ast.NodeVisitor):
             for alias in node.names:
                 name = alias.asname if alias.asname else alias.name
                 self._datetime_imports.add(name)
+                # Also track if date is imported from datetime
+                if alias.name == "date":
+                    self._date_imports.add(name)
         elif node.module == "time":
             for alias in node.names:
                 name = alias.asname if alias.asname else alias.name
@@ -219,13 +227,19 @@ class _TimeUsageScanner(ast.NodeVisitor):
         self._current_test_function = old_test
 
     def visit_With(self, node: ast.With) -> None:  # noqa: N802
-        """Track freeze_time context managers."""
+        """Track freeze_time context managers and patch guards."""
         # Check if this is a freeze_time context
         guard_type = self._detect_freezegun_guard(node)
         if guard_type:
             self._guard_stack.append(guard_type)
+        # Check if this is a patch("time.time", ...) guard
+        patch_guard = self._detect_patch_guard(node)
+        if patch_guard:
+            self._guard_stack.append(patch_guard)
         self.generic_visit(node)
         if guard_type:
+            self._guard_stack.pop()
+        if patch_guard:
             self._guard_stack.pop()
 
     def visit_AsyncWith(self, node: ast.AsyncWith) -> None:  # noqa: N802
@@ -249,9 +263,10 @@ class _TimeUsageScanner(ast.NodeVisitor):
             if not self._is_guarded(GuardType.FREEZEGUN):
                 self._add_date_today_violation(node)
         # Check for time.time()
-        elif self._is_time_time_call(node):
-            if not self._is_guarded(GuardType.FAKE_CLOCK):
-                self._add_time_violation(node)
+        elif self._is_time_time_call(node) and not self._is_guarded(
+            GuardType.FAKE_CLOCK
+        ):
+            self._add_time_violation(node)
 
         self.generic_visit(node)
 
@@ -265,9 +280,35 @@ class _TimeUsageScanner(ast.NodeVisitor):
                 # Could be freeze_time or freezegun.freeze_time
                 if isinstance(func, ast.Name) and func.id == "freeze_time":
                     return GuardType.FREEZEGUN
-                elif isinstance(func, ast.Attribute):
-                    if func.attr == "freeze_time":
-                        return GuardType.FREEZEGUN
+                if isinstance(func, ast.Attribute) and func.attr == "freeze_time":
+                    return GuardType.FREEZEGUN
+        return None
+
+    def _detect_patch_guard(self, node: ast.With) -> GuardType | None:
+        """Detect if a With node is a patch("time.time", ...) guard."""
+        for item in node.items:
+            ctx = item.context_expr
+            # Check for patch(...) call
+            if isinstance(ctx, ast.Call):
+                func = ctx.func
+                # Check for patch or unittest.mock.patch
+                is_patch = (isinstance(func, ast.Name) and func.id == "patch") or (
+                    isinstance(func, ast.Attribute) and func.attr == "patch"
+                )
+
+                if is_patch and len(ctx.args) > 0:
+                    # Check if first argument is "time.time" or similar
+                    first_arg = ctx.args[0]
+                    # Check for string literal "time.time"
+                    if (
+                        isinstance(first_arg, ast.Constant)
+                        and isinstance(first_arg.value, str)
+                        and "time.time" in first_arg.value
+                    ):
+                        return GuardType.FAKE_CLOCK
+                    # Also handle older Python versions with ast.Str
+                    if isinstance(first_arg, ast.Str) and "time.time" in first_arg.s:  # type: ignore[attr-defined]
+                        return GuardType.FAKE_CLOCK
         return None
 
     def _detect_fake_clock_guard(self, node: ast.AsyncWith) -> GuardType | None:
@@ -279,9 +320,8 @@ class _TimeUsageScanner(ast.NodeVisitor):
                 func = ctx.func
                 if isinstance(func, ast.Name) and func.id == "FakeClockContext":
                     return GuardType.FAKE_CLOCK
-                elif isinstance(func, ast.Attribute):
-                    if func.attr == "FakeClockContext":
-                        return GuardType.FAKE_CLOCK
+                if isinstance(func, ast.Attribute) and func.attr == "FakeClockContext":
+                    return GuardType.FAKE_CLOCK
         return None
 
     def _has_freezegun_decorator(
@@ -294,9 +334,11 @@ class _TimeUsageScanner(ast.NodeVisitor):
                 func_node = decorator.func
                 if isinstance(func_node, ast.Name) and func_node.id == "freeze_time":
                     return True
-                elif isinstance(func_node, ast.Attribute):
-                    if func_node.attr == "freeze_time":
-                        return True
+                if (
+                    isinstance(func_node, ast.Attribute)
+                    and func_node.attr == "freeze_time"
+                ):
+                    return True
             elif isinstance(decorator, ast.Name):
                 # @freeze_time (without args)
                 if decorator.id == "freeze_time":
@@ -324,16 +366,13 @@ class _TimeUsageScanner(ast.NodeVisitor):
         # Check if the object is datetime (from imports)
         if isinstance(node.func.value, ast.Name):
             return node.func.value.id in self._datetime_imports
-        elif isinstance(node.func.value, ast.Attribute):
-            # Handle datetime.datetime.now()
-            if (
-                isinstance(node.func.value.value, ast.Name)
-                and node.func.value.value.id == "datetime"
-                and node.func.value.attr == "datetime"
-            ):
-                return True
-
-        return False
+        # Handle datetime.datetime.now()
+        return (
+            isinstance(node.func.value, ast.Attribute)
+            and isinstance(node.func.value.value, ast.Name)
+            and node.func.value.value.id == "datetime"
+            and node.func.value.attr == "datetime"
+        )
 
     def _is_date_today_call(self, node: ast.Call) -> bool:
         """Check if call is date.today()."""
@@ -346,22 +385,20 @@ class _TimeUsageScanner(ast.NodeVisitor):
         # Check if the object is date (from imports)
         if isinstance(node.func.value, ast.Name):
             return node.func.value.id in self._date_imports
-        elif isinstance(node.func.value, ast.Attribute):
-            # Handle datetime.date.today()
-            if (
-                isinstance(node.func.value.value, ast.Name)
-                and node.func.value.value.id == "datetime"
-                and node.func.value.attr == "date"
-            ):
-                return True
-
-        return False
+        # Handle datetime.date.today()
+        return (
+            isinstance(node.func.value, ast.Attribute)
+            and isinstance(node.func.value.value, ast.Name)
+            and node.func.value.value.id == "datetime"
+            and node.func.value.attr == "date"
+        )
 
     def _is_time_time_call(self, node: ast.Call) -> bool:
         """Check if call is time.time()."""
-        # Direct call: time() after `from time import time`
+        # Direct call: time() after `from time import time` or `from time import time as now_s`
         if isinstance(node.func, ast.Name):
-            return node.func.id in self._time_imports and node.func.id == "time"
+            # Check if the function name is in time imports (handles aliases)
+            return node.func.id in self._time_imports
 
         # Attribute call: time.time()
         if isinstance(node.func, ast.Attribute):
@@ -373,7 +410,9 @@ class _TimeUsageScanner(ast.NodeVisitor):
 
         return False
 
-    def _has_real_time_marker(self, func: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    def _has_real_time_marker(
+        self, func: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> bool:
         """Check if function has @real_time marker with required reason parameter.
 
         Only accepts markers that are called with a reason argument (non-empty string).
@@ -387,16 +426,19 @@ class _TimeUsageScanner(ast.NodeVisitor):
             func_node = decorator.func
 
             # Check for @real_time(...) - direct import from markers module
-            if isinstance(func_node, ast.Name) and func_node.id == "real_time" or isinstance(func_node, ast.Attribute) and (
-                func_node.attr == "real_time"
-                and isinstance(func_node.value, ast.Attribute)
-                and func_node.value.attr == "mark"
-                and isinstance(func_node.value.value, ast.Name)
-                and func_node.value.value.id == "pytest"
-            ):
-                # Validate reason argument exists and is non-empty
-                if self._has_valid_reason_argument(decorator):
-                    return True
+            if (
+                isinstance(func_node, ast.Name)
+                and func_node.id == "real_time"
+                or isinstance(func_node, ast.Attribute)
+                and (
+                    func_node.attr == "real_time"
+                    and isinstance(func_node.value, ast.Attribute)
+                    and func_node.value.attr == "mark"
+                    and isinstance(func_node.value.value, ast.Name)
+                    and func_node.value.value.id == "pytest"
+                )
+            ) and self._has_valid_reason_argument(decorator):
+                return True
 
         return False
 
@@ -417,7 +459,13 @@ class _TimeUsageScanner(ast.NodeVisitor):
         return False
 
     def _is_exempted(self, func: ast.FunctionDef | ast.AsyncFunctionDef | None) -> bool:
-        """Check if current violation is exempted."""
+        """Check if current violation is exempted.
+
+        Precedence order (most specific to least specific):
+        1. Allow-list nodeid entries (exact test match)
+        2. Per-test @real_time marker
+        3. Allow-list glob patterns (file/directory patterns)
+        """
         if func is None:
             return False
 
@@ -425,21 +473,25 @@ class _TimeUsageScanner(ast.NodeVisitor):
         rel_path = self._file_path.relative_to(self._repo_root).as_posix()
         nodeid = f"{rel_path}::{func.name}"
 
-        # Check allow-list (nodeid and glob patterns)
+        # 1. Check allow-list nodeid (highest precedence)
         if is_exempted(nodeid, self._allowlist):
             return True
-        if is_exempted(rel_path, self._allowlist):
+
+        # 2. Check marker (second precedence)
+        if self._has_real_time_marker(func):
             return True
 
-        # Check marker
-        return bool(self._has_real_time_marker(func))
+        # 3. Check allow-list glob patterns (lowest precedence)
+        return bool(is_exempted(rel_path, self._allowlist))
 
     def _add_datetime_violation(self, node: ast.Call) -> None:
         """Add violation for datetime.now() or datetime.utcnow()."""
         if self._is_exempted(self._current_test_function):
             return
 
-        attr_name = node.func.attr if isinstance(node.func, ast.Attribute) else "unknown"
+        attr_name = (
+            node.func.attr if isinstance(node.func, ast.Attribute) else "unknown"
+        )
         self.findings.append(
             LintFinding(
                 file=str(self._file_path).replace("\\", "/"),
@@ -956,7 +1008,9 @@ def test_cache_fast_hash_skips_full_scan(tmp_path: Path, monkeypatch) -> None:  
     def _boom_fingerprint(_repo_root: Path) -> tuple[str, int]:
         nonlocal fingerprint_called
         fingerprint_called = True
-        raise AssertionError("Expected fast hash cache hit; fingerprint should not be computed")
+        raise AssertionError(
+            "Expected fast hash cache hit; fingerprint should not be computed"
+        )
 
     def _boom_scan(_repo_root: Path, _allowlist: dict[str, Any]) -> list[LintFinding]:
         nonlocal scan_called
@@ -972,7 +1026,9 @@ def test_cache_fast_hash_skips_full_scan(tmp_path: Path, monkeypatch) -> None:  
     findings = _get_findings_with_cache(repo_root, cache_path)
 
     assert findings == []
-    assert not fingerprint_called, "Fast hash cache hit should skip fingerprint computation"
+    assert (
+        not fingerprint_called
+    ), "Fast hash cache hit should skip fingerprint computation"
     assert not scan_called, "Fast hash cache hit should skip full scan"
 
 
@@ -1016,7 +1072,9 @@ def test_cache_fingerprint_skips_scan_when_content_unchanged(
 
     # But fingerprint will differ (mtime changed)
     fingerprint_2, _ = _compute_time_usage_lint_fingerprint(repo_root)
-    assert fingerprint_2 != fingerprint_1, "Fingerprint should differ when mtime changes"
+    assert (
+        fingerprint_2 != fingerprint_1
+    ), "Fingerprint should differ when mtime changes"
 
     # Mock scan to verify it's not called
     scan_called = False
@@ -1088,7 +1146,9 @@ def test_example():
     assert scanner.findings[0].rule == "TIME001"
 
 
-def test_scanner_rejects_real_time_marker_with_whitespace_reason(tmp_path: Path) -> None:
+def test_scanner_rejects_real_time_marker_with_whitespace_reason(
+    tmp_path: Path,
+) -> None:
     """Test that scanner rejects @real_time marker with whitespace-only reason."""
     sample = """\
 from datetime import datetime
@@ -1113,3 +1173,408 @@ def test_example():
     assert len(scanner.findings) == 1
     assert scanner.findings[0].rule == "TIME001"
 
+
+def test_precedence_nodeid_overrides_marker(tmp_path: Path) -> None:
+    """Test that allow-list nodeid entries take precedence over @real_time marker."""
+    sample = """\
+from datetime import datetime
+from tests.unit.fixtures.markers import real_time
+
+@real_time(reason="This should be ignored due to nodeid precedence")
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = {
+        "version": 1,
+        "entries": [
+            {
+                "target_type": "nodeid",
+                "target": "test_sample.py::test_example",
+                "reason": "Nodeid exemption takes precedence",
+            }
+        ],
+    }
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Should be exempted by nodeid, not marker
+    assert len(scanner.findings) == 0
+
+
+def test_precedence_marker_overrides_glob(tmp_path: Path) -> None:
+    """Test that @real_time marker takes precedence over glob patterns."""
+    sample = """\
+from datetime import datetime
+from tests.unit.fixtures.markers import real_time
+
+@real_time(reason="Marker exemption takes precedence over glob")
+def test_example():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = {
+        "version": 1,
+        "entries": [
+            {
+                "target_type": "glob",
+                "target": "test_sample.py",
+                "reason": "This glob should not apply when marker exists",
+            }
+        ],
+    }
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Should be exempted by marker (precedence: nodeid > marker > glob)
+    # Marker takes precedence over glob patterns
+    assert len(scanner.findings) == 0
+
+
+def test_mixed_time_semantics_freezegun_with_unguarded_time_time(
+    tmp_path: Path,
+) -> None:
+    """Test detection of mixed time semantics: freezegun with unguarded time.time()."""
+    sample = """\
+from datetime import datetime
+import time
+from freezegun import freeze_time
+
+def test_example():
+    with freeze_time("2020-01-01"):
+        dt = datetime.now()  # This is guarded
+        epoch = time.time()  # This is NOT guarded (should be flagged)
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Should detect unguarded time.time() even though datetime.now() is guarded
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME003"
+    assert "time.time()" in scanner.findings[0].message
+
+
+def test_mixed_time_semantics_fake_clock_with_unguarded_datetime_now(
+    tmp_path: Path,
+) -> None:
+    """Test detection of mixed time semantics: FakeClockContext with unguarded datetime.now()."""
+    sample = """\
+from datetime import datetime
+import time
+from tests.utils.fake_clock import FakeClockContext
+
+async def test_example():
+    async with FakeClockContext():
+        epoch = time.time()  # This is guarded
+        dt = datetime.now()  # This is NOT guarded (should be flagged)
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Should detect unguarded datetime.now() even though time.time() is guarded
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+    assert "datetime.now()" in scanner.findings[0].message
+
+
+def test_import_alias_datetime_as_dt(tmp_path: Path) -> None:
+    """Test detection of datetime.now() via import alias 'datetime as dt'."""
+    sample = """\
+from datetime import datetime as dt
+
+def test_example():
+    now = dt.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+
+
+def test_import_alias_time_as_now_s(tmp_path: Path) -> None:
+    """Test detection of time.time() via import alias 'from time import time as now_s'."""
+    sample = """\
+from time import time as now_s
+
+def test_example():
+    epoch = now_s()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME003"
+
+
+def test_actionable_reporting_includes_file_line_column(tmp_path: Path) -> None:
+    """Test that findings include accurate file paths, line numbers, and column numbers."""
+    sample = """\
+from datetime import datetime
+
+def test_example():
+    # Some comment
+    now = datetime.now()  # Line 5, column 9
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    finding = scanner.findings[0]
+    # File path should contain the filename (may be absolute or relative)
+    assert "test_sample.py" in finding.file.replace("\\", "/")
+    assert finding.line == 5  # Line number of datetime.now() call
+    assert finding.column >= 0  # Column offset should be valid
+    assert finding.rule == "TIME001"
+    assert "datetime.now()" in finding.message
+
+
+def test_nested_guards_freezegun(tmp_path: Path) -> None:
+    """Test that nested freezegun guards work correctly."""
+    sample = """\
+from datetime import datetime
+from freezegun import freeze_time
+
+def test_example():
+    with freeze_time("2020-01-01"):
+        dt1 = datetime.now()  # Guarded by outer
+        with freeze_time("2021-01-01"):
+            dt2 = datetime.now()  # Guarded by inner
+        dt3 = datetime.now()  # Guarded by outer
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # All calls should be guarded
+    assert len(scanner.findings) == 0
+
+
+def test_nested_guards_fake_clock(tmp_path: Path) -> None:
+    """Test that nested FakeClockContext guards work correctly."""
+    sample = """\
+import time
+from tests.utils.fake_clock import FakeClockContext
+
+async def test_example():
+    async with FakeClockContext():
+        t1 = time.time()  # Guarded by outer
+        async with FakeClockContext():
+            t2 = time.time()  # Guarded by inner
+        t3 = time.time()  # Guarded by outer
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # All calls should be guarded
+    assert len(scanner.findings) == 0
+
+
+def test_guard_in_helper_function(tmp_path: Path) -> None:
+    """Test that guards in helper functions don't affect test function calls."""
+    sample = """\
+from datetime import datetime
+from freezegun import freeze_time
+
+def helper_function():
+    with freeze_time("2020-01-01"):
+        dt = datetime.now()  # Guarded in helper
+
+def test_example():
+    dt = datetime.now()  # NOT guarded (should be flagged)
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Should detect unguarded call in test_example
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+
+
+def test_guard_in_test_function_protects_calls(tmp_path: Path) -> None:
+    """Test that guards in test function protect calls within that function."""
+    sample = """\
+from datetime import datetime
+from freezegun import freeze_time
+
+def test_example():
+    with freeze_time("2020-01-01"):
+        dt = datetime.now()  # Should be guarded
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # Call should be guarded
+    assert len(scanner.findings) == 0
+
+
+def test_precedence_nodeid_overrides_glob(tmp_path: Path) -> None:
+    """Test that allow-list nodeid entries take precedence over glob patterns."""
+    sample = """\
+from datetime import datetime
+
+def test_example():
+    now = datetime.now()
+
+def test_other():
+    now = datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = {
+        "version": 1,
+        "entries": [
+            {
+                "target_type": "nodeid",
+                "target": "test_sample.py::test_example",
+                "reason": "Nodeid exemption",
+            },
+            {
+                "target_type": "glob",
+                "target": "test_sample.py",
+                "reason": "Glob exemption (should not apply to test_example due to nodeid)",
+            },
+        ],
+    }
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    # test_example should be exempted by nodeid
+    # test_other should be exempted by glob
+    # So no findings
+    assert len(scanner.findings) == 0
+
+
+def test_datetime_datetime_now_pattern(tmp_path: Path) -> None:
+    """Test detection of datetime.datetime.now() pattern."""
+    sample = """\
+import datetime
+
+def test_example():
+    now = datetime.datetime.now()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME001"
+
+
+def test_date_today_pattern(tmp_path: Path) -> None:
+    """Test detection of date.today() pattern."""
+    sample = """\
+from datetime import date
+
+def test_example():
+    today = date.today()
+"""
+    file_path = tmp_path / "test_sample.py"
+    file_path.write_text(sample, encoding="utf-8")
+
+    repo_root = tmp_path
+    allowlist = load_allowlist()
+    scanner = _TimeUsageScanner(
+        file_path=file_path, repo_root=repo_root, allowlist=allowlist
+    )
+    tree = ast.parse(sample, filename=str(file_path))
+    scanner.visit(tree)
+
+    assert len(scanner.findings) == 1
+    assert scanner.findings[0].rule == "TIME002"
+    assert "date.today()" in scanner.findings[0].message

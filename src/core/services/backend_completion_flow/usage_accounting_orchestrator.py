@@ -37,6 +37,7 @@ from src.core.interfaces.usage_normalization_service_interface import (
 )
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
+from src.core.services.resilience.scope import build_resilience_instance_id
 from src.core.utils.usage_recalculation import calculate_outbound_tokens
 
 logger = logging.getLogger(__name__)
@@ -499,7 +500,8 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
 
         # Record success for streaming response
         if self._resilience:
-            self._resilience.record_success(backend_type, effective_model)
+            instance_id = build_resilience_instance_id(backend_type, context)
+            self._resilience.record_success(instance_id, effective_model)
 
         # Modify the original result envelope's content and return it
         # This ensures canonical_usage set in the finally block is on the returned envelope
@@ -513,11 +515,13 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         backend_type: str,
         effective_model: str,
         session_id_for_backend: str | None,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope:
         """Handle non-streaming response with success recording and phase updates."""
         # Record success in resilience coordinator
         if self._resilience:
-            self._resilience.record_success(backend_type, effective_model)
+            instance_id = build_resilience_instance_id(backend_type, context)
+            self._resilience.record_success(instance_id, effective_model)
 
         if session_id_for_backend and self._planning_phase_manager:
             await self._planning_phase_manager.update_counters(

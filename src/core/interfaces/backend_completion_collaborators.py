@@ -22,7 +22,11 @@ class IBackendAvailabilityChecker(ABC):
 
     @abstractmethod
     async def check_backend_availability(
-        self, backend_type: str, effective_model: str, allow_failover: bool
+        self,
+        backend_type: str,
+        effective_model: str,
+        allow_failover: bool,
+        context: RequestContext | None = None,
     ) -> None:
         """Check if the backend is available (not disabled, not rate limited).
 
@@ -363,6 +367,7 @@ class IUsageAccountingOrchestrator(ABC):
         backend_type: str,
         effective_model: str,
         session_id_for_backend: str | None,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope:
         """Handle non-streaming response with usage recording.
 

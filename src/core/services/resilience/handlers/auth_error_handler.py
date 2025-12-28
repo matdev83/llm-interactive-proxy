@@ -77,6 +77,12 @@ class AuthErrorHandler(BaseErrorHandler):
         Returns:
             ResilienceAction indicating instance was disabled
         """
+        if context.extra.get("is_personal_backend") is True:
+            return ResilienceAction(
+                type=ActionType.PROCEED,
+                reason="Auth errors for personal OAuth backends are not globally disabled",
+            )
+
         # Build a descriptive reason
         reason = self._build_reason(context.error)
 

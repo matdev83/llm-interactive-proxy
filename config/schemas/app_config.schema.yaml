@@ -425,6 +425,16 @@ properties:
       keepalive_interval: { type: number, minimum: 1 }
       max_failover_hops: { type: integer, minimum: 1 }
       min_retry_wait: { type: number, minimum: 0.1 }
+  resilience:
+    type: object
+    additionalProperties: false
+    properties:
+      personal_backend_types:
+        type: array
+        items: { type: string }
+      shared_backend_types:
+        type: array
+        items: { type: string }
   routing:
     type: object
     additionalProperties: false

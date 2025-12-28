@@ -110,6 +110,10 @@ def _register_resilience_coordinator(services: ServiceCollection) -> None:
     try:
         from src.core.interfaces.resilience_interface import IResilienceCoordinator
         from src.core.services.resilience.coordinator import ResilienceCoordinator
+        from src.core.services.resilience.handlers import (
+            AuthErrorHandler,
+            RateLimitErrorHandler,
+        )
         from src.core.services.resilience.rate_limit_state import RateLimitStateManager
 
         register_singleton_if_absent(services, RateLimitStateManager)
@@ -118,7 +122,14 @@ def _register_resilience_coordinator(services: ServiceCollection) -> None:
             provider: IServiceProvider,
         ) -> ResilienceCoordinator:
             state_manager = provider.get_required_service(RateLimitStateManager)
-            return ResilienceCoordinator(state_manager=state_manager)
+            auth_handler = AuthErrorHandler(state_manager)
+            rate_limit_handler = RateLimitErrorHandler(
+                state_manager, next_handler=auth_handler
+            )
+            return ResilienceCoordinator(
+                state_manager=state_manager,
+                error_handler_chain=rate_limit_handler,
+            )
 
         register_singleton_if_absent(
             services,

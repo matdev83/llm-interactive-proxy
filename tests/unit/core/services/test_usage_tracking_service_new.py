@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
 import pytest
+from freezegun import freeze_time
 from src.core.database.repositories.usage_repository_types import (
     RepositoryAggregatedStats,
 )
@@ -72,6 +73,7 @@ async def test_record_request_ptb(service, mock_usage_repo):
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_record_response(service, mock_usage_repo):
     mock_record = UsageRecord(
         id="rec-1",

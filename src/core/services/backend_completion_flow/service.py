@@ -37,6 +37,10 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+from src.core.services.resilience.scope import (
+    build_resilience_error_context,
+    build_resilience_instance_id,
+)
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
@@ -120,6 +124,33 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         # Track cancellation tasks to prevent resource leaks
         self._cancellation_tasks: set[asyncio.Task[None]] = set()
         self._cancellation_tasks_lock = threading.Lock()
+
+    def _attach_resilience_context(
+        self,
+        error: Exception,
+        backend_type: str,
+        context: RequestContext | None,
+    ) -> None:
+        """Attach resilience metadata to the error for handler decisions."""
+        if getattr(error, "__resilience_context__", None) is not None:
+            return
+        error.__resilience_context__ = build_resilience_error_context(  # type: ignore[attr-defined]
+            backend_type, context
+        )
+
+    def _record_failure(
+        self,
+        backend_type: str,
+        effective_model: str,
+        error: Exception,
+        context: RequestContext | None,
+    ) -> None:
+        """Record failure with scoped instance id and attached context."""
+        if not self._resilience:
+            return
+        instance_id = build_resilience_instance_id(backend_type, context)
+        self._attach_resilience_context(error, backend_type, context)
+        self._resilience.record_failure(instance_id, effective_model, error)
 
     def _cancellation_tasks_lock_sync_discard(self, task: asyncio.Task[None]) -> None:
         """Synchronous discard for task done callback - uses thread-unsafe dict access.
@@ -218,7 +249,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
         # Step 3: Check backend availability (disabled + resilience)
         await self._availability_checker.check_backend_availability(
-            backend_type, effective_model, allow_failover
+            backend_type, effective_model, allow_failover, context
         )
 
         # Step 4: Initialize failure strategy tracking
@@ -500,6 +531,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     backend_type=backend_type,
                     effective_model=effective_model,
                     session_id_for_backend=session_id_for_backend,
+                    context=context,
                 )
 
             except asyncio.CancelledError:
@@ -633,8 +665,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 # the outer exception handler (which also calls record_failure for exceptions
                 # that escape the inner handler, e.g., from apply_failure_recovery failures).
                 if self._resilience:
-                    self._resilience.record_failure(
-                        current_backend, effective_model, normalized_exc
+                    self._record_failure(
+                        current_backend, effective_model, normalized_exc, context
                     )
                     # Mark as handled to prevent outer handler from calling record_failure again.
                     # This marker is necessary because when allow_failover=False, we call
@@ -665,7 +697,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             if self._resilience and not getattr(
                 exc, "__handled_by_inner_handler__", False
             ):
-                self._resilience.record_failure(backend_type, effective_model, exc)
+                self._record_failure(backend_type, effective_model, exc, context)
 
             # Record EoS error termination signal (fail-open)
             if self._eos_adapter is not None:

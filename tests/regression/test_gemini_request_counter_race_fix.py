@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytz
+from freezegun import freeze_time
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 
 
@@ -43,7 +44,8 @@ class TestDailyRequestCounterRaceConditionFix:
                     f,
                 )
 
-            counter = DailyRequestCounter(persistence_path, 1000)
+            with freeze_time("2024-01-01 12:00:00"):
+                counter = DailyRequestCounter(persistence_path, 1000)
 
             # Verify thresholds were loaded correctly
             assert counter.count == 100
@@ -148,7 +150,8 @@ class TestDailyRequestCounterRaceConditionFix:
                 )
 
             # Create new instance which will load state
-            counter2 = DailyRequestCounter(persistence_path, 1000)
+            with freeze_time("2024-01-01 12:00:00"):
+                counter2 = DailyRequestCounter(persistence_path, 1000)
 
             # Verify state was loaded correctly without corruption
             assert counter2.count == 500

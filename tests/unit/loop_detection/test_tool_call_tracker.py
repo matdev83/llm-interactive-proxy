@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from src.tool_call_loop.config import ToolCallLoopConfig, ToolLoopMode
 from src.tool_call_loop.tracker import ToolCallSignature, ToolCallTracker
 
@@ -115,6 +116,7 @@ class TestToolCallSignature:
         assert signature.arguments_signature.startswith("sha256:")
         assert signature.raw_arguments  # Should provide some representation
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_is_expired(self):
         """Test checking if a signature has expired."""
         # Create a signature with a timestamp in the past
@@ -160,6 +162,7 @@ class TestToolCallTracker:
         assert pruned == 0
         assert tracker.signatures == []
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_prune_expired_with_expired(self, config) -> None:
         """Test pruning with expired signatures."""
         tracker = ToolCallTracker(config)
@@ -369,10 +372,11 @@ class TestToolCallTrackerFunctionality:
         assert len(tracker.signatures) == initial_calls
 
         # Expire all but the most recent signature
-        now = datetime.datetime.now(datetime.timezone.utc)
-        expiration = datetime.timedelta(seconds=config.ttl_seconds + 5)
-        for signature in tracker.signatures[:-1]:
-            signature.timestamp = now - expiration
+        with freeze_time("2024-01-01 12:00:00"):
+            now = datetime.datetime.now(datetime.timezone.utc)
+            expiration = datetime.timedelta(seconds=config.ttl_seconds + 5)
+            for signature in tracker.signatures[:-1]:
+                signature.timestamp = now - expiration
 
         pruned = tracker.prune_expired()
         assert pruned == initial_calls - 1
@@ -494,10 +498,11 @@ class TestToolCallTrackerFunctionality:
             tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Manually set the timestamp of the signatures to be in the past
-        for sig in tracker.signatures:
-            sig.timestamp = datetime.datetime.now(
-                datetime.timezone.utc
-            ) - datetime.timedelta(seconds=config.ttl_seconds + 10)
+        with freeze_time("2024-01-01 12:00:00"):
+            for sig in tracker.signatures:
+                sig.timestamp = datetime.datetime.now(
+                    datetime.timezone.utc
+                ) - datetime.timedelta(seconds=config.ttl_seconds + 10)
 
         # Make the same call again - should not block due to TTL expiry
         result = tracker.track_tool_call("test_tool", '{"arg": "value"}')

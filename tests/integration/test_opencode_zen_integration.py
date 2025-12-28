@@ -30,7 +30,7 @@ def mock_credentials_file(tmp_path):
             "type": "oauth",
             "access": "test-access-token-1",
             "refresh": "test-refresh-token-1",
-            "expires": 1704067200,  # Fixed timestamp
+            "expires": 4102444800,
         }
     }
     creds_file.write_text(json.dumps(creds_data), encoding="utf-8")
@@ -152,7 +152,7 @@ async def test_token_refresh_flow(connector, mock_credentials_file):
         )
 
         # 2. Simulate token expiry in memory
-        connector._oauth_credentials["expires"] = 1000.0 - 100  # Fixed timestamp: expired
+        connector._oauth_credentials["expires"] = 1
 
         # 3. Update file with NEW credentials (as if CLI refreshed it)
         new_creds = {
@@ -160,7 +160,7 @@ async def test_token_refresh_flow(connector, mock_credentials_file):
                 "type": "oauth",
                 "access": "test-access-token-2",  # NEW TOKEN
                 "refresh": "test-refresh-token-2",
-                "expires": 1704067200,  # Fixed timestamp
+                "expires": 4102444800,
             }
         }
         mock_credentials_file.write_text(json.dumps(new_creds), encoding="utf-8")

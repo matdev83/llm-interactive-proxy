@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 import pytest
 import respx
+from freezegun import freeze_time
 from src.core.auth.sso.config import ProviderConfig, SSOConfig
 from src.core.auth.sso.exceptions import AuthenticationError
 from src.core.auth.sso.models import SAMLMetadata
@@ -19,13 +20,14 @@ from src.core.auth.sso.sso_service import SSOService
 def _build_saml_response_xml(
     audience: str, name_id: str, email: str, signing_cert: str | None = None
 ) -> str:
-    issue_instant = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime(
-        "%Y-%m-%dT%H:%M:%SZ"
-    )
-    signature_block = ""
-    if signing_cert:
-        signature_block = f"""
+    with freeze_time("2024-01-01 12:00:00"):
+        issue_instant = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        expiry = (datetime.now(timezone.utc) + timedelta(minutes=5)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        signature_block = ""
+        if signing_cert:
+            signature_block = f"""
     <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#">
       <ds:KeyInfo>
         <ds:X509Data>
@@ -34,7 +36,7 @@ def _build_saml_response_xml(
       </ds:KeyInfo>
     </ds:Signature>
 """
-    return f"""
+        return f"""
 <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" ID="_resp1" Version="2.0" IssueInstant="{issue_instant}">
     <saml:Issuer>https://idp.example.com/metadata</saml:Issuer>
     <samlp:Status>
@@ -105,6 +107,7 @@ async def test_create_saml_authorization_url_uses_metadata():
 
 
 @pytest.mark.asyncio
+@freeze_time("2024-01-01 12:00:00")
 async def test_handle_saml_callback_parses_assertion_success():
     config = SSOConfig(
         enabled=True,

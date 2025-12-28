@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from freezegun import freeze_time
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.models import (
     FileChange,
@@ -27,47 +28,48 @@ def create_test_summary(
     session_start: datetime | None = None,
 ) -> SessionSummary:
     """Create a test SessionSummary."""
-    now = session_start or datetime.now(timezone.utc)
-    return SessionSummary(
-        id=f"sum-{session_id}",
-        user_id=user_id,
-        tenant_id=tenant_id,
-        project_id=project_id,
-        project_root=project_root,
-        session_id=session_id,
-        session_start=now,
-        client_agent="test-agent",
-        backend_model="openai:gpt-4o",
-        title="Test session summary",
-        scope="Unit testing",
-        goals=["Test goal 1", "Test goal 2"],
-        open_questions=["Question 1"],
-        remaining_tasks=[
-            TaskItem(description="Task 1", status="open"),
-            TaskItem(description="Task 2", status="blocked"),
-        ],
-        modified_files=[
-            FileChange(path="src/test.py", status="modified"),
-            FileChange(path="src/new.py", status="created"),
-        ],
-        git_operations=[
-            GitOperation(type="commit", ref="abc123", details="Test commit"),
-        ],
-        completion_status="completed",
-        key_decisions=["Decision 1"],
-        operations_performed=["pytest tests/"],
-        tests_run=[
-            TestRun(name="test_example", status="passed", command="pytest"),
-        ],
-        errors=[],
-        risks_or_warnings=["Warning 1"],
-        evidence=["Evidence 1"],
-        full_analysis="<session_summary>Test</session_summary>",
-        branch="main",
-        head_sha="abc123def",
-        summary_version="v1",
-        created_at=now,
-    )
+    with freeze_time("2024-01-01 12:00:00"):
+        now = session_start or datetime.now(timezone.utc)
+        return SessionSummary(
+            id=f"sum-{session_id}",
+            user_id=user_id,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            project_root=project_root,
+            session_id=session_id,
+            session_start=now,
+            client_agent="test-agent",
+            backend_model="openai:gpt-4o",
+            title="Test session summary",
+            scope="Unit testing",
+            goals=["Test goal 1", "Test goal 2"],
+            open_questions=["Question 1"],
+            remaining_tasks=[
+                TaskItem(description="Task 1", status="open"),
+                TaskItem(description="Task 2", status="blocked"),
+            ],
+            modified_files=[
+                FileChange(path="src/test.py", status="modified"),
+                FileChange(path="src/new.py", status="created"),
+            ],
+            git_operations=[
+                GitOperation(type="commit", ref="abc123", details="Test commit"),
+            ],
+            completion_status="completed",
+            key_decisions=["Decision 1"],
+            operations_performed=["pytest tests/"],
+            tests_run=[
+                TestRun(name="test_example", status="passed", command="pytest"),
+            ],
+            errors=[],
+            risks_or_warnings=["Warning 1"],
+            evidence=["Evidence 1"],
+            full_analysis="<session_summary>Test</session_summary>",
+            branch="main",
+            head_sha="abc123def",
+            summary_version="v1",
+            created_at=now,
+        )
 
 
 class TestMemoryRepository:
@@ -203,6 +205,7 @@ class TestMemoryRepository:
         assert proj2_summaries[0].project_root == "/home/user/project2"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_delete_old_sessions(self, repository: MemoryRepository) -> None:
         """Test retention-based deletion."""
         await repository.initialize_schema()
@@ -239,13 +242,14 @@ class TestMemoryRepository:
         await repository.initialize_schema()
 
         # Create 5 summaries
-        for i in range(5):
-            summary = create_test_summary(
-                user_id="user-1",
-                session_id=f"sess-{i}",
-                session_start=datetime.now(timezone.utc) - timedelta(hours=i),
-            )
-            await repository.save_session_summary(summary)
+        with freeze_time("2024-01-01 12:00:00"):
+            for i in range(5):
+                summary = create_test_summary(
+                    user_id="user-1",
+                    session_id=f"sess-{i}",
+                    session_start=datetime.now(timezone.utc) - timedelta(hours=i),
+                )
+                await repository.save_session_summary(summary)
 
         # Retrieve with limit=3
         summaries = await repository.get_recent_sessions("user-1", limit=3)

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from freezegun import freeze_time
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.models import CapturedInteraction
 from src.core.memory.sqlite_repository import MemoryRepository
@@ -21,11 +22,12 @@ def create_interaction(
     role: str = "user",
 ) -> CapturedInteraction:
     """Create a test CapturedInteraction."""
-    return CapturedInteraction(
-        role=role,
-        content=content,
-        timestamp=datetime.now(timezone.utc),
-    )
+    with freeze_time("2024-01-01 12:00:00"):
+        return CapturedInteraction(
+            role=role,
+            content=content,
+            timestamp=datetime.now(timezone.utc),
+        )
 
 
 class TestSummaryValidator:
@@ -299,41 +301,42 @@ class TestSummaryGenerator:
             <completion_status>completed</completion_status>
         </session_summary>"""
 
-        summary = generator._parse_xml_to_summary(
-            xml,
-            session_id="sess-1",
-            user_id="user-1",
-            tenant_id=None,
-            project_id="proj-1",
-            project_root="/home/user",
-            backend_model="openai:gpt-4o",
-            client_agent="test-client",
-            branch="main",
-            head_sha="abc123",
-            is_partial=False,
-            session_start=datetime.now(timezone.utc),
-            deterministic_file_edits=[],
-            deterministic_git_commits=[],
-        )
+        with freeze_time("2024-01-01 12:00:00"):
+            summary = generator._parse_xml_to_summary(
+                xml,
+                session_id="sess-1",
+                user_id="user-1",
+                tenant_id=None,
+                project_id="proj-1",
+                project_root="/home/user",
+                backend_model="openai:gpt-4o",
+                client_agent="test-client",
+                branch="main",
+                head_sha="abc123",
+                is_partial=False,
+                session_start=datetime.now(timezone.utc),
+                deterministic_file_edits=[],
+                deterministic_git_commits=[],
+            )
 
-        assert summary.title == "Test Summary"
-        assert summary.scope == "Testing scope"
-        assert len(summary.goals) == 2
-        assert len(summary.key_decisions) == 1
-        assert len(summary.operations_performed) == 1
-        assert len(summary.modified_files) == 2
-        assert summary.modified_files[0].status == "created"
-        assert len(summary.git_operations) == 1
-        assert summary.git_operations[0].type == "commit"
-        assert len(summary.tests_run) == 1
-        assert summary.tests_run[0].status == "passed"
-        assert summary.tests_run[0].name == "test_example"
-        assert len(summary.errors) == 1
-        assert len(summary.remaining_tasks) == 2
-        assert summary.remaining_tasks[1].status == "blocked"
-        assert len(summary.open_questions) == 1
-        assert len(summary.risks_or_warnings) == 1
-        assert len(summary.evidence) == 1
-        assert summary.completion_status == "completed"
-        assert summary.branch == "main"
-        assert summary.head_sha == "abc123"
+            assert summary.title == "Test Summary"
+            assert summary.scope == "Testing scope"
+            assert len(summary.goals) == 2
+            assert len(summary.key_decisions) == 1
+            assert len(summary.operations_performed) == 1
+            assert len(summary.modified_files) == 2
+            assert summary.modified_files[0].status == "created"
+            assert len(summary.git_operations) == 1
+            assert summary.git_operations[0].type == "commit"
+            assert len(summary.tests_run) == 1
+            assert summary.tests_run[0].status == "passed"
+            assert summary.tests_run[0].name == "test_example"
+            assert len(summary.errors) == 1
+            assert len(summary.remaining_tasks) == 2
+            assert summary.remaining_tasks[1].status == "blocked"
+            assert len(summary.open_questions) == 1
+            assert len(summary.risks_or_warnings) == 1
+            assert len(summary.evidence) == 1
+            assert summary.completion_status == "completed"
+            assert summary.branch == "main"
+            assert summary.head_sha == "abc123"

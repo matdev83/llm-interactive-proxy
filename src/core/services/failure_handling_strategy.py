@@ -242,8 +242,11 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
             if reset_at is not None:
                 reset_at_float = float(reset_at)
                 # reset_at could be a timestamp or seconds from now
+                now = time.time()
+                if reset_at_float >= now:
+                    return max(0.0, reset_at_float - now)
                 if reset_at_float > 1e9:  # Looks like a Unix timestamp
-                    return max(0.0, reset_at_float - time.time())
+                    return max(0.0, reset_at_float - now)
                 return reset_at_float
 
         # Check details dict

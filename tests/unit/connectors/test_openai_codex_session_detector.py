@@ -561,6 +561,7 @@ class TestSessionDetectorPerformance:
         assert elapsed_ms < 5.0
 
     @pytest.mark.asyncio
+    @real_time(reason="Measures actual detection performance to compare cached vs uncached performance.")
     async def test_cached_detection_is_faster(self):
         """Test that cached detection is faster than initial detection."""
         detector = SessionDetector()

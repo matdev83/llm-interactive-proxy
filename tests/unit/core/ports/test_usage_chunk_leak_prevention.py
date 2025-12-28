@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import time
+from unittest.mock import patch
 
 import pytest
 from src.core.ports.streaming_contracts import (
@@ -29,101 +30,105 @@ class TestUsageInFinalChunk:
 
     def test_final_chunk_with_usage_serializes_correctly(self) -> None:
         """Final stop chunk should include usage at top level in SSE output."""
-        # Create a final stop chunk with usage (the new correct format)
-        final_chunk = {
-            "id": f"chatcmpl-{int(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "gemini-3-pro-high",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {},  # Empty delta for stop chunk
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 14803,
-                "completion_tokens": 18,
-                "total_tokens": 14821,
-            },
-        }
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            # Create a final stop chunk with usage (the new correct format)
+            final_chunk = {
+                "id": f"chatcmpl-{int(time.time())}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": "gemini-3-pro-high",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},  # Empty delta for stop chunk
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 14803,
+                    "completion_tokens": 18,
+                    "total_tokens": 14821,
+                },
+            }
 
-        # Create StreamingContent with the final chunk
-        streaming_content = StreamingContent(
-            content=final_chunk,
-            is_done=True,
-            metadata={},
-            usage=final_chunk.get("usage"),
-        )
+            # Create StreamingContent with the final chunk
+            streaming_content = StreamingContent(
+                content=final_chunk,
+                is_done=True,
+                metadata={},
+                usage=final_chunk.get("usage"),
+            )
 
-        # Convert to bytes (SSE format)
-        result_bytes = streaming_content.to_bytes()
-        result_str = result_bytes.decode("utf-8")
+            # Convert to bytes (SSE format)
+            result_bytes = streaming_content.to_bytes()
+            result_str = result_bytes.decode("utf-8")
 
-        # Parse the SSE data (should have data: chunk and data: [DONE])
-        assert result_str.startswith(
-            "data: "
-        ), f"Expected SSE format, got: {result_str}"
+            # Parse the SSE data (should have data: chunk and data: [DONE])
+            assert result_str.startswith(
+                "data: "
+            ), f"Expected SSE format, got: {result_str}"
 
-        # Extract just the JSON part - SSE format is "data: {...}\n\ndata: [DONE]\n\n"
-        # Find the first JSON object
-        data_prefix = "data: "
-        first_data_end = result_str.find("\n\n")
-        json_line = result_str[len(data_prefix) : first_data_end].strip()
-        parsed = json.loads(json_line)
+            # Extract just the JSON part - SSE format is "data: {...}\n\ndata: [DONE]\n\n"
+            # Find the first JSON object
+            data_prefix = "data: "
+            first_data_end = result_str.find("\n\n")
+            json_line = result_str[len(data_prefix) : first_data_end].strip()
+            parsed = json.loads(json_line)
 
-        # Verify structure matches OpenRouter spec
-        assert "id" in parsed, "Result should have id"
-        assert "choices" in parsed, "Result should have choices"
-        assert parsed["choices"][0]["finish_reason"] == "stop", "Should be stop chunk"
-        assert "usage" in parsed, "Usage should be at top level"
-        assert parsed["usage"]["prompt_tokens"] == 14803
-        assert parsed["usage"]["completion_tokens"] == 18
-        assert parsed["usage"]["total_tokens"] == 14821
+            # Verify structure matches OpenRouter spec
+            assert "id" in parsed, "Result should have id"
+            assert "choices" in parsed, "Result should have choices"
+            assert parsed["choices"][0]["finish_reason"] == "stop", "Should be stop chunk"
+            assert "usage" in parsed, "Usage should be at top level"
+            assert parsed["usage"]["prompt_tokens"] == 14803
+            assert parsed["usage"]["completion_tokens"] == 18
+            assert parsed["usage"]["total_tokens"] == 14821
 
-        # Verify [DONE] is appended for final chunk
-        assert "data: [DONE]" in result_str, "Final chunk should have [DONE] marker"
+            # Verify [DONE] is appended for final chunk
+            assert "data: [DONE]" in result_str, "Final chunk should have [DONE] marker"
 
     def test_usage_not_in_delta_content(self) -> None:
         """Usage data should NOT appear in delta.content."""
-        final_chunk = {
-            "id": "chatcmpl-test",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "test-model",
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-            "usage": {
-                "prompt_tokens": 100,
-                "completion_tokens": 50,
-                "total_tokens": 150,
-            },
-        }
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            final_chunk = {
+                "id": "chatcmpl-test",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": "test-model",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                },
+            }
 
-        streaming_content = StreamingContent(
-            content=final_chunk,
-            is_done=True,
-            metadata={},
-            usage=final_chunk.get("usage"),
-        )
+            streaming_content = StreamingContent(
+                content=final_chunk,
+                is_done=True,
+                metadata={},
+                usage=final_chunk.get("usage"),
+            )
 
-        result_bytes = streaming_content.to_bytes()
-        result_str = result_bytes.decode("utf-8")
+            result_bytes = streaming_content.to_bytes()
+            result_str = result_bytes.decode("utf-8")
 
-        # Parse the first data line - SSE format is "data: {...}\n\n..."
-        data_prefix = "data: "
-        first_data_end = result_str.find("\n\n")
-        json_part = result_str[len(data_prefix) : first_data_end].strip()
-        parsed = json.loads(json_part)
+            # Parse the first data line - SSE format is "data: {...}\n\n..."
+            data_prefix = "data: "
+            first_data_end = result_str.find("\n\n")
+            json_part = result_str[len(data_prefix) : first_data_end].strip()
+            parsed = json.loads(json_part)
 
-        # Check delta.content does NOT contain usage data
-        delta = parsed["choices"][0].get("delta", {})
-        content = delta.get("content", "")
+            # Check delta.content does NOT contain usage data
+            delta = parsed["choices"][0].get("delta", {})
+            content = delta.get("content", "")
 
-        # Content should be empty or not contain usage JSON
-        if content:
-            assert "prompt_tokens" not in content, "Usage should not be in content"
-            assert "completion_tokens" not in content, "Usage should not be in content"
+            # Content should be empty or not contain usage JSON
+            if content:
+                assert "prompt_tokens" not in content, "Usage should not be in content"
+                assert "completion_tokens" not in content, "Usage should not be in content"
 
     def test_regular_content_chunk_still_works(self) -> None:
         """Regular content chunks should still be processed correctly."""

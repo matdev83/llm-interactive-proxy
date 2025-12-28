@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.models import CapturedInteraction
 
@@ -14,11 +15,12 @@ def create_interaction(
     role: str = "user",
 ) -> CapturedInteraction:
     """Create a test CapturedInteraction."""
-    return CapturedInteraction(
-        role=role,
-        content=content,
-        timestamp=datetime.now(timezone.utc),
-    )
+    with freeze_time("2024-01-01 12:00:00"):
+        return CapturedInteraction(
+            role=role,
+            content=content,
+            timestamp=datetime.now(timezone.utc),
+        )
 
 
 class TestSessionCaptureBuffer:
@@ -171,17 +173,18 @@ class TestSessionCaptureBuffer:
         buffer = SessionCaptureBuffer()
 
         interaction_without_meta = create_interaction(content="A" * 100)
-        interaction_with_meta = CapturedInteraction(
-            role="user",
-            content="A" * 100,
-            timestamp=datetime.now(timezone.utc),
-            metadata={"key1": "value1", "key2": "value2" * 100},
-        )
+        with freeze_time("2024-01-01 12:00:00"):
+            interaction_with_meta = CapturedInteraction(
+                role="user",
+                content="A" * 100,
+                timestamp=datetime.now(timezone.utc),
+                metadata={"key1": "value1", "key2": "value2" * 100},
+            )
 
-        await buffer.append("sess-1", interaction_without_meta)
-        await buffer.append("sess-2", interaction_with_meta)
+            await buffer.append("sess-1", interaction_without_meta)
+            await buffer.append("sess-2", interaction_with_meta)
 
-        size1 = await buffer.get_buffer_size("sess-1")
-        size2 = await buffer.get_buffer_size("sess-2")
+            size1 = await buffer.get_buffer_size("sess-1")
+            size2 = await buffer.get_buffer_size("sess-2")
 
-        assert size2 > size1  # Metadata adds to size
+            assert size2 > size1  # Metadata adds to size

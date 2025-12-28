@@ -158,7 +158,7 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
                     )
                 continue
 
-            tracking_result = await tracker.track_tool_call(tool_name, arguments)
+            tracking_result = tracker.track_tool_call(tool_name, arguments)
 
             if tracking_result.should_block:
                 logger.warning(
@@ -553,7 +553,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                 continue
 
             # Track the tool call
-            tracking_result = await tracker.track_tool_call(tool_name, arguments)
+            tracking_result = tracker.track_tool_call(tool_name, arguments)
 
             if tracking_result.should_block:
                 logger.warning(

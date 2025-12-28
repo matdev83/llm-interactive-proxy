@@ -247,16 +247,19 @@ class TestLoopDetectionEvent:
     def test_event_creation(self) -> None:
         """Test creating LoopDetectionEvent instances."""
         import time
+        from unittest.mock import patch
 
-        event = LoopDetectionEvent(
-            pattern="test pattern",
-            pattern_length=len("test pattern"),
-            repetition_count=5,
-            total_length=50,
-            confidence=0.9,
-            buffer_content="test content",
-            timestamp=time.time(),
-        )
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            event = LoopDetectionEvent(
+                pattern="test pattern",
+                pattern_length=len("test pattern"),
+                repetition_count=5,
+                total_length=50,
+                confidence=0.9,
+                buffer_content="test content",
+                timestamp=time.time(),
+            )
 
         assert event.pattern == "test pattern"
         assert event.repetition_count == 5

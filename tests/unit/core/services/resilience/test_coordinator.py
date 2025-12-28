@@ -113,6 +113,22 @@ class TestRecordFailure:
         assert action.type == ActionType.DISABLE_INSTANCE
         assert manager.is_instance_available("backend.1") is False
 
+    def test_respects_error_context_metadata(self) -> None:
+        """Should pass attached error context into handlers."""
+        manager = RateLimitStateManager()
+        auth_handler = AuthErrorHandler(manager)
+        coordinator = ResilienceCoordinator(manager, error_handler_chain=auth_handler)
+
+        error = AuthenticationError("Invalid API key")
+        error.__resilience_context__ = {  # type: ignore[attr-defined]
+            "is_personal_backend": True
+        }
+
+        action = coordinator.record_failure("backend.1", "gpt-4", error)
+
+        assert action.type == ActionType.PROCEED
+        assert manager.is_instance_available("backend.1") is True
+
     def test_returns_proceed_for_unhandled_error(self) -> None:
         """Should return PROCEED for unhandled error types."""
         manager = RateLimitStateManager()

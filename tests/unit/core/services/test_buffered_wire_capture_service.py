@@ -5,7 +5,7 @@ from src.core.domain.request_context import RequestContext
 from src.core.services.buffered_wire_capture_service import BufferedWireCapture
 
 
-def test_create_entry_generates_session_id_when_missing() -> None:
+async def test_create_entry_generates_session_id_when_missing() -> None:
     service = BufferedWireCapture(AppConfig())
     context = RequestContext(
         headers={},
@@ -16,7 +16,7 @@ def test_create_entry_generates_session_id_when_missing() -> None:
         agent="test-agent",
         request_id="req-123",
     )
-    entry = service._create_entry(  # type: ignore[attr-defined]
+    entry = await service._create_entry(  # type: ignore[attr-defined]
         direction="test",
         source="src",
         destination="dest",
@@ -30,9 +30,9 @@ def test_create_entry_generates_session_id_when_missing() -> None:
     assert entry.session_id == "req-123"
 
 
-def test_create_entry_generates_uuid_when_context_missing_request_id() -> None:
+async def test_create_entry_generates_uuid_when_context_missing_request_id() -> None:
     service = BufferedWireCapture(AppConfig())
-    entry = service._create_entry(  # type: ignore[attr-defined]
+    entry = await service._create_entry(  # type: ignore[attr-defined]
         direction="test",
         source="src",
         destination="dest",
@@ -46,9 +46,9 @@ def test_create_entry_generates_uuid_when_context_missing_request_id() -> None:
     assert entry.session_id
 
 
-def test_create_entry_handles_nonserializable_payload_for_length() -> None:
+async def test_create_entry_handles_nonserializable_payload_for_length() -> None:
     service = BufferedWireCapture(AppConfig())
-    entry = service._create_entry(  # type: ignore[attr-defined]
+    entry = await service._create_entry(  # type: ignore[attr-defined]
         direction="test",
         source="src",
         destination="dest",

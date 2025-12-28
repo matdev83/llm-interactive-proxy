@@ -228,7 +228,7 @@ class TestLogging:
                 side_effect=mock_time,
             ),
             mock.patch(
-                "src.services.test_execution_reminder.session_state.time",
+                "src.services.test_execution_reminder.session_state.time.time",
                 side_effect=mock_time,
             ),
         ):
@@ -292,7 +292,8 @@ class TestLogging:
         with (
             mock.patch("time.time", fake_time),
             mock.patch(
-                "src.services.test_execution_reminder.session_state.time", fake_time
+                "src.services.test_execution_reminder.session_state.time.time",
+                fake_time,
             ),
             mock.patch(
                 "src.services.test_execution_reminder.test_execution_reminder_handler.time",

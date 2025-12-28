@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
+from freezegun import freeze_time
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionSignalType,
     EndOfSessionTerminationCategory,
@@ -30,12 +31,13 @@ class TestEventBusCorrelationLogging:
     @pytest.fixture
     def eos_event(self) -> RemoteBackendConnectionEndOfSessionEvent:
         """Create a test EoS event with session_id."""
-        return RemoteBackendConnectionEndOfSessionEvent(
-            session_id="test-session-123",
-            signal_type=EndOfSessionSignalType.DONE_SENTINEL,
-            termination_category=EndOfSessionTerminationCategory.NORMAL,
-            timestamp=datetime.now(timezone.utc),
-        )
+        with freeze_time("2024-01-01 12:00:00"):
+            return RemoteBackendConnectionEndOfSessionEvent(
+                session_id="test-session-123",
+                signal_type=EndOfSessionSignalType.DONE_SENTINEL,
+                termination_category=EndOfSessionTerminationCategory.NORMAL,
+                timestamp=datetime.now(timezone.utc),
+            )
 
     @pytest.mark.asyncio
     async def test_eos_event_error_logging_includes_session_id(

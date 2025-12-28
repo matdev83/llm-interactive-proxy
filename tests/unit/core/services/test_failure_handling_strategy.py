@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from src.core.common.exceptions import (
@@ -422,14 +422,16 @@ class TestRetryAfterExtraction:
         self, strategy: DefaultFailureHandlingStrategy
     ) -> None:
         """Extract from RateLimitExceededError reset_at."""
-        future_timestamp = time.time() + 10.0
-        error = RateLimitExceededError(
-            "Rate limit",
-            reset_at=future_timestamp,
-        )
-        result = strategy._extract_retry_after(error)
-        assert result is not None
-        assert 9.0 <= result <= 11.0  # Allow some tolerance
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            future_timestamp = time.time() + 10.0
+            error = RateLimitExceededError(
+                "Rate limit",
+                reset_at=future_timestamp,
+            )
+            result = strategy._extract_retry_after(error)
+            assert result is not None
+            assert 9.0 <= result <= 11.0  # Allow some tolerance
 
     def test_no_retry_after_returns_none(
         self, strategy: DefaultFailureHandlingStrategy

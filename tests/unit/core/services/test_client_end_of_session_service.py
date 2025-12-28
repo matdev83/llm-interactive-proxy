@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
+from freezegun import freeze_time
 from src.core.domain.client_termination import (
     ClientEndOfSessionSignal,
     ClientTerminationReason,
@@ -95,12 +96,13 @@ def http_session_key() -> SessionKey:
 @pytest.fixture
 def sample_signal(http_session_key: SessionKey) -> ClientEndOfSessionSignal:
     """Create a sample client termination signal."""
-    return ClientEndOfSessionSignal(
-        session_key=http_session_key,
-        observed_at=datetime.now(timezone.utc),
-        reason=ClientTerminationReason.CLIENT_DISCONNECTED,
-        details="Client disconnected",
-    )
+    with freeze_time("2024-01-01 12:00:00"):
+        return ClientEndOfSessionSignal(
+            session_key=http_session_key,
+            observed_at=datetime.now(timezone.utc),
+            reason=ClientTerminationReason.CLIENT_DISCONNECTED,
+            details="Client disconnected",
+        )
 
 
 class TestReportClientTermination:
@@ -331,6 +333,7 @@ class TestSessionIsolation:
     """Test session isolation."""
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_different_sessions_dont_interfere(
         self,
         service: ClientEndOfSessionService,

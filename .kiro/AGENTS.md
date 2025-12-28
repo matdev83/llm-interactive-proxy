@@ -28,13 +28,19 @@ If the user did not explicitly mention Kiro/specs, follow normal engineering wor
 
 ```
 .kiro/
-├── specs/                          # Feature specifications
-│   └── {feature-name}/
-│       ├── spec.json               # Metadata, phase tracking, approvals
-│       ├── requirements.md         # EARS-format requirements
-│       ├── design.md              # Technical design document
-│       ├── tasks.md               # Implementation task breakdown
-│       └── research.md            # Discovery findings and investigations
+├── specs/                          # Kiro specs (active + archived)
+│   ├── {feature-name}/             # Active specs only (pending / in-progress)
+│   │   ├── spec.json               # Metadata, phase tracking, approvals
+│   │   ├── requirements.md         # EARS-format requirements
+│   │   ├── design.md              # Technical design document
+│   │   ├── tasks.md               # Implementation task breakdown
+│   │   └── research.md            # Discovery findings and investigations
+│   │
+│   ├── archive/                    # Archived specs (finished / closed)
+│   │   └── {feature-name}/
+│   │       └── ...                 # Same structure as active specs
+│   │
+│   └── archive_allowlist.json      # Exceptions for archive completeness checks
 │
 ├── steering/                       # Project memory (persistent)
 │   ├── product.md                 # Purpose, value, capabilities
@@ -54,6 +60,16 @@ If the user did not explicitly mention Kiro/specs, follow normal engineering wor
         ├── steering-principles.md # Project memory guidelines
         └── ...                    # Other process rules
 ```
+
+---
+
+## Spec State Hygiene (Anti-Drift)
+
+- Keep `.kiro/specs/` reserved for specs that are **still pending/in-progress**.
+- When a spec is **fully finished/closed**, move it to `.kiro/specs/archive/` and ensure `spec.json` reflects completion.
+- Use the automated linter test to detect common Kiro state drift:
+  - `./.venv/Scripts/python.exe -m pytest tests/test_kiro_spec_state_linter.py`
+- If an archived spec must intentionally remain not marked as completed (rare), add it to `.kiro/specs/archive_allowlist.json` with a clear reason.
 
 ---
 

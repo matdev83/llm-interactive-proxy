@@ -145,7 +145,7 @@ class TestUsageAccountingOrchestrator:
         # Arrange
         response = StreamingResponseEnvelope(content=Mock())
         stream_session_id_resolver.resolve_stream_session_id.return_value = "sess_1"
-        context = Mock()
+        context = None
 
         # Act
         result = await orchestrator.handle_streaming_response(

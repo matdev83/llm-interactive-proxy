@@ -72,8 +72,9 @@ _global_registry_lock = threading.Lock()
 def get_global_translator_registry() -> TranslatorRegistry:
     """Return process-wide translator registry used by Translation and TranslationService.
 
-    Thread-safety: Uses double-checked locking with threading.Lock
-    to ensure only one instance is returned even when multiple
-    threads call this function concurrently.
+    Thread-safety: Returns the global singleton directly since the registry
+    is initialized at module load time and never mutated during runtime.
+    The _global_registry_lock is provided for future extensibility if
+    lazy initialization or mutation becomes necessary.
     """
     return _global_registry

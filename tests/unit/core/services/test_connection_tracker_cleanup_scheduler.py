@@ -1,7 +1,6 @@
 """Tests for ConnectionTrackerCleanupScheduler."""
 
 import asyncio
-import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -9,7 +8,7 @@ from src.core.services.connection_tracker_cleanup_scheduler import (
     ConnectionTrackerCleanupScheduler,
 )
 
-from tests.utils.fake_clock import FakeClockContext
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 class TestConnectionTrackerCleanupScheduler:
@@ -196,9 +195,11 @@ class TestConnectionTrackerCleanupScheduler:
 
         await scheduler.start()
 
-        start_time = time.time()
-        await scheduler.stop()
-        elapsed = time.time() - start_time
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            start_time = clock.now()
+            await scheduler.stop()
+            end_time = clock.now()
+            elapsed = end_time - start_time
 
-        assert elapsed < 1
-        assert not scheduler.is_running
+            assert elapsed < 1
+            assert not scheduler.is_running

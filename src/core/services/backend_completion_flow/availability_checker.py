@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from src.core.common.exceptions import BackendError, RateLimitExceededError
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
     IBackendAvailabilityChecker,
 )
@@ -14,6 +15,7 @@ from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
+from src.core.services.resilience.scope import build_resilience_instance_id
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,11 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
         self._failover_routes = failover_routes or {}
 
     async def check_backend_availability(
-        self, backend_type: str, effective_model: str, allow_failover: bool
+        self,
+        backend_type: str,
+        effective_model: str,
+        allow_failover: bool,
+        context: RequestContext | None = None,
     ) -> None:
         """Check if the backend is available (not disabled, not rate limited).
 
@@ -73,9 +79,8 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
 
         # Check resilience coordinator for instance/model availability
         if self._resilience:
-            decision = self._resilience.check_availability(
-                backend_type, effective_model
-            )
+            instance_id = build_resilience_instance_id(backend_type, context)
+            decision = self._resilience.check_availability(instance_id, effective_model)
             if not decision.should_proceed():
                 cooldown_info = (
                     f" (retry after {decision.cooldown_remaining:.1f}s)"

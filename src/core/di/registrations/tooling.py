@@ -237,13 +237,37 @@ def _register_tool_call_reactor_subsystem(services: ServiceCollection) -> None:
         )
 
         # Register ToolArgumentsFixupPipeline (optional WindowsDoubleAmpersandFixer)
-        register_singleton_if_absent(services, ToolArgumentsFixupPipeline)
+        def tool_arguments_fixup_pipeline_factory(
+            provider: IServiceProvider,
+        ) -> ToolArgumentsFixupPipeline:
+            """Factory for creating ToolArgumentsFixupPipeline with configured WindowsDoubleAmpersandFixer."""
+            from src.core.services.windows_double_ampersand_fixer import (
+                WindowsDoubleAmpersandFixer,
+            )
+
+            config = provider.get_required_service(AppConfig)
+
+            # Get double_ampersand_fixes_for_windows_enabled from session config
+            enabled = True
+            if hasattr(config, "session") and config.session is not None:
+                enabled = getattr(
+                    config.session,
+                    "double_ampersand_fixes_for_windows_enabled",
+                    True,
+                )
+
+            windows_fixer = WindowsDoubleAmpersandFixer(enabled=enabled)
+            return ToolArgumentsFixupPipeline(windows_ampersand_fixer=windows_fixer)
+
+        register_singleton_if_absent(
+            services,
+            ToolArgumentsFixupPipeline,
+            implementation_factory=tool_arguments_fixup_pipeline_factory,
+        )
         register_singleton_if_absent(
             services,
             cast(type, IToolArgumentsFixupPipeline),
-            implementation_factory=lambda provider: provider.get_required_service(
-                ToolArgumentsFixupPipeline
-            ),
+            implementation_factory=tool_arguments_fixup_pipeline_factory,
         )
 
         # Register ReplacementResponseFactory (no dependencies)

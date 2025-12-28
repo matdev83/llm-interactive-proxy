@@ -98,6 +98,7 @@ class AppConfig(AppConfigModel):
             "model_aliases",
             "sandboxing",
             "codebuff",
+            "resilience",
             "usage_tracking",
             "replacement",
             "health_check",

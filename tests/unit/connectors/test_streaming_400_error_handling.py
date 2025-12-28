@@ -6,10 +6,10 @@ gracefully by yielding error chunks instead of raising exceptions.
 
 import time
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
+import requests  # type: ignore[import-untyped]
 from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
 from src.connectors.gemini_base.streaming_executor import (
     ProcessedResponse,
@@ -22,18 +22,20 @@ from src.connectors.gemini_base.streaming_executor import (
 def mock_processor() -> MagicMock:
     """Create a mock SSELineProcessor."""
     processor = MagicMock(spec=SSELineProcessor)
-    processor.build_error_chunk.return_value = {
-        "id": f"chatcmpl-error-{int(time.time())}",
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": "test-model",
-        "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-        "error": {
-            "message": "Prompt is too long",
-            "type": "invalid_request_error",
-            "code": 400,
-        },
-    }
+    base_time = 1000.0
+    with patch("time.time", return_value=base_time):
+        processor.build_error_chunk.return_value = {
+            "id": f"chatcmpl-error-{int(time.time())}",
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": "test-model",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+            "error": {
+                "message": "Prompt is too long",
+                "type": "invalid_request_error",
+                "code": 400,
+            },
+        }
     return processor
 
 
@@ -102,8 +104,10 @@ class TestPromptTooLongErrorHandling:
         # Verify the chunk contains error information
         chunk = chunks[0]
         assert isinstance(chunk, ProcessedResponse)
-        assert "error" in chunk.content
-        assert chunk.content["error"]["code"] == 400
+        assert isinstance(chunk.content, dict)
+        error_payload = chunk.content.get("error")
+        assert isinstance(error_payload, dict)
+        assert error_payload.get("code") == 400
 
         # Verify the response was closed
         mock_400_response.close.assert_called_once()
@@ -124,18 +128,20 @@ class TestPromptTooLongErrorHandling:
             message: str, code: int, error_type: str
         ) -> dict[str, Any]:
             captured_message.append(message)
-            return {
-                "id": "test-id",
-                "object": "chat.completion.chunk",
-                "created": int(time.time()),
-                "model": "test-model",
-                "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-                "error": {
-                    "message": message,
-                    "type": error_type,
-                    "code": code,
-                },
-            }
+            base_time = 1000.0
+            with patch("time.time", return_value=base_time):
+                return {
+                    "id": "test-id",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": "test-model",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                    "error": {
+                        "message": message,
+                        "type": error_type,
+                        "code": code,
+                    },
+                }
 
         mock_processor.build_error_chunk.side_effect = capture_build_error_chunk
 

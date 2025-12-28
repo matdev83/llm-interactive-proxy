@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from freezegun import freeze_time
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.models import CapturedInteraction
 from src.core.memory.service import MemoryService
@@ -17,11 +18,12 @@ def create_interaction(
     content: str = "Test", role: str = "user"
 ) -> CapturedInteraction:
     """Create a test CapturedInteraction."""
-    return CapturedInteraction(
-        role=role,
-        content=content,
-        timestamp=datetime.now(timezone.utc),
-    )
+    with freeze_time("2024-01-01 12:00:00"):
+        return CapturedInteraction(
+            role=role,
+            content=content,
+            timestamp=datetime.now(timezone.utc),
+        )
 
 
 class TestMemoryService:
@@ -335,6 +337,7 @@ class TestMemoryService:
             await repo.close()
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_record_tool_event_file_edit(self, service: MemoryService) -> None:
         """Test recording a file edit tool event."""
         from src.core.memory.models import FileEditEvent
@@ -357,6 +360,7 @@ class TestMemoryService:
         assert file_edits[0].action == "modified"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_record_tool_event_git_commit(self, service: MemoryService) -> None:
         """Test recording a git commit tool event."""
         from src.core.memory.models import GitCommitEvent
@@ -378,6 +382,7 @@ class TestMemoryService:
         assert git_commits[0].commit_hash == "abc123def456"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_record_tool_event_fails_for_disabled_session(
         self, service: MemoryService
     ) -> None:
@@ -393,6 +398,7 @@ class TestMemoryService:
         assert result is False
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_tool_events_cleared_on_disable(self, service: MemoryService) -> None:
         """Test that tool events are cleared when session is disabled."""
         from src.core.memory.models import FileEditEvent

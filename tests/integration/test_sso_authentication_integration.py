@@ -168,6 +168,7 @@ class TestFullAuthenticationFlow:
 
         # Step 4: Store token in database
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             token_record = TokenRecord(
@@ -244,6 +245,7 @@ class TestFullAuthenticationFlow:
 
         # Step 4: Store token in database
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             token_record = TokenRecord(
@@ -289,6 +291,7 @@ class TestReAuthenticationFlow:
         """Test re-authentication flow when SSO session expires."""
         # Step 1: Create an initial authenticated token
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             plaintext_token, token_hash = token_service.generate_token()
@@ -325,7 +328,9 @@ class TestReAuthenticationFlow:
             # Should return sandbox response for expired session
             assert response is not None
             assert "choices" in response
-            assert "authenticate" in response["choices"][0]["message"]["content"].lower()
+            assert (
+                "authenticate" in response["choices"][0]["message"]["content"].lower()
+            )
 
             # Step 4: Simulate re-authentication (SSO completes successfully)
             # Update the token's authentication status
@@ -341,11 +346,14 @@ class TestReAuthenticationFlow:
             assert updated is not None
             assert updated.is_authenticated is True
             assert updated.auth_expires_at > fixed_time
-        assert updated.id == token_record.id  # Same token, not a new one
 
-        # Step 6: Verify middleware now allows the request through
-        response2 = await auth_middleware(mock_request)
-        assert response2 is None  # None means authenticated, continue to next handler
+            # Step 6: Verify middleware now allows the request through
+            response2 = await auth_middleware(mock_request)
+            assert (
+                response2 is None
+            )  # None means authenticated, continue to next handler
+
+        assert updated.id == token_record.id  # Same token, not a new one
 
     @pytest.mark.asyncio
     async def test_reauth_preserves_token_id(
@@ -359,6 +367,7 @@ class TestReAuthenticationFlow:
         original_id = secrets.token_urlsafe(16)
 
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             token_record = TokenRecord(
@@ -409,6 +418,7 @@ class TestSandboxIsolation:
         """Test that requests with sandbox history are rejected even with valid token."""
         # Step 1: Create a valid authenticated token
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             plaintext_token, token_hash = token_service.generate_token()
@@ -470,6 +480,7 @@ class TestSandboxIsolation:
 
         # Step 2: User authenticates and gets a token
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             plaintext_token, token_hash = token_service.generate_token()
@@ -489,33 +500,35 @@ class TestSandboxIsolation:
 
             await token_repository.store_token(token_record)
 
-        # Step 3: User tries to continue the sandbox session with new token
-        mock_request_with_history = {
-            "headers": {"authorization": f"Bearer {plaintext_token}"},
-            "messages": [
-                {"role": "user", "content": "Hello"},
-                {"role": "assistant", "content": sandbox_content},  # Sandbox banner
-                {
-                    "role": "user",
-                    "content": "Now I'm authenticated, let's continue",
-                },
-            ],
-        }
+            # Step 3: User tries to continue the sandbox session with new token
+            mock_request_with_history = {
+                "headers": {"authorization": f"Bearer {plaintext_token}"},
+                "messages": [
+                    {"role": "user", "content": "Hello"},
+                    {"role": "assistant", "content": sandbox_content},  # Sandbox banner
+                    {
+                        "role": "user",
+                        "content": "Now I'm authenticated, let's continue",
+                    },
+                ],
+            }
 
-        # Should be rejected due to sandbox history
-        response = await auth_middleware(mock_request_with_history)
-        assert response is not None
-        assert "authenticate" in response["choices"][0]["message"]["content"].lower()
+            # Should be rejected due to sandbox history
+            response = await auth_middleware(mock_request_with_history)
+            assert response is not None
+            assert (
+                "authenticate" in response["choices"][0]["message"]["content"].lower()
+            )
 
-        # Step 4: User starts fresh conversation with token (no sandbox history)
-        mock_request_fresh = {
-            "headers": {"authorization": f"Bearer {plaintext_token}"},
-            "messages": [{"role": "user", "content": "Hello, I'm starting fresh"}],
-        }
+            # Step 4: User starts fresh conversation with token (no sandbox history)
+            mock_request_fresh = {
+                "headers": {"authorization": f"Bearer {plaintext_token}"},
+                "messages": [{"role": "user", "content": "Hello, I'm starting fresh"}],
+            }
 
-        # Should be allowed through
-        response_fresh = await auth_middleware(mock_request_fresh)
-        assert response_fresh is None  # None means authenticated, continue
+            # Should be allowed through
+            response_fresh = await auth_middleware(mock_request_fresh)
+            assert response_fresh is None  # None means authenticated, continue
 
     @pytest.mark.asyncio
     async def test_sandbox_detection_various_formats(
@@ -527,6 +540,7 @@ class TestSandboxIsolation:
         """Test sandbox detection works with various message formats."""
         # Create valid token
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             plaintext_token, token_hash = token_service.generate_token()

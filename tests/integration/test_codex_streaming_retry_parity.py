@@ -25,6 +25,8 @@ from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.translation_service import TranslationService
 
+from tests.unit.fixtures.markers import real_time
+
 
 @pytest_asyncio.fixture(name="auth_dir")
 async def auth_dir_tmp(tmp_path: Path):

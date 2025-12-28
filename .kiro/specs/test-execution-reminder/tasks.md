@@ -399,12 +399,12 @@
 
 
 
-  - Verify all requirements are met
-  - Verify all properties are tested
-  - Update CHANGELOG.md with feature description
-  - Update README.md if needed
-  - Create usage examples
-  - _Requirements: All_
+   - [ ] Verify all requirements are met
+   - [ ] Verify all properties are tested
+   - [ ] Update CHANGELOG.md with feature description
+   - [x] Update README.md if needed
+   - [ ] Create usage examples
+   - _Requirements: All_
 
 ## Phase 2: Improved Completion Detection (Reliable Methods)
 
@@ -430,33 +430,30 @@ These tests were written for the old pattern-matching approach and need to be re
 - [ ] 28. Update CompletionSignalDetector implementation
   - [x] 28.1 Remove unreliable regex pattern matching (COMPLETION_PATTERNS)
   - [x] 28.2 Add `attempt_completion` to COMPLETION_TOOLS (used by Cline, Roo-Code)
-  - [x] 28.3 Add FINISH_REASONS set (stop, tool_calls, length, end_turn)
-  - [x] 28.4 Update is_completion_signal() signature to accept finish_reason and metadata
-  - [x] 28.5 Add _is_finish_reason() method for finish_reason validation
+  - [ ] 28.3 Add FINISH_REASONS set (stop, tool_calls, length, end_turn) - **NOT IMPLEMENTED**
+  - [ ] 28.4 Update is_completion_signal() signature to accept finish_reason and metadata - **NOT IMPLEMENTED**
+  - [ ] 28.5 Add _is_finish_reason() method for finish_reason validation - **NOT IMPLEMENTED**
   - [x] 28.6 Remove _contains_completion_pattern() method
   - _Requirements: 3.1, 3.2_
 
 - [ ] 29. Update TestExecutionReminderHandler to use new detection
-  - [x] 29.1 Add _extract_finish_reason() method to extract from full_response
-  - [x] 29.2 Add _extract_metadata() method to extract metadata dict
-  - [x] 29.3 Update can_handle() to pass finish_reason and metadata to detector
-  - [x] 29.4 Update handle() to pass finish_reason and metadata to detector
-  - [x] 29.5 Update logging to show finish_reason instead of pattern matching
-  - [x] 29.6 Remove _extract_response_text() method (no longer needed)
-
+  - [ ] 29.1 Add _extract_finish_reason() method to extract from full_response - **NOT IMPLEMENTED**
+  - [ ] 29.2 Add _extract_metadata() method to extract metadata dict - **NOT IMPLEMENTED**
+  - [ ] 29.3 Update can_handle() to pass finish_reason and metadata to detector - **NOT IMPLEMENTED**
+  - [ ] 29.4 Update handle() to pass finish_reason and metadata to detector - **NOT IMPLEMENTED**
+  - [ ] 29.5 Update logging to show finish_reason instead of pattern matching - **NOT IMPLEMENTED**
+  - [x] 29.6 Remove _extract_response_text() method (no longer needed) - **WAS NEVER CREATED**
 
 
 
   - _Requirements: 3.1, 3.2, 3.4_
 
-- [x] 30. Update unit tests for CompletionSignalDetector
+- [ ] 30. Update unit tests for CompletionSignalDetector
 
 
 
 
-
-  - [x] 30.1 Fix 17 failing tests that use old response_text parameter
-
+   - [ ] 30.1 Fix 17 failing tests that use old response_text parameter
 
     - Tests failing: test_completion_message_detection, test_ambiguous_message_rejection,
       test_non_completion_message_rejection, test_combined_detection, test_empty_and_none_handling,
@@ -469,36 +466,35 @@ These tests were written for the old pattern-matching approach and need to be re
     - Action: Remove/rewrite these pattern matching tests
   - [x] 30.2 Add tests for attempt_completion tool detection
 
-  - [x] 30.3 Add tests for finish_reason detection (stop, tool_calls, length, end_turn)
+  - [ ] 30.3 Add tests for finish_reason detection (stop, tool_calls, length, end_turn) - **NOT IMPLEMENTED**
 
-  - [x] 30.4 Add tests for finish_reason in metadata
+  - [ ] 30.4 Add tests for finish_reason in metadata - **NOT IMPLEMENTED**
 
-  - [x] 30.5 Add tests for finish_reason in choices array (OpenAI format)
+  - [ ] 30.5 Add tests for finish_reason in choices array (OpenAI format) - **NOT IMPLEMENTED**
 
-  - [x] 30.6 Add tests for combined tool + finish_reason detection
+  - [ ] 30.6 Add tests for combined tool + finish_reason detection - **NOT IMPLEMENTED**
 
-  - [x] 30.7 Update edge case tests to use new parameters
+  - [ ] 30.7 Update edge case tests to use new parameters - **NOT IMPLEMENTED**
 
   - _Requirements: 3.1, 3.2_
 -
 
-- [x] 31. Update property-based tests for completion detection
+- [ ] 31. Update property-based tests for completion detection
 
 
 
 
-  - [x] 31.1 Update test_completion_signal_detection_properties.py
+   - [ ] 31.1 Update test_completion_signal_detection_properties.py
 
+   - [ ] 31.2 Remove pattern matching property tests
 
-  - [x] 31.2 Remove pattern matching property tests
+   - [ ] 31.3 Add property tests for tool name detection
 
-  - [x] 31.3 Add property tests for tool name detection
+   - [ ] 31.4 Add property tests for finish_reason detection - **NOT IMPLEMENTED**
 
-  - [x] 31.4 Add property tests for finish_reason detection
+   - [ ] 31.5 Ensure 100+ iterations per property
 
-  - [x] 31.5 Ensure 100+ iterations per property
-
-  - _Requirements: 3.1, 3.2_
+   - _Requirements: 3.1, 3.2_
 - [x] 32. Update integration tests
 
 
@@ -506,33 +502,32 @@ These tests were written for the old pattern-matching approach and need to be re
 
 - [ ] 32. Update integration tests
 
-  - [x] 32.1 Update test_test_execution_reminder_integration.py
+   - [x] 32.1 Update test_test_execution_reminder_integration.py
 
-  - [x] 32.2 Add tests with attempt_completion tool
+   - [x] 32.2 Add tests with attempt_completion tool
 
-  - [x] 32.3 Add tests with finish_reason in responses
+   - [ ] 32.3 Add tests with finish_reason in responses - **NOT IMPLEMENTED**
 
-  - [x] 32.4 Verify end-to-end flow with real agent tool names
+   - [ ] 32.4 Verify end-to-end flow with real agent tool names - **PARTIALLY COMPLETE**
 
-  - _Requirements: 3.1, 3.2, 9.1_
+   - _Requirements: 3.1, 3.2, 9.1_
 
 - [x] 33. Update handler unit tests
 
 
 
 
-  - [x] 33.1 Update test_test_execution_reminder_handler.py
+   - [x] 33.1 Update test_test_execution_reminder_handler.py
 
+   - [ ] 33.2 Update tests to use finish_reason instead of response_text - **NOT APPLICABLE (finish_reason not implemented)**
 
-  - [x] 33.2 Update tests to use finish_reason instead of response_text
+   - [ ] 33.3 Add tests for _extract_finish_reason() method - **NOT IMPLEMENTED**
 
-  - [x] 33.3 Add tests for _extract_finish_reason() method
+   - [ ] 33.4 Add tests for _extract_metadata() method - **NOT IMPLEMENTED**
 
-  - [x] 33.4 Add tests for _extract_metadata() method
+   - [ ] 33.5 Update completion detection tests - **PARTIAL**
 
-  - [x] 33.5 Update completion detection tests
-
-  - _Requirements: 3.1, 3.2_
+   - _Requirements: 3.1, 3.2_
 -
 
 - [x] 34. Research additional agent completion tools

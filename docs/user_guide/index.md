@@ -75,6 +75,7 @@ Advanced features that enhance the proxy's capabilities:
 
 - **[Failure Handling](features/failure-handling.md)** - Automatic retry and failover for backend errors
 - **[Request Deduplication](features/request-deduplication.md)** - Prevent duplicate requests from exhausting rate limits
+- **[Resilience Scoping](features/resilience-scoping.md)** - Personal vs shared cooldown state for OAuth and enterprise backends
 
 ### Client Integration
 

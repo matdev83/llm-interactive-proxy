@@ -90,7 +90,6 @@ class FeatureParityRegistry:
     Thread-safety: This registry uses a threading.Lock-protected singleton
     pattern for safe concurrent access. The get_global_registry() function
     uses double-checked locking to ensure thread-safe initialization.
-    """
 
     Example:
         registry = FeatureParityRegistry()

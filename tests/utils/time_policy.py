@@ -263,6 +263,19 @@ TIME_CONTROL_GUIDE = {
         "example": "Testing rate limiting with async delays",
         "import": "from tests.utils.fake_clock import FakeClockContext",
     },
+    "unittest.mock.patch": {
+        "use_for": "Sync tests with time.time() (transitional technique)",
+        "when": "Testing synchronous code with time.time() that cannot use FakeClockContext",
+        "benefits": ["Works with sync code", "Recognized by time usage linter"],
+        "limitations": [
+            "Does NOT guard datetime.now() / date.today()",
+            "Less preferred than FakeClockContext for async code",
+            "Transitional: prefer refactoring to ITimeSource when possible",
+        ],
+        "example": "Testing sync rate limiting logic",
+        "import": "from unittest.mock import patch",
+        "note": "Use FakeClockContext for async tests, patch for sync tests only",
+    },
     "freezegun": {
         "use_for": "Datetime wall-clock APIs (datetime.now(), date.today())",
         "when": "Code cannot be refactored to ITimeSource in current scope",

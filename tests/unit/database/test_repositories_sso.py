@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.auth.sso.models import TokenRecord
 from src.core.database.config import DatabaseConfig
 from src.core.database.engine import DatabaseEngine
@@ -33,18 +34,19 @@ class TestSQLModelTokenRepository:
     @pytest.fixture
     def sample_token_record(self) -> TokenRecord:
         """Create a sample token record for testing."""
-        return TokenRecord(
-            id="token-123",
-            token_hash="hash-abc-123",
-            user_id="user-456",
-            user_email="user@example.com",
-            provider="google",
-            is_authenticated=False,
-            is_active=True,
-            created_at=datetime.now(timezone.utc),
-            last_authenticated_at=None,
-            auth_expires_at=None,
-        )
+        with freeze_time("2024-01-01 12:00:00"):
+            return TokenRecord(
+                id="token-123",
+                token_hash="hash-abc-123",
+                user_id="user-456",
+                user_email="user@example.com",
+                provider="google",
+                is_authenticated=False,
+                is_active=True,
+                created_at=datetime.now(timezone.utc),
+                last_authenticated_at=None,
+                auth_expires_at=None,
+            )
 
     @pytest.mark.asyncio
     async def test_store_and_get_token(
@@ -88,6 +90,7 @@ class TestSQLModelTokenRepository:
         assert retrieved.user_id == sample_token_record.user_id
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_find_by_user_id_returns_most_recent(
         self,
         repository: SQLModelTokenRepository,
@@ -131,6 +134,7 @@ class TestSQLModelTokenRepository:
         assert retrieved.id == "token-new"
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_find_by_user_id_ignores_inactive(
         self,
         repository: SQLModelTokenRepository,
@@ -185,6 +189,7 @@ class TestSQLModelTokenRepository:
         assert retrieved is None
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_update_auth_status(
         self,
         repository: SQLModelTokenRepository,
@@ -223,6 +228,7 @@ class TestSQLModelTokenRepository:
         assert retrieved.is_active is False
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_get_all_token_hashes(
         self,
         repository: SQLModelTokenRepository,

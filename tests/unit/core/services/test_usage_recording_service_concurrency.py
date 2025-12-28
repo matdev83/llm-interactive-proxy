@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
 import tempfile
+from pathlib import Path
 
 import pytest
-
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.services.in_memory_usage_store import InMemoryUsageStore
 from src.core.services.usage_recording_service import UsageRecordingService

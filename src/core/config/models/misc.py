@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from src.core.interfaces.model_bases import DomainModel
 
@@ -46,3 +46,15 @@ class UsageTrackingConfig(DomainModel):
 
     max_records_in_memory: int = 100000
     """Maximum records to keep in memory before applying retention policies."""
+
+
+class ResilienceConfig(DomainModel):
+    """Resilience scoping configuration."""
+
+    model_config = ConfigDict(frozen=True)
+
+    personal_backend_types: list[str] | None = Field(default=None)
+    """Backend types that should be scoped per user/session (personal by default)."""
+
+    shared_backend_types: list[str] | None = Field(default=None)
+    """Backend types that should always use shared resilience state."""

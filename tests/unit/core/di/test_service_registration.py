@@ -385,3 +385,41 @@ class TestServiceRegistration:
         middleware = provider.get_service(ToolCallReactorMiddleware)
         assert middleware is not None
         assert isinstance(middleware, ToolCallReactorMiddleware)
+
+    def test_windows_double_ampersand_fixer_respects_config(self) -> None:
+        """Test that WindowsDoubleAmpersandFixer configuration is properly wired."""
+        from src.core.config.app_config import AppConfig
+        from src.core.config.models.session import SessionConfig
+        from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
+            IToolArgumentsFixupPipeline,
+        )
+        from src.core.services.tool_call_reactor.arguments_fixup_pipeline import (
+            ToolArgumentsFixupPipeline,
+        )
+
+        services = ServiceCollection()
+
+        # Test with feature enabled (default)
+        config_enabled = AppConfig(
+            session=SessionConfig(double_ampersand_fixes_for_windows_enabled=True)
+        )
+        services.add_instance(AppConfig, config_enabled)
+        register_core_services(services)
+        provider = services.build_service_provider()
+
+        fixup = provider.get_required_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
+        assert isinstance(fixup, ToolArgumentsFixupPipeline)
+        assert fixup._windows_fixup.enabled is True
+
+        # Test with feature disabled
+        services2 = ServiceCollection()
+        config_disabled = AppConfig(
+            session=SessionConfig(double_ampersand_fixes_for_windows_enabled=False)
+        )
+        services2.add_instance(AppConfig, config_disabled)
+        register_core_services(services2)
+        provider2 = services2.build_service_provider()
+
+        fixup2 = provider2.get_required_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
+        assert isinstance(fixup2, ToolArgumentsFixupPipeline)
+        assert fixup2._windows_fixup.enabled is False

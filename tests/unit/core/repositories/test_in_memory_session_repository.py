@@ -7,6 +7,7 @@ This module tests the in-memory session repository implementation.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
@@ -152,6 +153,7 @@ class TestInMemorySessionRepository:
         assert sample_session_no_user in result
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_update_existing_session(
         self, repository: InMemorySessionRepository, sample_session: Session
     ) -> None:
@@ -265,6 +267,7 @@ class TestInMemorySessionRepository:
         assert result == []
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_cleanup_expired_sessions(
         self, repository: InMemorySessionRepository, sample_session: Session
     ) -> None:

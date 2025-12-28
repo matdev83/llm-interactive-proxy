@@ -181,6 +181,15 @@ failover_routes:
      - "openai:gpt-4"
      - "openrouter:anthropic/claude-3-opus-20240229"
 
+# Resilience scoping (personal vs shared backends)
+# Defaults treat oauth/codex backends as personal without configuration.
+resilience:
+  # Force personal scoping for selected backends (optional override).
+  # Example: ["openai-codex", "qwen-oauth"]
+  personal_backend_types: []
+  # Force shared scoping for selected backends (optional override).
+  shared_backend_types: []
+
 # Model name rewrite rules (optional)
 # These rules allow you to dynamically rewrite model names before they are processed
 # Rules are processed in order, and the first matching rule is applied

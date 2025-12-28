@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from freezegun import freeze_time
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.context_injector import ContextInjector
 from src.core.memory.models import SessionSummary, TaskItem
@@ -23,10 +24,11 @@ def create_summary(
     risks_or_warnings: list[str] | None = None,
 ) -> SessionSummary:
     """Create a test SessionSummary."""
-    now = datetime.now(timezone.utc) - timedelta(days=days_ago)
-    return SessionSummary(
-        id=f"sum-{session_id}",
-        user_id=user_id,
+    with freeze_time("2024-01-01 12:00:00"):
+        now = datetime.now(timezone.utc) - timedelta(days=days_ago)
+        return SessionSummary(
+            id=f"sum-{session_id}",
+            user_id=user_id,
         session_id=session_id,
         session_start=now,
         backend_model="openai:gpt-4o",

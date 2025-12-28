@@ -8,27 +8,30 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from src.core.domain.traffic_leg import TrafficLeg
 from src.core.domain.usage_record import UsageRecord
 from src.core.services.async_usage_write_queue import AsyncUsageWriteQueue
 
+from tests.unit.fixtures.markers import real_time
 from tests.utils.fake_clock import FakeClockContext
 
 
 def create_test_record(record_id: str | None = None) -> UsageRecord:
     """Create a test usage record."""
-    return UsageRecord(
-        id=record_id or str(uuid.uuid4()),
-        timestamp=datetime.now(timezone.utc),
-        session_id="test-session",
-        turn_number=1,
-        backend_type="openai",
-        model="gpt-4",
-        frontend_type="openai",
-        leg=TrafficLeg.CLIENT_TO_PROXY,
-        verbatim_prompt_tokens=100,
-        total_tokens=100,
-    )
+    with freeze_time("2024-01-01 12:00:00"):
+        return UsageRecord(
+            id=record_id or str(uuid.uuid4()),
+            timestamp=datetime.now(timezone.utc),
+            session_id="test-session",
+            turn_number=1,
+            backend_type="openai",
+            model="gpt-4",
+            frontend_type="openai",
+            leg=TrafficLeg.CLIENT_TO_PROXY,
+            verbatim_prompt_tokens=100,
+            total_tokens=100,
+        )
 
 
 @pytest.mark.asyncio
@@ -220,6 +223,7 @@ class TestAsyncUsageWriteQueueAsync:
 class TestAsyncUsageWriteQueuePerformance:
     """Performance-focused tests for AsyncUsageWriteQueue."""
 
+    @real_time(reason="Measures enqueue performance using real perf_counter timing.")
     async def test_enqueue_is_nonblocking(self):
         """Test that enqueue does not block."""
         mock_writer = MagicMock()
@@ -230,10 +234,12 @@ class TestAsyncUsageWriteQueuePerformance:
 
         import time
 
+        records = [create_test_record(f"record-{i}") for i in range(1000)]
+
         # Enqueue 1000 records and measure time
         start = time.perf_counter()
-        for _ in range(1000):
-            queue.enqueue_insert(create_test_record())
+        for record in records:
+            queue.enqueue_insert(record)
         elapsed = time.perf_counter() - start
 
         # Should be very fast - less than 100ms for 1000 enqueues

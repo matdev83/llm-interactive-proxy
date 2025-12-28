@@ -1,6 +1,5 @@
 """Tests for BackendCompletionFlow authentication failure handling."""
 
-import time
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
@@ -18,6 +17,7 @@ from src.core.services.backend_lifecycle_types import DisabledBackendInfo
 from tests.unit.core.services.backend_flow_test_helper import (
     create_test_backend_completion_flow,
 )
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 class MockBackend(LLMBackend):
@@ -207,20 +207,21 @@ async def test_disabled_backend_fails_fast_without_failover(flow_fixture):
     """Request to a permanently disabled backend fails before creation when no failover exists."""
     flow, deps = flow_fixture
 
-    deps["backend_lifecycle_manager"].get_disabled_backends.return_value = {
-        "openai": DisabledBackendInfo(
-            reason="invalid api key",
-            timestamp=time.time(),
+    async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+        deps["backend_lifecycle_manager"].get_disabled_backends.return_value = {
+            "openai": DisabledBackendInfo(
+                reason="invalid api key",
+                timestamp=clock.now(),
+            )
+        }
+
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
         )
-    }
 
-    request = ChatRequest(
-        messages=[ChatMessage(role="user", content="hi")], model="gpt-4"
-    )
+        with pytest.raises(BackendError) as exc_info:
+            await flow.call_completion(request, allow_failover=False)
 
-    with pytest.raises(BackendError) as exc_info:
-        await flow.call_completion(request, allow_failover=False)
-
-    assert "permanently disabled" in str(exc_info.value)
-    # Ensure get_or_create was NOT called
-    deps["backend_lifecycle_manager"].get_or_create.assert_not_called()
+        assert "permanently disabled" in str(exc_info.value)
+        # Ensure get_or_create was NOT called
+        deps["backend_lifecycle_manager"].get_or_create.assert_not_called()

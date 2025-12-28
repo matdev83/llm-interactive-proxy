@@ -33,7 +33,7 @@ from src.core.services.end_of_session_service import EndOfSessionService
 
 
 @pytest.fixture
-def mock_event_bus() -> IEventBus:
+def mock_event_bus() -> MagicMock:
     """Create a mock event bus."""
     mock = MagicMock(spec=IEventBus)
     mock.publish = AsyncMock()
@@ -42,7 +42,7 @@ def mock_event_bus() -> IEventBus:
 
 
 @pytest.fixture
-def mock_session_repository() -> SessionMetricsRepository:
+def mock_session_repository() -> MagicMock:
     """Create a mock session metrics repository."""
     mock = MagicMock(spec=SessionMetricsRepository)
     mock.claim_eos_emission = AsyncMock(return_value=True)
@@ -64,9 +64,9 @@ def default_config() -> EndOfSessionConfig:
 
 @pytest.fixture
 def service(
-    mock_event_bus: IEventBus,
+    mock_event_bus: MagicMock,
     default_config: EndOfSessionConfig,
-    mock_session_repository: SessionMetricsRepository,
+    mock_session_repository: MagicMock,
 ) -> EndOfSessionService:
     """Create EndOfSessionService instance for testing."""
     return EndOfSessionService(
@@ -97,8 +97,8 @@ class TestConfigGating:
     @pytest.mark.asyncio
     async def test_disabled_config_skips_emission(
         self,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that disabled config prevents emission."""
@@ -118,8 +118,8 @@ class TestConfigGating:
     @pytest.mark.asyncio
     async def test_emit_events_false_skips_emission(
         self,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that emit_events=False prevents emission."""
@@ -145,8 +145,8 @@ class TestMissingSessionId:
     async def test_missing_session_id_skips_emission(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
     ):
         """Test that missing session_id prevents emission."""
         signal = EndOfSessionSignal(
@@ -169,8 +169,8 @@ class TestInMemoryDedupe:
     async def test_in_memory_cache_prevents_duplicate_emission(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that in-memory cache prevents duplicate emissions."""
@@ -187,16 +187,17 @@ class TestInMemoryDedupe:
         # Should not attempt another claim
         assert mock_session_repository.claim_eos_emission.await_count == 1
 
-    def test_has_ended_checks_cache(
+    @pytest.mark.asyncio
+    async def test_has_ended_checks_cache(
         self, service: EndOfSessionService, sample_signal: EndOfSessionSignal
     ):
         """Test that has_ended checks in-memory cache."""
-        assert not service.has_ended(sample_signal.session_id)
+        assert not await service.has_ended(sample_signal.session_id)
 
         # Mark as ended
-        service._mark_ended(sample_signal.session_id)
+        await service._mark_ended(sample_signal.session_id)
 
-        assert service.has_ended(sample_signal.session_id)
+        assert await service.has_ended(sample_signal.session_id)
 
 
 class TestCacheEviction:
@@ -206,7 +207,7 @@ class TestCacheEviction:
     async def test_cache_evicts_oldest_item(
         self,
         service: EndOfSessionService,
-        mock_session_repository: SessionMetricsRepository,
+        mock_session_repository: MagicMock,
     ):
         """Test that cache evicts oldest item when limit exceeded."""
         # Monkey-patch MAX_CACHE_SIZE for this test
@@ -217,28 +218,28 @@ class TestCacheEviction:
 
         try:
             # Add 3 items
-            service._mark_ended("session-1")
-            service._mark_ended("session-2")
-            service._mark_ended("session-3")
+            await service._mark_ended("session-1")
+            await service._mark_ended("session-2")
+            await service._mark_ended("session-3")
 
             # Verify size is capped at 2
             assert len(service._ended_sessions) == 2
 
             # Verify eviction: session-1 should be gone (oldest)
-            assert not service.has_ended("session-1")
-            assert service.has_ended("session-2")
-            assert service.has_ended("session-3")
+            assert not await service.has_ended("session-1")
+            assert await service.has_ended("session-2")
+            assert await service.has_ended("session-3")
 
             # Access session-2 to make it most recently used
-            service._mark_ended("session-2")
+            await service._mark_ended("session-2")
 
             # Add session-4
-            service._mark_ended("session-4")
+            await service._mark_ended("session-4")
 
             # Verify eviction: session-3 should be gone (oldest, since session-2 was refreshed)
-            assert not service.has_ended("session-3")
-            assert service.has_ended("session-2")
-            assert service.has_ended("session-4")
+            assert not await service.has_ended("session-3")
+            assert await service.has_ended("session-2")
+            assert await service.has_ended("session-4")
 
         finally:
             service_module.MAX_CACHE_SIZE = original_max_size
@@ -251,8 +252,8 @@ class TestAtomicClaimDedupe:
     async def test_atomic_claim_failure_skips_emission(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that failed atomic claim prevents emission."""
@@ -266,14 +267,14 @@ class TestAtomicClaimDedupe:
         mock_event_bus.publish_nowait.assert_not_awaited()
 
         # Cache should be updated
-        assert service.has_ended(sample_signal.session_id)
+        assert await service.has_ended(sample_signal.session_id)
 
     @pytest.mark.asyncio
     @freeze_time("2024-01-01 12:00:00")
     async def test_concurrent_signals_only_one_emission(
         self,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         default_config: EndOfSessionConfig,
     ):
         """Test that concurrent signals for same session produce only one emission."""
@@ -321,14 +322,14 @@ class TestAtomicClaimDedupe:
         # This is expected behavior - cache prevents duplicate DB calls
 
         # Cache should reflect session ended
-        assert service.has_ended(session_id)
+        assert await service.has_ended(session_id)
 
     @pytest.mark.asyncio
     async def test_terminal_state_persistence_after_claim(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that terminal state is persisted after successful claim."""
@@ -345,7 +346,7 @@ class TestAtomicClaimDedupe:
         assert call_kwargs["emitted_at"] is not None
 
         # Verify cache reflects terminal state
-        assert service.has_ended(sample_signal.session_id)
+        assert await service.has_ended(sample_signal.session_id)
 
         # Verify event was emitted
         mock_event_bus.publish.assert_awaited_once()
@@ -354,8 +355,8 @@ class TestAtomicClaimDedupe:
     @freeze_time("2024-01-01 12:00:00")
     async def test_restart_safety_db_backed_dedupe(
         self,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         default_config: EndOfSessionConfig,
     ):
         """Test that DB-backed dedupe works after restart (simulated by new service instance)."""
@@ -389,7 +390,7 @@ class TestAtomicClaimDedupe:
         mock_event_bus.publish.assert_not_awaited()
 
         # Cache should be updated after failed claim
-        assert service.has_ended(session_id)
+        assert await service.has_ended(session_id)
 
 
 class TestEventEmission:
@@ -399,8 +400,8 @@ class TestEventEmission:
     async def test_event_emission_with_correct_payload(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that event is emitted with correct payload."""
@@ -427,8 +428,8 @@ class TestEventEmission:
     async def test_error_classification_defaults_to_unknown(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
     ):
         """Test that missing error classification defaults to unknown_error."""
         signal = EndOfSessionSignal(
@@ -454,8 +455,8 @@ class TestEventEmission:
     async def test_error_classification_preserved_when_present(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
     ):
         """Test that error classification is preserved when present."""
         signal = EndOfSessionSignal(
@@ -484,8 +485,8 @@ class TestDispatchTimeout:
     @pytest.mark.asyncio
     async def test_zero_timeout_uses_publish_nowait(
         self,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that zero timeout uses publish_nowait."""
@@ -509,8 +510,8 @@ class TestDispatchTimeout:
     @pytest.mark.asyncio
     async def test_timeout_stops_waiting_without_canceling(
         self,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that timeout stops waiting without canceling handlers."""
@@ -545,8 +546,8 @@ class TestDispatchTimeout:
     @pytest.mark.asyncio
     async def test_timeout_logs_warning_but_continues(
         self,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
         caplog,
     ):
@@ -596,8 +597,8 @@ class TestFailOpen:
     async def test_db_unavailable_emits_event_in_fail_open_mode(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that DB unavailability triggers fail-open emission."""
@@ -610,14 +611,14 @@ class TestFailOpen:
         # Verify: event was emitted despite DB failure (uses publish with timeout)
         mock_event_bus.publish.assert_awaited_once()
         # Verify: session marked as ended in cache
-        assert service.has_ended(sample_signal.session_id)
+        assert await service.has_ended(sample_signal.session_id)
 
     @pytest.mark.asyncio
     async def test_db_unavailable_dedupe_prevents_duplicate_emission(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that fail-open mode deduplicates multiple signals."""
@@ -635,8 +636,8 @@ class TestFailOpen:
     async def test_db_timeout_emits_event_in_fail_open_mode(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that DB timeout triggers fail-open emission."""
@@ -653,8 +654,8 @@ class TestFailOpen:
     async def test_fail_open_logs_high_signal_diagnostic(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
         caplog,
     ):
@@ -682,8 +683,8 @@ class TestFailOpen:
     async def test_event_bus_error_logged_but_not_raised(
         self,
         service: EndOfSessionService,
-        mock_event_bus: IEventBus,
-        mock_session_repository: SessionMetricsRepository,
+        mock_event_bus: MagicMock,
+        mock_session_repository: MagicMock,
         sample_signal: EndOfSessionSignal,
     ):
         """Test that event bus errors are logged but not raised."""

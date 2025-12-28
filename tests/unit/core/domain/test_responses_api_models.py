@@ -9,6 +9,7 @@ with the TranslationService.
 import json
 import time
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -435,22 +436,24 @@ class TestResponsesResponse:
         """Test creating a valid ResponsesResponse instance."""
         message = ResponseMessage(content="Test response")
         choice = ResponseChoice(index=0, message=message, finish_reason="stop")
-        current_time = int(time.time())
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            current_time = int(time.time())
 
-        response = ResponsesResponse(
-            id="resp_123",
-            created=current_time,
-            model="gpt-4",
-            choices=[choice],
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-        )
+            response = ResponsesResponse(
+                id="resp_123",
+                created=current_time,
+                model="gpt-4",
+                choices=[choice],
+                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
 
-        assert response.id == "resp_123"
-        assert response.object == "response"  # Default value
-        assert response.created == current_time
-        assert response.model == "gpt-4"
-        assert len(response.choices) == 1
-        assert response.usage is not None
+            assert response.id == "resp_123"
+            assert response.object == "response"  # Default value
+            assert response.created == current_time
+            assert response.model == "gpt-4"
+            assert len(response.choices) == 1
+            assert response.usage is not None
 
     def test_responses_response_minimal_creation(self) -> None:
         """Test creating ResponsesResponse with minimal required fields."""
@@ -641,20 +644,22 @@ class TestModelIntegration:
 
         choice = ResponseChoice(index=0, message=response_message, finish_reason="stop")
 
-        response = ResponsesResponse(
-            id="resp_complete_cycle",
-            created=int(time.time()),
-            model="gpt-4",
-            choices=[choice],
-            usage={"prompt_tokens": 25, "completion_tokens": 10, "total_tokens": 35},
-        )
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            response = ResponsesResponse(
+                id="resp_complete_cycle",
+                created=int(time.time()),
+                model="gpt-4",
+                choices=[choice],
+                usage={"prompt_tokens": 25, "completion_tokens": 10, "total_tokens": 35},
+            )
 
-        # Verify the complete cycle
-        assert request.model == response.model
-        assert len(request.messages) == 2
-        assert request.response_format.json_schema.name == "person"
-        assert response.choices[0].message.parsed == parsed_data
-        assert json.loads(response.choices[0].message.content) == parsed_data
+            # Verify the complete cycle
+            assert request.model == response.model
+            assert len(request.messages) == 2
+            assert request.response_format.json_schema.name == "person"
+            assert response.choices[0].message.parsed == parsed_data
+            assert json.loads(response.choices[0].message.content) == parsed_data
 
     def test_model_serialization_deserialization_roundtrip(self) -> None:
         """Test that models can be serialized and deserialized without data loss."""

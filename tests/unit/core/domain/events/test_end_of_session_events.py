@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionErrorClassification,
     EndOfSessionSignal,
@@ -30,6 +31,7 @@ class TestEndOfSessionSignalType:
         """Test that enum values are strings."""
         assert isinstance(EndOfSessionSignalType.DONE_SENTINEL, str)
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_client_termination_signal_type(self) -> None:
         """Test that CLIENT_TERMINATION signal type can be used in signals."""
         signal = EndOfSessionSignal(
@@ -100,6 +102,7 @@ class TestEndOfSessionErrorClassification:
 class TestEndOfSessionSignal:
     """Tests for EndOfSessionSignal dataclass."""
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_signal_with_required_fields(self) -> None:
         """Test creating a signal with required fields."""
         signal = EndOfSessionSignal(
@@ -119,6 +122,7 @@ class TestEndOfSessionSignal:
         assert signal.request_id is None
         assert signal.backend is None
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_create_signal_with_all_fields(self) -> None:
         """Test creating a signal with all fields."""
         observed_at = datetime.now(timezone.utc)
@@ -149,6 +153,7 @@ class TestEndOfSessionSignal:
         assert signal.request_id == "req-789"
         assert signal.backend == "openai-gpt4"
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_signal_is_immutable(self) -> None:
         """Test that signal is frozen (immutable)."""
         from dataclasses import FrozenInstanceError

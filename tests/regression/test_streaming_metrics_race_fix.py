@@ -3,10 +3,8 @@
 This test ensures that concurrent mutations of StreamingMetrics are thread-safe.
 """
 
-import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import pytest
 from src.core.ports.streaming_metrics import StreamingMetrics
 
 

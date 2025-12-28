@@ -9,6 +9,7 @@ Phase 9: Extract ExceptionNormalizer
 from __future__ import annotations
 
 import time
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from src.core.common.exceptions import (
@@ -110,13 +111,15 @@ class TestHTTP429Translation:
         exc = HTTPException(status_code=429, detail="Rate limited")
         exc.headers = {"Retry-After": "60"}
 
-        before = time.time()
-        result = normalizer.normalize(exc, "openai")
-        after = time.time()
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            before = time.time()
+            result = normalizer.normalize(exc, "openai")
+            after = time.time()
 
-        assert isinstance(result, RateLimitExceededError)
-        assert result.reset_at is not None
-        assert before + 60 <= result.reset_at <= after + 60 + 1
+            assert isinstance(result, RateLimitExceededError)
+            assert result.reset_at is not None
+            assert before + 60 <= result.reset_at <= after + 60 + 1
 
     def test_http_429_handles_lowercase_retry_after(self) -> None:
         """Should handle lowercase retry-after header."""

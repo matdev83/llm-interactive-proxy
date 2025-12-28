@@ -175,30 +175,30 @@ async def test_stale_cleanup_concurrent():
             async with service._analysis_lock:
                 service._analysis_in_progress[f"fresh_session_{i}"] = fresh_time
 
-    # Verify initial state
-    async with service._analysis_lock:
-        assert len(service._analysis_in_progress) == 15
+        # Verify initial state
+        async with service._analysis_lock:
+            assert len(service._analysis_in_progress) == 15
 
-    # Trigger cleanup and concurrent access
-    async def worker():
-        for i in range(5):
-            session_id = f"fresh_session_{i}"
+        # Trigger cleanup and concurrent access
+        async def worker():
+            for i in range(5):
+                session_id = f"fresh_session_{i}"
+                async with service._analysis_lock:
+                    _ = service._analysis_in_progress.get(session_id)
+
+        # Run cleanup and concurrent workers
+        tasks = [asyncio.create_task(worker()) for _ in range(5)]
+        tasks.append(asyncio.create_task(service._cleanup_stale_analysis_in_progress()))
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Old sessions should be cleaned up
+        for i in range(10):
             async with service._analysis_lock:
-                _ = service._analysis_in_progress.get(session_id)
-
-    # Run cleanup and concurrent workers
-    tasks = [asyncio.create_task(worker()) for _ in range(5)]
-    tasks.append(asyncio.create_task(service._cleanup_stale_analysis_in_progress()))
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Old sessions should be cleaned up
-    for i in range(10):
+                assert f"old_session_{i}" not in service._analysis_in_progress
+        # Fresh sessions should remain
+        for i in range(5):
+            async with service._analysis_lock:
+                assert f"fresh_session_{i}" in service._analysis_in_progress
+        # Verify total count
         async with service._analysis_lock:
-            assert f"old_session_{i}" not in service._analysis_in_progress
-    # Fresh sessions should remain
-    for i in range(5):
-        async with service._analysis_lock:
-            assert f"fresh_session_{i}" in service._analysis_in_progress
-    # Verify total count
-    async with service._analysis_lock:
-        assert len(service._analysis_in_progress) == 5
+            assert len(service._analysis_in_progress) == 5

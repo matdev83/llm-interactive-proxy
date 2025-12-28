@@ -5,7 +5,6 @@ This module tests the in-memory rate limiter implementation.
 """
 
 import asyncio
-import time
 from typing import Any
 
 import pytest
@@ -15,6 +14,8 @@ from src.core.services.rate_limiter import (
     InMemoryRateLimiter,
     create_rate_limiter,
 )
+
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 
 class TestInMemoryRateLimiter:
@@ -257,20 +258,21 @@ class TestInMemoryRateLimiter:
         """Test that old timestamps are expired."""
         key = "test-key"
 
-        # Record some usage
-        await rate_limiter.record_usage(key, cost=5)
-        assert len(rate_limiter._usage[key]) == 5
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            # Record some usage
+            await rate_limiter.record_usage(key, cost=5)
+            assert len(rate_limiter._usage[key]) == 5
 
-        # Manually add an old timestamp (beyond time window)
-        old_time = time.time() - 120  # 2 minutes ago
-        rate_limiter._usage[key].append(old_time)
+            # Manually add an old timestamp (beyond time window)
+            old_time = clock.now() - 120  # 2 minutes ago
+            rate_limiter._usage[key].append(old_time)
 
-        # Check limit - should clean up expired timestamps
-        info = await rate_limiter.check_limit(key)
+            # Check limit - should clean up expired timestamps
+            info = await rate_limiter.check_limit(key)
 
-        # Should have only the recent timestamps
-        assert len(rate_limiter._usage[key]) == 5
-        assert info.remaining == 5  # 10 - 5
+            # Should have only the recent timestamps
+            assert len(rate_limiter._usage[key]) == 5
+            assert info.remaining == 5  # 10 - 5
 
     @pytest.mark.asyncio
     async def test_reset_at_calculation(

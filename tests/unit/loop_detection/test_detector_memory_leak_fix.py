@@ -7,6 +7,7 @@ unbounded, preventing memory leaks.
 """
 
 import time
+from unittest.mock import patch
 
 from loop_detection.config import InternalLoopDetectionConfig
 from loop_detection.detector import LoopDetector
@@ -29,18 +30,20 @@ class TestLoopDetectorMemoryLeakFix:
         detector = LoopDetector(config)
 
         # Manually add events to exceed limit
-        for i in range(max_history + 10):
-            event = LoopDetectionEvent(
-                pattern=f"pattern_{i}",
-                pattern_length=20,
-                repetition_count=3,
-                total_length=60,
-                confidence=0.9,
-                buffer_content="test content",
-                timestamp=time.time() + i,
-            )
-            detector._history.append(event)
-            detector._truncate_history_if_needed()
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            for i in range(max_history + 10):
+                event = LoopDetectionEvent(
+                    pattern=f"pattern_{i}",
+                    pattern_length=20,
+                    repetition_count=3,
+                    total_length=60,
+                    confidence=0.9,
+                    buffer_content="test content",
+                    timestamp=time.time() + i,
+                )
+                detector._history.append(event)
+                detector._truncate_history_if_needed()
 
         # Should not exceed limit
         assert len(detector._history) <= max_history
@@ -66,22 +69,25 @@ class TestLoopDetectorMemoryLeakFix:
         # Simulate many loop detections via check_for_loops
         repetitive_content = "repeat " * 10
 
-        async def run_checks():
-            for i in range(10):
-                # Create manual events to simulate detection
-                event = LoopDetectionEvent(
-                    pattern=f"check_pattern_{i}",
-                    pattern_length=15,
-                    repetition_count=2,
-                    total_length=30,
-                    confidence=0.8,
-                    buffer_content=repetitive_content,
-                    timestamp=time.time() + i,
-                )
+        base_time = 1000.0
 
-                # This simulates what check_for_loops does
-                detector._history.append(event)
-                detector._truncate_history_if_needed()
+        async def run_checks():
+            with patch("time.time", return_value=base_time):
+                for i in range(10):
+                    # Create manual events to simulate detection
+                    event = LoopDetectionEvent(
+                        pattern=f"check_pattern_{i}",
+                        pattern_length=15,
+                        repetition_count=2,
+                        total_length=30,
+                        confidence=0.8,
+                        buffer_content=repetitive_content,
+                        timestamp=time.time() + i,
+                    )
+
+                    # This simulates what check_for_loops does
+                    detector._history.append(event)
+                    detector._truncate_history_if_needed()
 
         asyncio.run(run_checks())
 
@@ -102,18 +108,20 @@ class TestLoopDetectorMemoryLeakFix:
         detector = LoopDetector(config)
 
         # Add fewer events than limit
-        for i in range(max_history - 2):
-            event = LoopDetectionEvent(
-                pattern=f"pattern_{i}",
-                pattern_length=20,
-                repetition_count=3,
-                total_length=60,
-                confidence=0.9,
-                buffer_content="test content",
-                timestamp=time.time() + i,
-            )
-            detector._history.append(event)
-            detector._truncate_history_if_needed()
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            for i in range(max_history - 2):
+                event = LoopDetectionEvent(
+                    pattern=f"pattern_{i}",
+                    pattern_length=20,
+                    repetition_count=3,
+                    total_length=60,
+                    confidence=0.9,
+                    buffer_content="test content",
+                    timestamp=time.time() + i,
+                )
+                detector._history.append(event)
+                detector._truncate_history_if_needed()
 
         # Should have all events
         assert len(detector._history) == max_history - 2
@@ -168,18 +176,20 @@ class TestLoopDetectorMemoryLeakFix:
             detector = LoopDetector(config)
 
             # Add events to trigger truncation
-            for i in range(5):
-                event = LoopDetectionEvent(
-                    pattern=f"debug_{i}",
-                    pattern_length=10,
-                    repetition_count=2,
-                    total_length=20,
-                    confidence=0.8,
-                    buffer_content="debug content",
-                    timestamp=time.time() + i,
-                )
-                detector._history.append(event)
-                detector._truncate_history_if_needed()
+            base_time = 1000.0
+            with patch("time.time", return_value=base_time):
+                for i in range(5):
+                    event = LoopDetectionEvent(
+                        pattern=f"debug_{i}",
+                        pattern_length=10,
+                        repetition_count=2,
+                        total_length=20,
+                        confidence=0.8,
+                        buffer_content="debug content",
+                        timestamp=time.time() + i,
+                    )
+                    detector._history.append(event)
+                    detector._truncate_history_if_needed()
 
             # Check for debug log message
             assert "Truncated loop detection history" in caplog.text
@@ -192,17 +202,19 @@ class TestLoopDetectorMemoryLeakFix:
         detector = LoopDetector(config)
 
         # Add some events
-        for i in range(3):
-            event = LoopDetectionEvent(
-                pattern=f"copy_test_{i}",
-                pattern_length=15,
-                repetition_count=2,
-                total_length=30,
-                confidence=0.7,
-                buffer_content="copy test content",
-                timestamp=time.time() + i,
-            )
-            detector._history.append(event)
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            for i in range(3):
+                event = LoopDetectionEvent(
+                    pattern=f"copy_test_{i}",
+                    pattern_length=15,
+                    repetition_count=2,
+                    total_length=30,
+                    confidence=0.7,
+                    buffer_content="copy test content",
+                    timestamp=time.time() + i,
+                )
+                detector._history.append(event)
 
         # Get history and modify it
         history_copy = detector.get_loop_history()

@@ -7,6 +7,7 @@ This module tests the persistent session repository implementation.
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from freezegun import freeze_time
 from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.configuration.loop_detection_config import (
     LoopDetectionConfiguration,
@@ -116,6 +117,7 @@ class TestPersistentSessionRepository:
         assert sample_session.session_id in repository._memory_repo._sessions
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_update_delegates_to_memory_repo(
         self, repository: PersistentSessionRepository, sample_session: Session
     ) -> None:
@@ -155,6 +157,7 @@ class TestPersistentSessionRepository:
         assert result[0] is sample_session
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_cleanup_expired_delegates_to_memory_repo(
         self, repository: PersistentSessionRepository, sample_session: Session
     ) -> None:
@@ -198,6 +201,7 @@ class TestPersistentSessionRepository:
         assert persistent_result is sample_session
 
     @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
     async def test_multiple_operations_work_consistently(
         self, repository: PersistentSessionRepository, sample_session: Session
     ) -> None:

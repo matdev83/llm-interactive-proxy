@@ -34,11 +34,11 @@ from src.core.services.backend_completion_flow.eos_adapter import (
 
 
 @pytest.fixture
-def mock_eos_service() -> IEndOfSessionService:
+def mock_eos_service() -> MagicMock:
     """Create a mock EoS service."""
     mock = MagicMock(spec=IEndOfSessionService)
     mock.record_signal = AsyncMock()
-    mock.has_ended = MagicMock(return_value=False)  # Default to not ended
+    mock.has_ended = AsyncMock(return_value=False)  # Default to not ended
     return mock
 
 
@@ -55,7 +55,7 @@ def default_config() -> EndOfSessionConfig:
 
 @pytest.fixture
 def adapter(
-    mock_eos_service: IEndOfSessionService, default_config: EndOfSessionConfig
+    mock_eos_service: MagicMock, default_config: EndOfSessionConfig
 ) -> BackendCompletionFlowEosAdapter:
     """Create BackendCompletionFlowEosAdapter instance for testing."""
     return BackendCompletionFlowEosAdapter(
@@ -87,7 +87,7 @@ class TestConfigGating:
     @pytest.mark.asyncio
     async def test_disabled_config_skips_recording(
         self,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
         sample_context: RequestContext,
     ):
         """Test that disabled config prevents recording."""
@@ -111,7 +111,7 @@ class TestErrorClassification:
     async def test_classifies_transport_error(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test classification of transport errors."""
         error = APIConnectionError("Connection failed")
@@ -131,7 +131,7 @@ class TestErrorClassification:
     async def test_classifies_timeout_error(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test classification of timeout errors."""
         error = APITimeoutError("Request timed out")
@@ -150,7 +150,7 @@ class TestErrorClassification:
     async def test_classifies_http_error(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test classification of HTTP errors."""
         from src.core.common.exceptions import LLMProxyError
@@ -169,7 +169,7 @@ class TestErrorClassification:
     async def test_classifies_backend_error(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test classification of backend API errors."""
         # BackendError without status_code should be BACKEND_ERROR
@@ -190,7 +190,7 @@ class TestErrorClassification:
     async def test_classifies_unknown_error(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test classification of unknown errors."""
         error = ValueError("Unknown error")
@@ -208,7 +208,7 @@ class TestErrorClassification:
     async def test_classifies_httpx_timeout_via_cause(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test classification of httpx.TimeoutException via __cause__."""
         httpx_timeout = httpx.TimeoutException("Request timed out")
@@ -230,7 +230,7 @@ class TestErrorClassification:
     async def test_classifies_httpx_http_status_error_via_cause(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test classification of httpx.HTTPStatusError via __cause__."""
         response = MagicMock()
@@ -256,7 +256,7 @@ class TestSessionIdExtraction:
     async def test_extracts_session_id_from_context(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
         sample_context: RequestContext,
     ):
         """Test that session_id is extracted from context when not provided."""
@@ -274,7 +274,7 @@ class TestSessionIdExtraction:
     async def test_missing_session_id_skips_recording(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that missing session_id prevents recording."""
         from src.core.domain.request_context import ProcessingContext
@@ -303,7 +303,7 @@ class TestStatusCodeExtraction:
     async def test_extracts_status_code_from_error(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that status_code is extracted from error."""
         error = BackendError("HTTP 404", backend_name="openai", status_code=404)
@@ -319,7 +319,7 @@ class TestStatusCodeExtraction:
     async def test_extracts_status_code_from_cause(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that status_code is extracted from error cause."""
         response = MagicMock()
@@ -346,7 +346,7 @@ class TestSignalPayload:
     async def test_signal_includes_all_fields(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
         sample_context: RequestContext,
     ):
         """Test that signal includes all required fields."""
@@ -376,7 +376,7 @@ class TestFailOpen:
     async def test_service_error_logged_but_not_raised(
         self,
         adapter: BackendCompletionFlowEosAdapter,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that service errors are logged but not raised."""
         mock_eos_service.record_signal.side_effect = Exception("Service error")

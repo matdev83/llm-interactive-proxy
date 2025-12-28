@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
-from time import time
 
 
 @dataclass
@@ -18,13 +18,13 @@ class TestExecutionSessionState:
     is_dirty: bool = False
     """Whether files have been modified since last test run."""
 
-    last_modification_time: float = field(default_factory=lambda: time())
+    last_modification_time: float = field(default_factory=lambda: time.time())
     """Timestamp of last file modification."""
 
     last_test_time: float = 0.0
     """Timestamp of last test execution."""
 
-    last_seen: float = field(default_factory=lambda: time())
+    last_seen: float = field(default_factory=lambda: time.time())
     """Timestamp of last activity (for TTL cleanup)."""
 
     modification_count: int = 0
@@ -33,17 +33,17 @@ class TestExecutionSessionState:
     def mark_dirty(self) -> None:
         """Mark the session as dirty (files modified)."""
         self.is_dirty = True
-        self.last_modification_time = time()
-        self.last_seen = time()
+        self.last_modification_time = time.time()
+        self.last_seen = time.time()
         self.modification_count += 1
 
     def mark_clean(self) -> None:
         """Mark the session as clean (tests run)."""
         self.is_dirty = False
-        self.last_test_time = time()
-        self.last_seen = time()
+        self.last_test_time = time.time()
+        self.last_seen = time.time()
         self.modification_count = 0
 
     def update_last_seen(self) -> None:
         """Update the last seen timestamp."""
-        self.last_seen = time()
+        self.last_seen = time.time()

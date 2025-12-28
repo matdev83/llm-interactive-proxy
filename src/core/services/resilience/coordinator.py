@@ -161,10 +161,12 @@ class ResilienceCoordinator:
         Returns:
             ResilienceAction describing what was done
         """
+        extra = getattr(error, "__resilience_context__", None)
         context = ErrorContext(
             instance_id=instance_id,
             model=model,
             error=error,
+            extra=extra if isinstance(extra, dict) else {},
         )
 
         # Try the error handler chain (it will delegate through the chain)

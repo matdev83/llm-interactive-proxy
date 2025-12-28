@@ -242,6 +242,24 @@ class TestAuthErrorHandler:
         assert action.permanent is True
         assert manager.get_instance_status("backend.1") == InstanceStatus.DISABLED
 
+    def test_skips_disable_for_personal_backend(self) -> None:
+        """Should not disable instances for personal OAuth backends."""
+        manager = RateLimitStateManager()
+        handler = AuthErrorHandler(manager)
+
+        error = AuthenticationError("Invalid API key")
+        context = ErrorContext(
+            instance_id="backend.1",
+            model="gpt-4",
+            error=error,
+            extra={"is_personal_backend": True},
+        )
+
+        action = handler.handle(context)
+
+        assert action.type == ActionType.PROCEED
+        assert manager.get_instance_status("backend.1") == InstanceStatus.ACTIVE
+
     def test_builds_reason_from_error(self) -> None:
         """Should build reason from error message."""
         manager = RateLimitStateManager()

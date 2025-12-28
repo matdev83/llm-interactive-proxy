@@ -12,6 +12,7 @@ from src.core.config.models.logging import LoggingConfig
 from src.core.config.models.misc import (
     CodebuffConfig,
     EmptyResponseConfig,
+    ResilienceConfig,
     UsageTrackingConfig,
 )
 from src.core.config.models.rewriting import (
@@ -84,6 +85,7 @@ class AppConfigModel(DomainModel, IConfig):
     sandboxing: SandboxingConfiguration = Field(default_factory=SandboxingConfiguration)
     codebuff: CodebuffConfig = Field(default_factory=CodebuffConfig)
     usage_tracking: UsageTrackingConfig = Field(default_factory=UsageTrackingConfig)
+    resilience: ResilienceConfig = Field(default_factory=ResilienceConfig)
     end_of_session: EndOfSessionConfig = Field(default_factory=EndOfSessionConfig)
     replacement: ReplacementConfig = Field(default_factory=ReplacementConfig)
     health_check: HealthCheckConfig = Field(default_factory=HealthCheckConfig)

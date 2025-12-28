@@ -33,19 +33,19 @@ class TestQwenOAuthReasoningEffort:
                 "object": "chat.completion",
                 "created": int(clock.now()),
                 "model": "qwen-turbo",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": "Test response"},
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15,
-            },
-        }
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Test response"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 5,
+                    "total_tokens": 15,
+                },
+            }
         mock_response.headers = {}
         client.post = AsyncMock(return_value=mock_response)
         return client
@@ -62,6 +62,7 @@ class TestQwenOAuthReasoningEffort:
             "resource_url": "portal.qwen.ai",
             "expiry_date": 1000000 + 3600000,  # Fixed timestamp: 1000s + 1 hour in ms
         }
+        connector._enable_qwen_oauth_backend_debugging_override = True
         connector.is_functional = True
         connector.available_models = ["qwen-turbo", "qwen-plus"]
         return connector

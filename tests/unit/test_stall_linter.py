@@ -18,7 +18,7 @@ class LintFinding:
     message: str
 
 
-_STALL_LINT_CACHE_VERSION = 2
+_STALL_LINT_CACHE_VERSION = 3
 
 _STALL_LINT_IGNORE_RE = re.compile(
     r"stall-lint:\s*ignore\s*=\s*([A-Za-z0-9_,*\s-]+)", re.IGNORECASE
@@ -158,6 +158,10 @@ def _scan_repo_for_stalls(repo_root: Path) -> list[LintFinding]:
         patch_visitor = _PatchRecursionVisitor(file_path=file_path)
         patch_visitor.visit(tree)
         file_findings = list(patch_visitor.findings)
+
+        fake_clock_visitor = _FakeClockContextSleepVisitor(file_path=file_path)
+        fake_clock_visitor.visit(tree)
+        file_findings.extend(fake_clock_visitor.findings)
 
         if any(
             token in source for token in ("watchdog", "Observer", "observer", "Watcher")
@@ -530,6 +534,163 @@ class _WatchdogShutdownVisitor(ast.NodeVisitor):
         )
 
 
+class _FakeClockContextSleepVisitor(ast.NodeVisitor):
+    """Detect `await asyncio.sleep(x>0)` directly inside `FakeClockContext`.
+
+    `tests.utils.fake_clock.FakeClockContext` patches `asyncio.sleep` to be driven
+    by a manually-advanced fake clock. If a test awaits `asyncio.sleep()` with a
+    positive duration inside the context, it will never complete unless another
+    task advances the fake clock concurrently. In practice this frequently
+    wedges an xdist worker until pytest-timeout/xdist kills it ("node down: Not
+    properly terminated"), which then stalls the whole run.
+    """
+
+    def __init__(self, *, file_path: Path) -> None:
+        self._file_path = file_path
+        self.findings: list[LintFinding] = []
+        self._fake_clock_context_names: set[str] = {"FakeClockContext"}
+        self._fake_clock_nesting = 0
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        module = node.module or ""
+        if module.endswith("tests.utils.fake_clock"):
+            for alias in node.names:
+                if alias.name == "FakeClockContext":
+                    self._fake_clock_context_names.add(alias.asname or alias.name)
+        self.generic_visit(node)
+
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:  # noqa: N802
+        enters_fake_clock = any(
+            self._is_fake_clock_context(item.context_expr) for item in node.items
+        )
+        if enters_fake_clock:
+            self._fake_clock_nesting += 1
+        try:
+            self.generic_visit(node)
+        finally:
+            if enters_fake_clock:
+                self._fake_clock_nesting -= 1
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+        if self._fake_clock_nesting > 0:
+            return
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+        if self._fake_clock_nesting > 0:
+            return
+        self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        if self._fake_clock_nesting > 0:
+            return
+        self.generic_visit(node)
+
+    def visit_Await(self, node: ast.Await) -> None:  # noqa: N802
+        if self._fake_clock_nesting > 0:
+            for sleep_call in self._find_runtime_asyncio_sleep_calls(node.value):
+                delay = self._extract_constant_delay_seconds(sleep_call)
+                if delay is not None and delay <= 0:
+                    continue
+
+                delay_text = "a positive duration"
+                if delay is None:
+                    delay_text = "a non-constant duration"
+                else:
+                    delay_text = f"{delay}"
+
+                self._add(
+                    sleep_call,
+                    rule="STALL020",
+                    message=(
+                        f"Forbidden async pattern: `await asyncio.sleep({delay_text})` directly inside "
+                        "`FakeClockContext`. This sleep is fake-time driven and will not "
+                        "complete unless another task advances the fake clock; it can wedge "
+                        "xdist workers. Use `sleep_task = asyncio.create_task(asyncio.sleep(x))` "
+                        "then `clock.advance(x)` and `await sleep_task`, or avoid sleeping "
+                        "inside FakeClockContext."
+                    ),
+                )
+        self.generic_visit(node)
+
+    def _is_fake_clock_context(self, expr: ast.AST) -> bool:
+        if not isinstance(expr, ast.Call):
+            return False
+        func = expr.func
+        if isinstance(func, ast.Name) and func.id in self._fake_clock_context_names:
+            return True
+        dotted = self._dotted_name(func)
+        return dotted is not None and dotted.endswith(".FakeClockContext")
+
+    def _dotted_name(self, node: ast.AST) -> str | None:
+        parts: list[str] = []
+        while isinstance(node, ast.Attribute):
+            parts.append(node.attr)
+            node = node.value
+        if isinstance(node, ast.Name):
+            parts.append(node.id)
+            return ".".join(reversed(parts))
+        return None
+
+    def _find_runtime_asyncio_sleep_calls(self, expr: ast.AST) -> list[ast.Call]:
+        calls: list[ast.Call] = []
+
+        class _Finder(ast.NodeVisitor):
+            def visit_Lambda(self, node: ast.Lambda) -> None:  # noqa: N802
+                return
+
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+                return
+
+            def visit_AsyncFunctionDef(  # noqa: N802
+                self, node: ast.AsyncFunctionDef
+            ) -> None:
+                return
+
+            def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+                if (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "sleep"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "asyncio"
+                ):
+                    calls.append(node)
+                self.generic_visit(node)
+
+        _Finder().visit(expr)
+        return calls
+
+    def _extract_constant_delay_seconds(self, call: ast.Call) -> float | None:
+        if call.args:
+            first = call.args[0]
+            return self._const_number(first)
+        for kw in call.keywords:
+            if kw.arg == "delay":
+                return self._const_number(kw.value)
+        return None
+
+    def _const_number(self, node: ast.AST) -> float | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
+            return float(node.value)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            value = self._const_number(node.operand)
+            if value is None:
+                return None
+            return -value
+        return None
+
+    def _add(self, node: ast.AST, *, rule: str, message: str) -> None:
+        line = getattr(node, "lineno", 1)
+        self.findings.append(
+            LintFinding(
+                file=str(self._file_path).replace("\\", "/"),
+                line=int(line),
+                rule=rule,
+                message=message,
+            )
+        )
+
+
 def test_stall_linter_recursion_patches() -> None:
     """
     Prevent test-suite stalls caused by recursive monkeypatching of time/sleep.
@@ -705,3 +866,61 @@ def test_stall_linter_cache_hit_skips_scan(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(sys.modules[__name__], "_scan_repo_for_stalls", _boom)
     assert _get_findings_with_cache(repo_root, cache_path) == []
+
+
+def test_stall_linter_detects_fake_clock_sleep_hang(tmp_path: Path) -> None:
+    sample = """\
+import asyncio
+from tests.utils.fake_clock import FakeClockContext
+
+
+async def test_example():
+    async with FakeClockContext():
+        await asyncio.sleep(0.01)
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _FakeClockContextSleepVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert "STALL020" in {finding.rule for finding in visitor.findings}
+
+
+def test_stall_linter_allows_fake_clock_zero_sleep(tmp_path: Path) -> None:
+    sample = """\
+import asyncio
+from tests.utils.fake_clock import FakeClockContext
+
+
+async def test_example():
+    async with FakeClockContext():
+        await asyncio.sleep(0)
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _FakeClockContextSleepVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert visitor.findings == []
+
+
+def test_stall_linter_allows_sleep_in_nested_task_inside_fake_clock(
+    tmp_path: Path,
+) -> None:
+    sample = """\
+import asyncio
+from tests.utils.fake_clock import FakeClockContext
+
+
+async def test_example():
+    async with FakeClockContext() as clock:
+        async def worker():
+            await asyncio.sleep(0.01)
+
+        task = asyncio.create_task(worker())
+        clock.advance(0.01)
+        await task
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _FakeClockContextSleepVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert visitor.findings == []

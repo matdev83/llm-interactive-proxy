@@ -15,6 +15,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from freezegun import freeze_time
 from src.core.database.models.usage import SessionMetricsTable
 from src.core.database.repositories.usage_repository import SessionMetricsRepository
 from src.core.domain.session_key import SessionKey
@@ -56,7 +57,8 @@ def sample_session_key() -> SessionKey:
 @pytest.fixture
 def sample_observed_at() -> datetime:
     """Create a sample observation timestamp."""
-    return datetime.now(timezone.utc)
+    with freeze_time("2024-01-01 12:00:00"):
+        return datetime.now(timezone.utc)
 
 
 class TestSuccessCase:

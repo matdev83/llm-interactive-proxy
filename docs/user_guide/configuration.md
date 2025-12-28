@@ -392,6 +392,29 @@ routing:
   disable_model_names: false        # Disable routing via model name only (e.g. gpt-4)
 ```
 
+### Resilience Scoping (`resilience`)
+
+Resilience scoping controls whether rate-limit and cooldown state is shared across clients
+(enterprise/shared backends) or isolated per user/session (personal OAuth/codex backends).
+
+Defaults (no config required):
+- Any backend type containing `oauth` or `codex` is treated as personal.
+- The built-in personal list includes: `anthropic-oauth`, `antigravity-oauth`,
+  `gemini-oauth-free`, `gemini-oauth-plan`, `gemini-cli-cloud-project`,
+  `qwen-oauth`, `openai-codex`.
+
+Use overrides only if you need to force a backend into personal or shared mode.
+
+```yaml
+resilience:
+  # Force personal scoping for selected backends (optional).
+  personal_backend_types: ["openai-codex", "qwen-oauth"]
+  # Force shared scoping for selected backends (optional).
+  shared_backend_types: ["openai", "openrouter"]
+```
+
+> **See Also:** [Resilience Scoping](features/resilience-scoping.md)
+
 ### Health Check Settings (`health_check`)
 
 Configure backend API endpoint health monitoring and circuit breaker behavior.

@@ -52,7 +52,7 @@ def event_bus() -> EventBus:
 
 
 @pytest.fixture
-def mock_session_repo() -> SessionMetricsRepository:
+def mock_session_repo() -> AsyncMock:
     """Create a mock session metrics repository."""
     repo = AsyncMock(spec=SessionMetricsRepository)
     repo.claim_eos_emission = AsyncMock(return_value=True)
@@ -64,7 +64,7 @@ def mock_session_repo() -> SessionMetricsRepository:
 
 
 @pytest.fixture
-def mock_memory_service() -> IMemoryService:
+def mock_memory_service() -> AsyncMock:
     """Create a mock memory service."""
     service = AsyncMock(spec=IMemoryService)
     service.mark_session_complete = AsyncMock(return_value=True)
@@ -72,7 +72,7 @@ def mock_memory_service() -> IMemoryService:
 
 
 @pytest.fixture
-def mock_wire_capture() -> IWireCapture:
+def mock_wire_capture() -> AsyncMock:
     """Create a mock wire capture service."""
     capture = AsyncMock(spec=IWireCapture)
     capture.enabled = MagicMock(return_value=True)
@@ -81,10 +81,10 @@ def mock_wire_capture() -> IWireCapture:
 
 
 @pytest.fixture
-def mock_reminder_handler() -> TestExecutionReminderHandler:
+def mock_reminder_handler() -> AsyncMock:
     """Create a mock reminder handler."""
-    handler = MagicMock(spec=TestExecutionReminderHandler)
-    handler._get_session_state = MagicMock(return_value=None)
+    handler = AsyncMock(spec=TestExecutionReminderHandler)
+    handler._get_session_state = AsyncMock(return_value=None)
     return handler
 
 
@@ -104,7 +104,7 @@ def eos_config() -> EndOfSessionConfig:
 def eos_service(
     event_bus: EventBus,
     eos_config: EndOfSessionConfig,
-    mock_session_repo: SessionMetricsRepository,
+    mock_session_repo: AsyncMock,
 ) -> EndOfSessionService:
     """Create EndOfSessionService instance."""
     return EndOfSessionService(
@@ -128,10 +128,10 @@ def stream_processor(
 @pytest.fixture
 async def all_subscribers(
     event_bus: EventBus,
-    mock_memory_service: IMemoryService,
-    mock_session_repo: SessionMetricsRepository,
-    mock_wire_capture: IWireCapture,
-    mock_reminder_handler: TestExecutionReminderHandler,
+    mock_memory_service: AsyncMock,
+    mock_session_repo: AsyncMock,
+    mock_wire_capture: AsyncMock,
+    mock_reminder_handler: AsyncMock,
 ) -> tuple[
     ProxyMemEosSubscriber,
     UsageTrackingEosSubscriber,
@@ -164,7 +164,7 @@ async def all_subscribers(
 async def test_streaming_eos_emission_with_persistence(
     stream_processor: EndOfSessionStreamProcessor,
     eos_service: EndOfSessionService,
-    mock_session_repo: SessionMetricsRepository,
+    mock_session_repo: AsyncMock,
     event_bus: EventBus,
     all_subscribers: tuple,
 ) -> None:
@@ -192,7 +192,7 @@ async def test_streaming_eos_emission_with_persistence(
     result = await stream_processor.process(content)
 
     # Give time for event processing
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0)
 
     # Verify event was emitted
     assert len(events_received) == 1
@@ -215,7 +215,7 @@ async def test_streaming_eos_emission_with_persistence(
 @pytest.mark.asyncio
 async def test_non_streaming_eos_emission_with_persistence(
     eos_service: EndOfSessionService,
-    mock_session_repo: SessionMetricsRepository,
+    mock_session_repo: AsyncMock,
     event_bus: EventBus,
     all_subscribers: tuple,
 ) -> None:
@@ -243,7 +243,7 @@ async def test_non_streaming_eos_emission_with_persistence(
     await eos_service.record_signal(signal)
 
     # Give time for event processing
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0)
 
     # Verify event was emitted
     assert len(events_received) == 1
@@ -259,7 +259,7 @@ async def test_non_streaming_eos_emission_with_persistence(
 @pytest.mark.asyncio
 async def test_error_driven_eos_emission(
     eos_service: EndOfSessionService,
-    mock_session_repo: SessionMetricsRepository,
+    mock_session_repo: AsyncMock,
     event_bus: EventBus,
     all_subscribers: tuple,
 ) -> None:
@@ -288,7 +288,7 @@ async def test_error_driven_eos_emission(
     await eos_service.record_signal(signal)
 
     # Give time for event processing
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0)
 
     # Verify event was emitted with error classification
     assert len(events_received) == 1
@@ -307,10 +307,10 @@ async def test_error_driven_eos_emission(
 async def test_multiple_listeners_receive_events(
     eos_service: EndOfSessionService,
     event_bus: EventBus,
-    mock_memory_service: IMemoryService,
-    mock_session_repo: SessionMetricsRepository,
-    mock_wire_capture: IWireCapture,
-    mock_reminder_handler: TestExecutionReminderHandler,
+    mock_memory_service: AsyncMock,
+    mock_session_repo: AsyncMock,
+    mock_wire_capture: AsyncMock,
+    mock_reminder_handler: AsyncMock,
 ) -> None:
     """Test that multiple listeners receive the same event."""
     session_id = "multi-listener-session-999"
@@ -346,7 +346,7 @@ async def test_multiple_listeners_receive_events(
     await eos_service.record_signal(signal)
 
     # Give time for event processing
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0)
 
     # Verify all subscribers received the event
     mock_memory_service.mark_session_complete.assert_called_once_with(
@@ -361,7 +361,7 @@ async def test_multiple_listeners_receive_events(
 @pytest.mark.asyncio
 async def test_db_persistence_eos_completion_state(
     eos_service: EndOfSessionService,
-    mock_session_repo: SessionMetricsRepository,
+    mock_session_repo: AsyncMock,
     event_bus: EventBus,
 ) -> None:
     """Test that EoS completion state is persisted in database."""
@@ -421,7 +421,7 @@ async def test_event_payload_correctness_end_to_end(
     await stream_processor.process(content)
 
     # Give time for event processing
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0)
 
     # Verify event payload correctness
     assert len(events_received) == 1
@@ -463,7 +463,7 @@ async def test_error_classification_defaults_to_unknown(
     await eos_service.record_signal(signal)
 
     # Give time for event processing
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0)
 
     # Verify default classification
     assert len(events_received) == 1
@@ -475,10 +475,10 @@ async def test_error_classification_defaults_to_unknown(
 @pytest.mark.asyncio
 async def test_client_termination_reason_flows_to_subscribers(
     eos_service: EndOfSessionService,
-    mock_session_repo: SessionMetricsRepository,
+    mock_session_repo: AsyncMock,
     event_bus: EventBus,
     all_subscribers: tuple,
-    mock_wire_capture: IWireCapture,
+    mock_wire_capture: AsyncMock,
 ) -> None:
     """Test that client termination reason flows through to usage tracking and wire capture.
 
@@ -507,7 +507,7 @@ async def test_client_termination_reason_flows_to_subscribers(
     await eos_service.record_signal(signal)
 
     # Give time for event processing
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0)
 
     # Verify event was emitted with client termination reason
     assert len(events_received) == 1
@@ -528,15 +528,15 @@ async def test_client_termination_reason_flows_to_subscribers(
     if update_called:
         # Verify update call includes termination reason
         update_call_args = mock_session_repo.update.call_args
-        metrics: SessionMetricsTable = update_call_args[0][0]
-        assert metrics.eos_reason == "client_disconnected"
-        assert metrics.eos_signal_type == "client_termination"
+        metrics_update: SessionMetricsTable = update_call_args[0][0]
+        assert metrics_update.eos_reason == "client_disconnected"
+        assert metrics_update.eos_signal_type == "client_termination"
     elif create_called:
         # Verify create call includes termination reason
         create_call_args = mock_session_repo.create.call_args
-        metrics: SessionMetricsTable = create_call_args[0][0]
-        assert metrics.eos_reason == "client_disconnected"
-        assert metrics.eos_signal_type == "client_termination"
+        metrics_create: SessionMetricsTable = create_call_args[0][0]
+        assert metrics_create.eos_reason == "client_disconnected"
+        assert metrics_create.eos_signal_type == "client_termination"
 
     # Verify wire capture subscriber recorded the reason
     mock_wire_capture.capture_stream_completion.assert_called_once()
@@ -551,11 +551,11 @@ async def test_client_termination_reason_flows_to_subscribers(
 @pytest.mark.asyncio
 async def test_eos_event_with_none_termination_reason_handled_gracefully(
     eos_service: EndOfSessionService,
-    mock_session_repo: SessionMetricsRepository,
+    mock_session_repo: AsyncMock,
     event_bus: EventBus,
     all_subscribers: tuple,
-    mock_wire_capture: IWireCapture,
-    mock_memory_service: IMemoryService,
+    mock_wire_capture: AsyncMock,
+    mock_memory_service: AsyncMock,
 ) -> None:
     """Test that subscribers handle None termination reason gracefully.
 
@@ -584,7 +584,7 @@ async def test_eos_event_with_none_termination_reason_handled_gracefully(
     await eos_service.record_signal(signal)
 
     # Give time for event processing
-    await asyncio.sleep(0.1)
+    await asyncio.sleep(0)
 
     # Verify event was emitted
     assert len(events_received) == 1
@@ -602,12 +602,12 @@ async def test_eos_event_with_none_termination_reason_handled_gracefully(
     # Verify that eos_reason is actually set to None in metrics
     if update_called:
         update_call_args = mock_session_repo.update.call_args
-        metrics: SessionMetricsTable = update_call_args[0][0]
-        assert metrics.eos_reason is None
+        metrics_update: SessionMetricsTable = update_call_args[0][0]
+        assert metrics_update.eos_reason is None
     elif create_called:
         create_call_args = mock_session_repo.create.call_args
-        metrics: SessionMetricsTable = create_call_args[0][0]
-        assert metrics.eos_reason is None
+        metrics_create: SessionMetricsTable = create_call_args[0][0]
+        assert metrics_create.eos_reason is None
 
     # Verify wire capture subscriber handled None gracefully
     mock_wire_capture.capture_stream_completion.assert_called_once()

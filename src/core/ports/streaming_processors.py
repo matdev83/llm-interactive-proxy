@@ -237,7 +237,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
             arguments = tool_call.get("function", {}).get("arguments", "{}")
 
             # Track the tool call
-            tracking_result = await tracker.track_tool_call(tool_name, arguments)
+            tracking_result = tracker.track_tool_call(tool_name, arguments)
 
             if tracking_result.should_block:
                 if self._logger.isEnabledFor(logging.WARNING):

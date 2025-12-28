@@ -11,6 +11,8 @@ from src.core.common.logging_utils import (
 
 def test_security_warnings_thread_safety() -> None:
     """Test that concurrent security warning checks don't corrupt the warnings set."""
+    with _logged_warnings_lock:
+        _logged_security_warnings.clear()
     errors = []
 
     def simulate_warning_check(warn_key: str, iterations: int) -> None:
@@ -54,9 +56,9 @@ def test_security_warnings_thread_safety() -> None:
 
     # All unique keys should be present
     expected_count = len(warn_keys) * 20
-    assert len(final_warnings) == expected_count, (
-        f"Expected {expected_count} unique warnings, got {len(final_warnings)}"
-    )
+    assert (
+        len(final_warnings) == expected_count
+    ), f"Expected {expected_count} unique warnings, got {len(final_warnings)}"
 
     # Clear for other tests
     with _logged_warnings_lock:
@@ -65,6 +67,9 @@ def test_security_warnings_thread_safety() -> None:
 
 def test_concurrent_warning_additions() -> None:
     """Test that warning additions work correctly under high concurrency."""
+    with _logged_warnings_lock:
+        _logged_security_warnings.clear()
+
     def add_warning(batch_id: int) -> None:
         """Add a batch of warnings."""
         for i in range(100):

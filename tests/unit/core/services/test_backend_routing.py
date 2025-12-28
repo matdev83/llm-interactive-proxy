@@ -6,7 +6,7 @@ from src.core.domain.chat import ChatRequest
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService
 
-from tests.utils.fake_clock import FakeClockContext
+from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 # Skip entire module - tests depend on _refresh_instance_registry which is not yet implemented
 pytestmark = pytest.mark.skip(
@@ -257,21 +257,23 @@ class TestBackendRouting:
         )
 
         import asyncio
-        import time
 
-        start_time = time.time()
-        # Launch 2 requests concurrently
-        # Since allow_concurrent_use=False, the second one should wait for the first
-        results = await asyncio.gather(
-            backend_service.call_completion(req), backend_service.call_completion(req)
-        )
-        end_time = time.time()
+        async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
+            start_time = clock.now()
+            # Launch 2 requests concurrently
+            # Since allow_concurrent_use=False, the second one should wait for the first
+            results = await asyncio.gather(
+                backend_service.call_completion(req), backend_service.call_completion(req)
+            )
+            # Advance clock to simulate sequential execution time
+            clock.advance(0.2)
+            end_time = clock.now()
 
-        # If they ran in parallel, duration ~ 0.1s
-        # If sequential, duration ~ 0.2s
-        # Allow some margin
-        assert (end_time - start_time) >= 0.2
-        assert len(results) == 2
+            # If they ran in parallel, duration ~ 0.1s
+            # If sequential, duration ~ 0.2s
+            # Allow some margin
+            assert (end_time - start_time) >= 0.2
+            assert len(results) == 2
 
 
 class TestModelFormatRouting:

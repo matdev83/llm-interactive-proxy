@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.core.memory.completion_detector import SessionCompletionDetector
@@ -119,9 +119,10 @@ class TestSessionCompletionDetector:
         detector = SessionCompletionDetector(service, config)
 
         # Record activity 2 minutes ago
-        detector._last_activity["session-1"] = time.time() - 120
-
-        await detector._check_timeouts()
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            detector._last_activity["session-1"] = time.time() - 120
+            await detector._check_timeouts()
 
         service.mark_session_complete.assert_called_once()
 
@@ -133,9 +134,10 @@ class TestSessionCompletionDetector:
         detector = SessionCompletionDetector(service, config)
 
         # Record recent activity
-        detector._last_activity["session-1"] = time.time() - 60
-
-        await detector._check_timeouts()
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            detector._last_activity["session-1"] = time.time() - 60
+            await detector._check_timeouts()
 
         service.mark_session_complete.assert_not_called()
 
@@ -160,7 +162,9 @@ class TestSessionCompletionDetector:
         config = create_mock_config()
         detector = SessionCompletionDetector(service, config)
 
-        detector._last_activity["session-1"] = time.time()
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            detector._last_activity["session-1"] = time.time()
         detector._completed_sessions.add("session-1")
 
         detector.clear_session("session-1")
@@ -204,9 +208,7 @@ class TestSessionCompletionDetector:
         session_id = "test-session-concurrent"
 
         # Launch concurrent activity recordings and completions
-        tasks = [
-            detector.record_activity(session_id) for _ in range(100)
-        ]
+        tasks = [detector.record_activity(session_id) for _ in range(100)]
         # Also try to complete session concurrently
         completion_tasks = [
             detector.on_session_close(session_id)
@@ -251,4 +253,3 @@ class TestSessionCompletionDetector:
         for session_idx in range(num_sessions):
             session_id = f"test-session-{session_idx}"
             assert session_id in detector._last_activity
-

@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 from src.core.common.exceptions import BackendError, RateLimitExceededError
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
@@ -101,4 +102,35 @@ class TestBackendAvailabilityChecker:
         # Should not raise
         await checker.check_backend_availability(
             backend_type="openai", effective_model="gpt-4", allow_failover=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_scopes_personal_backend_with_session_id(
+        self, checker, lifecycle_manager, resilience_coordinator
+    ):
+        lifecycle_manager.get_disabled_backends.return_value = {}
+
+        decision = ResilienceDecision(
+            action=ActionType.PROCEED, reason="", cooldown_remaining=0.0
+        )
+        resilience_coordinator.check_availability.return_value = decision
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            session_id="session-123",
+        )
+
+        await checker.check_backend_availability(
+            backend_type="qwen-oauth",
+            effective_model="qwen3-coder-plus",
+            allow_failover=True,
+            context=context,
+        )
+
+        resilience_coordinator.check_availability.assert_called_once_with(
+            "qwen-oauth:session-123",
+            "qwen3-coder-plus",
         )

@@ -28,11 +28,11 @@ from src.core.services.streaming.end_of_session_stream_processor import (
 
 
 @pytest.fixture
-def mock_eos_service() -> IEndOfSessionService:
+def mock_eos_service() -> MagicMock:
     """Create a mock EoS service."""
     mock = MagicMock(spec=IEndOfSessionService)
     mock.record_signal = AsyncMock()
-    mock.has_ended = MagicMock(return_value=False)  # Default to not ended
+    mock.has_ended = AsyncMock(return_value=False)  # Default to not ended
     return mock
 
 
@@ -49,7 +49,7 @@ def default_config() -> EndOfSessionConfig:
 
 @pytest.fixture
 def processor(
-    mock_eos_service: IEndOfSessionService, default_config: EndOfSessionConfig
+    mock_eos_service: MagicMock, default_config: EndOfSessionConfig
 ) -> EndOfSessionStreamProcessor:
     """Create EndOfSessionStreamProcessor instance for testing."""
     return EndOfSessionStreamProcessor(
@@ -64,7 +64,7 @@ class TestConfigGating:
     @pytest.mark.asyncio
     async def test_disabled_config_skips_processing(
         self,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that disabled config prevents processing."""
         config = EndOfSessionConfig(enabled=False, detect_stream_signals=True)
@@ -86,7 +86,7 @@ class TestConfigGating:
     @pytest.mark.asyncio
     async def test_detect_stream_signals_false_skips_processing(
         self,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that detect_stream_signals=False prevents processing."""
         config = EndOfSessionConfig(
@@ -115,7 +115,7 @@ class TestSessionIdExtraction:
     async def test_extracts_session_id_from_metadata(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that session_id is extracted from metadata."""
         content = StreamingContent(
@@ -134,7 +134,7 @@ class TestSessionIdExtraction:
     async def test_extracts_id_as_fallback(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that 'id' field is used as fallback for session_id."""
         content = StreamingContent(
@@ -153,7 +153,7 @@ class TestSessionIdExtraction:
     async def test_missing_session_id_skips_emission(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that missing session_id prevents emission."""
         content = StreamingContent(
@@ -175,7 +175,7 @@ class TestCompletionMarkerDetection:
     async def test_detects_is_done_flag(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test detection of is_done=True flag."""
         content = StreamingContent(
@@ -195,7 +195,7 @@ class TestCompletionMarkerDetection:
     async def test_detects_done_sentinel_in_content(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test detection of [DONE] sentinel in content."""
         content = StreamingContent(
@@ -215,7 +215,7 @@ class TestCompletionMarkerDetection:
     async def test_detects_finish_reason(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test detection of finish_reason in metadata."""
         content = StreamingContent(
@@ -235,7 +235,7 @@ class TestCompletionMarkerDetection:
     async def test_detects_message_stop(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test detection of message_stop in metadata."""
         content = StreamingContent(
@@ -254,7 +254,7 @@ class TestCompletionMarkerDetection:
     async def test_detects_response_completed(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test detection of response.completed in metadata."""
         content = StreamingContent(
@@ -277,7 +277,7 @@ class TestPassThroughBehavior:
     async def test_content_unchanged(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that content is returned unchanged."""
         content = StreamingContent(
@@ -297,7 +297,7 @@ class TestPassThroughBehavior:
     async def test_no_completion_marker_returns_unchanged(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that content without completion markers is returned unchanged."""
         content = StreamingContent(
@@ -319,7 +319,7 @@ class TestFailOpen:
     async def test_service_error_logged_but_not_raised(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that service errors are logged but not raised."""
         mock_eos_service.record_signal.side_effect = Exception("Service error")
@@ -343,7 +343,7 @@ class TestMetadataExtraction:
     async def test_extracts_protocol_and_backend(
         self,
         processor: EndOfSessionStreamProcessor,
-        mock_eos_service: IEndOfSessionService,
+        mock_eos_service: MagicMock,
     ):
         """Test that protocol and backend are extracted from metadata."""
         content = StreamingContent(

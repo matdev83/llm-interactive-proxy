@@ -16,6 +16,7 @@ class TestSessionStateInitialization:
         import asyncio
 
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async def _test():
             async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
                 state = TestExecutionSessionState()
@@ -34,6 +35,7 @@ class TestSessionStateInitialization:
                 current_time = clock.now()
                 assert abs(state.last_modification_time - current_time) < 0.1
                 assert abs(state.last_seen - current_time) < 0.1
+
         asyncio.run(_test())
 
     def test_explicit_initialization_clean(self) -> None:
@@ -172,8 +174,8 @@ class TestTimestampTracking:
         def fake_time() -> float:
             return current_time["value"]
 
-        # Patch the time function in the module
-        monkeypatch.setattr(session_state_module, "time", fake_time)
+        # Patch the time module's time() function used by session_state
+        monkeypatch.setattr(session_state_module.time, "time", fake_time)
 
         # Create state with explicit timestamps to avoid default_factory capturing real time
         state = TestExecutionSessionState(
@@ -202,9 +204,8 @@ class TestTimestampTracking:
             return current_time["value"]
 
         # Patch time before creating state instance
-        # session_state uses "from time import time", so patch the imported function
         monkeypatch.setattr(
-            "src.services.test_execution_reminder.session_state.time", fake_time
+            "src.services.test_execution_reminder.session_state.time.time", fake_time
         )
 
         # Create state with explicit initial values to avoid default_factory issues
@@ -234,9 +235,8 @@ class TestTimestampTracking:
             return current_time["value"]
 
         # Patch time before creating state instance
-        # session_state uses "from time import time", so patch the imported function
         monkeypatch.setattr(
-            "src.services.test_execution_reminder.session_state.time", fake_time
+            "src.services.test_execution_reminder.session_state.time.time", fake_time
         )
 
         state = TestExecutionSessionState(is_dirty=True)
@@ -262,9 +262,8 @@ class TestTimestampTracking:
             return current_time["value"]
 
         # Patch time before creating state instance
-        # session_state uses "from time import time", so patch the imported function
         monkeypatch.setattr(
-            "src.services.test_execution_reminder.session_state.time", fake_time
+            "src.services.test_execution_reminder.session_state.time.time", fake_time
         )
 
         # Create state with explicit initial values to avoid default_factory issues
@@ -293,9 +292,8 @@ class TestTimestampTracking:
             return current_time["value"]
 
         # Patch time before creating state instance
-        # session_state uses "from time import time", so patch the imported function
         monkeypatch.setattr(
-            "src.services.test_execution_reminder.session_state.time", fake_time
+            "src.services.test_execution_reminder.session_state.time.time", fake_time
         )
 
         # Create state with explicit initial values to avoid default_factory issues
@@ -352,9 +350,8 @@ class TestTimestampTracking:
             return current_time["value"]
 
         # Patch time before creating state instance
-        # session_state uses "from time import time", so patch the imported function
         monkeypatch.setattr(
-            "src.services.test_execution_reminder.session_state.time", fake_time
+            "src.services.test_execution_reminder.session_state.time.time", fake_time
         )
 
         # Create state with explicit initial values to avoid default_factory issues
@@ -386,9 +383,8 @@ class TestTimestampTracking:
             return current_time["value"]
 
         # Patch time before creating state instance
-        # session_state uses "from time import time", so patch the imported function
         monkeypatch.setattr(
-            "src.services.test_execution_reminder.session_state.time", fake_time
+            "src.services.test_execution_reminder.session_state.time.time", fake_time
         )
 
         state = TestExecutionSessionState(is_dirty=True)
@@ -412,9 +408,8 @@ class TestTimestampTracking:
             return current_time["value"]
 
         # Patch time before creating state instance
-        # session_state uses "from time import time", so patch the imported function
         monkeypatch.setattr(
-            "src.services.test_execution_reminder.session_state.time", fake_time
+            "src.services.test_execution_reminder.session_state.time.time", fake_time
         )
 
         state = TestExecutionSessionState()

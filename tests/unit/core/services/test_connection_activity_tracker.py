@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 import pytest
 from src.core.domain.connection_activity import (
@@ -39,16 +40,18 @@ class TestConnectionActivity:
 
     def test_connection_activity_duration(self) -> None:
         """Test duration_seconds property."""
-        start_time = time.time() - 5.0  # 5 seconds ago
-        activity = ConnectionActivity(
-            session_id="test",
-            backend_name="test",
-            connection_type=ConnectionType.NON_STREAMING,
-            started_at=start_time,
-        )
+        base_time = 1000.0
+        with patch("time.time", return_value=base_time):
+            start_time = time.time() - 5.0  # 5 seconds ago
+            activity = ConnectionActivity(
+                session_id="test",
+                backend_name="test",
+                connection_type=ConnectionType.NON_STREAMING,
+                started_at=start_time,
+            )
 
-        # Duration should be approximately 5 seconds
-        assert 4.9 <= activity.duration_seconds <= 5.5
+            # Duration should be approximately 5 seconds
+            assert 4.9 <= activity.duration_seconds <= 5.5
 
     def test_connection_activity_to_dict(self) -> None:
         """Test to_dict serialization."""

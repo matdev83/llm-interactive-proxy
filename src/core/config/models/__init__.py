@@ -12,6 +12,7 @@ from src.core.config.models.logging import LoggingConfig, LogLevel
 from src.core.config.models.misc import (
     CodebuffConfig,
     EmptyResponseConfig,
+    ResilienceConfig,
     UsageTrackingConfig,
 )
 from src.core.config.models.rewriting import (
@@ -43,6 +44,7 @@ __all__ = [
     "ModelAliasRule",
     "PlanningPhaseConfig",
     "RewritingConfig",
+    "ResilienceConfig",
     "RoutingConfig",
     "SessionConfig",
     "SessionContinuityConfig",

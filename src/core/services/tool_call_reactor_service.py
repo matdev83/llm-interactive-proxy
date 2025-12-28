@@ -17,6 +17,7 @@ from typing import Any
 from uuid import uuid4
 
 from src.core.common.exceptions import ToolCallReactorError
+from src.core.interfaces.time_source_interface import ITimeSource
 from src.core.interfaces.tool_call_reactor_interface import (
     IToolCallHandler,
     IToolCallHistoryTracker,
@@ -502,7 +503,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
         session_ttl_seconds: int = 3600,
         max_sessions: int = 10000,
         max_entries_per_session: int = 100,  # Reduced from 1000 to prevent memory bloat
-        time_source: Any = None,
+        time_source: ITimeSource | None = None,
     ) -> None:
         """Initialize the history tracker.
 
@@ -517,7 +518,7 @@ class InMemoryToolCallHistoryTracker(IToolCallHistoryTracker):
         self._session_ttl_seconds = session_ttl_seconds
         self._max_sessions = max_sessions
         self._max_entries_per_session = max_entries_per_session
-        self._time_source = time_source
+        self._time_source: ITimeSource | None = time_source
         self._lock = asyncio.Lock()
         # Track total entries across all sessions for global limit enforcement
         self._total_entries = 0

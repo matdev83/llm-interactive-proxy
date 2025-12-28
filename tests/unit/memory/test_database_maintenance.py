@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import AsyncGenerator, Generator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from freezegun import freeze_time
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.maintenance import DatabaseMaintenance
 from src.core.memory.models import SessionSummary
@@ -19,27 +21,28 @@ def create_summary(
     days_ago: int = 0,
 ) -> SessionSummary:
     """Create a test SessionSummary."""
-    now = datetime.now(timezone.utc) - timedelta(days=days_ago)
-    return SessionSummary(
-        id=f"sum-{session_id}",
-        user_id=user_id,
-        session_id=session_id,
-        session_start=now,
-        backend_model="openai:gpt-4o",
-        title="Test Session",
-        scope="Testing",
-        completion_status="completed",
-        full_analysis="<session_summary/>",
-        summary_version="v1",
-        created_at=now,
-    )
+    with freeze_time("2024-01-01 12:00:00"):
+        now = datetime.now(timezone.utc) - timedelta(days=days_ago)
+        return SessionSummary(
+            id=f"sum-{session_id}",
+            user_id=user_id,
+            session_id=session_id,
+            session_start=now,
+            backend_model="openai:gpt-4o",
+            title="Test Session",
+            scope="Testing",
+            completion_status="completed",
+            full_analysis="<session_summary/>",
+            summary_version="v1",
+            created_at=now,
+        )
 
 
 class TestDatabaseMaintenance:
     """Tests for DatabaseMaintenance."""
 
     @pytest.fixture
-    def temp_db_path(self) -> Path:
+    def temp_db_path(self) -> Generator[Path, None, None]:
         """Create a temporary database path."""
         with tempfile.TemporaryDirectory() as tmpdir:
             yield Path(tmpdir) / "test_memory.sqlite3"
@@ -55,7 +58,9 @@ class TestDatabaseMaintenance:
         )
 
     @pytest.fixture
-    async def repository(self, config: MemoryConfiguration) -> MemoryRepository:
+    async def repository(
+        self, config: MemoryConfiguration
+    ) -> AsyncGenerator[MemoryRepository, None]:
         """Create repository instance."""
         repo = MemoryRepository(config)
         yield repo
@@ -75,15 +80,16 @@ class TestDatabaseMaintenance:
         """Test cleanup deletes sessions older than retention."""
         await repository.initialize_schema()
 
-        # Create old and recent sessions
-        old_summary = create_summary(session_id="old", days_ago=100)
-        recent_summary = create_summary(session_id="recent", days_ago=10)
+        with freeze_time("2024-01-01 12:00:00"):
+            # Create old and recent sessions
+            old_summary = create_summary(session_id="old", days_ago=100)
+            recent_summary = create_summary(session_id="recent", days_ago=10)
 
-        await repository.save_session_summary(old_summary)
-        await repository.save_session_summary(recent_summary)
+            await repository.save_session_summary(old_summary)
+            await repository.save_session_summary(recent_summary)
 
-        # Run cleanup
-        deleted = await maintenance.run_cleanup()
+            # Run cleanup
+            deleted = await maintenance.run_cleanup()
 
         assert deleted == 1
 
@@ -99,10 +105,11 @@ class TestDatabaseMaintenance:
         """Test cleanup returns 0 when no old sessions exist."""
         await repository.initialize_schema()
 
-        recent_summary = create_summary(session_id="recent", days_ago=10)
-        await repository.save_session_summary(recent_summary)
+        with freeze_time("2024-01-01 12:00:00"):
+            recent_summary = create_summary(session_id="recent", days_ago=10)
+            await repository.save_session_summary(recent_summary)
 
-        deleted = await maintenance.run_cleanup()
+            deleted = await maintenance.run_cleanup()
 
         assert deleted == 0
 
@@ -121,11 +128,12 @@ class TestDatabaseMaintenance:
 
             await repo.initialize_schema()
 
-            # Session at 40 days should be deleted with 30-day retention
-            summary = create_summary(days_ago=40)
-            await repo.save_session_summary(summary)
+            with freeze_time("2024-01-01 12:00:00"):
+                # Session at 40 days should be deleted with 30-day retention
+                summary = create_summary(days_ago=40)
+                await repo.save_session_summary(summary)
 
-            deleted = await maint.run_cleanup()
+                deleted = await maint.run_cleanup()
             assert deleted == 1
         finally:
             await repo.close()
