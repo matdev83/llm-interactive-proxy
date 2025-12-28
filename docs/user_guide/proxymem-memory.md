@@ -40,6 +40,7 @@ Once memory is globally available, users can control it per-session:
 | `!/memory-on` | Enable memory capture for the current session |
 | `!/memory-off` | Disable memory capture for the current session |
 | `!/memory-status` | Show current memory state for the session |
+| `!/memory-requeue` | Force the current session to requeue for summary generation |
 
 ## Configuration
 
@@ -51,12 +52,31 @@ Once memory is globally available, users can control it per-session:
 | `--memory-default-enabled` | Enable memory by default for new sessions | `false` |
 | `--memory-summary-model` | Model for generating summaries (`backend:model`) | None |
 | `--memory-context-model` | Model for context retrieval (`backend:model`) | None |
+| `--memory-summary-prompt` | Path to custom summary prompt file | None |
+| `--memory-context-prompt` | Path to custom context prompt file | None |
 | `--memory-database-path` | Path to SQLite database | `./var/memory.sqlite3` |
 | `--memory-session-timeout` | Minutes of inactivity before session completion | `30` |
+| `--memory-summarization-delay` | Seconds to wait before summary generation | `120` |
+| `--memory-max-sessions-to-consider` | Max recent sessions to consider for context | `10` |
 | `--memory-retention-days` | Days to retain session summaries | `90` |
 | `--memory-max-context-tokens` | Maximum tokens for injected context | `2000` |
+| `--memory-max-summary-tokens` | Max tokens for summary prompt context | `800` |
+| `--memory-max-transcript-chars` | Max transcript length before chunking | `50000` |
+| `--memory-summary-completion-tokens` | Max completion tokens for summary generation | `10000` |
+| `--memory-context-relevance-threshold` | Minimum relevance score for context | `0.5` |
+| `--memory-max-buffer-size-bytes` | Capture buffer size per session | `10485760` |
+| `--memory-analysis-queue-maxsize` | Analysis queue max size | `100` |
+| `--memory-analysis-timeout` | Summary generation timeout (seconds) | `30` |
+| `--memory-max-concurrent-analyses` | Max concurrent analyses | `4` |
+| `--memory-context-template` | Template for injected context | None |
 | `--memory-single-user-mode` | Use a fixed user ID for all sessions | `false` |
 | `--memory-fixed-user-id` | Fixed user ID (required when single-user-mode) | None |
+| `--memory-persist-transcript` | Persist transcripts for summaries | `false` |
+| `--memory-summary-prompt-version` | Summary prompt version tag | `v1` |
+| `--memory-summary-schema-version` | Summary schema version tag | `v1` |
+| `--memory-require-project-discovery` | Require project discovery for injection | `true` |
+| `--memory-allow-missing-project` | Allow injection without project root | `false` |
+| `--memory-project-discovery-mode` | Project discovery mode | `any` |
 
 ### Environment Variables
 
@@ -68,9 +88,19 @@ export MEMORY_DEFAULT_ENABLED=true
 export MEMORY_SUMMARY_MODEL=openai:gpt-4o-mini
 export MEMORY_CONTEXT_MODEL=openai:gpt-4o-mini
 export MEMORY_DATABASE_PATH=./var/memory.sqlite3
-export MEMORY_SESSION_TIMEOUT=30
+export MEMORY_SESSION_TIMEOUT_MINUTES=30
 export MEMORY_RETENTION_DAYS=90
+export MEMORY_MAX_CONTEXT_TOKENS=2000
+export MEMORY_MAX_SUMMARY_TOKENS=800
+export MEMORY_MAX_TRANSCRIPT_CHARS=50000
+export MEMORY_SUMMARY_COMPLETION_TOKENS=10000
+export MEMORY_CONTEXT_RELEVANCE_THRESHOLD=0.5
+export MEMORY_PERSIST_TRANSCRIPT=false
+export MEMORY_REQUIRE_PROJECT_DISCOVERY=true
+export MEMORY_PROJECT_DISCOVERY_MODE=any
 ```
+
+Note: `MEMORY_SESSION_TIMEOUT` is accepted as a legacy alias for `MEMORY_SESSION_TIMEOUT_MINUTES`.
 
 ### Configuration File
 

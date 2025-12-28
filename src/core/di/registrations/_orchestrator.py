@@ -15,6 +15,7 @@ from src.core.di.registrations import (
     backend,
     core,
     persistence,
+    replacement,
     resilience,
     security,
     streaming,
@@ -32,7 +33,8 @@ def register_all(services: ServiceCollection, app_config: AppConfig | None) -> N
     4. security - Sandboxing, path validation
     5. tooling - Tool call reactor, dangerous commands
     6. backend - Backend registry, factory, routing
-    7. resilience - Failover, rate limiting, failure strategy
+    7. replacement - Random model replacement
+    8. resilience - Failover, rate limiting, failure strategy
 
     This order is critical to preserve staged initialization semantics and
     ensure dependencies are registered before dependents.
@@ -48,4 +50,5 @@ def register_all(services: ServiceCollection, app_config: AppConfig | None) -> N
     security.register(services, app_config)
     tooling.register(services, app_config)
     backend.register(services, app_config)
+    replacement.register(services, app_config)
     resilience.register(services, app_config)

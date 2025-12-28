@@ -17,6 +17,16 @@ def process_api_keys(keys_string: str) -> list[str]:
     return result
 
 
+def parse_csv_list(value: str) -> list[str]:
+    items = value.split(",")
+    result: list[str] = []
+    for item in items:
+        stripped = item.strip()
+        if stripped:
+            result.append(stripped)
+    return result
+
+
 def get_api_keys_from_env(
     env: Mapping[str, str], resolution: ParameterResolution | None = None
 ) -> list[str]:

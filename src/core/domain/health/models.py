@@ -8,10 +8,12 @@ class EndpointHealthSummary(BaseModel):
     healthy_endpoints: int
     unhealthy_endpoints: int
 
+
 class EndpointBackendInfo(BaseModel):
     api_url: str
     backend_type: str
     is_endpoint_healthy: bool
+
 
 class EndpointHealthStateInfo(BaseModel):
     api_url: str
@@ -31,6 +33,7 @@ class EndpointHealthStateInfo(BaseModel):
     last_http_error: str | None = None
     backends_using_url: list[str]
 
+
 class HealthInfo(BaseModel):
     enabled: bool
     note: str | None = None
@@ -39,6 +42,19 @@ class HealthInfo(BaseModel):
     summary: EndpointHealthSummary | None = None
     error: str | None = None
 
+
+class MemoryHealthInfo(BaseModel):
+    enabled: bool
+    available: bool
+    database_connected: bool | None = None
+    analysis_worker_running: bool | None = None
+    queue_depth: int | None = None
+    active_sessions: int | None = None
+    buffered_sessions: int | None = None
+    note: str | None = None
+    error: str | None = None
+
+
 class SystemHealthInfo(BaseModel):
     service_provider_present: bool
     IRequestProcessor_resolvable: bool | None = None
@@ -46,6 +62,7 @@ class SystemHealthInfo(BaseModel):
     ChatController_resolvable: bool | None = None
     ChatController_error: str | None = None
     endpoint_health: HealthInfo | None = None
+    memory_health: MemoryHealthInfo | None = None
     registered_descriptors: list[str] = Field(default_factory=list)
     descriptor_error: str | None = None
     error: str | None = None

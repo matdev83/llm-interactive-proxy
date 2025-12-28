@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.interfaces import LLMCaller
 from src.core.memory.prompt_loader import PromptLoader
+from src.core.services import metrics_service
 
 if TYPE_CHECKING:
     from src.core.memory.models import SessionSummary
@@ -86,6 +87,26 @@ class ContextInjector:
         Returns:
             Formatted context string or None if no relevant context.
         """
+        metrics_service.inc("memory.context.requested")
+        with metrics_service.timer("memory.context.retrieve.duration"):
+            return await self._get_context_impl(
+                user_id=user_id,
+                current_prompt=current_prompt,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                project_root=project_root,
+            )
+
+    async def _get_context_impl(
+        self,
+        user_id: str,
+        current_prompt: str,
+        *,
+        tenant_id: str | None = None,
+        project_id: str | None = None,
+        project_root: str | None = None,
+    ) -> str | None:
+        """Retrieve relevant historical context for a new session (implementation)."""
         # Retrieve recent summaries (scoped by user/tenant/project per Req 17, 18)
         summaries = await self._repository.get_recent_sessions(
             user_id,
@@ -97,6 +118,7 @@ class ContextInjector:
 
         if not summaries:
             logger.debug("No historical sessions found for user %s", user_id)
+            metrics_service.inc("memory.context.no_history")
             return None
 
         # Score summaries by relevance (Req 8.10)
@@ -112,6 +134,7 @@ class ContextInjector:
                 threshold,
                 user_id,
             )
+            metrics_service.inc("memory.context.below_threshold")
             return None
 
         # Sort by score (descending), then by recency for ties
@@ -127,7 +150,10 @@ class ContextInjector:
         if self._llm_caller is None:
             context = self._build_simple_context(filtered_summaries)
             # Apply token limiting (Req 8.4)
-            return self._limit_tokens(context)
+            result = self._limit_tokens(context)
+            if result:
+                metrics_service.inc("memory.context.generated")
+            return result
 
         # Use LLM to generate relevant context
         llm_context = await self._generate_context_with_llm(
@@ -141,7 +167,10 @@ class ContextInjector:
 
         if llm_context:
             # Apply token limiting (Req 8.4)
-            return self._limit_tokens(llm_context)
+            result = self._limit_tokens(llm_context)
+            if result:
+                metrics_service.inc("memory.context.generated")
+            return result
 
         return None
 
@@ -377,13 +406,19 @@ class ContextInjector:
         prompt = self._prompt_loader.substitute_variables(prompt_template, variables)
 
         try:
-            response = await self._llm_caller(prompt)  # type: ignore
+            try:
+                response = await self._llm_caller(  # type: ignore[misc]
+                    prompt, max_tokens=self._config.max_context_tokens
+                )
+            except TypeError:
+                response = await self._llm_caller(prompt)  # type: ignore[misc]
             # Check for NO_RELEVANT_CONTEXT response
             if response and "NO_RELEVANT_CONTEXT" in response:
                 return None
             return response if response else None
         except Exception as e:
             logger.warning("Failed to generate context with LLM: %s", e)
+            metrics_service.inc("memory.context.llm_failure")
             return None
 
     def format_context_for_injection(self, context: str | None) -> str:

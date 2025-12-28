@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. Create configuration
+- [x] 1. Create configuration
   - Add `--enable-sandboxing` CLI flag in `src/core/cli.py`
   - Support `ENABLE_SANDBOXING` env var
   - _Requirements: 1.1, 1.2, 1.3, 1.4_

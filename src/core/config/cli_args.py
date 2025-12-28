@@ -10,6 +10,18 @@ import os
 from typing import Any
 
 
+def _parse_csv_list(values: str | None) -> list[str]:
+    if not values:
+        return []
+    items = values.split(",")
+    result: list[str] = []
+    for item in items:
+        stripped = item.strip()
+        if stripped:
+            result.append(stripped)
+    return result
+
+
 def parse_cli_args(args: list[str] | None = None) -> dict[str, Any]:
     """
     Parse command-line arguments.
@@ -70,6 +82,19 @@ def parse_cli_args(args: list[str] | None = None) -> dict[str, Any]:
         help="SSO session lifetime in hours (default: 24)",
     )
 
+    parser.add_argument(
+        "--resilience-personal-backends",
+        type=_parse_csv_list,
+        metavar="BACKEND[,BACKEND...]",
+        help="Force personal scoping for listed backend types (comma-separated).",
+    )
+    parser.add_argument(
+        "--resilience-shared-backends",
+        type=_parse_csv_list,
+        metavar="BACKEND[,BACKEND...]",
+        help="Force shared scoping for listed backend types (comma-separated).",
+    )
+
     # Parse arguments.
     #
     # When called with `args=None`, argparse reads from sys.argv which may contain
@@ -103,6 +128,14 @@ def parse_cli_args(args: list[str] | None = None) -> dict[str, Any]:
 
     if parsed_args.sso_session_lifetime is not None:
         result["sso_session_lifetime"] = parsed_args.sso_session_lifetime
+
+    if parsed_args.resilience_personal_backends is not None:
+        result["resilience_personal_backends"] = (
+            parsed_args.resilience_personal_backends
+        )
+
+    if parsed_args.resilience_shared_backends is not None:
+        result["resilience_shared_backends"] = parsed_args.resilience_shared_backends
 
     return result
 
@@ -139,6 +172,16 @@ def apply_cli_overrides(env_dict: dict[str, str], cli_args: dict[str, Any]) -> N
 
     if "sso_session_lifetime" in cli_args:
         env_dict["SSO_SESSION_LIFETIME_HOURS"] = str(cli_args["sso_session_lifetime"])
+
+    if "resilience_personal_backends" in cli_args:
+        env_dict["RESILIENCE_PERSONAL_BACKEND_TYPES"] = ",".join(
+            cli_args["resilience_personal_backends"]
+        )
+
+    if "resilience_shared_backends" in cli_args:
+        env_dict["RESILIENCE_SHARED_BACKEND_TYPES"] = ",".join(
+            cli_args["resilience_shared_backends"]
+        )
 
 
 def get_config_with_cli_args() -> dict[str, str]:

@@ -29,6 +29,22 @@ auth:
     block_multiplier: 2.0  # Each subsequent block grows by this multiplier
     max_block_seconds: 3600  # Cap the block duration to one hour
 
+# File Access Sandboxing
+# Security feature that restricts LLM agents from performing file-changing operations
+# outside detected project root directory. This prevents agents from accidentally
+# or maliciously modifying files in sensitive system locations.
+# See docs/user_guide/features/file-sandboxing.md for complete documentation.
+# Enable via CLI: --enable-sandboxing
+# Enable via env: ENABLE_SANDBOXING=true
+sandboxing:
+  enabled: false  # Enable/disable file access sandboxing
+  strict_mode: false  # Block tool calls with unparseable paths (default: false)
+  allow_parent_access: false  # Allow access to parent directories of project root (default: false)
+  # Additional regex patterns for file-changing tools (optional)
+  custom_tool_patterns: []
+  # Regex patterns for tools to exempt from sandboxing (optional)
+  excluded_tools: []
+
 # Session management
 session:
   cleanup_enabled: true
@@ -105,6 +121,40 @@ session:
   #   - Note: Logs are emitted at TRACE level (level 5) to minimize noise
   force_reprocess_tool_calls: false
   log_skipped_tool_calls: false
+
+# ProxyMem (Cross-Session Memory)
+memory:
+  available: false
+  default_enabled: false
+  summary_model: null  # backend:model
+  context_model: null  # backend:model
+  summary_prompt: null  # Path to custom prompt (.txt or .md)
+  context_prompt: null  # Path to custom prompt (.txt or .md)
+  database_path: "./var/memory.sqlite3"
+  session_timeout_minutes: 30
+  summarization_delay_seconds: 120
+  max_sessions_to_consider: 10
+  max_context_tokens: 2000
+  max_summary_tokens: 800
+  max_transcript_chars: 50000
+  summary_completion_tokens: 10000
+  context_relevance_threshold: 0.5
+  retention_days: 90
+  max_buffer_size_bytes: 10485760
+  analysis_queue_maxsize: 100
+  analysis_timeout_seconds: 30
+  max_concurrent_analyses: 4
+  context_template: null  # Use {context} placeholder
+  redaction_patterns: []
+  persist_transcript: false
+  disabled_users: []
+  disabled_clients: []
+  single_user_mode: false
+  fixed_user_id: null
+  summary_prompt_version: "v1"
+  summary_schema_version: "v1"
+  require_project_discovery: true
+  project_discovery_mode: "any"
 
 # History Compaction
 # Reduces context size by compacting stale tool outputs in long conversations.

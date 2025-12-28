@@ -607,7 +607,15 @@ class OpenAICodexConnector(OpenAIConnector):
             return deepcopy(self._default_tool_schema_override)
 
         if isinstance(self._tool_schema_resolver, ToolSchemaResolver):
-            return self._tool_schema_resolver._get_default_tools()
+            tools = self._tool_schema_resolver._get_default_tools()
+            return [
+                (
+                    tool.model_dump(exclude_none=True)
+                    if hasattr(tool, "model_dump")
+                    else dict(tool)
+                )
+                for tool in tools
+            ]
 
         return []
 
@@ -1546,7 +1554,7 @@ class OpenAICodexConnector(OpenAIConnector):
             observer.stop()
             # 5.0s timeout to allow clean thread termination
             observer.join(timeout=5.0)
-            
+
             # Verify thread stopped (safe check for BaseObserver which extends Thread)
             if hasattr(observer, "is_alive") and observer.is_alive():  # type: ignore
                 logger.warning(
@@ -1913,53 +1921,6 @@ class OpenAICodexConnector(OpenAIConnector):
                     )
             raise
 
-    async def _handle_non_streaming_response(
-        self,
-        url: str,
-        payload: dict[str, Any],
-        headers: dict[str, str] | None,
-        session_id: str,
-    ) -> ResponseEnvelope:
-        """Override to ensure compatibility state cleanup for non-streaming responses."""
-        compatibility_state = None
-
-        # Extract compatibility state from payload's executor metadata
-        # This was added in _call_codex_responses_api before calling this method
-        if isinstance(payload, dict):
-            metadata = payload.get("metadata", {})
-            if isinstance(metadata, dict):
-                compatibility_state = metadata.get("compatibility_state")
-
-        try:
-            # Call parent implementation
-            result = await super()._handle_non_streaming_response(
-                url, payload, headers, session_id
-            )
-
-            # Clean up compatibility state to prevent memory leaks
-            if self._compatibility_layer and compatibility_state:
-                try:
-                    await self._compatibility_layer.cleanup_state(compatibility_state)
-                except Exception as exc:
-                    logger.debug(
-                        "Failed to cleanup compatibility state for non-streaming response: %s",
-                        exc,
-                    )
-
-            return result
-
-        except Exception:
-            # Ensure cleanup even if parent fails
-            if self._compatibility_layer and compatibility_state:
-                try:
-                    await self._compatibility_layer.cleanup_state(compatibility_state)
-                except Exception as exc:
-                    logger.debug(
-                        "Failed to cleanup compatibility state during error handling: %s",
-                        exc,
-                    )
-            raise
-
     def get_available_models(self) -> list[str]:
         return [
             add_vendor_prefix(m, OPENAI_VENDOR_PREFIX)
@@ -1973,22 +1934,21 @@ class OpenAICodexConnector(OpenAIConnector):
         """Stop background file watchers to avoid thread leaks."""
         # 1. Signal shutdown to prevent new tasks
         self._shutdown_requested.set()
-        
+
         # 2. Cancel local pending reload tasks
+        pending_task: asyncio.Future[Any] | None = None
         with self._reload_task_lock:
-            if (
-                self._pending_reload_task is not None
-                and not self._pending_reload_task.done()
-            ):
-                self._pending_reload_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._pending_reload_task
-                self._pending_reload_task = None
+            pending_task = self._pending_reload_task
+            self._pending_reload_task = None
+        if pending_task is not None and not pending_task.done():
+            pending_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending_task
         self._reload_scheduling_event.clear()
 
         # 3. Stop local file watcher synchronously
         self._stop_file_watching()
-        
+
         # 4. Stop delegated credential manager
         if hasattr(self._credential_manager, "shutdown"):
             await self._credential_manager.shutdown()

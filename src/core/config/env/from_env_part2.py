@@ -17,6 +17,9 @@ from src.core.config.env.util import (
 from src.core.config.env.util import (
     get_env_value as _get_env_value,
 )
+from src.core.config.env.util import (
+    parse_csv_list as _parse_csv_list,
+)
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.configuration.header_config import HeaderConfig, HeaderOverrideMode
@@ -72,6 +75,25 @@ def apply_config_part2(
             env,
             path="failure_handling.min_retry_wait",
             resolution=resolution,
+        ),
+    }
+
+    config["resilience"] = {
+        "personal_backend_types": _get_env_value(
+            env,
+            "RESILIENCE_PERSONAL_BACKEND_TYPES",
+            [],
+            path="resilience.personal_backend_types",
+            resolution=resolution,
+            transform=_parse_csv_list,
+        ),
+        "shared_backend_types": _get_env_value(
+            env,
+            "RESILIENCE_SHARED_BACKEND_TYPES",
+            [],
+            path="resilience.shared_backend_types",
+            resolution=resolution,
+            transform=_parse_csv_list,
         ),
     }
 

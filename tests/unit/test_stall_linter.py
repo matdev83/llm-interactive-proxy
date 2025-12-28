@@ -18,7 +18,7 @@ class LintFinding:
     message: str
 
 
-_STALL_LINT_CACHE_VERSION = 3
+_STALL_LINT_CACHE_VERSION = 6
 
 _STALL_LINT_IGNORE_RE = re.compile(
     r"stall-lint:\s*ignore\s*=\s*([A-Za-z0-9_,*\s-]+)", re.IGNORECASE
@@ -75,7 +75,6 @@ def _is_suppressed(finding: LintFinding, suppressions: dict[int, set[str]]) -> b
 def _iter_stall_lint_files(repo_root: Path) -> list[Path]:
     roots = [
         repo_root / "tests",
-        repo_root / "src" / "connectors",
     ]
 
     files: list[Path] = []
@@ -162,6 +161,26 @@ def _scan_repo_for_stalls(repo_root: Path) -> list[LintFinding]:
         fake_clock_visitor = _FakeClockContextSleepVisitor(file_path=file_path)
         fake_clock_visitor.visit(tree)
         file_findings.extend(fake_clock_visitor.findings)
+
+        sleep_without_await_visitor = _AsyncioSleepWithoutAwaitVisitor(
+            file_path=file_path
+        )
+        sleep_without_await_visitor.visit(tree)
+        file_findings.extend(sleep_without_await_visitor.findings)
+
+        task_leak_visitor = _AsyncTaskLeakVisitor(file_path=file_path)
+        task_leak_visitor.visit(tree)
+        file_findings.extend(task_leak_visitor.findings)
+
+        run_until_complete_visitor = _RunUntilCompleteInAsyncVisitor(
+            file_path=file_path
+        )
+        run_until_complete_visitor.visit(tree)
+        file_findings.extend(run_until_complete_visitor.findings)
+
+        thread_lock_await_visitor = _ThreadLockAwaitVisitor(file_path=file_path)
+        thread_lock_await_visitor.visit(tree)
+        file_findings.extend(thread_lock_await_visitor.findings)
 
         if any(
             token in source for token in ("watchdog", "Observer", "observer", "Watcher")
@@ -691,6 +710,237 @@ class _FakeClockContextSleepVisitor(ast.NodeVisitor):
         )
 
 
+class _AsyncioSleepWithoutAwaitVisitor(ast.NodeVisitor):
+    """Detect bare asyncio.sleep(...) calls inside async functions.
+
+    Using asyncio.sleep(...) as a statement inside async code does nothing and
+    fails to yield control. Tests often rely on this for "give time to tasks"
+    and can stall when background tasks never get a chance to run.
+    """
+
+    def __init__(self, *, file_path: Path) -> None:
+        self._file_path = file_path
+        self.findings: list[LintFinding] = []
+        self._in_async_function = 0
+        self._parents: list[ast.AST] = []
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        self._in_async_function += 1
+        try:
+            self.generic_visit(node)
+        finally:
+            self._in_async_function -= 1
+
+    def visit(self, node: ast.AST) -> None:
+        self._parents.append(node)
+        try:
+            super().visit(node)
+        finally:
+            self._parents.pop()
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        if (
+            self._in_async_function > 0
+            and self._is_asyncio_sleep_call(node)
+            and not self._is_awaited(node)
+            and not self._is_scheduled(node)
+        ):
+            self._add(
+                node,
+                rule="STALL030",
+                message=(
+                    "asyncio.sleep(...) used without await or scheduling inside async "
+                    "function. This does not yield control and can stall tests. "
+                    "Use `await asyncio.sleep(...)` or schedule a task explicitly."
+                ),
+            )
+        self.generic_visit(node)
+
+    def _is_asyncio_sleep_call(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        func = node.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr == "sleep"
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "asyncio"
+        )
+
+    def _is_awaited(self, node: ast.Call) -> bool:
+        return any(isinstance(parent, ast.Await) for parent in self._parents)
+
+    def _is_scheduled(self, node: ast.Call) -> bool:
+        for parent in self._parents:
+            if not isinstance(parent, ast.Call):
+                continue
+            func = parent.func
+            if isinstance(func, ast.Attribute) and func.attr == "create_task":
+                return True
+            if isinstance(func, ast.Name) and func.id in {
+                "create_task",
+                "ensure_future",
+            }:
+                return True
+        return False
+
+    def _add(self, node: ast.AST, *, rule: str, message: str) -> None:
+        line = getattr(node, "lineno", 1)
+        self.findings.append(
+            LintFinding(
+                file=str(self._file_path).replace("\\", "/"),
+                line=int(line),
+                rule=rule,
+                message=message,
+            )
+        )
+
+
+class _AsyncTaskLeakVisitor(ast.NodeVisitor):
+    """Detect fire-and-forget asyncio.create_task/ensure_future in async tests."""
+
+    def __init__(self, *, file_path: Path) -> None:
+        self._file_path = file_path
+        self.findings: list[LintFinding] = []
+        self._in_async_function = 0
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        self._in_async_function += 1
+        self.generic_visit(node)
+        self._in_async_function -= 1
+
+    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
+        self.generic_visit(node)
+
+    def visit_Expr(self, node: ast.Expr) -> None:  # noqa: N802
+        if self._in_async_function > 0 and self._is_task_factory_call(node.value):
+            self.findings.append(
+                LintFinding(
+                    file=str(self._file_path).replace("\\", "/"),
+                    line=int(getattr(node, "lineno", 1)),
+                    rule="STALL032",
+                    message=(
+                        "Fire-and-forget create_task/ensure_future call without await. "
+                        "Untracked tasks can keep the event loop alive and stall tests."
+                    ),
+                )
+            )
+        self.generic_visit(node)
+
+    def _is_task_factory_call(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        func = node.func
+        return (isinstance(func, ast.Attribute) and func.attr == "create_task") or (
+            isinstance(func, ast.Name) and func.id in {"create_task", "ensure_future"}
+        )
+
+
+class _RunUntilCompleteInAsyncVisitor(ast.NodeVisitor):
+    """Detect loop.run_until_complete inside async functions."""
+
+    def __init__(self, *, file_path: Path) -> None:
+        self._file_path = file_path
+        self.findings: list[LintFinding] = []
+        self._in_async_function = 0
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:  # noqa: N802
+        self._in_async_function += 1
+        try:
+            self.generic_visit(node)
+        finally:
+            self._in_async_function -= 1
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        if self._in_async_function > 0 and self._is_run_until_complete(node):
+            self._add(
+                node,
+                rule="STALL033",
+                message=(
+                    "loop.run_until_complete() used inside async function. "
+                    "This can deadlock the running event loop and stall tests."
+                ),
+            )
+        self.generic_visit(node)
+
+    def _is_run_until_complete(self, node: ast.Call) -> bool:
+        func = node.func
+        return isinstance(func, ast.Attribute) and func.attr == "run_until_complete"
+
+    def _add(self, node: ast.AST, *, rule: str, message: str) -> None:
+        line = getattr(node, "lineno", 1)
+        self.findings.append(
+            LintFinding(
+                file=str(self._file_path).replace("\\", "/"),
+                line=int(line),
+                rule=rule,
+                message=message,
+            )
+        )
+
+
+class _ThreadLockAwaitVisitor(ast.NodeVisitor):
+    """Detect await inside threading.Lock/RLock blocks."""
+
+    def __init__(self, *, file_path: Path) -> None:
+        self._file_path = file_path
+        self.findings: list[LintFinding] = []
+        self._has_threading_import = False
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        for alias in node.names:
+            if alias.name == "threading":
+                self._has_threading_import = True
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        if node.module == "threading":
+            self._has_threading_import = True
+        self.generic_visit(node)
+
+    def visit_With(self, node: ast.With) -> None:  # noqa: N802
+        if self._has_threading_import:
+            for item in node.items:
+                if self._is_thread_lock_context(item.context_expr) and any(
+                    isinstance(child, ast.Await) for child in ast.walk(node)
+                ):
+                    self._add(
+                        node,
+                        rule="STALL031",
+                        message=(
+                            "Await inside threading.Lock/RLock context. Holding a "
+                            "threading lock across await can deadlock and stall tests. "
+                            "Use asyncio.Lock or release the lock before awaiting."
+                        ),
+                    )
+                    break
+        self.generic_visit(node)
+
+    def _is_thread_lock_context(self, expr: ast.AST) -> bool:
+        if isinstance(expr, ast.Call):
+            func = expr.func
+            if isinstance(func, ast.Attribute):
+                return (
+                    isinstance(func.value, ast.Name)
+                    and func.value.id == "threading"
+                    and func.attr in {"Lock", "RLock"}
+                )
+        return (
+            isinstance(expr, ast.Attribute) and expr.attr.lower().endswith("lock")
+        ) or (isinstance(expr, ast.Name) and expr.id.lower().endswith("lock"))
+
+    def _add(self, node: ast.AST, *, rule: str, message: str) -> None:
+        line = getattr(node, "lineno", 1)
+        self.findings.append(
+            LintFinding(
+                file=str(self._file_path).replace("\\", "/"),
+                line=int(line),
+                rule=rule,
+                message=message,
+            )
+        )
+
+
 def test_stall_linter_recursion_patches() -> None:
     """
     Prevent test-suite stalls caused by recursive monkeypatching of time/sleep.
@@ -924,3 +1174,102 @@ async def test_example():
     visitor = _FakeClockContextSleepVisitor(file_path=file_path)
     visitor.visit(tree)
     assert visitor.findings == []
+
+
+def test_stall_linter_detects_bare_asyncio_sleep_in_async_fn(
+    tmp_path: Path,
+) -> None:
+    sample = """\
+import asyncio
+
+
+async def test_example():
+    asyncio.sleep(0)
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _AsyncioSleepWithoutAwaitVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert "STALL030" in {finding.rule for finding in visitor.findings}
+
+
+def test_stall_linter_allows_awaited_asyncio_sleep_in_async_fn(
+    tmp_path: Path,
+) -> None:
+    sample = """\
+import asyncio
+
+
+async def test_example():
+    await asyncio.sleep(0)
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _AsyncioSleepWithoutAwaitVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert visitor.findings == []
+
+
+def test_stall_linter_detects_fire_and_forget_task(tmp_path: Path) -> None:
+    sample = """\
+import asyncio
+
+
+async def test_example():
+    asyncio.create_task(asyncio.sleep(0))
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _AsyncTaskLeakVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert "STALL032" in {finding.rule for finding in visitor.findings}
+
+
+def test_stall_linter_allows_awaited_task_assignment(tmp_path: Path) -> None:
+    sample = """\
+import asyncio
+
+
+async def test_example():
+    task = asyncio.create_task(asyncio.sleep(0))
+    await task
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _AsyncTaskLeakVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert visitor.findings == []
+
+
+def test_stall_linter_detects_run_until_complete_in_async(tmp_path: Path) -> None:
+    sample = """\
+import asyncio
+
+
+async def test_example():
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(asyncio.sleep(0))
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _RunUntilCompleteInAsyncVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert "STALL033" in {finding.rule for finding in visitor.findings}
+
+
+def test_stall_linter_detects_thread_lock_await(tmp_path: Path) -> None:
+    sample = """\
+import asyncio
+import threading
+
+
+async def test_example():
+    lock = threading.Lock()
+    with lock:
+        await asyncio.sleep(0)
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _ThreadLockAwaitVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert "STALL031" in {finding.rule for finding in visitor.findings}

@@ -56,6 +56,24 @@ def test_parse_cli_args_host_and_port():
     }
 
 
+def test_parse_cli_args_resilience_personal_backends():
+    """Test parsing resilience personal backend overrides."""
+    result = parse_cli_args(
+        ["--resilience-personal-backends", "openai-codex,anthropic-oauth"]
+    )
+    assert result == {
+        "resilience_personal_backends": ["openai-codex", "anthropic-oauth"],
+    }
+
+
+def test_parse_cli_args_resilience_shared_backends():
+    """Test parsing resilience shared backend overrides."""
+    result = parse_cli_args(["--resilience-shared-backends", "openai,openrouter"])
+    assert result == {
+        "resilience_shared_backends": ["openai", "openrouter"],
+    }
+
+
 def test_apply_cli_overrides_sso_enabled():
     """Test applying SSO enabled override."""
     env_dict = {}
@@ -98,6 +116,20 @@ def test_apply_cli_overrides_multiple():
     assert env_dict["APP_HOST"] == "127.0.0.1"
     assert env_dict["APP_PORT"] == "8080"
     assert env_dict["EXISTING_VAR"] == "value"  # Existing vars preserved
+
+
+def test_apply_cli_overrides_resilience_backends():
+    """Test applying resilience backend overrides."""
+    env_dict: dict[str, str] = {}
+    cli_args = {
+        "resilience_personal_backends": ["openai-codex", "anthropic-oauth"],
+        "resilience_shared_backends": ["openai", "openrouter"],
+    }
+    apply_cli_overrides(env_dict, cli_args)
+    assert (
+        env_dict["RESILIENCE_PERSONAL_BACKEND_TYPES"] == "openai-codex,anthropic-oauth"
+    )
+    assert env_dict["RESILIENCE_SHARED_BACKEND_TYPES"] == "openai,openrouter"
 
 
 def test_apply_cli_overrides_empty():

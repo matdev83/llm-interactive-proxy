@@ -18,6 +18,7 @@ Domain Applicators:
 - AssessmentApplicator: LLM assessment configuration
 - MemoryApplicator: ProxyMem configuration
 - FailureHandlingApplicator: failure handling configuration
+- ResilienceApplicator: resilience scoping overrides
 - EditPrecisionApplicator: edit precision tuning
 - IdentityApplicator: client identity override
 - RoutingApplicator: routing policies
@@ -47,6 +48,7 @@ from src.core.cli_support.applicators.failurehandling_applicator import (
 from src.core.cli_support.applicators.identity_applicator import IdentityApplicator
 from src.core.cli_support.applicators.logging_applicator import LoggingApplicator
 from src.core.cli_support.applicators.memory_applicator import MemoryApplicator
+from src.core.cli_support.applicators.resilience_applicator import ResilienceApplicator
 from src.core.cli_support.applicators.routing_applicator import RoutingApplicator
 from src.core.cli_support.applicators.sandboxing_applicator import SandboxingApplicator
 from src.core.cli_support.applicators.server_applicator import ServerApplicator
@@ -63,6 +65,7 @@ __all__ = [
     "IdentityApplicator",
     "LoggingApplicator",
     "MemoryApplicator",
+    "ResilienceApplicator",
     "RoutingApplicator",
     "SandboxingApplicator",
     "ServerApplicator",

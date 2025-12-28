@@ -29,6 +29,24 @@ any configuration changes.
 Configure scoping rules in the main config under `resilience`. Use these
 lists to explicitly mark backends as personal or shared.
 
+## CLI Flags
+
+Use CLI flags for one-off overrides (highest precedence):
+
+- `--resilience-personal-backends BACKEND[,BACKEND...]`
+- `--resilience-shared-backends BACKEND[,BACKEND...]`
+
+You can pass a comma-separated list or repeat the flag.
+
+## Environment Variables
+
+Use environment variables to override config defaults:
+
+- `RESILIENCE_PERSONAL_BACKEND_TYPES`
+- `RESILIENCE_SHARED_BACKEND_TYPES`
+
+Both accept comma-separated backend type lists.
+
 ## Override Mechanism
 
 Use `resilience.personal_backend_types` and `resilience.shared_backend_types` to
@@ -65,4 +83,5 @@ resilience:
 ## Related Docs
 
 - [Configuration Guide](../configuration.md)
+- [CLI Parameters Reference](../cli-parameters.md)
 - [Backend Overview](../backends/overview.md)

@@ -6,6 +6,11 @@ Probabilistically replace user-specified backend:model pairs with alternative mo
 
 The Random Model/Backend Replacement feature enables probabilistic swapping of backend:model pairs during a session. When activated, the system routes requests to an alternative model for a configurable number of turns before returning to the original model. This provides session diversity and can help when a specific model struggles with particular types of problems that alternative models might solve more effectively.
 
+## Related Documentation
+
+- [Replacement Metrics](replacement-metrics.md) for monitoring activation rates and opt-outs
+- [Monitoring Overview](monitoring-overview.md) for dashboard and endpoint context
+
 ## Key Features
 
 - **Probabilistic Activation**: Configure the likelihood (0.0-1.0) of triggering replacement for each session
