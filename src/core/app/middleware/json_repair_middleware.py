@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any
@@ -33,6 +34,9 @@ class JsonRepairFeature(IResponseFeature):
 
     For streaming responses, this feature accumulates content across chunks
     and repairs the complete JSON at stream end.
+
+    Thread-safety: Uses asyncio.Lock to protect _stream_content dict from
+    concurrent access during streaming operations.
     """
 
     def __init__(
@@ -53,6 +57,8 @@ class JsonRepairFeature(IResponseFeature):
         self.json_repair_service = json_repair_service
         # Streaming state: accumulate content per stream for repair
         self._stream_content: dict[str, str] = {}
+        # Protect _stream_content from concurrent async access
+        self._lock = asyncio.Lock()
 
     def _get_stream_key(self, session_id: str, context: dict[str, Any]) -> str:
         """Get unique key for tracking stream content."""
@@ -218,16 +224,18 @@ class JsonRepairFeature(IResponseFeature):
 
         stream_key = self._get_stream_key(session_id, context)
 
-        # Accumulate content
+        # Accumulate content (protected by lock)
         content = self._extract_content(chunk)
         if content:
-            if stream_key not in self._stream_content:
-                self._stream_content[stream_key] = ""
-            self._stream_content[stream_key] += content
+            async with self._lock:
+                if stream_key not in self._stream_content:
+                    self._stream_content[stream_key] = ""
+                self._stream_content[stream_key] += content
 
         # Check if this is the end of the stream
         if self._is_stream_end(context):
-            accumulated_content = self._stream_content.pop(stream_key, "")
+            async with self._lock:
+                accumulated_content = self._stream_content.pop(stream_key, "")
 
             if accumulated_content:
                 strict = self._determine_strict_mode(chunk, context)
@@ -250,14 +258,15 @@ class JsonRepairFeature(IResponseFeature):
 
         return chunk
 
-    def reset_session(self, session_id: str) -> None:
+    async def reset_session(self, session_id: str) -> None:
         """Reset streaming state for a session."""
-        keys_to_remove = [
-            k for k in self._stream_content if k.startswith(f"{session_id}:")
-        ]
-        for key in keys_to_remove:
-            self._stream_content.pop(key, None)
-        self._stream_content.pop(session_id, None)
+        async with self._lock:
+            keys_to_remove = [
+                k for k in self._stream_content if k.startswith(f"{session_id}:")
+            ]
+            for key in keys_to_remove:
+                self._stream_content.pop(key, None)
+            self._stream_content.pop(session_id, None)
 
 
 # ============================================================================

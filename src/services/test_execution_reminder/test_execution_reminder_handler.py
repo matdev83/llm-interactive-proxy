@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import threading
 from time import time
 from typing import Any
 
@@ -49,6 +49,9 @@ class TestExecutionReminderHandler(IToolCallHandler):
     - Log and continue: Log errors but never crash the pipeline
     - Graceful degradation: Feature can be disabled without affecting the proxy
     - State reset: When in doubt, reset to clean state (safer than dirty)
+
+    Thread-safety: Uses asyncio.Lock to protect shared state from concurrent
+    async access. All methods that mutate shared state use async context.
     """
 
     def __init__(
@@ -75,12 +78,12 @@ class TestExecutionReminderHandler(IToolCallHandler):
         self._state_ttl_seconds = max(float(state_ttl_seconds), 1.0)
         self._max_sessions = max(max_sessions, 1)
         self._test_runner_registry = test_runner_registry or TestRunnerRegistry()
-        self._lock = threading.RLock()
+        self._lock = asyncio.Lock()
 
         if self._enabled:
             logger.info(
                 "Test execution reminder handler initialized (enabled) with %d test runner patterns",
-                len(self._test_runner_registry._patterns),
+                self._test_runner_registry.get_pattern_count(),
             )
         else:
             logger.info("Test execution reminder handler initialized (disabled)")
@@ -271,7 +274,7 @@ class TestExecutionReminderHandler(IToolCallHandler):
             tool_name: The name of the file modification tool (for logging)
         """
         try:
-            with self._lock:
+            async with self._lock:
                 # Prune expired/excess sessions before adding new ones
                 self._prune_session_state()
 
@@ -315,7 +318,7 @@ class TestExecutionReminderHandler(IToolCallHandler):
             framework: The detected test framework
         """
         try:
-            with self._lock:
+            async with self._lock:
                 state = self._session_state.get(session_id)
                 if not state:
                     state = TestExecutionSessionState()
@@ -352,7 +355,7 @@ class TestExecutionReminderHandler(IToolCallHandler):
             The session state or None if not found
         """
         try:
-            with self._lock:
+            async with self._lock:
                 state = self._session_state.get(session_id)
                 if state:
                     state.update_last_seen()
@@ -371,39 +374,40 @@ class TestExecutionReminderHandler(IToolCallHandler):
     def _prune_session_state(self, current_time: float | None = None) -> None:
         """Remove expired or excess session states.
 
+        Note: This method must be called with self._lock already held.
+
         Args:
             current_time: Optional override for time.time() (used in tests).
         """
         now = current_time if current_time is not None else time()
-        with self._lock:
-            expired_sessions = [
-                session_id
-                for session_id, state in self._session_state.items()
-                if now - state.last_seen > self._state_ttl_seconds
-            ]
+        expired_sessions = [
+            session_id
+            for session_id, state in self._session_state.items()
+            if now - state.last_seen > self._state_ttl_seconds
+        ]
 
-            if expired_sessions:
-                for session_id in expired_sessions:
-                    self._session_state.pop(session_id, None)
-                logger.info(
-                    "Session cleanup: pruned %d expired session(s) (TTL exceeded)",
-                    len(expired_sessions),
-                )
+        if expired_sessions:
+            for session_id in expired_sessions:
+                self._session_state.pop(session_id, None)
+            logger.info(
+                "Session cleanup: pruned %d expired session(s) (TTL exceeded)",
+                len(expired_sessions),
+            )
 
-            excess_count = len(self._session_state) - self._max_sessions
-            if excess_count > 0:
-                sorted_sessions = sorted(
-                    self._session_state.items(), key=lambda item: item[1].last_seen
-                )
-                pruned_sessions = []
-                for session_id, _state in sorted_sessions[:excess_count]:
-                    self._session_state.pop(session_id, None)
-                    pruned_sessions.append(session_id)
-                logger.info(
-                    "Session cleanup: pruned %d session(s) due to max_sessions limit (%d)",
-                    len(pruned_sessions),
-                    self._max_sessions,
-                )
+        excess_count = len(self._session_state) - self._max_sessions
+        if excess_count > 0:
+            sorted_sessions = sorted(
+                self._session_state.items(), key=lambda item: item[1].last_seen
+            )
+            pruned_sessions = []
+            for session_id, _state in sorted_sessions[:excess_count]:
+                self._session_state.pop(session_id, None)
+                pruned_sessions.append(session_id)
+            logger.info(
+                "Session cleanup: pruned %d session(s) due to max_sessions limit (%d)",
+                len(pruned_sessions),
+                self._max_sessions,
+            )
 
     def _extract_command(
         self, tool_name: str, tool_arguments: dict[str, Any]

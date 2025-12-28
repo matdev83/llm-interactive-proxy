@@ -138,7 +138,7 @@ class TestRunnerRegistry:
             # Remove the oldest pattern(s) to make room for new one
             excess = len(self._patterns) - self._max_patterns + 1
 
-            # Simple approach: remove the oldest excess patterns
+            # Simple approach: remove oldest excess patterns
             # Keep patterns from index 'excess' to end
             self._patterns = self._patterns[excess:]
 
@@ -150,6 +150,14 @@ class TestRunnerRegistry:
                 )
 
         self._patterns.append(pattern)
+
+    def get_pattern_count(self) -> int:
+        """Get the number of registered patterns.
+
+        Returns:
+            Count of patterns currently registered
+        """
+        return len(self._patterns)
 
     def _load_default_patterns(self) -> None:
         """Load default patterns for popular languages.
