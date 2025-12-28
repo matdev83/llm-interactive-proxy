@@ -107,6 +107,11 @@ def get_default_google_auth_provider() -> GoogleAuthProvider:
     """Get the default Google Auth provider instance."""
     global _default_provider
     if _default_provider is None:
+        # Use threading.Lock with double-checked locking for lazy initialization
+        # NOTE: threading.Lock is safe here because:
+        # 1. After initialization, the fast path has no lock (simple read)
+        # 2. The critical section is minimal (only __init__, no I/O or blocking ops)
+        # 3. The class is pure Python with no external dependencies during init
         with _default_provider_lock:
             if _default_provider is None:
                 _default_provider = GoogleAuthProvider()

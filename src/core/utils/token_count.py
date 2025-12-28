@@ -31,6 +31,9 @@ def count_tokens(text: str, model: str | None = None) -> int:
     try:
         # Lazy load and cache tiktoken encoding for better performance
         # Use double-checked locking to avoid race conditions
+        # NOTE: threading.Lock is safe here because the critical section is minimal
+        # (only import and get_encoding, no I/O or blocking operations)
+        # After initialization, no lock is needed (fast path)
         if _tiktoken_encoding is None:
             with _tiktoken_lock:
                 # Check again inside the lock to avoid duplicate initialization

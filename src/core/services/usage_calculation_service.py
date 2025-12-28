@@ -30,6 +30,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# Global service instance for convenience
+_usage_calculation_service: UsageCalculationService | None = None
+_usage_calculation_service_lock = threading.Lock()
+
+
 class UsageCalculationService:
     """Service for calculating and managing usage information.
 
@@ -468,15 +473,15 @@ class UsageCalculationService:
         return OpenRouterUsage.from_basic_usage(completion_tokens=completion_tokens)
 
 
-# Global service instance for convenience
-_usage_calculation_service: UsageCalculationService | None = None
-_usage_calculation_service_lock = threading.Lock()
-
-
 def get_usage_calculation_service() -> UsageCalculationService:
     """Get or create the global usage calculation service instance."""
     global _usage_calculation_service
     if _usage_calculation_service is None:
+        # Use threading.Lock with double-checked locking for lazy initialization
+        # NOTE: threading.Lock is safe here because:
+        # 1. After initialization, the fast path has no lock (simple read)
+        # 2. The critical section is minimal (only __init__, no I/O or blocking ops)
+        # 3. The class is pure Python with no external dependencies during init
         with _usage_calculation_service_lock:
             if _usage_calculation_service is None:
                 _usage_calculation_service = UsageCalculationService()
