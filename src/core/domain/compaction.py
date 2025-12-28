@@ -8,6 +8,7 @@ Requirements covered:
 - 1.1-1.3: Resource identity and staleness detection
 - 2.1-2.3: Stub replacement for stale outputs
 - 3.3-3.4: Per-tool allow/deny policies
+- 4.5: Redaction of resource identifiers
 """
 
 import json
@@ -188,6 +189,7 @@ class CompactionStub:
         resource_identity: ResourceIdentity,
         original_content: str,
         message_index: int,
+        redact: bool = False,  # NEW: Redaction flag (Req 4.5)
     ) -> "CompactionStub":
         """Create a compaction stub for stale content.
 
@@ -195,13 +197,22 @@ class CompactionStub:
             resource_identity: Identity of the compacted resource
             original_content: The original content being replaced
             message_index: Index of the message in history
+            redact: Whether to redact resource identifier in stub (Req 4.5)
 
         Returns:
             A new CompactionStub instance with generated stub text
         """
+        from src.core.common.logging_utils import redact_text
+
         original_size = len(original_content.encode("utf-8"))
+
+        # Conditionally redact resource identifier (Req 4.5)
+        resource_key = resource_identity.primary_key
+        if redact:
+            resource_key = redact_text(resource_key)
+
         stub_text = (
-            f"[COMPACTED] Previous output for {resource_identity.primary_key} "
+            f"[COMPACTED] Previous output for {resource_key} "
             f"({original_size} bytes) was removed because a newer result "
             f"for this resource exists later in the conversation."
         )

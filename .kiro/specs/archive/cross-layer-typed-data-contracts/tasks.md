@@ -123,3 +123,6 @@
   - Focus on cross-layer seams: backend completion collaborators, request/response processors, transport adapters
   - Preserve backward compatibility where needed with compatibility overloads
   - _Requirements: 3.1, 3.2, 3.4 _
+  - **Note**: `IContractCoercionService` was deemed unnecessary as request adapters and controllers now handle coercion directly to `CanonicalChatRequest`.
+  - **Note**: Narrowing `ResponseEnvelope.content` from `Any` is deferred to Phase B+ as documented in design.
+

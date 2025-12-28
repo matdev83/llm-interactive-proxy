@@ -255,7 +255,13 @@ class HistoryCompactionService(IHistoryCompactionService):
 
             # Mark all but the last occurrence as stale
             for msg_idx, _, content in occurrences[:-1]:
-                stub = CompactionStub.create(identity, content, msg_idx)
+                # Pass redaction flag from config (Req 4.5)
+                stub = CompactionStub.create(
+                    identity,
+                    content,
+                    msg_idx,
+                    redact=policies.config.redact_resource_identifiers,
+                )
                 stale_indices[msg_idx] = stub
                 stale_resources.add(str(identity))
                 bytes_saved += stub.original_byte_size - len(

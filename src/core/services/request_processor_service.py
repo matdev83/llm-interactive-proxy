@@ -86,7 +86,7 @@ class RequestProcessor(IRequestProcessor):
     async def process_request(
         self,
         context: RequestContext,
-        request_data: DomainModel | InternalDTO | dict[str, JsonValue],
+        request_data: ChatRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request using decomposed services."""
         if logger.isEnabledFor(logging.DEBUG):

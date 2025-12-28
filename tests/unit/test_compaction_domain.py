@@ -442,6 +442,91 @@ class TestCompactionStub:
 
         assert stub.original_byte_size == len(content.encode("utf-8"))
 
+    def test_stub_includes_file_path_when_redact_false(self) -> None:
+        """Stub includes file path when redact=False (Req 4.5)."""
+        identity = ResourceIdentity(
+            tool_name="view_file", primary_key="/path/to/secret/file.py"
+        )
+        stub = CompactionStub.create(
+            resource_identity=identity,
+            original_content="content",
+            message_index=0,
+            redact=False,
+        )
+
+        assert "/path/to/secret/file.py" in stub.stub_text
+
+    def test_stub_redacts_file_path_when_redact_true(self) -> None:
+        """Stub applies redact_text() when redact=True (Req 4.5)."""
+        # Use a path with an API key pattern that should be redacted
+        # Note: Using 'ak-' prefix with 20+ chars to match pattern
+        identity = ResourceIdentity(
+            tool_name="view_file",
+            primary_key="/home/user/ak-testkey-abcdefghijklmnop/config.json",
+        )
+        stub = CompactionStub.create(
+            resource_identity=identity,
+            original_content="content",
+            message_index=0,
+            redact=True,
+        )
+
+        # API key pattern should be redacted by redact_text()
+        assert "ak-testkey-abcdefghijklmnop" not in stub.stub_text
+        assert "***" in stub.stub_text
+        assert "[COMPACTED]" in stub.stub_text
+
+    def test_stub_redacts_api_keys_in_file_path(self) -> None:
+        """Stub redacts API keys in file paths (Req 4.5)."""
+        identity = ResourceIdentity(
+            tool_name="view_file",
+            primary_key="/home/user/ak-testkey-abcdefghijklmnop/config.json",
+        )
+        stub = CompactionStub.create(
+            resource_identity=identity,
+            original_content="content",
+            message_index=0,
+            redact=True,
+        )
+
+        # API key pattern should be redacted
+        assert "ak-testkey-abcdefghijklmnop" not in stub.stub_text
+        assert "***" in stub.stub_text
+
+    def test_redaction_preserves_byte_size_information(self) -> None:
+        """Redaction preserves byte size information (Req 4.5)."""
+        identity = ResourceIdentity(
+            tool_name="view_file", primary_key="/path/file.py"
+        )
+        original_content = "x" * 5000
+        stub = CompactionStub.create(
+            resource_identity=identity,
+            original_content=original_content,
+            message_index=0,
+            redact=True,
+        )
+
+        assert stub.original_byte_size == 5000
+        assert "5000 bytes" in stub.stub_text
+
+    def test_redaction_with_unicode_content(self) -> None:
+        """Redaction works correctly with unicode content."""
+        identity = ResourceIdentity(
+            tool_name="view_file", primary_key="/path/世界/file.py"
+        )
+        content = "Hello 世界" * 100  # Mix of ASCII and Unicode
+        stub = CompactionStub.create(
+            resource_identity=identity,
+            original_content=content,
+            message_index=0,
+            redact=True,
+        )
+
+        # Byte size should still be correct
+        expected_bytes = len(content.encode("utf-8"))
+        assert stub.original_byte_size == expected_bytes
+        assert f"{expected_bytes} bytes" in stub.stub_text
+
 
 class TestToolCategory:
     """Tests for tool categorization."""

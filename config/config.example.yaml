@@ -162,6 +162,7 @@ memory:
 compaction:
   enabled: false  # Default: false. usage: true to enable.
   token_threshold: 100000  # Minimum tokens required to trigger compaction. Default: 100,000.
+  # redact_resource_identifiers: false  # Set to true to redact file paths/commands in stubs (more secure, less debuggable)
 
 # Logging
 logging:

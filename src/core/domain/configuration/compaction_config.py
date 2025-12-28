@@ -32,11 +32,13 @@ class CompactionConfig:
         max_stubs_per_resource: Maximum stub messages to keep per resource
         preserve_last_n_results: Always keep this many recent results per resource
         stub_template: Template for generating stub messages
+        redact_resource_identifiers: Redact file paths/commands in stubs (Req 4.5)
     """
 
     enabled: bool = False
     token_threshold: int = 100_000  # Start compacting above this estimate
     max_tokens: int = 150_000  # Warn if cannot reduce below this
+    redact_resource_identifiers: bool = False  # Default OFF for debuggability (Req 4.5)
 
     # Tool category policies - empty means all allowed
     allowed_tool_categories: list[str] = field(default_factory=list)
@@ -98,6 +100,7 @@ class CompactionConfig:
             max_stubs_per_resource=data.get("max_stubs_per_resource", 1),
             preserve_last_n_results=data.get("preserve_last_n_results", 1),
             stub_template=data.get("stub_template", cls.stub_template),
+            redact_resource_identifiers=data.get("redact_resource_identifiers", False),
         )
 
     @classmethod

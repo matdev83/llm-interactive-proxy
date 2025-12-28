@@ -682,7 +682,220 @@ class TestHistoryCompactionDIIntegration:
 
 
 class TestHistoryCompactionRealService:
-    """Integration tests using the real HistoryCompactionService."""
+    """Integration tests using real HistoryCompactionService."""
+
+    @pytest.mark.asyncio
+    async def test_redaction_disabled_includes_full_paths(self) -> None:
+        """Verify stubs include full file paths when redaction disabled (Req 4.5)."""
+        service = HistoryCompactionService()
+        config = CompactionConfig(
+            enabled=True,
+            redact_resource_identifiers=False,  # Redaction OFF
+        )
+
+        messages = [
+            ChatMessage(role="user", content="view file"),
+            _create_assistant_tool_call_message(
+                [_create_tool_call("view_file", "call-1", {"AbsolutePath": "/path/secret.py"})]
+            ),
+            _create_tool_result_message("view_file", "old content" * 50, "call-1"),
+            _create_assistant_tool_call_message(
+                [_create_tool_call("view_file", "call-2", {"AbsolutePath": "/path/secret.py"})]
+            ),
+            _create_tool_result_message("view_file", "new content", "call-2"),
+        ]
+
+        result = await service.compact_history(messages, config)
+
+        assert result.was_compacted
+        compacted_msg = result.messages[2]
+        # Full path should be visible in stub
+        content_str = (
+            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+        )
+        assert "/path/secret.py" in content_str
+
+    @pytest.mark.asyncio
+    async def test_redaction_enabled_applies_redact_text(self) -> None:
+        """Verify stubs apply redact_text() when redaction enabled (Req 4.5)."""
+        service = HistoryCompactionService()
+        config = CompactionConfig(
+            enabled=True,
+            redact_resource_identifiers=True,  # Redaction ON
+        )
+
+        # Use a path with an API key that should be redacted
+        # Note: Using 'ak-testkey-abcdefghijklmnop' pattern that matches API key regex
+        messages = [
+            ChatMessage(role="user", content="view config"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file",
+                        "call-1",
+                        {
+                            "AbsolutePath": "/home/user/ak-testkey-abcdefghijklmnop/config.json"
+                        },
+                    )
+                ]
+            ),
+            _create_tool_result_message("view_file", "old content" * 50, "call-1"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file",
+                        "call-2",
+                        {
+                            "AbsolutePath": "/home/user/ak-testkey-abcdefghijklmnop/config.json"
+                        },
+                    )
+                ]
+            ),
+            _create_tool_result_message("view_file", "new content", "call-2"),
+        ]
+
+        result = await service.compact_history(messages, config)
+
+        assert result.was_compacted
+        compacted_msg = result.messages[2]
+        # API key should be redacted
+        content_str = (
+            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+        )
+        assert "ak-testkey-abcdefghijklmnop" not in content_str
+        assert "***" in content_str
+        assert "[COMPACTED]" in content_str
+
+    @pytest.mark.asyncio
+    async def test_redaction_redacts_api_keys_in_paths(self) -> None:
+        """Verify API keys in paths are redacted (Req 4.5)."""
+        service = HistoryCompactionService()
+        config = CompactionConfig(
+            enabled=True,
+            redact_resource_identifiers=True,  # Redaction ON
+        )
+
+        messages = [
+            ChatMessage(role="user", content="view config"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file",
+                        "call-1",
+                        {
+                            "AbsolutePath": "/home/user/ak-testkey-abcdefghijklmnop/config.json"
+                        },
+                    )
+                ]
+            ),
+            _create_tool_result_message("view_file", "old config" * 50, "call-1"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file",
+                        "call-2",
+                        {
+                            "AbsolutePath": "/home/user/ak-testkey-abcdefghijklmnop/config.json"
+                        },
+                    )
+                ]
+            ),
+            _create_tool_result_message("view_file", "new config", "call-2"),
+        ]
+
+        result = await service.compact_history(messages, config)
+
+        assert result.was_compacted
+        compacted_msg = result.messages[2]
+        # API key should be redacted
+        content_str = (
+            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+        )
+        assert "ak-testkey-abcdefghijklmnop" not in content_str
+        assert "***" in content_str
+
+    @pytest.mark.asyncio
+    async def test_redaction_default_is_false(self) -> None:
+        """Verify redaction defaults to OFF for debuggability (Req 4.5)."""
+        service = HistoryCompactionService()
+        config = CompactionConfig(enabled=True)  # Default: redact_resource_identifiers=False
+
+        messages = [
+            ChatMessage(role="user", content="view file"),
+            _create_assistant_tool_call_message(
+                [_create_tool_call("view_file", "call-1", {"AbsolutePath": "/path/file.py"})]
+            ),
+            _create_tool_result_message("view_file", "old content" * 50, "call-1"),
+            _create_assistant_tool_call_message(
+                [_create_tool_call("view_file", "call-2", {"AbsolutePath": "/path/file.py"})]
+            ),
+            _create_tool_result_message("view_file", "new content", "call-2"),
+        ]
+
+        result = await service.compact_history(messages, config)
+
+        assert result.was_compacted
+        compacted_msg = result.messages[2]
+        # Full path should be visible (redaction OFF by default)
+        content_str = (
+            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+        )
+        assert "/path/file.py" in content_str
+
+    @pytest.mark.asyncio
+    async def test_redaction_preserves_latest_result(self) -> None:
+        """Verify redaction doesn't affect preserved latest result (Req 4.5)."""
+        service = HistoryCompactionService()
+        config = CompactionConfig(
+            enabled=True,
+            redact_resource_identifiers=True,  # Redaction ON
+        )
+
+        # Use paths with API keys to test redaction (use longer key that matches pattern)
+        messages = [
+            ChatMessage(role="user", content="view config"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file",
+                        "call-1",
+                        {
+                            "AbsolutePath": "/home/user/ak-proj1234567890ab/config.json"
+                        },
+                    )
+                ]
+            ),
+            _create_tool_result_message("view_file", "old content" * 50, "call-1"),
+            _create_assistant_tool_call_message(
+                [
+                    _create_tool_call(
+                        "view_file",
+                        "call-2",
+                        {
+                            "AbsolutePath": "/home/user/ak-proj1234567890ab/config.json"
+                        },
+                    )
+                ]
+            ),
+            _create_tool_result_message("view_file", "latest important content", "call-2"),
+        ]
+
+        result = await service.compact_history(messages, config)
+
+        assert result.was_compacted
+        # First result (compacted) should have API key redacted
+        compacted_msg = result.messages[2]
+        compacted_content = (
+            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+        )
+        assert "ak-proj1234567890ab" not in compacted_content
+
+        # Latest result should be preserved with full content
+        latest_msg = result.messages[4]
+        latest_content = (
+            latest_msg.content if isinstance(latest_msg.content, str) else str(latest_msg.content)
+        )
+        assert "latest important content" in latest_content
 
     @pytest.mark.asyncio
     async def test_real_service_compacts_stale_tool_outputs(self) -> None:

@@ -7,7 +7,6 @@ from pydantic.types import JsonValue
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 
 class IRequestMiddleware(ABC):
@@ -44,13 +43,13 @@ class IRequestProcessor(ABC):
     async def process_request(
         self,
         context: RequestContext,
-        request_data: DomainModel | InternalDTO | dict[str, JsonValue],
+        request_data: ChatRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request in a transport-agnostic way.
 
         Args:
             context: Transport-agnostic request context containing headers/cookies/state
-            request_data: The parsed request data (domain ChatRequest or legacy dict with JSON-serializable values)
+            request_data: The parsed request data (canonical ChatRequest)
 
         Returns:
             Either a ResponseEnvelope for non-streaming requests or

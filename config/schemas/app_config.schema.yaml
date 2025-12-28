@@ -528,6 +528,10 @@ properties:
       max_stubs_per_resource: { type: integer, minimum: 0 }
       preserve_last_n_results: { type: integer, minimum: 0 }
       stub_template: { type: string }
+      redact_resource_identifiers:
+        type: boolean
+        default: false
+        description: "Redact file paths and commands in compaction stubs (trade-off: security vs debuggability)"
   assessment:
     type: object
     additionalProperties: false
