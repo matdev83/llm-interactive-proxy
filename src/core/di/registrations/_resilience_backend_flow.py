@@ -144,11 +144,11 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         def _availability_checker_factory(
             provider: IServiceProvider,
         ) -> BackendAvailabilityChecker:
-            backend_lifecycle_manager = provider.get_required_service(
-                cast(type, IBackendLifecycleManager)
+            backend_lifecycle_manager: IBackendLifecycleManager = (
+                provider.get_required_service(cast(type, IBackendLifecycleManager))
             )
-            resilience_coordinator = provider.get_service(
-                cast(type, IResilienceCoordinator)
+            resilience_coordinator: IResilienceCoordinator | None = (
+                provider.get_service(cast(type, IResilienceCoordinator))
             )
             return BackendAvailabilityChecker(
                 backend_lifecycle_manager=backend_lifecycle_manager,
@@ -174,7 +174,9 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         ) -> CompletionSessionResolver:
             from src.core.interfaces.session_service_interface import ISessionService
 
-            session_service = provider.get_required_service(cast(type, ISessionService))
+            session_service: ISessionService = provider.get_required_service(
+                cast(type, ISessionService)
+            )
             return CompletionSessionResolver(session_service=session_service)
 
         register_singleton_if_absent(
@@ -200,19 +202,19 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 IURIParameterApplicator,
             )
 
-            backend_model_resolver = provider.get_required_service(
-                cast(type, IBackendModelResolver)
+            backend_model_resolver: IBackendModelResolver = (
+                provider.get_required_service(cast(type, IBackendModelResolver))
             )
-            backend_config_provider = provider.get_required_service(
-                cast(type, IBackendConfigProvider)
+            backend_config_provider: IBackendConfigProvider = (
+                provider.get_required_service(cast(type, IBackendConfigProvider))
             )
-            reasoning_config_applicator = provider.get_required_service(
-                cast(type, IReasoningConfigApplicator)
+            reasoning_config_applicator: IReasoningConfigApplicator = (
+                provider.get_required_service(cast(type, IReasoningConfigApplicator))
             )
-            uri_parameter_applicator = provider.get_required_service(
-                cast(type, IURIParameterApplicator)
+            uri_parameter_applicator: IURIParameterApplicator = (
+                provider.get_required_service(cast(type, IURIParameterApplicator))
             )
-            config = provider.get_required_service(cast(type, IConfig))
+            config: IConfig = provider.get_required_service(cast(type, IConfig))
             return BackendRequestPreparer(
                 backend_model_resolver=backend_model_resolver,
                 backend_config_service=backend_config_provider,
@@ -235,11 +237,11 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         )
 
         def _backend_manager_factory(provider: IServiceProvider) -> BackendManager:
-            backend_lifecycle_manager = provider.get_required_service(
-                cast(type, IBackendLifecycleManager)
+            backend_lifecycle_manager: IBackendLifecycleManager = (
+                provider.get_required_service(cast(type, IBackendLifecycleManager))
             )
-            resilience_coordinator = provider.get_service(
-                cast(type, IResilienceCoordinator)
+            resilience_coordinator: IResilienceCoordinator | None = (
+                provider.get_service(cast(type, IResilienceCoordinator))
             )
             return BackendManager(
                 backend_lifecycle_manager=backend_lifecycle_manager,
@@ -261,14 +263,14 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         def _failure_recovery_executor_factory(
             provider: IServiceProvider,
         ) -> FailureRecoveryExecutor:
-            failover_planner = provider.get_required_service(
+            failover_planner: IFailoverPlanner = provider.get_required_service(
                 cast(type, IFailoverPlanner)
             )
-            failure_strategy = provider.get_service(
+            failure_strategy: IFailureHandlingStrategy | None = provider.get_service(
                 cast(type, IFailureHandlingStrategy)
             )
             routing_service = provider.get_service(BackendRoutingService)
-            config = provider.get_required_service(cast(type, IConfig))
+            config: IConfig = provider.get_required_service(cast(type, IConfig))
 
             # Get cancellation coordinator (optional, registered in streaming phase)
             cancellation_coordinator = None
@@ -309,10 +311,12 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         def _wire_capture_orchestrator_factory(
             provider: IServiceProvider,
         ) -> WireCaptureOrchestrator:
-            wire_capture = provider.get_service(cast(type, IWireCapture))
-            config = provider.get_required_service(cast(type, IConfig))
-            backend_config_provider = provider.get_required_service(
-                cast(type, IBackendConfigProvider)
+            wire_capture: IWireCapture | None = provider.get_service(
+                cast(type, IWireCapture)
+            )
+            config: IConfig = provider.get_required_service(cast(type, IConfig))
+            backend_config_provider: IBackendConfigProvider = (
+                provider.get_required_service(cast(type, IBackendConfigProvider))
             )
             return WireCaptureOrchestrator(
                 wire_capture=wire_capture,
@@ -336,17 +340,17 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         def _usage_accounting_orchestrator_factory(
             provider: IServiceProvider,
         ) -> UsageAccountingOrchestrator:
-            usage_tracking_service = provider.get_service(
+            usage_tracking_service: IUsageTrackingService | None = provider.get_service(
                 cast(type, IUsageTrackingService)
             )
-            usage_tracking_wrapper = provider.get_required_service(
-                cast(type, IUsageTrackingWrapper)
+            usage_tracking_wrapper: IUsageTrackingWrapper = (
+                provider.get_required_service(cast(type, IUsageTrackingWrapper))
             )
-            stream_session_id_resolver = provider.get_required_service(
-                cast(type, IStreamSessionIdResolver)
+            stream_session_id_resolver: IStreamSessionIdResolver = (
+                provider.get_required_service(cast(type, IStreamSessionIdResolver))
             )
-            planning_phase_manager = provider.get_required_service(
-                cast(type, IPlanningPhaseManager)
+            planning_phase_manager: IPlanningPhaseManager = (
+                provider.get_required_service(cast(type, IPlanningPhaseManager))
             )
             resilience_coordinator = provider.get_service(
                 cast(type, IResilienceCoordinator)
@@ -393,30 +397,32 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         def _backend_completion_flow_factory(
             provider: IServiceProvider,
         ) -> BackendCompletionFlow:
-            availability_checker = provider.get_required_service(
-                cast(type, IBackendAvailabilityChecker)
+            availability_checker: IBackendAvailabilityChecker = (
+                provider.get_required_service(cast(type, IBackendAvailabilityChecker))
             )
-            request_preparer = provider.get_required_service(
+            request_preparer: IBackendRequestPreparer = provider.get_required_service(
                 cast(type, IBackendRequestPreparer)
             )
-            session_resolver = provider.get_required_service(
-                cast(type, ICompletionSessionResolver)
+            session_resolver: ICompletionSessionResolver = (
+                provider.get_required_service(cast(type, ICompletionSessionResolver))
             )
-            backend_invoker = provider.get_required_service(cast(type, IBackendInvoker))
-            failover_executor = provider.get_required_service(
+            backend_invoker: IBackendInvoker = provider.get_required_service(
+                cast(type, IBackendInvoker)
+            )
+            failover_executor: IFailureRecoveryExecutor = provider.get_required_service(
                 cast(type, IFailureRecoveryExecutor)
             )
-            wire_capture_orchestrator = provider.get_required_service(
-                cast(type, IWireCaptureOrchestrator)
+            wire_capture_orchestrator: IWireCaptureOrchestrator = (
+                provider.get_required_service(cast(type, IWireCaptureOrchestrator))
             )
-            usage_accounting_orchestrator = provider.get_required_service(
-                cast(type, IUsageAccountingOrchestrator)
+            usage_accounting_orchestrator: IUsageAccountingOrchestrator = (
+                provider.get_required_service(cast(type, IUsageAccountingOrchestrator))
             )
-            exception_normalizer = provider.get_required_service(
+            exception_normalizer: IExceptionNormalizer = provider.get_required_service(
                 cast(type, IExceptionNormalizer)
             )
-            stream_formatting_service = provider.get_required_service(
-                cast(type, IStreamFormattingService)
+            stream_formatting_service: IStreamFormattingService = (
+                provider.get_required_service(cast(type, IStreamFormattingService))
             )
             resilience_coordinator = provider.get_service(
                 cast(type, IResilienceCoordinator)

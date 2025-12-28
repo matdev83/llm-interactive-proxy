@@ -141,10 +141,14 @@ def _register_response_manager(services: ServiceCollection) -> None:
             logger.warning(f"Failed to register IAgentResponseFormatter interface: {e}")
 
     def _response_manager_factory(provider: IServiceProvider) -> ResponseManager:
-        agent_response_formatter = provider.get_required_service(
+        agent_response_formatter: (
             IAgentResponseFormatter
+        ) = provider.get_required_service(
+            cast(type, IAgentResponseFormatter)  # type: ignore[type-abstract]
         )
-        session_service = provider.get_required_service(ISessionService)
+        session_service: ISessionService = provider.get_required_service(
+            cast(type, ISessionService)  # type: ignore[type-abstract]
+        )
         return ResponseManager(agent_response_formatter, session_service)
 
     register_singleton_if_absent(
@@ -200,13 +204,17 @@ def _register_response_processor(services: ServiceCollection) -> None:
         provider: IServiceProvider,
     ) -> ResponseProcessor:
         response_parser: IResponseParser = provider.get_required_service(
-            IResponseParser
+            cast(type, IResponseParser)  # type: ignore[type-abstract]
         )
         app_state = provider.get_service(cast(type, IApplicationState))  # type: ignore[type-abstract]
         # Resolve IStreamNormalizer from DI (registered by streaming registrar)
-        stream_normalizer = provider.get_required_service(IStreamNormalizer)
+        stream_normalizer: IStreamNormalizer = provider.get_required_service(
+            cast(type, IStreamNormalizer)  # type: ignore[type-abstract]
+        )
         memory_capture = provider.get_service(MemoryCaptureMiddleware)
-        cancellation_coordinator = provider.get_service(ISessionCancellationCoordinator)
+        cancellation_coordinator = provider.get_service(
+            cast(type, ISessionCancellationCoordinator)  # type: ignore[type-abstract]
+        )
         return ResponseProcessor(
             response_parser=response_parser,
             app_state=app_state,
@@ -283,8 +291,12 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
             HistoryCompactionService,
         )
 
-        backend_processor = provider.get_required_service(IBackendProcessor)
-        response_processor = provider.get_required_service(IResponseProcessor)
+        backend_processor: IBackendProcessor = provider.get_required_service(
+            cast(type, IBackendProcessor)  # type: ignore[type-abstract]
+        )
+        response_processor: IResponseProcessor = provider.get_required_service(
+            cast(type, IResponseProcessor)  # type: ignore[type-abstract]
+        )
 
         # IAngelServiceFactory and IWireCapture are optional - create mocks if not available
         angel_service_factory = provider.get_service(cast(type, IAngelServiceFactory))  # type: ignore[type-abstract]

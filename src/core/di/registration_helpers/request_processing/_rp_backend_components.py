@@ -82,7 +82,9 @@ def _register_tool_call_retry_coordinator(services: ServiceCollection) -> None:
     def _tool_call_retry_coordinator_factory(
         provider: IServiceProvider,
     ) -> ToolCallRetryCoordinator:
-        backend_processor = provider.get_required_service(IBackendProcessor)
+        backend_processor: IBackendProcessor = provider.get_required_service(
+            cast(type, IBackendProcessor)  # type: ignore[type-abstract]
+        )
         cancellation_coordinator = provider.get_service(
             cast(type, ISessionCancellationCoordinator)
         )
@@ -128,14 +130,22 @@ def _register_backend_non_streaming_response_handler(
     def _backend_non_streaming_response_handler_factory(
         provider: IServiceProvider,
     ) -> BackendNonStreamingResponseHandler:
-        response_processor = provider.get_required_service(IResponseProcessor)
-        structured_output_enforcer = provider.get_required_service(
+        response_processor: IResponseProcessor = provider.get_required_service(
+            cast(type, IResponseProcessor)  # type: ignore[type-abstract]
+        )
+        structured_output_enforcer: (
             IStructuredOutputEnforcer
+        ) = provider.get_required_service(
+            cast(type, IStructuredOutputEnforcer)  # type: ignore[type-abstract]
         )
-        tool_call_retry_coordinator = provider.get_required_service(
+        tool_call_retry_coordinator: (
             IToolCallRetryCoordinator
+        ) = provider.get_required_service(
+            cast(type, IToolCallRetryCoordinator)  # type: ignore[type-abstract]
         )
-        backend_processor = provider.get_required_service(IBackendProcessor)
+        backend_processor: IBackendProcessor = provider.get_required_service(
+            cast(type, IBackendProcessor)  # type: ignore[type-abstract]
+        )
 
         # Get cancellation coordinator (optional, registered in streaming phase)
         cancellation_coordinator = None
@@ -322,7 +332,7 @@ def _register_backend_streaming_response_handler(
         provider: IServiceProvider,
     ) -> BackendStreamingResponseHandler:
         response_processor: IResponseProcessor = provider.get_required_service(
-            IResponseProcessor
+            cast(type, IResponseProcessor)  # type: ignore[type-abstract]
         )
         loop_detector_factory: ILoopDetectorFactory = provider.get_required_service(
             cast(type, ILoopDetectorFactory)
@@ -333,7 +343,9 @@ def _register_backend_streaming_response_handler(
         tool_call_retry_coordinator: IToolCallRetryCoordinator = (
             provider.get_required_service(cast(type, IToolCallRetryCoordinator))
         )
-        backend_processor = provider.get_required_service(IBackendProcessor)
+        backend_processor: IBackendProcessor = provider.get_required_service(
+            cast(type, IBackendProcessor)  # type: ignore[type-abstract]
+        )
         cancellation_coordinator = provider.get_service(
             cast(type, ISessionCancellationCoordinator)
         )

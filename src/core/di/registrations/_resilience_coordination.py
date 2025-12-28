@@ -173,14 +173,16 @@ def _register_failover_planner(services: ServiceCollection) -> None:
         from src.core.services.failover_planner import FailoverPlanner
 
         def _failover_planner_factory(provider: IServiceProvider) -> FailoverPlanner:
-            app_state = provider.get_required_service(cast(type, IApplicationState))
-            failover_coordinator = provider.get_required_service(
+            app_state: IApplicationState = provider.get_required_service(
+                cast(type, IApplicationState)
+            )
+            failover_coordinator: IFailoverCoordinator = provider.get_required_service(
                 cast(type, IFailoverCoordinator)
             )
-            backend_lifecycle_manager = provider.get_required_service(
-                cast(type, IBackendLifecycleManager)
+            backend_lifecycle_manager: IBackendLifecycleManager = (
+                provider.get_required_service(cast(type, IBackendLifecycleManager))
             )
-            config = provider.get_required_service(cast(type, IConfig))
+            config: IConfig = provider.get_required_service(cast(type, IConfig))
 
             failover_strategy = provider.get_service(cast(type, IFailoverStrategy))
             resilience_coordinator = provider.get_service(
