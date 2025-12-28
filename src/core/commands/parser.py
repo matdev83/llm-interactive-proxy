@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from typing import Any
 
 from src.core.commands.models import Command, ParsedCommand
@@ -15,8 +16,10 @@ class CommandParser:
     """Parses command invocations from message content."""
 
     # Class-level pattern cache for performance optimization
-    # Avoids recompiling the same regex patterns repeatedly
+    # Avoids recompiling same regex patterns repeatedly
+    # Thread-safe: protected by _cache_lock for concurrent access
     _pattern_cache: dict[str, re.Pattern[str]] = {}
+    _cache_lock = threading.Lock()
 
     def __init__(self, command_prefix: str = "!/"):
         """Initialize the parser with the desired command prefix."""
@@ -80,22 +83,23 @@ class CommandParser:
         prefix_str = prefix if prefix is not None else self.command_prefix
 
         # Check cache first to avoid recompiling same patterns
-        if prefix_str in self._pattern_cache:
-            return self._pattern_cache[prefix_str]
+        with self._cache_lock:
+            if prefix_str in self._pattern_cache:
+                return self._pattern_cache[prefix_str]
 
-        escaped_prefix = re.escape(prefix_str)
-        pattern = re.compile(
-            rf"{escaped_prefix}(?P<name>[\w-]+)(?:\((?P<args>[^)]*)\))?"
-        )
+            escaped_prefix = re.escape(prefix_str)
+            pattern = re.compile(
+                rf"{escaped_prefix}(?P<name>[\w-]+)(?:\((?P<args>[^)]*)\))?"
+            )
 
-        # Cache the compiled pattern (with size limit to prevent memory leaks)
-        if len(self._pattern_cache) >= 100:  # Reasonable limit
-            # Remove oldest entry (simple FIFO)
-            oldest_key = next(iter(self._pattern_cache))
-            del self._pattern_cache[oldest_key]
+            # Cache the compiled pattern (with size limit to prevent memory leaks)
+            if len(self._pattern_cache) >= 100:  # Reasonable limit
+                # Remove oldest entry (simple FIFO)
+                oldest_key = next(iter(self._pattern_cache))
+                del self._pattern_cache[oldest_key]
 
-        self._pattern_cache[prefix_str] = pattern
-        return pattern
+            self._pattern_cache[prefix_str] = pattern
+            return pattern
 
     def parse(
         self, content: str, command_prefix: str | None = None

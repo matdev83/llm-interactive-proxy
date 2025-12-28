@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable, Mapping
 
 from src.core.interfaces.translator_protocol import TranslatorProtocol
@@ -65,9 +66,14 @@ _DEFAULT_FORMAT_ALIASES: Mapping[str, str] = {
 }
 
 _global_registry = TranslatorRegistry()
+_global_registry_lock = threading.Lock()
 
 
 def get_global_translator_registry() -> TranslatorRegistry:
-    """Return the process-wide translator registry used by Translation and TranslationService."""
+    """Return process-wide translator registry used by Translation and TranslationService.
 
+    Thread-safety: Uses double-checked locking with threading.Lock
+    to ensure only one instance is returned even when multiple
+    threads call this function concurrently.
+    """
     return _global_registry

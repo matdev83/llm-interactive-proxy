@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from collections.abc import Callable
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
@@ -30,7 +31,9 @@ import structlog
 T = TypeVar("T")
 
 # Track logged security warnings to prevent spam
+# Thread-safe: protected by _logged_warnings_lock for concurrent access
 _logged_security_warnings: set[str] = set()
+_logged_warnings_lock = threading.Lock()
 
 
 # Environment detection
@@ -616,13 +619,14 @@ def _discover_api_keys_from_config_auth(
                         # SECURITY WARNING: Log when API keys are found in config
                         # Only log once per session to avoid log spam
                         warn_key = "auth.api_keys"
-                        if warn_key not in _logged_security_warnings:
-                            logger = get_logger(__name__)
-                            logger.warning(
-                                "SECURITY WARNING: API key found in config.auth.api_keys. "
-                                "API keys should only be set via environment variables, not config files."
-                            )
-                            _logged_security_warnings.add(warn_key)
+                        with _logged_warnings_lock:
+                            if warn_key not in _logged_security_warnings:
+                                logger = get_logger(__name__)
+                                logger.warning(
+                                    "SECURITY WARNING: API key found in config.auth.api_keys. "
+                                    "API keys should only be set via environment variables, not config files."
+                                )
+                                _logged_security_warnings.add(warn_key)
     except Exception as e:
         # Suppress errors to ensure logging continues; add debug context
         get_logger(__name__).debug(
@@ -672,13 +676,14 @@ def _discover_api_keys_from_config_backends(
                                         continue
 
                                     warn_key = f"backends.{b}.api_key"
-                                    if warn_key not in _logged_security_warnings:
-                                        logger = get_logger(__name__)
-                                        logger.warning(
-                                            f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
-                                            "API keys should only be set via environment variables, not config files."
-                                        )
-                                        _logged_security_warnings.add(warn_key)
+                                    with _logged_warnings_lock:
+                                        if warn_key not in _logged_security_warnings:
+                                            logger = get_logger(__name__)
+                                            logger.warning(
+                                                f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
+                                                "API keys should only be set via environment variables, not config files."
+                                            )
+                                            _logged_security_warnings.add(warn_key)
                         else:
                             found.add(str(ak))
                             # SECURITY WARNING: Log when API keys are found in config
@@ -688,13 +693,14 @@ def _discover_api_keys_from_config_backends(
                                 continue
 
                             warn_key = f"backends.{b}.api_key"
-                            if warn_key not in _logged_security_warnings:
-                                logger = get_logger(__name__)
-                                logger.warning(
-                                    f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
-                                    "API keys should only be set via environment variables, not config files."
-                                )
-                                _logged_security_warnings.add(warn_key)
+                            with _logged_warnings_lock:
+                                if warn_key not in _logged_security_warnings:
+                                    logger = get_logger(__name__)
+                                    logger.warning(
+                                        f"SECURITY WARNING: API key found in config.backends.{b}.api_key. "
+                                        "API keys should only be set via environment variables, not config files."
+                                    )
+                                    _logged_security_warnings.add(warn_key)
                 except Exception as e:
                     # If backend attribute is missing or malformed, skip
                     get_logger(__name__).debug(

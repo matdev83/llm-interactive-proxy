@@ -28,6 +28,7 @@ Usage:
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -86,9 +87,10 @@ class FeatureParityRegistry:
     capability declarations. It provides verification methods to detect
     parity violations at runtime or during testing.
 
-    Thread-safety: This registry is designed for single-threaded use during
-    application startup. For runtime modifications, external synchronization
-    is required.
+    Thread-safety: This registry uses a threading.Lock-protected singleton
+    pattern for safe concurrent access. The get_global_registry() function
+    uses double-checked locking to ensure thread-safe initialization.
+    """
 
     Example:
         registry = FeatureParityRegistry()
@@ -454,6 +456,7 @@ class FeatureParityRegistry:
 
 # Global registry instance
 _global_registry: FeatureParityRegistry | None = None
+_global_registry_lock = threading.Lock()
 
 
 def get_global_registry() -> FeatureParityRegistry:
@@ -462,21 +465,36 @@ def get_global_registry() -> FeatureParityRegistry:
     This function provides access to a singleton registry instance
     for application-wide feature tracking.
 
+    Thread-safety: Uses double-checked locking with threading.Lock
+    to ensure only one instance is created even when multiple
+    threads call this function concurrently.
+
     Returns:
         The global FeatureParityRegistry instance
     """
     global _global_registry
-    if _global_registry is None:
-        _global_registry = FeatureParityRegistry()
-    return _global_registry
+    # Fast path: return existing instance without lock
+    if _global_registry is not None:
+        return _global_registry
+
+    # Slow path: acquire lock and check again
+    with _global_registry_lock:
+        if _global_registry is None:
+            _global_registry = FeatureParityRegistry()
+        return _global_registry
 
 
 def reset_global_registry() -> None:
-    """Reset the global registry (primarily for testing)."""
+    """Reset the global registry (primarily for testing).
+
+    Thread-safety: Acquires lock to prevent race conditions
+    with concurrent get_global_registry() calls.
+    """
     global _global_registry
-    if _global_registry is not None:
-        _global_registry.clear()
-    _global_registry = None
+    with _global_registry_lock:
+        if _global_registry is not None:
+            _global_registry.clear()
+        _global_registry = None
 
 
 class ParityViolationError(Exception):
