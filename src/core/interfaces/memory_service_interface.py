@@ -117,6 +117,14 @@ class IMemoryService(Protocol):
         """
         ...
 
+    async def requeue_session_summary(self, session_id: str) -> tuple[bool, str]:
+        """Force a session back into the analysis queue.
+
+        Returns:
+            Tuple of (success, message) describing the result.
+        """
+        ...
+
     async def get_captured_tool_events(self, session_id: str) -> Any:
         """Get deterministic tool events (file edits and git commits) for a session."""
         ...

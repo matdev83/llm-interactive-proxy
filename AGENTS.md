@@ -93,6 +93,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
    ```powershell
    ./.venv/Scripts/python.exe -m ruff check --fix <file> && ./.venv/Scripts/python.exe -m black <file> && ./.venv/Scripts/python.exe -m mypy <file>
    ```
+7. **Address LSP/linter errors**: Most agents use `pyright` LSP to generate diagnostic messages after each file edit. **AGENTS ARE REQUIRED** to address all signalled diagnostic messages after file edits (if they are not false positives). **AGENTS MUST** fix issues signalled by LSP/linter, even if they believe they are not caused by their changes.
 
 ## Common Pitfalls
 

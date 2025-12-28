@@ -292,7 +292,6 @@ max-complexity = 50
 "src/core/domain/translators/responses/streaming.py" = ["C901"]  # responses_to_domain_stream_chunk (71)
 "src/core/services/backend_request_manager_service.py" = ["C901"]  # _process_streaming_response (101)
 "src/core/transport/fastapi/response_adapters.py" = ["C901"]  # to_fastapi_streaming_response (164), _streaming_adapter (160)
-"src/core/di/registration_helpers/core_processing.py" = ["C901"]  # register_request_processing_orchestration (51) - registration function with many service registrations
 
 [tool.ruff.format]
 # Disable formatting entirely - we only want linting

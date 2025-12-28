@@ -2,6 +2,11 @@
 
 The model replacement service includes comprehensive metrics tracking to monitor and analyze replacement behavior.
 
+## Related Documentation
+
+- [Random Model/Backend Replacement](random-model-replacement.md) for feature configuration and behavior
+- [Monitoring Overview](monitoring-overview.md) for aggregated observability guidance
+
 ## Overview
 
 The metrics system tracks three main categories:

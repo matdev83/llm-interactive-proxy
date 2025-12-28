@@ -413,7 +413,7 @@ resilience:
   shared_backend_types: ["openai", "openrouter"]
 ```
 
-> **See Also:** [Resilience Scoping](features/resilience-scoping.md)
+> **See Also:** [Resilience Scoping](features/resilience-scoping.md) and the [CLI Parameters Reference](cli-parameters.md).
 
 ### Health Check Settings (`health_check`)
 

@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from src.core.memory.models import CapturedInteraction
+from src.core.services import metrics_service
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +102,7 @@ class SessionCaptureBuffer:
             ):
                 buffer_state.is_partial = True
                 buffer_state.overflow_count += 1
+                metrics_service.inc("memory.capture.buffer_overflow")
                 logger.warning(
                     "Buffer overflow for session %s: size=%d, max=%d, overflow_count=%d",
                     session_id,
@@ -112,6 +114,10 @@ class SessionCaptureBuffer:
 
             buffer_state.interactions.append(interaction)
             buffer_state.current_size_bytes += interaction_size
+            metrics_service.inc("memory.capture.buffer_append")
+            metrics_service.inc(
+                "memory.capture.buffer_bytes_sample", buffer_state.current_size_bytes
+            )
             return True
 
     async def get_and_clear(

@@ -356,6 +356,7 @@ class TestConfigurationApplicatorDefaultApplicators:
             "AssessmentApplicator",
             "MemoryApplicator",
             "FailureHandlingApplicator",
+            "ResilienceApplicator",
             "EditPrecisionApplicator",
             "IdentityApplicator",
             "RoutingApplicator",

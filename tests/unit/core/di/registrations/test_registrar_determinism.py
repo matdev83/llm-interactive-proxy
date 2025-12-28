@@ -19,6 +19,7 @@ from src.core.di.registrations import (
     backend,
     core,
     persistence,
+    replacement,
     resilience,
     security,
     streaming,
@@ -50,6 +51,7 @@ class TestRegistrarDeterminism:
         security.register(services, config)
         tooling.register(services, config)
         backend.register(services, config)
+        replacement.register(services, config)
         resilience.register(services, config)
 
         # Should also work with None config
@@ -60,6 +62,7 @@ class TestRegistrarDeterminism:
         security.register(services2, None)
         tooling.register(services2, None)
         backend.register(services2, None)
+        replacement.register(services2, None)
         resilience.register(services2, None)
 
     def test_registrar_order_is_deterministic(self) -> None:
@@ -75,6 +78,7 @@ class TestRegistrarDeterminism:
         security.register(services1, config)
         tooling.register(services1, config)
         backend.register(services1, config)
+        replacement.register(services1, config)
         resilience.register(services1, config)
 
         core.register(services2, config)
@@ -83,6 +87,7 @@ class TestRegistrarDeterminism:
         security.register(services2, config)
         tooling.register(services2, config)
         backend.register(services2, config)
+        replacement.register(services2, config)
         resilience.register(services2, config)
 
         # Both should have the same descriptors (currently empty, but structure should match)
@@ -95,6 +100,7 @@ class TestRegistrarDeterminism:
             backend,
             core,
             persistence,
+            replacement,
             resilience,
             security,
             streaming,
@@ -109,6 +115,7 @@ class TestRegistrarDeterminism:
         assert callable(security.register)
         assert callable(tooling.register)
         assert callable(backend.register)
+        assert callable(replacement.register)
         assert callable(resilience.register)
 
 

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    pass
+    from src.core.cli_support.argument_parser_builder import ArgumentParserBuilder
 
 # =============================================================================
 # Test Fixtures
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def builder() -> object:
+def builder() -> ArgumentParserBuilder:
     """Create an ArgumentParserBuilder instance."""
     from src.core.cli_support.argument_parser_builder import ArgumentParserBuilder
 
@@ -36,9 +36,9 @@ def builder() -> object:
 
 
 @pytest.fixture
-def parser(builder: object) -> argparse.ArgumentParser:
+def parser(builder: ArgumentParserBuilder) -> argparse.ArgumentParser:
     """Build the parser from the builder."""
-    return builder.build()  # type: ignore[union-attr]
+    return builder.build()
 
 
 def _collect_cli_flags(parser: argparse.ArgumentParser) -> set[str]:
@@ -77,15 +77,19 @@ def _get_groups(parser: argparse.ArgumentParser) -> dict[str, argparse.Action]:
 class TestArgumentParserBuilderConstruction:
     """Tests for ArgumentParserBuilder construction and initialization."""
 
-    def test_builder_creates_argument_parser(self, builder: object) -> None:
+    def test_builder_creates_argument_parser(
+        self, builder: ArgumentParserBuilder
+    ) -> None:
         """Builder.build() returns an argparse.ArgumentParser instance."""
-        parser = builder.build()  # type: ignore[union-attr]
+        parser = builder.build()
         assert isinstance(parser, argparse.ArgumentParser)
 
-    def test_builder_can_be_called_multiple_times(self, builder: object) -> None:
+    def test_builder_can_be_called_multiple_times(
+        self, builder: ArgumentParserBuilder
+    ) -> None:
         """Builder.build() can be called multiple times, returning fresh parsers."""
-        parser1 = builder.build()  # type: ignore[union-attr]
-        parser2 = builder.build()  # type: ignore[union-attr]
+        parser1 = builder.build()
+        parser2 = builder.build()
         assert parser1 is not parser2
         assert isinstance(parser1, argparse.ArgumentParser)
         assert isinstance(parser2, argparse.ArgumentParser)
@@ -630,6 +634,29 @@ class TestFailureHandlingFlags:
 
 
 # =============================================================================
+# Resilience Scoping Flags Tests
+# =============================================================================
+
+
+class TestResilienceScopingFlags:
+    """Tests for resilience scoping CLI arguments."""
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "--resilience-personal-backends",
+            "--resilience-shared-backends",
+        ],
+    )
+    def test_resilience_scoping_flags_present(
+        self, parser: argparse.ArgumentParser, flag: str
+    ) -> None:
+        """Resilience scoping flags are present."""
+        flags = _collect_cli_flags(parser)
+        assert flag in flags, f"Flag {flag} not found in parser"
+
+
+# =============================================================================
 # Activity Tracking and Deduplication Flags Tests
 # =============================================================================
 
@@ -709,6 +736,13 @@ class TestArgumentGroups:
         group_names = [g.title for g in parser._action_groups]
         assert "Failure Handling" in group_names
 
+    def test_has_resilience_scoping_group(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Parser has a Resilience Scoping argument group."""
+        group_names = [g.title for g in parser._action_groups]
+        assert "Resilience Scoping" in group_names
+
 
 # =============================================================================
 # Backward Compatibility Tests
@@ -741,9 +775,10 @@ class TestBackwardCompatibility:
         action = _get_action_by_dest(parser, "default_backend")
         assert action is not None
         assert action.choices is not None
-        assert len(action.choices) > 0
+        choices = list(action.choices)
+        assert len(choices) > 0
         # Verify it includes at least some expected backends
-        registered_backends = list(action.choices)
+        registered_backends = choices
         # Should have at least some backends registered
         assert len(registered_backends) >= 1
 

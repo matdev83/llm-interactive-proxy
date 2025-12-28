@@ -69,6 +69,7 @@ class ArgumentParserBuilder:
         self._add_identity_arguments(parser)
         self._add_memory_arguments(parser)
         self._add_failure_handling_arguments(parser)
+        self._add_resilience_arguments(parser)
         self._add_end_of_session_arguments(parser)
 
         return parser
@@ -188,6 +189,16 @@ class ArgumentParserBuilder:
                 f"Invalid regex pattern '{pattern}' in model alias: {e}"
             )
         return pattern, replacement
+
+    def _parse_csv_list(self, value: str) -> list[str]:
+        """Parse a comma-separated list into a list of strings."""
+        items = value.split(",")
+        result: list[str] = []
+        for item in items:
+            stripped = item.strip()
+            if stripped:
+                result.append(stripped)
+        return result
 
     def _add_api_key_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add API keys and URLs arguments."""
@@ -1012,6 +1023,20 @@ class ArgumentParserBuilder:
             help="Session inactivity timeout before triggering analysis (default: 30)",
         )
         memory_group.add_argument(
+            "--memory-summarization-delay",
+            type=int,
+            dest="memory_summarization_delay",
+            metavar="SECONDS",
+            help="Delay before summarizing completed sessions (default: 120)",
+        )
+        memory_group.add_argument(
+            "--memory-max-sessions-to-consider",
+            type=int,
+            dest="memory_max_sessions_to_consider",
+            metavar="COUNT",
+            help="Max recent sessions to consider for context (default: 10)",
+        )
+        memory_group.add_argument(
             "--memory-retention-days",
             type=int,
             dest="memory_retention_days",
@@ -1026,11 +1051,67 @@ class ArgumentParserBuilder:
             help="Maximum tokens for injected context (default: 2000)",
         )
         memory_group.add_argument(
+            "--memory-max-summary-tokens",
+            type=int,
+            dest="memory_max_summary_tokens",
+            metavar="TOKENS",
+            help="Maximum tokens for summary prompt context (default: 800)",
+        )
+        memory_group.add_argument(
+            "--memory-max-transcript-chars",
+            type=int,
+            dest="memory_max_transcript_chars",
+            metavar="CHARS",
+            help="Maximum transcript length before chunking (default: 50000)",
+        )
+        memory_group.add_argument(
+            "--memory-summary-completion-tokens",
+            type=int,
+            dest="memory_summary_completion_tokens",
+            metavar="TOKENS",
+            help="Max completion tokens for summary generation (default: 10000)",
+        )
+        memory_group.add_argument(
             "--memory-context-relevance-threshold",
             type=float,
             dest="memory_context_relevance_threshold",
             metavar="THRESHOLD",
             help="Minimum relevance score for context injection (0.0-1.0, default: 0.5)",
+        )
+        memory_group.add_argument(
+            "--memory-max-buffer-size-bytes",
+            type=int,
+            dest="memory_max_buffer_size_bytes",
+            metavar="BYTES",
+            help="Maximum capture buffer size per session (default: 10485760)",
+        )
+        memory_group.add_argument(
+            "--memory-analysis-queue-maxsize",
+            type=int,
+            dest="memory_analysis_queue_maxsize",
+            metavar="COUNT",
+            help="Maximum size of the analysis queue (default: 100)",
+        )
+        memory_group.add_argument(
+            "--memory-analysis-timeout",
+            type=int,
+            dest="memory_analysis_timeout_seconds",
+            metavar="SECONDS",
+            help="Timeout for summary generation per session (default: 30)",
+        )
+        memory_group.add_argument(
+            "--memory-max-concurrent-analyses",
+            type=int,
+            dest="memory_max_concurrent_analyses",
+            metavar="COUNT",
+            help="Maximum concurrent summary analyses (default: 4)",
+        )
+        memory_group.add_argument(
+            "--memory-context-template",
+            type=str,
+            dest="memory_context_template",
+            metavar="TEMPLATE",
+            help="Template for context injection; use {context} placeholder",
         )
         memory_group.add_argument(
             "--memory-single-user-mode",
@@ -1045,6 +1126,13 @@ class ArgumentParserBuilder:
             dest="memory_fixed_user_id",
             metavar="USER_ID",
             help="Fixed user ID for single-user mode",
+        )
+        memory_group.add_argument(
+            "--memory-persist-transcript",
+            action="store_true",
+            dest="memory_persist_transcript",
+            default=None,
+            help="Persist full transcripts for memory summaries (default: false)",
         )
         memory_group.add_argument(
             "--memory-redaction-pattern",
@@ -1066,6 +1154,42 @@ class ArgumentParserBuilder:
             dest="memory_disabled_clients",
             metavar="CLIENT",
             help="Client/agent name to exclude from memory features (can be specified multiple times)",
+        )
+        memory_group.add_argument(
+            "--memory-summary-prompt-version",
+            type=str,
+            dest="memory_summary_prompt_version",
+            metavar="VERSION",
+            help="Summary prompt version identifier (default: v1)",
+        )
+        memory_group.add_argument(
+            "--memory-summary-schema-version",
+            type=str,
+            dest="memory_summary_schema_version",
+            metavar="VERSION",
+            help="Summary schema version identifier (default: v1)",
+        )
+        memory_group.add_argument(
+            "--memory-require-project-discovery",
+            dest="memory_require_project_discovery",
+            action="store_true",
+            default=None,
+            help="Require project discovery before injecting context (default: true)",
+        )
+        memory_group.add_argument(
+            "--memory-allow-missing-project",
+            dest="memory_require_project_discovery",
+            action="store_false",
+            default=None,
+            help="Allow context injection without discovered project root",
+        )
+        memory_group.add_argument(
+            "--memory-project-discovery-mode",
+            type=str,
+            dest="memory_project_discovery_mode",
+            choices=["deterministic", "nondeterministic", "any"],
+            metavar="MODE",
+            help="Project discovery mode (deterministic|nondeterministic|any, default: any)",
         )
 
     def _add_failure_handling_arguments(self, parser: argparse.ArgumentParser) -> None:
@@ -1115,6 +1239,35 @@ class ArgumentParserBuilder:
             type=float,
             metavar="SECONDS",
             help="Minimum retry wait even for sub-second retry-after (default: 1.0)",
+        )
+
+    def _add_resilience_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add resilience scoping arguments."""
+        resilience_group = parser.add_argument_group(
+            "Resilience Scoping",
+            "Configure how rate-limit and cooldown state is shared across clients",
+        )
+        resilience_group.add_argument(
+            "--resilience-personal-backends",
+            dest="resilience_personal_backends",
+            action="append",
+            type=self._parse_csv_list,
+            metavar="BACKEND[,BACKEND...]",
+            help=(
+                "Force personal scoping for listed backend types. "
+                "Provide a comma-separated list or repeat the flag."
+            ),
+        )
+        resilience_group.add_argument(
+            "--resilience-shared-backends",
+            dest="resilience_shared_backends",
+            action="append",
+            type=self._parse_csv_list,
+            metavar="BACKEND[,BACKEND...]",
+            help=(
+                "Force shared scoping for listed backend types. "
+                "Provide a comma-separated list or repeat the flag."
+            ),
         )
 
     def _add_end_of_session_arguments(self, parser: argparse.ArgumentParser) -> None:

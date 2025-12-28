@@ -214,8 +214,8 @@ def get_di_services_scope_files(base_path: Path | None = None) -> list[Path]:
     return sorted(set(scope_files))
 
 
-# Thresholds from requirements.md
-MAX_LOC = 1000
+# Thresholds from requirements.md (Requirement 4.1: no file > 600 LOC)
+MAX_LOC = 600
 MAX_FUNCTION_CC = 50
 MAX_MODULE_CC = 200
 
@@ -454,11 +454,8 @@ def validate_di_services_files(
     violations = []
     passed_count = 0
 
-    # Temporary exclusion: core_processing.py exceeds LOC threshold (886 lines)
-    # TODO: Refactor this file to split into smaller modules as part of DI services refactoring
-    excluded_files = {
-        "src/core/di/registration_helpers/core_processing.py",
-    }
+    # No exclusions - all files must meet thresholds
+    excluded_files: set[str] = set()
 
     for file_path in scope_files:
         rel_path = str(file_path.relative_to(base_path))

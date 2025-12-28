@@ -10,6 +10,8 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING
 
+from src.core.services import metrics_service
+
 if TYPE_CHECKING:
     from src.core.memory.config import MemoryConfiguration
     from src.core.memory.service import MemoryService
@@ -80,6 +82,10 @@ class AnalysisWorker:
         """Main worker loop that processes the analysis queue."""
         while self._running:
             try:
+                metrics_service.inc(
+                    "memory.analysis.queue_depth.sample",
+                    self._memory_service.get_analysis_queue_size(),
+                )
                 # Get next session from queue
                 session_id = await self._memory_service.get_pending_analysis_session()
 
@@ -111,68 +117,75 @@ class AnalysisWorker:
         logger.debug("Processing session %s for summary generation", session_id)
 
         try:
-            # Get session state
-            state = await self._memory_service.get_session_state(session_id)
-            if state is None:
-                logger.warning("Session %s state not found, skipping", session_id)
-                await self._memory_service.complete_analysis(session_id)
-                return
+            with metrics_service.timer("memory.analysis.process.duration"):
+                # Get session state
+                state = await self._memory_service.get_session_state(session_id)
+                if state is None:
+                    logger.warning("Session %s state not found, skipping", session_id)
+                    metrics_service.inc("memory.analysis.skipped")
+                    await self._memory_service.complete_analysis(session_id)
+                    return
 
-            # Get captured interactions
-            interactions, is_partial = (
-                await self._memory_service.get_captured_interactions(session_id)
-            )
-
-            # Get deterministic tool events (file edits and git commits)
-            file_edits, git_commits = (
-                await self._memory_service.get_captured_tool_events(session_id)
-            )
-
-            if not interactions:
-                logger.debug("No interactions for session %s, skipping", session_id)
-                await self._memory_service.complete_analysis(session_id)
-                return
-
-            # Apply timeout to summary generation
-            try:
-                result = await asyncio.wait_for(
-                    self._summary_generator.generate_summary(
-                        session_id=session_id,
-                        user_id=state.user_id,
-                        interactions=interactions,
-                        tenant_id=state.tenant_id,
-                        project_id=state.project_id,
-                        project_root=state.project_root,
-                        backend_model=state.backend_model,
-                        client_agent=state.client_id,
-                        is_partial=is_partial,
-                        deterministic_file_edits=file_edits,
-                        deterministic_git_commits=git_commits,
-                    ),
-                    timeout=self._config.analysis_timeout_seconds,
+                # Get captured interactions
+                interactions, is_partial = (
+                    await self._memory_service.get_captured_interactions(session_id)
                 )
 
-                if result.success:
-                    logger.info(
-                        "Summary generated for session %s (title: %s)",
-                        session_id,
-                        result.summary.title if result.summary else "N/A",
+                # Get deterministic tool events (file edits and git commits)
+                file_edits, git_commits = (
+                    await self._memory_service.get_captured_tool_events(session_id)
+                )
+
+                if not interactions:
+                    logger.debug("No interactions for session %s, skipping", session_id)
+                    metrics_service.inc("memory.analysis.empty")
+                    await self._memory_service.complete_analysis(session_id)
+                    return
+
+                # Apply timeout to summary generation
+                try:
+                    result = await asyncio.wait_for(
+                        self._summary_generator.generate_summary(
+                            session_id=session_id,
+                            user_id=state.user_id,
+                            interactions=interactions,
+                            tenant_id=state.tenant_id,
+                            project_id=state.project_id,
+                            project_root=state.project_root,
+                            backend_model=state.backend_model,
+                            client_agent=state.client_id,
+                            is_partial=is_partial,
+                            deterministic_file_edits=file_edits,
+                            deterministic_git_commits=git_commits,
+                        ),
+                        timeout=self._config.analysis_timeout_seconds,
                     )
-                else:
+
+                    if result.success:
+                        metrics_service.inc("memory.analysis.success")
+                        logger.info(
+                            "Summary generated for session %s (title: %s)",
+                            session_id,
+                            result.summary.title if result.summary else "N/A",
+                        )
+                    else:
+                        metrics_service.inc("memory.analysis.failure")
+                        logger.warning(
+                            "Summary generation failed for session %s: %s",
+                            session_id,
+                            result.error,
+                        )
+
+                except asyncio.TimeoutError:
+                    metrics_service.inc("memory.analysis.timeout")
                     logger.warning(
-                        "Summary generation failed for session %s: %s",
+                        "Summary generation timed out for session %s (limit: %ds)",
                         session_id,
-                        result.error,
+                        self._config.analysis_timeout_seconds,
                     )
-
-            except asyncio.TimeoutError:
-                logger.warning(
-                    "Summary generation timed out for session %s (limit: %ds)",
-                    session_id,
-                    self._config.analysis_timeout_seconds,
-                )
 
         except Exception as e:
+            metrics_service.inc("memory.analysis.error")
             logger.exception("Error processing session %s: %s", session_id, e)
 
         finally:

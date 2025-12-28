@@ -50,6 +50,7 @@ from src.core.domain.health.models import (
     EndpointHealthStateInfo,
     EndpointHealthSummary,
     HealthInfo,
+    MemoryHealthInfo,
     SystemHealthInfo,
 )
 from src.core.interfaces.di_interface import IServiceProvider
@@ -345,6 +346,7 @@ def register_routes(app: FastAPI) -> None:
 
                 # Include endpoint health states
                 result.endpoint_health = _get_endpoint_health_info(sp)
+                result.memory_health = await _get_memory_health_info(sp)
 
             # Also include registered descriptor names from global service collection
             try:
@@ -513,6 +515,63 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
         health_info.error = f"Error getting health info: {e}"
 
     return health_info
+
+
+async def _get_memory_health_info(sp: IServiceProvider) -> MemoryHealthInfo:
+    """Get ProxyMem health information."""
+    info = MemoryHealthInfo(enabled=False, available=False)
+
+    try:
+        from src.core.memory.analysis_worker import AnalysisWorker
+        from src.core.memory.config import MemoryConfiguration
+        from src.core.memory.repository import IMemoryRepository
+        from src.core.memory.service import MemoryService
+    except ImportError as e:
+        info.error = f"Memory modules not available: {e}"
+        return info
+
+    memory_config = sp.get_service(MemoryConfiguration)
+    if memory_config is None:
+        info.note = "Memory configuration not registered"
+        return info
+
+    info.available = memory_config.available
+    if not memory_config.available:
+        info.note = "Memory feature disabled"
+        return info
+
+    memory_service = sp.get_service(MemoryService)
+    if memory_service is None:
+        info.note = "Memory service not registered"
+        return info
+
+    info.enabled = True
+    info.queue_depth = memory_service.get_analysis_queue_size()
+    info.active_sessions = memory_service.get_active_session_count()
+    try:
+        info.buffered_sessions = await memory_service.get_buffered_session_count()
+    except Exception as e:
+        info.error = f"Failed to read capture buffer state: {e}"
+
+    analysis_worker = sp.get_service(AnalysisWorker)
+    if analysis_worker is not None:
+        info.analysis_worker_running = analysis_worker.is_running
+
+    repo = sp.get_service(cast(type, IMemoryRepository))
+    if repo is None:
+        info.database_connected = False
+        if info.note is None:
+            info.note = "Memory repository not registered"
+        return info
+
+    try:
+        await repo.initialize_schema()
+        info.database_connected = True
+    except Exception as e:
+        info.database_connected = False
+        info.error = f"Memory repository error: {e}"
+
+    return info
 
 
 def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901

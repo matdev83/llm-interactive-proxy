@@ -21,6 +21,7 @@ from src.core.memory.models import (
     ToolEvent,
 )
 from src.core.memory.tool_event_collector import DeterministicToolEventCollector
+from src.core.services import metrics_service
 
 if TYPE_CHECKING:
     from src.core.memory.repository import IMemoryRepository
@@ -141,6 +142,7 @@ class MemoryService:
         """
         if not self.is_available():
             logger.debug("Memory not available globally")
+            metrics_service.inc("memory.sessions.enable_unavailable")
             return False
 
         # Check single-user mode
@@ -148,21 +150,25 @@ class MemoryService:
             user_id = self._config.fixed_user_id or "default-user"
         elif not user_id:
             logger.warning("Missing user_id in multi-user mode, failing closed")
+            metrics_service.inc("memory.sessions.enable_missing_user")
             return False
 
         # Check user deny list
         if user_id in self._config.disabled_users:
             logger.debug("User %s is in deny list", user_id)
+            metrics_service.inc("memory.sessions.enable_denied_user")
             return False
 
         # Check client deny list
         if client_id and client_id in self._config.disabled_clients:
             logger.debug("Client %s is in deny list", client_id)
+            metrics_service.inc("memory.sessions.enable_denied_client")
             return False
 
         # Check project discovery gating
         if self._config.require_project_discovery and not project_root:
             logger.debug("Project root required but not available")
+            metrics_service.inc("memory.sessions.enable_missing_project")
             return False
 
         # Cancel any pending summary task if session is being resumed
@@ -202,6 +208,7 @@ class MemoryService:
             # Move to end (most recently used) for LRU tracking
             self._session_states.move_to_end(session_id)
 
+            metrics_service.inc("memory.sessions.enabled")
             return True
 
     async def disable_for_session(self, session_id: str) -> None:
@@ -230,6 +237,7 @@ class MemoryService:
         """
         async with self._state_lock:
             if session_id not in self._session_states:
+                metrics_service.inc("memory.capture.skipped")
                 return False
 
         result = await self._capture_buffer.append(session_id, interaction)
@@ -238,6 +246,9 @@ class MemoryService:
                 "Buffer overflow for session %s, marking as partial",
                 session_id,
             )
+            metrics_service.inc("memory.capture.buffer_full")
+        else:
+            metrics_service.inc("memory.capture.appended")
         return result
 
     async def record_tool_event(
@@ -270,6 +281,32 @@ class MemoryService:
             session_id, event, project_root
         )
         return True
+
+    async def requeue_session_summary(self, session_id: str) -> tuple[bool, str]:
+        """Force a session back into the analysis queue."""
+        if not self.is_available():
+            return False, "Memory feature is not available."
+
+        async with self._state_lock:
+            if session_id not in self._session_states:
+                return False, "Session is not enabled for memory."
+            state = self._session_states[session_id]
+            state.last_access = time.time()
+            self._session_states.move_to_end(session_id)
+            state.queued_for_analysis = True
+
+        interaction_count = await self._capture_buffer.get_interaction_count(session_id)
+        if interaction_count == 0:
+            metrics_service.inc("memory.analysis.requeue_empty")
+            return False, "No buffered interactions to summarize."
+
+        try:
+            self._analysis_queue.put_nowait(session_id)
+            metrics_service.inc("memory.analysis.requeued")
+            return True, "Session queued for summary regeneration."
+        except asyncio.QueueFull:
+            metrics_service.inc("memory.analysis.queue_full")
+            return False, "Analysis queue is full; try again later."
 
     async def mark_session_complete(
         self,
@@ -329,6 +366,7 @@ class MemoryService:
                     session_id, self._config.summarization_delay_seconds
                 )
             )
+            metrics_service.inc("memory.analysis.queued_delayed")
             logger.info(
                 "Session %s scheduled for summary in %d seconds",
                 session_id,
@@ -338,8 +376,10 @@ class MemoryService:
             # Immediate summarization for delay=0 (backwards compatibility)
             try:
                 self._analysis_queue.put_nowait(session_id)
+                metrics_service.inc("memory.analysis.queued")
                 logger.info("Session %s queued for analysis immediately", session_id)
             except asyncio.QueueFull:
+                metrics_service.inc("memory.analysis.queue_full")
                 logger.warning(
                     "Analysis queue full, dropping session %s (backpressure)",
                     session_id,
@@ -419,6 +459,7 @@ class MemoryService:
         """
         try:
             session_id = self._analysis_queue.get_nowait()
+            metrics_service.inc("memory.analysis.dequeued")
             # Track when session entered analysis_in_progress for TTL cleanup
             # Enforce max limit to prevent unbounded growth
             if len(self._analysis_in_progress) >= _MAX_ANALYSIS_IN_PROGRESS:
@@ -453,6 +494,7 @@ class MemoryService:
     async def complete_analysis(self, session_id: str) -> None:
         """Mark analysis as complete for a session."""
         self._analysis_in_progress.pop(session_id, None)
+        metrics_service.inc("memory.analysis.completed")
 
         async with self._state_lock:
             self._session_states.pop(session_id, None)
@@ -477,8 +519,10 @@ class MemoryService:
             # Queue for actual analysis processing
             try:
                 self._analysis_queue.put_nowait(session_id)
+                metrics_service.inc("memory.analysis.queued")
                 logger.info("Session %s queued for delayed analysis", session_id)
             except asyncio.QueueFull:
+                metrics_service.inc("memory.analysis.queue_full")
                 logger.warning(
                     "Analysis queue full during delayed processing, dropping session %s (backpressure)",
                     session_id,
@@ -502,6 +546,10 @@ class MemoryService:
     def get_active_session_count(self) -> int:
         """Get the number of active memory-enabled sessions."""
         return len(self._session_states)
+
+    async def get_buffered_session_count(self) -> int:
+        """Get the number of sessions with active capture buffers."""
+        return await self._capture_buffer.get_active_session_count()
 
     async def cleanup(self) -> None:
         """Clean up pending cleanup tasks to prevent resource leaks.

@@ -28,6 +28,7 @@ from src.core.memory.models import (
     TestRun,
 )
 from src.core.memory.prompt_loader import PromptLoader
+from src.core.services import metrics_service
 
 if TYPE_CHECKING:
     from src.core.memory.repository import IMemoryRepository
@@ -229,7 +230,44 @@ class SummaryGenerator:
         Returns:
             SummaryResult with success status and summary or error.
         """
+        metrics_service.inc("memory.summary.requested")
+        with metrics_service.timer("memory.summary.generate.duration"):
+            return await self._generate_summary_impl(
+                session_id=session_id,
+                user_id=user_id,
+                interactions=interactions,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                project_root=project_root,
+                backend_model=backend_model,
+                client_agent=client_agent,
+                branch=branch,
+                head_sha=head_sha,
+                is_partial=is_partial,
+                deterministic_file_edits=deterministic_file_edits,
+                deterministic_git_commits=deterministic_git_commits,
+            )
+
+    async def _generate_summary_impl(
+        self,
+        session_id: str,
+        user_id: str,
+        interactions: list[CapturedInteraction],
+        *,
+        tenant_id: str | None = None,
+        project_id: str | None = None,
+        project_root: str | None = None,
+        backend_model: str | None = None,
+        client_agent: str | None = None,
+        branch: str | None = None,
+        head_sha: str | None = None,
+        is_partial: bool = False,
+        deterministic_file_edits: list[FileEditEvent] | None = None,
+        deterministic_git_commits: list[GitCommitEvent] | None = None,
+    ) -> SummaryResult:
+        """Generate a summary for a session (implementation)."""
         if not interactions:
+            metrics_service.inc("memory.summary.failure")
             return SummaryResult(
                 success=False,
                 error="No interactions to summarize",
@@ -249,6 +287,7 @@ class SummaryGenerator:
                 logger.exception(
                     "Failed to process large transcript for session %s", session_id
                 )
+                metrics_service.inc("memory.summary.failure")
                 return SummaryResult(
                     success=False,
                     error=f"Chunking error: {e}",
@@ -291,6 +330,8 @@ class SummaryGenerator:
         # Call LLM with retry
         xml_response = await self._call_llm_with_retry(prompt)
         if xml_response is None:
+            metrics_service.inc("memory.summary.llm_failure")
+            metrics_service.inc("memory.summary.failure")
             return SummaryResult(
                 success=False,
                 error="LLM call failed after retries",
@@ -304,6 +345,7 @@ class SummaryGenerator:
                 session_id,
                 error,
             )
+            metrics_service.inc("memory.summary.failure")
             return SummaryResult(
                 success=False,
                 error=f"Validation failed: {error}",
@@ -329,6 +371,7 @@ class SummaryGenerator:
             )
         except Exception as e:
             logger.exception("Failed to parse summary XML for session %s", session_id)
+            metrics_service.inc("memory.summary.failure")
             return SummaryResult(
                 success=False,
                 error=f"Parse error: {e}",
@@ -340,11 +383,13 @@ class SummaryGenerator:
             logger.info("Summary persisted for session %s", session_id)
         except Exception as e:
             logger.exception("Failed to persist summary for session %s", session_id)
+            metrics_service.inc("memory.summary.failure")
             return SummaryResult(
                 success=False,
                 error=f"Persistence error: {e}",
             )
 
+        metrics_service.inc("memory.summary.success")
         return SummaryResult(success=True, summary=summary)
 
     def _build_transcript(self, interactions: list[CapturedInteraction]) -> str:
@@ -579,7 +624,7 @@ Format as bullet points. Do not use XML.
 
         for attempt in range(max_retries):
             try:
-                response = await self._llm_caller(prompt)
+                response = await self._invoke_llm(prompt)
                 return response
             except Exception as e:
                 last_error = e
@@ -593,6 +638,15 @@ Format as bullet points. Do not use XML.
 
         logger.error("LLM call failed after %d attempts: %s", max_retries, last_error)
         return None
+
+    async def _invoke_llm(self, prompt: str) -> str | None:
+        """Invoke the LLM caller with optional completion token limit."""
+        try:
+            return await self._llm_caller(  # type: ignore[misc]
+                prompt, max_tokens=self._config.summary_completion_tokens
+            )
+        except TypeError:
+            return await self._llm_caller(prompt)  # type: ignore[misc]
 
     def _generate_mock_response(self, session_id: str = "mock-session") -> str:
         """Generate a mock XML response for testing.

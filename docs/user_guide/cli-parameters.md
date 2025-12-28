@@ -202,15 +202,31 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--memory-summary-prompt FILE` | `MEMORY_SUMMARY_PROMPT` | Path to custom summary prompt file. |
 | `--memory-context-prompt FILE` | `MEMORY_CONTEXT_PROMPT` | Path to custom context prompt file. |
 | `--memory-database-path FILE` | `MEMORY_DATABASE_PATH` | Path to SQLite database for memory storage. |
-| `--memory-session-timeout MINUTES` | `MEMORY_SESSION_TIMEOUT` | Timeout in minutes for session inactivity. |
+| `--memory-session-timeout MINUTES` | `MEMORY_SESSION_TIMEOUT_MINUTES` | Timeout in minutes for session inactivity. |
+| `--memory-summarization-delay SECONDS` | `MEMORY_SUMMARIZATION_DELAY_SECONDS` | Delay before summarizing completed sessions. |
+| `--memory-max-sessions-to-consider N` | `MEMORY_MAX_SESSIONS_TO_CONSIDER` | Max recent sessions to consider for context. |
 | `--memory-retention-days DAYS` | `MEMORY_RETENTION_DAYS` | Days to retain memory data. |
 | `--memory-max-context-tokens N` | `MEMORY_MAX_CONTEXT_TOKENS` | Max tokens for injected context. |
+| `--memory-max-summary-tokens N` | `MEMORY_MAX_SUMMARY_TOKENS` | Max tokens for summary prompt context. |
+| `--memory-max-transcript-chars N` | `MEMORY_MAX_TRANSCRIPT_CHARS` | Max transcript length before chunking. |
+| `--memory-summary-completion-tokens N` | `MEMORY_SUMMARY_COMPLETION_TOKENS` | Max completion tokens for summary generation. |
 | `--memory-context-relevance-threshold FLOAT` | `MEMORY_CONTEXT_RELEVANCE_THRESHOLD` | Minimum relevance score for context retrieval. |
+| `--memory-max-buffer-size-bytes N` | `MEMORY_MAX_BUFFER_SIZE_BYTES` | Max capture buffer size per session. |
+| `--memory-analysis-queue-maxsize N` | `MEMORY_ANALYSIS_QUEUE_MAXSIZE` | Max size of analysis queue. |
+| `--memory-analysis-timeout SECONDS` | `MEMORY_ANALYSIS_TIMEOUT_SECONDS` | Timeout per summary generation. |
+| `--memory-max-concurrent-analyses N` | `MEMORY_MAX_CONCURRENT_ANALYSES` | Max concurrent analyses. |
+| `--memory-context-template TEMPLATE` | `MEMORY_CONTEXT_TEMPLATE` | Template for injected context (use `{context}`). |
 | `--memory-single-user-mode` | `MEMORY_SINGLE_USER_MODE=true` | Enable single-user mode (ignores user IDs). |
 | `--memory-fixed-user-id ID` | `MEMORY_FIXED_USER_ID` | Fixed user ID to use in single-user mode. |
+| `--memory-persist-transcript` | `MEMORY_PERSIST_TRANSCRIPT=true` | Persist transcripts for summaries. |
 | `--memory-redaction-pattern PATTERN` | `MEMORY_REDACTION_PATTERNS` | Add a regex pattern for redaction. Can be used multiple times. |
 | `--memory-disable-user ID` | `MEMORY_DISABLED_USERS` | Disable memory for specific user ID. Can be used multiple times. |
 | `--memory-disable-client ID` | `MEMORY_DISABLED_CLIENTS` | Disable memory for specific client ID. Can be used multiple times. |
+| `--memory-summary-prompt-version VERSION` | `MEMORY_SUMMARY_PROMPT_VERSION` | Summary prompt version identifier. |
+| `--memory-summary-schema-version VERSION` | `MEMORY_SUMMARY_SCHEMA_VERSION` | Summary schema version identifier. |
+| `--memory-require-project-discovery` | `MEMORY_REQUIRE_PROJECT_DISCOVERY=true` | Require project discovery before context injection. |
+| `--memory-allow-missing-project` | `MEMORY_REQUIRE_PROJECT_DISCOVERY=false` | Allow context injection without project discovery. |
+| `--memory-project-discovery-mode MODE` | `MEMORY_PROJECT_DISCOVERY_MODE` | Project discovery mode. |
 
 > **See Also:** [ProxyMem: Cross-Session Memory](proxymem-memory.md) for detailed documentation on the memory feature.
 
@@ -335,6 +351,15 @@ Configure automatic retry and failover behavior for backend errors. See [Failure
 | `--keepalive-interval SECONDS` | `FAILURE_HANDLING_KEEPALIVE_INTERVAL` | SSE keepalive interval during waits (default: 8). |
 | `--max-failover-hops N` | `FAILURE_HANDLING_MAX_FAILOVER_HOPS` | Max backend instances to try (default: 5). |
 | `--min-retry-wait SECONDS` | `FAILURE_HANDLING_MIN_RETRY_WAIT` | Minimum retry wait time (default: 1). |
+
+### Resilience Scoping
+
+Control whether rate-limit and cooldown state is shared or isolated per client. See [Resilience Scoping](features/resilience-scoping.md) for detailed documentation.
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--resilience-personal-backends BACKEND[,BACKEND...]` | `RESILIENCE_PERSONAL_BACKEND_TYPES` | Force personal scoping for listed backend types (comma-separated or repeat the flag). |
+| `--resilience-shared-backends BACKEND[,BACKEND...]` | `RESILIENCE_SHARED_BACKEND_TYPES` | Force shared scoping for listed backend types (comma-separated or repeat the flag). |
 
 ### Request Deduplication
 

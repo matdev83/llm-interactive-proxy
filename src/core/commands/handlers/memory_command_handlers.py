@@ -4,6 +4,7 @@ Implements interactive commands for memory control:
 - memory-on: Enable memory capture for a session
 - memory-off: Disable memory capture for a session
 - memory-status: Query current memory state
+- memory-requeue: Requeue summary generation for a session
 """
 
 from __future__ import annotations
@@ -197,3 +198,45 @@ class MemoryStatusCommandHandler(ICommandHandler):
                 success=True,
                 message="Memory: not enabled for this session",
             )
+
+
+@command("memory-requeue")
+class MemoryRequeueCommandHandler(ICommandHandler):
+    """Command handler to requeue summary generation for a session."""
+
+    def __init__(
+        self,
+        command_service: ICommandService | None = None,
+        memory_service: MemoryService | None = None,
+    ) -> None:
+        super().__init__(command_service)
+        self._memory_service = memory_service
+
+    @property
+    def command_name(self) -> str:
+        return "memory-requeue"
+
+    @property
+    def description(self) -> str:
+        return "Requeue summary generation for this session."
+
+    @property
+    def format(self) -> str:
+        return "memory-requeue"
+
+    @property
+    def examples(self) -> list[str]:
+        return ["!/memory-requeue"]
+
+    async def handle(self, command: Command, session: Session) -> CommandResult:
+        """Requeue summary generation for the session."""
+        if self._memory_service is None:
+            return CommandResult(
+                success=False,
+                message="Memory service not available.",
+            )
+
+        success, message = await self._memory_service.requeue_session_summary(
+            session.session_id
+        )
+        return CommandResult(success=success, message=message)

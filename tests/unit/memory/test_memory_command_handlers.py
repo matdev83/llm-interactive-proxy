@@ -8,6 +8,7 @@ import pytest
 from src.core.commands.handlers.memory_command_handlers import (
     MemoryOffCommandHandler,
     MemoryOnCommandHandler,
+    MemoryRequeueCommandHandler,
     MemoryStatusCommandHandler,
 )
 from src.core.commands.models import Command
@@ -222,3 +223,32 @@ class TestMemoryStatusCommandHandler:
 
         assert result.success is True
         assert "queued" in result.message.lower()
+
+
+class TestMemoryRequeueCommandHandler:
+    """Tests for MemoryRequeueCommandHandler."""
+
+    @pytest.mark.asyncio
+    async def test_requeue_succeeds(self) -> None:
+        memory_service = MagicMock()
+        memory_service.requeue_session_summary = AsyncMock(
+            return_value=(True, "queued")
+        )
+
+        handler = MemoryRequeueCommandHandler(memory_service=memory_service)
+        result = await handler.handle(
+            Command(name="memory-requeue", args={}), create_mock_session()
+        )
+
+        assert result.success is True
+        assert "queued" in result.message.lower()
+
+    @pytest.mark.asyncio
+    async def test_requeue_fails_without_service(self) -> None:
+        handler = MemoryRequeueCommandHandler(memory_service=None)
+        result = await handler.handle(
+            Command(name="memory-requeue", args={}), create_mock_session()
+        )
+
+        assert result.success is False
+        assert "not available" in result.message.lower()
