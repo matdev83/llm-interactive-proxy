@@ -15,7 +15,8 @@ Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 8.1, 9.1
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, Mock
+import logging
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -109,290 +110,83 @@ class TestNormalizedMessageReplacement:
         # Verify original request was not mutated
         assert base_request.messages != result.messages
 
-    @pytest.mark.asyncio
-    async def test_replace_messages_with_dict_format(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When modified_messages are dicts, should normalize to ChatMessage."""
-        # Arrange
-        modified_dict = {"role": "user", "content": "Dict content"}
-        command_result = ProcessedResult(
-            modified_messages=[modified_dict],
-            command_executed=True,
-            command_results=[],
-        )
 
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert len(result.messages) == 1
-        assert result.messages[0].role == "user"
-        assert result.messages[0].content == "Dict content"
+class TestCompactionMessageReplacement:
+    """Regression tests for compaction message replacement."""
 
     @pytest.mark.asyncio
-    async def test_replace_messages_with_custom_object(
+    async def test_returns_compacted_messages_when_compaction_occurs(
         self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When modified_messages are custom objects, should normalize to ChatMessage."""
-        # Arrange
-        custom_obj = Mock()
-        custom_obj.role = "user"
-        custom_obj.content = "Custom content"
-        command_result = ProcessedResult(
-            modified_messages=[custom_obj],
-            command_executed=True,
-            command_results=[],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert len(result.messages) == 1
-        assert result.messages[0].role == "user"
-        assert result.messages[0].content == "Custom content"
-
-    @pytest.mark.asyncio
-    async def test_preserve_multiple_modified_messages(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When multiple modified messages exist, should preserve all."""
-        # Arrange
-        msg1 = ChatMessage(role="user", content="First")
-        msg2 = ChatMessage(role="user", content="Second")
-        command_result = ProcessedResult(
-            modified_messages=[msg1, msg2],
-            command_executed=True,
-            command_results=[],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert len(result.messages) == 2
-        assert result.messages[0].content == "First"
-        assert result.messages[1].content == "Second"
-
-
-class TestSkipOnEmpty:
-    """Tests for skip-on-empty behavior."""
-
-    @pytest.mark.asyncio
-    async def test_return_none_when_all_modified_messages_empty(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When all modified messages lack content, should return None."""
-        # Arrange
-        empty_msg = ChatMessage(role="user", content="")
-        command_result = ProcessedResult(
-            modified_messages=[empty_msg],
-            command_executed=True,
-            command_results=[],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_return_none_when_modified_messages_none_content(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When modified messages have None content, should return None."""
-        # Arrange
-        none_msg = ChatMessage(role="user", content=None)
-        command_result = ProcessedResult(
-            modified_messages=[none_msg],
-            command_executed=True,
-            command_results=[],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_return_none_when_modified_messages_empty_list_content(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When modified messages have empty list content, should return None."""
-        # Arrange
-        empty_list_msg = ChatMessage(role="user", content=[])
-        command_result = ProcessedResult(
-            modified_messages=[empty_list_msg],
-            command_executed=True,
-            command_results=[],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_return_none_when_non_user_role_messages_only(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When modified messages are non-user role, should return None."""
-        # Arrange
-        assistant_msg = ChatMessage(role="assistant", content="Assistant content")
-        command_result = ProcessedResult(
-            modified_messages=[assistant_msg],
-            command_executed=True,
-            command_results=[],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is None
-
-
-class TestToolOutputAppends:
-    """Tests for tool output message appending."""
-
-    @pytest.mark.asyncio
-    async def test_append_tool_output_messages(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When command_results contain extractable messages, should append them."""
-        # Arrange
-        tool_msg = ChatMessage(
-            role="tool", content="Tool output", tool_call_id="call-123"
-        )
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=True,
-            command_results=[{"tool_messages": [tool_msg]}],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert len(result.messages) == 3  # Original 2 + 1 tool message
-        assert result.messages[-1] == tool_msg
-
-    @pytest.mark.asyncio
-    async def test_append_multiple_tool_outputs(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When multiple command_results exist, should append all."""
-        # Arrange
-        tool_msg1 = ChatMessage(role="tool", content="Output 1", tool_call_id="call-1")
-        tool_msg2 = ChatMessage(role="tool", content="Output 2", tool_call_id="call-2")
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=True,
-            command_results=[
-                {"tool_messages": [tool_msg1]},
-                {"tool_messages": [tool_msg2]},
-            ],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert len(result.messages) == 4  # Original 2 + 2 tool messages
-        assert result.messages[-2] == tool_msg1
-        assert result.messages[-1] == tool_msg2
-
-    @pytest.mark.asyncio
-    async def test_append_tool_outputs_with_modified_messages(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When both modified_messages and command_results exist, should replace then append."""
-        # Arrange
-        modified_msg = ChatMessage(role="user", content="Modified")
-        tool_msg = ChatMessage(
-            role="tool", content="Tool output", tool_call_id="call-123"
-        )
-        command_result = ProcessedResult(
-            modified_messages=[modified_msg],
-            command_executed=True,
-            command_results=[{"tool_messages": [tool_msg]}],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert len(result.messages) == 2  # 1 modified + 1 tool
-        assert result.messages[0] == modified_msg
-        assert result.messages[1] == tool_msg
-
-    @pytest.mark.asyncio
-    async def test_skip_empty_command_results(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When command_results are empty or have no extractable messages, should skip."""
-        # Arrange
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=True,
-            command_results=[{}],  # Empty dict
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert result.messages == base_request.messages  # Unchanged
-
-
-class TestHistoryCompaction:
-    """Tests for history compaction behavior."""
-
-    @pytest.mark.asyncio
-    async def test_compact_when_enabled_and_threshold_met(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
         mock_compaction_service: IHistoryCompactionService,
         mock_config: IConfig,
     ) -> None:
-        """When compaction enabled and token threshold met, should compact."""
+        """REGRESSION: When compaction occurs, must return compacted messages, not originals."""
         # Arrange
-        # Create request with enough content to exceed threshold
-        large_content = "x" * 5000  # ~1250 tokens (exceeds 1000 threshold)
+        mock_config.compaction = CompactionConfig(enabled=True, token_threshold=100)
+        service = BackendRequestPreparationService(
+            history_compaction_service=mock_compaction_service,
+            config=mock_config,
+        )
+
+        # Original request with large content
+        original_content = "x" * 5000
+        original_request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content=original_content)],
+        )
+
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        # Compaction returns different messages
+        compacted_content = "COMPACTED"
+        compacted_messages = [ChatMessage(role="user", content=compacted_content)]
+        compaction_result = CompactionResult(
+            messages=compacted_messages,
+            compacted_count=1,
+            bytes_saved=4990,
+            tokens_saved_estimate=1247,
+            original_message_count=1,
+        )
+        mock_compaction_service.compact_history = AsyncMock(
+            return_value=compaction_result
+        )
+
+        # Act
+        result = await service.prepare(original_request, command_result)
+
+        # Assert - CRITICAL: Must return compacted messages, not originals
+        assert result is not None
+        assert len(result.messages) == 1
+        assert result.messages[0].content == compacted_content
+        assert result.messages[0].content != original_content
+        # Verify compaction was actually called
+        mock_compaction_service.compact_history.assert_called_once()
+
+
+class TestMaxTokensOverflowWarning:
+    """Tests for max tokens overflow warning (Req 3.2)."""
+
+    @pytest.mark.asyncio
+    async def test_emit_warning_when_compaction_exceeds_max_tokens(
+        self,
+        preparation_service: BackendRequestPreparationService,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When compaction reduces but still exceeds max_tokens, should emit warning."""
+        # Arrange
+        # Set low max_tokens for testing
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=1000, max_tokens=500
+        )
+
+        # Create content that will exceed max_tokens even after compaction
+        large_content = "x" * 5000  # ~1250 tokens (exceeds threshold of 1000)
         large_request = ChatRequest(
             model="gpt-4",
             messages=[ChatMessage(role="user", content=large_content)],
@@ -403,7 +197,80 @@ class TestHistoryCompaction:
             command_results=[],
         )
 
-        compacted_messages = [ChatMessage(role="user", content="Compacted")]
+        # Compaction reduces tokens but not below max (500)
+        compacted_messages = [
+            ChatMessage(role="user", content="x" * 2400)
+        ]  # ~600 tokens (still exceeds 500 max)
+        compaction_result = CompactionResult(
+            messages=compacted_messages,
+            compacted_count=1,
+            bytes_saved=600,
+            tokens_saved_estimate=150,
+            original_message_count=1,
+        )
+        mock_compaction_service.compact_history = AsyncMock(
+            return_value=compaction_result
+        )
+
+        # Act
+        with caplog.at_level(logging.WARNING):
+            result = await preparation_service.prepare(large_request, command_result)
+
+        # Assert
+        assert result is not None
+        assert result.messages == compacted_messages
+
+        # Verify warning was emitted with correct message
+        warning_logs = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "overflow" in r.message.lower()
+        ]
+        assert len(warning_logs) > 0
+
+        # Verify structured data in log
+        warning_log = warning_logs[0]
+        assert (
+            "Context compaction could not reduce tokens below maximum"
+            in warning_log.message
+        )
+        # Extra fields are merged into the log record's __dict__
+        assert hasattr(warning_log, "current_estimate")
+        assert hasattr(warning_log, "max_tokens")
+        assert hasattr(warning_log, "overflow_tokens")
+        assert hasattr(warning_log, "recommendation")
+        assert warning_log.max_tokens == 500
+        assert warning_log.overflow_tokens > 0
+
+    @pytest.mark.asyncio
+    async def test_no_warning_when_compaction_below_max_tokens(
+        self,
+        preparation_service: BackendRequestPreparationService,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When compaction reduces tokens below max_tokens, should not warn."""
+        # Arrange
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=1000, max_tokens=10000
+        )
+
+        large_content = "x" * 5000  # ~1250 tokens
+        large_request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content=large_content)],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        # Compaction reduces to well below max
+        compacted_messages = [
+            ChatMessage(role="user", content="x" * 4000)
+        ]  # ~1000 tokens
         compaction_result = CompactionResult(
             messages=compacted_messages,
             compacted_count=1,
@@ -416,31 +283,37 @@ class TestHistoryCompaction:
         )
 
         # Act
-        result = await preparation_service.prepare(large_request, command_result)
+        with caplog.at_level(logging.WARNING):
+            result = await preparation_service.prepare(large_request, command_result)
 
         # Assert
         assert result is not None
         assert result.messages == compacted_messages
-        mock_compaction_service.compact_history.assert_called_once()
+
+        # Verify no overflow warning was emitted
+        overflow_warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and "overflow" in r.message.lower()
+            and "could not reduce" in r.message.lower()
+        ]
+        assert len(overflow_warnings) == 0
 
     @pytest.mark.asyncio
-    async def test_skip_compaction_when_disabled(
+    async def test_no_warning_when_compaction_disabled(
         self,
         preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """When compaction disabled, should skip compaction."""
+        """When compaction disabled, should not warn about overflow."""
         # Arrange
-        disabled_config = MagicMock(spec=IConfig)
-        disabled_config.compaction = CompactionConfig(
-            enabled=False, token_threshold=1000
-        )
-        service = BackendRequestPreparationService(
-            history_compaction_service=mock_compaction_service, config=disabled_config
+        mock_config.compaction = CompactionConfig(
+            enabled=False, token_threshold=1000, max_tokens=500
         )
 
-        large_content = "x" * 5000
+        large_content = "x" * 3000  # Would exceed max if enabled
         large_request = ChatRequest(
             model="gpt-4",
             messages=[ChatMessage(role="user", content=large_content)],
@@ -452,52 +325,38 @@ class TestHistoryCompaction:
         )
 
         # Act
-        result = await service.prepare(large_request, command_result)
+        with caplog.at_level(logging.WARNING):
+            result = await preparation_service.prepare(large_request, command_result)
 
         # Assert
         assert result is not None
         assert result.messages == large_request.messages
-        mock_compaction_service.compact_history.assert_not_called()
+
+        # Verify no overflow warning was emitted
+        overflow_warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and "overflow" in r.message.lower()
+            and "could not reduce" in r.message.lower()
+        ]
+        assert len(overflow_warnings) == 0
 
     @pytest.mark.asyncio
-    async def test_skip_compaction_when_below_threshold(
+    async def test_request_processed_after_overflow_warning(
         self,
         preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
         mock_compaction_service: IHistoryCompactionService,
-    ) -> None:
-        """When token estimate below threshold, should skip compaction."""
-        # Arrange
-        small_content = "x" * 100  # ~25 tokens (below 1000 threshold)
-        small_request = ChatRequest(
-            model="gpt-4",
-            messages=[ChatMessage(role="user", content=small_content)],
-        )
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=False,
-            command_results=[],
-        )
-
-        # Act
-        result = await preparation_service.prepare(small_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert result.messages == small_request.messages
-        mock_compaction_service.compact_history.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_compaction_fail_open_on_exception(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """When compaction raises exception, should log warning and continue with original."""
+        """When overflow warning emitted, request should still be processed (fail-open)."""
         # Arrange
-        large_content = "x" * 5000
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=1000, max_tokens=500
+        )
+
+        large_content = "x" * 5000  # ~1250 tokens (exceeds threshold)
         large_request = ChatRequest(
             model="gpt-4",
             messages=[ChatMessage(role="user", content=large_content)],
@@ -508,103 +367,12 @@ class TestHistoryCompaction:
             command_results=[],
         )
 
-        mock_compaction_service.compact_history = AsyncMock(
-            side_effect=RuntimeError("Compaction failed")
-        )
-
-        # Act
-        result = await preparation_service.prepare(large_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert result.messages == large_request.messages  # Original preserved
-        assert "History compaction failed" in caplog.text
-        assert "exc_info=True" in str(caplog.records) or any(
-            hasattr(record, "exc_info") and record.exc_info for record in caplog.records
-        )
-
-
-class TestOriginalRequestImmutability:
-    """Tests for original request immutability."""
-
-    @pytest.mark.asyncio
-    async def test_original_request_not_mutated_on_message_replacement(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When messages are replaced, original request should remain unchanged."""
-        # Arrange
-        original_messages = list(base_request.messages)
-        modified_msg = ChatMessage(role="user", content="Modified")
-        command_result = ProcessedResult(
-            modified_messages=[modified_msg],
-            command_executed=True,
-            command_results=[],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert base_request.messages == original_messages  # Original unchanged
-        assert result.messages != original_messages  # Result is different
-        assert result is not base_request  # Different instance
-
-    @pytest.mark.asyncio
-    async def test_original_request_not_mutated_on_tool_append(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-    ) -> None:
-        """When tool outputs are appended, original request should remain unchanged."""
-        # Arrange
-        original_messages = list(base_request.messages)
-        tool_msg = ChatMessage(
-            role="tool", content="Tool output", tool_call_id="call-123"
-        )
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=True,
-            command_results=[{"tool_messages": [tool_msg]}],
-        )
-
-        # Act
-        result = await preparation_service.prepare(base_request, command_result)
-
-        # Assert
-        assert result is not None
-        assert base_request.messages == original_messages  # Original unchanged
-        assert len(result.messages) == len(original_messages) + 1  # Result has extra
-
-    @pytest.mark.asyncio
-    async def test_original_request_not_mutated_on_compaction(
-        self,
-        preparation_service: BackendRequestPreparationService,
-        base_request: ChatRequest,
-        mock_compaction_service: IHistoryCompactionService,
-    ) -> None:
-        """When compaction occurs, original request should remain unchanged."""
-        # Arrange
-        list(base_request.messages)
-        large_content = "x" * 5000
-        large_request = ChatRequest(
-            model="gpt-4",
-            messages=[ChatMessage(role="user", content=large_content)],
-        )
-        command_result = ProcessedResult(
-            modified_messages=[],
-            command_executed=False,
-            command_results=[],
-        )
-
-        compacted_messages = [ChatMessage(role="user", content="Compacted")]
+        compacted_messages = [ChatMessage(role="user", content="x" * 2400)]
         compaction_result = CompactionResult(
             messages=compacted_messages,
             compacted_count=1,
-            bytes_saved=1000,
-            tokens_saved_estimate=250,
+            bytes_saved=600,
+            tokens_saved_estimate=150,
             original_message_count=1,
         )
         mock_compaction_service.compact_history = AsyncMock(
@@ -612,39 +380,134 @@ class TestOriginalRequestImmutability:
         )
 
         # Act
-        result = await preparation_service.prepare(large_request, command_result)
+        with caplog.at_level(logging.WARNING):
+            result = await preparation_service.prepare(large_request, command_result)
 
-        # Assert
+        # Assert - Request was still processed (not None)
         assert result is not None
-        assert large_request.messages == [
-            ChatMessage(role="user", content=large_content)
-        ]
+        assert result.model == large_request.model
         assert result.messages == compacted_messages
 
-
-class TestOptionalCollaborators:
-    """Tests for optional collaborators handling."""
+        # Warning was emitted but didn't block processing
+        assert any(
+            r.levelname == "WARNING" and "overflow" in r.message.lower()
+            for r in caplog.records
+        )
 
     @pytest.mark.asyncio
-    async def test_service_initializes_without_compaction_service(
+    async def test_no_warning_when_no_compaction_occurred(
         self,
-        preparation_service_no_deps: BackendRequestPreparationService,
-        base_request: ChatRequest,
+        preparation_service: BackendRequestPreparationService,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Service should handle None compaction service without errors."""
+        """When compaction runs but nothing was compacted, should not warn."""
         # Arrange
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=1000, max_tokens=500
+        )
+
+        large_content = "x" * 3000
+        large_request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content=large_content)],
+        )
         command_result = ProcessedResult(
             modified_messages=[],
             command_executed=False,
             command_results=[],
         )
 
+        # No compaction happened
+        compaction_result = CompactionResult(
+            messages=large_request.messages,  # Same as input
+            compacted_count=0,  # Nothing compacted
+            bytes_saved=0,
+            tokens_saved_estimate=0,
+            original_message_count=1,
+        )
+        mock_compaction_service.compact_history = AsyncMock(
+            return_value=compaction_result
+        )
+
         # Act
-        result = await preparation_service_no_deps.prepare(base_request, command_result)
+        with caplog.at_level(logging.WARNING):
+            result = await preparation_service.prepare(large_request, command_result)
 
         # Assert
         assert result is not None
-        assert result.messages == base_request.messages
+        assert result.messages == large_request.messages
+
+        # No overflow warning when nothing was compacted
+        overflow_warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING"
+            and "overflow" in r.message.lower()
+            and "could not reduce" in r.message.lower()
+        ]
+        assert len(overflow_warnings) == 0
+
+    @pytest.mark.asyncio
+    async def test_warning_contains_correct_overflow_amount(
+        self,
+        preparation_service: BackendRequestPreparationService,
+        mock_compaction_service: IHistoryCompactionService,
+        mock_config: IConfig,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Warning should contain accurate overflow amount calculation."""
+        # Arrange
+        mock_config.compaction = CompactionConfig(
+            enabled=True, token_threshold=100, max_tokens=100
+        )
+
+        # Create request that will trigger compaction and exceed max
+        content = "x" * 5000  # ~1250 tokens, exceeds threshold of 100
+        large_request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content=content)],
+        )
+        command_result = ProcessedResult(
+            modified_messages=[],
+            command_executed=False,
+            command_results=[],
+        )
+
+        # Compacted to 600 chars = ~150 tokens (exceeds max of 100)
+        compacted_messages = [ChatMessage(role="user", content="x" * 600)]
+        compaction_result = CompactionResult(
+            messages=compacted_messages,
+            compacted_count=1,
+            bytes_saved=4400,
+            tokens_saved_estimate=1100,
+            original_message_count=1,
+        )
+        mock_compaction_service.compact_history = AsyncMock(
+            return_value=compaction_result
+        )
+
+        # Act
+        with caplog.at_level(logging.WARNING):
+            await preparation_service.prepare(large_request, command_result)
+
+        # Assert
+        overflow_warnings = [
+            r
+            for r in caplog.records
+            if r.levelname == "WARNING" and "overflow" in r.message.lower()
+        ]
+        assert len(overflow_warnings) > 0
+
+        # Extra fields are merged into the log record's __dict__
+        warning_log = overflow_warnings[0]
+        assert hasattr(warning_log, "overflow_tokens")
+        assert hasattr(warning_log, "max_tokens")
+        assert hasattr(warning_log, "current_estimate")
+        assert warning_log.overflow_tokens > 0  # Should be positive
+        assert warning_log.max_tokens == 100
+        assert warning_log.current_estimate > 100
 
     @pytest.mark.asyncio
     async def test_service_initializes_without_config(

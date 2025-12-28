@@ -16,7 +16,10 @@ from typing import Any
 from pydantic import ValidationError
 
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.configuration.compaction_config import CompactionConfig
+from src.core.domain.configuration.compaction_config import (
+    CompactionConfig,
+    TokenBudgetConfig,
+)
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.backend_request_manager_components import (
     IBackendRequestPreparation,
@@ -139,22 +142,30 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
             )
             token_estimate = total_chars // 4  # ~4 chars per token average
 
+            # Initialize config for exception handler
+            config: CompactionConfig | None = None
             try:
                 # Use injected config or default
-                config = None
+                compaction_config: CompactionConfig
                 if self._config and hasattr(self._config, "compaction"):
-                    config = self._config.compaction
+                    compaction_config = self._config.compaction
                 else:
-                    config = CompactionConfig.default()
+                    compaction_config = CompactionConfig.default()
+
+                # Store for exception handler
+                config = compaction_config
 
                 # Check if we should even check compaction (token threshold)
                 # First check: is feature enabled?
                 # Second check: is token count above threshold?
-                if config.enabled and token_estimate >= config.token_threshold:
+                if (
+                    compaction_config.enabled
+                    and token_estimate >= compaction_config.token_threshold
+                ):
                     compaction_result = (
                         await self._history_compaction_service.compact_history(
                             final_request.messages,
-                            config,
+                            compaction_config,
                             current_token_estimate=token_estimate,
                         )
                     )
@@ -176,6 +187,29 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                         final_request = final_request.model_copy(
                             update={"messages": compaction_result.messages}
                         )
+
+                        # Check for overflow after compaction (Req 3.2)
+                        # Calculate post-compaction token estimate
+                        post_compaction_chars = sum(
+                            len(str(msg.content or ""))
+                            for msg in final_request.messages
+                        )
+                        post_compaction_estimate = post_compaction_chars // 4
+
+                        budget = TokenBudgetConfig.from_config(
+                            compaction_config, post_compaction_estimate
+                        )
+                        if budget.exceeds_max:
+                            overflow = budget.current_estimate - budget.max_tokens
+                            logger.warning(
+                                "Context compaction could not reduce tokens below maximum - overflow risk",
+                                extra={
+                                    "current_estimate": budget.current_estimate,
+                                    "max_tokens": budget.max_tokens,
+                                    "overflow_tokens": overflow,
+                                    "recommendation": "Consider adjusting compaction policies or token limits",
+                                },
+                            )
             except Exception as exc:
                 # Fail-open: log error and continue with original messages
                 if logger.isEnabledFor(logging.WARNING):
