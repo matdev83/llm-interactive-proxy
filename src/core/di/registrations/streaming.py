@@ -10,15 +10,14 @@ import logging
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
-
-from src.core.di.registrations._streaming_session_lifecycle import (
-    register_session_lifecycle_services,
-)
 from src.core.di.registrations._streaming_pipeline import (
     register_streaming_pipeline_services,
 )
 from src.core.di.registrations._streaming_response import (
     register_response_processing_services,
+)
+from src.core.di.registrations._streaming_session_lifecycle import (
+    register_session_lifecycle_services,
 )
 
 logger = logging.getLogger(__name__)
