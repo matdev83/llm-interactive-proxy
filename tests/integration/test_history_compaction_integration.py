@@ -696,11 +696,19 @@ class TestHistoryCompactionRealService:
         messages = [
             ChatMessage(role="user", content="view file"),
             _create_assistant_tool_call_message(
-                [_create_tool_call("view_file", "call-1", {"AbsolutePath": "/path/secret.py"})]
+                [
+                    _create_tool_call(
+                        "view_file", "call-1", {"AbsolutePath": "/path/secret.py"}
+                    )
+                ]
             ),
             _create_tool_result_message("view_file", "old content" * 50, "call-1"),
             _create_assistant_tool_call_message(
-                [_create_tool_call("view_file", "call-2", {"AbsolutePath": "/path/secret.py"})]
+                [
+                    _create_tool_call(
+                        "view_file", "call-2", {"AbsolutePath": "/path/secret.py"}
+                    )
+                ]
             ),
             _create_tool_result_message("view_file", "new content", "call-2"),
         ]
@@ -711,7 +719,9 @@ class TestHistoryCompactionRealService:
         compacted_msg = result.messages[2]
         # Full path should be visible in stub
         content_str = (
-            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+            compacted_msg.content
+            if isinstance(compacted_msg.content, str)
+            else str(compacted_msg.content)
         )
         assert "/path/secret.py" in content_str
 
@@ -725,7 +735,7 @@ class TestHistoryCompactionRealService:
         )
 
         # Use a path with an API key that should be redacted
-        # Note: Using 'ak-testkey-abcdefghijklmnop' pattern that matches API key regex
+        # Note: Using 'ak-proj' prefix with 17+ chars to match API key regex \bak-(ant|sk|proj)[A-Za-z0-9_-]{17,}\b
         messages = [
             ChatMessage(role="user", content="view config"),
             _create_assistant_tool_call_message(
@@ -734,7 +744,7 @@ class TestHistoryCompactionRealService:
                         "view_file",
                         "call-1",
                         {
-                            "AbsolutePath": "/home/user/ak-testkey-abcdefghijklmnop/config.json"
+                            "AbsolutePath": "/home/user/ak-proj1234567890abcdefg/config.json"
                         },
                     )
                 ]
@@ -746,7 +756,7 @@ class TestHistoryCompactionRealService:
                         "view_file",
                         "call-2",
                         {
-                            "AbsolutePath": "/home/user/ak-testkey-abcdefghijklmnop/config.json"
+                            "AbsolutePath": "/home/user/ak-proj1234567890abcdefg/config.json"
                         },
                     )
                 ]
@@ -760,9 +770,11 @@ class TestHistoryCompactionRealService:
         compacted_msg = result.messages[2]
         # API key should be redacted
         content_str = (
-            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+            compacted_msg.content
+            if isinstance(compacted_msg.content, str)
+            else str(compacted_msg.content)
         )
-        assert "ak-testkey-abcdefghijklmnop" not in content_str
+        assert "ak-proj1234567890abcdefg" not in content_str
         assert "***" in content_str
         assert "[COMPACTED]" in content_str
 
@@ -783,7 +795,7 @@ class TestHistoryCompactionRealService:
                         "view_file",
                         "call-1",
                         {
-                            "AbsolutePath": "/home/user/ak-testkey-abcdefghijklmnop/config.json"
+                            "AbsolutePath": "/home/user/ak-proj1234567890abcdefg/config.json"
                         },
                     )
                 ]
@@ -795,7 +807,7 @@ class TestHistoryCompactionRealService:
                         "view_file",
                         "call-2",
                         {
-                            "AbsolutePath": "/home/user/ak-testkey-abcdefghijklmnop/config.json"
+                            "AbsolutePath": "/home/user/ak-proj1234567890abcdefg/config.json"
                         },
                     )
                 ]
@@ -809,25 +821,37 @@ class TestHistoryCompactionRealService:
         compacted_msg = result.messages[2]
         # API key should be redacted
         content_str = (
-            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+            compacted_msg.content
+            if isinstance(compacted_msg.content, str)
+            else str(compacted_msg.content)
         )
-        assert "ak-testkey-abcdefghijklmnop" not in content_str
+        assert "ak-proj1234567890abcdefg" not in content_str
         assert "***" in content_str
 
     @pytest.mark.asyncio
     async def test_redaction_default_is_false(self) -> None:
         """Verify redaction defaults to OFF for debuggability (Req 4.5)."""
         service = HistoryCompactionService()
-        config = CompactionConfig(enabled=True)  # Default: redact_resource_identifiers=False
+        config = CompactionConfig(
+            enabled=True
+        )  # Default: redact_resource_identifiers=False
 
         messages = [
             ChatMessage(role="user", content="view file"),
             _create_assistant_tool_call_message(
-                [_create_tool_call("view_file", "call-1", {"AbsolutePath": "/path/file.py"})]
+                [
+                    _create_tool_call(
+                        "view_file", "call-1", {"AbsolutePath": "/path/file.py"}
+                    )
+                ]
             ),
             _create_tool_result_message("view_file", "old content" * 50, "call-1"),
             _create_assistant_tool_call_message(
-                [_create_tool_call("view_file", "call-2", {"AbsolutePath": "/path/file.py"})]
+                [
+                    _create_tool_call(
+                        "view_file", "call-2", {"AbsolutePath": "/path/file.py"}
+                    )
+                ]
             ),
             _create_tool_result_message("view_file", "new content", "call-2"),
         ]
@@ -838,7 +862,9 @@ class TestHistoryCompactionRealService:
         compacted_msg = result.messages[2]
         # Full path should be visible (redaction OFF by default)
         content_str = (
-            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+            compacted_msg.content
+            if isinstance(compacted_msg.content, str)
+            else str(compacted_msg.content)
         )
         assert "/path/file.py" in content_str
 
@@ -851,7 +877,7 @@ class TestHistoryCompactionRealService:
             redact_resource_identifiers=True,  # Redaction ON
         )
 
-        # Use paths with API keys to test redaction (use longer key that matches pattern)
+        # Use paths with API keys to test redaction (use longer key that matches pattern \bak-(ant|sk|proj)[A-Za-z0-9_-]{17,}\b)
         messages = [
             ChatMessage(role="user", content="view config"),
             _create_assistant_tool_call_message(
@@ -860,7 +886,7 @@ class TestHistoryCompactionRealService:
                         "view_file",
                         "call-1",
                         {
-                            "AbsolutePath": "/home/user/ak-proj1234567890ab/config.json"
+                            "AbsolutePath": "/home/user/ak-proj1234567890abcdefg/config.json"
                         },
                     )
                 ]
@@ -872,12 +898,14 @@ class TestHistoryCompactionRealService:
                         "view_file",
                         "call-2",
                         {
-                            "AbsolutePath": "/home/user/ak-proj1234567890ab/config.json"
+                            "AbsolutePath": "/home/user/ak-proj1234567890abcdefg/config.json"
                         },
                     )
                 ]
             ),
-            _create_tool_result_message("view_file", "latest important content", "call-2"),
+            _create_tool_result_message(
+                "view_file", "latest important content", "call-2"
+            ),
         ]
 
         result = await service.compact_history(messages, config)
@@ -886,14 +914,18 @@ class TestHistoryCompactionRealService:
         # First result (compacted) should have API key redacted
         compacted_msg = result.messages[2]
         compacted_content = (
-            compacted_msg.content if isinstance(compacted_msg.content, str) else str(compacted_msg.content)
+            compacted_msg.content
+            if isinstance(compacted_msg.content, str)
+            else str(compacted_msg.content)
         )
-        assert "ak-proj1234567890ab" not in compacted_content
+        assert "ak-proj1234567890abcdefg" not in compacted_content
 
         # Latest result should be preserved with full content
         latest_msg = result.messages[4]
         latest_content = (
-            latest_msg.content if isinstance(latest_msg.content, str) else str(latest_msg.content)
+            latest_msg.content
+            if isinstance(latest_msg.content, str)
+            else str(latest_msg.content)
         )
         assert "latest important content" in latest_content
 

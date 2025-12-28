@@ -82,7 +82,7 @@ def main():
     found_keys_in_staged_files = False
 
     for file_path, content in staged_files_content.items():
-        # Skip pattern scan for files in the 'dev/' directory and specific files with false positives
+        # Skip pattern scan for files in 'dev/' directory and specific files with false positives
         excluded_files = {
             "src/core/commands/tool_call_text_parser.py",
             "src/core/services/universal_tool_executor.py",
@@ -90,6 +90,8 @@ def main():
             "docs/user_guide/security/key-hygiene.md",
             "tests/unit/core/common/test_logging_utils.py",
             "tests/regression/test_api_key_redactor_memory_leak_regression.py",
+            "tests/unit/test_compaction_domain.py",
+            "tests/integration/test_history_compaction_integration.py",
         }
         if file_path.startswith("dev/") or file_path in excluded_files:
             print(f"Skipping pattern scan for excluded file: {file_path}")

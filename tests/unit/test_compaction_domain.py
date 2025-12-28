@@ -459,10 +459,10 @@ class TestCompactionStub:
     def test_stub_redacts_file_path_when_redact_true(self) -> None:
         """Stub applies redact_text() when redact=True (Req 4.5)."""
         # Use a path with an API key pattern that should be redacted
-        # Note: Using 'ak-' prefix with 20+ chars to match pattern
+        # Note: Using 'ak-proj' prefix with 17+ chars to match pattern \bak-(ant|sk|proj)[A-Za-z0-9_-]{17,}\b
         identity = ResourceIdentity(
             tool_name="view_file",
-            primary_key="/home/user/ak-testkey-abcdefghijklmnop/config.json",
+            primary_key="/home/user/ak-proj1234567890abcdefg/config.json",
         )
         stub = CompactionStub.create(
             resource_identity=identity,
@@ -472,7 +472,7 @@ class TestCompactionStub:
         )
 
         # API key pattern should be redacted by redact_text()
-        assert "ak-testkey-abcdefghijklmnop" not in stub.stub_text
+        assert "ak-proj1234567890abcdefg" not in stub.stub_text
         assert "***" in stub.stub_text
         assert "[COMPACTED]" in stub.stub_text
 
@@ -480,7 +480,7 @@ class TestCompactionStub:
         """Stub redacts API keys in file paths (Req 4.5)."""
         identity = ResourceIdentity(
             tool_name="view_file",
-            primary_key="/home/user/ak-testkey-abcdefghijklmnop/config.json",
+            primary_key="/home/user/ak-proj1234567890abcdefg/config.json",
         )
         stub = CompactionStub.create(
             resource_identity=identity,
@@ -490,14 +490,12 @@ class TestCompactionStub:
         )
 
         # API key pattern should be redacted
-        assert "ak-testkey-abcdefghijklmnop" not in stub.stub_text
+        assert "ak-proj1234567890abcdefg" not in stub.stub_text
         assert "***" in stub.stub_text
 
     def test_redaction_preserves_byte_size_information(self) -> None:
         """Redaction preserves byte size information (Req 4.5)."""
-        identity = ResourceIdentity(
-            tool_name="view_file", primary_key="/path/file.py"
-        )
+        identity = ResourceIdentity(tool_name="view_file", primary_key="/path/file.py")
         original_content = "x" * 5000
         stub = CompactionStub.create(
             resource_identity=identity,
