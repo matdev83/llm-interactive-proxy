@@ -38,7 +38,9 @@ class CompactionConfig:
     enabled: bool = False
     token_threshold: int = 100_000  # Start compacting above this estimate
     max_tokens: int = 150_000  # Warn if cannot reduce below this
-    redact_resource_identifiers: bool = False  # Default OFF for debuggability (Req 4.5)
+    redact_resource_identifiers: bool = (
+        False  # Default: debuggability over security (Req 4.5)
+    )
 
     # Tool category policies - empty means all allowed
     allowed_tool_categories: list[str] = field(default_factory=list)

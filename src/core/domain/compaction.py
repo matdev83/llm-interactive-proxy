@@ -189,18 +189,25 @@ class CompactionStub:
         resource_identity: ResourceIdentity,
         original_content: str,
         message_index: int,
-        redact: bool = False,  # NEW: Redaction flag (Req 4.5)
+        redact: bool = False,
     ) -> "CompactionStub":
-        """Create a compaction stub for stale content.
+        """Create a compaction stub for a stale tool result.
+
+        Generates an explicit stub message indicating that previous
+        tool output was removed because newer results exist.
 
         Args:
-            resource_identity: Identity of the compacted resource
-            original_content: The original content being replaced
-            message_index: Index of the message in history
-            redact: Whether to redact resource identifier in stub (Req 4.5)
+            resource_identity: Identity of the resource being compacted
+            original_content: The content being replaced
+            message_index: Position in message history
+            redact: If True, redact sensitive identifiers (Req 4.5)
 
         Returns:
-            A new CompactionStub instance with generated stub text
+            CompactionStub instance with generated stub text
+
+        Requirements:
+            - Req 2.1: Stub states truncation occurred and identifies resource
+            - Req 4.5: Optional redaction of resource identifiers
         """
         from src.core.common.logging_utils import redact_text
 

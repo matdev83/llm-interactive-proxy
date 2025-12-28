@@ -191,7 +191,9 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                         )
 
                         # Check for overflow after compaction (Req 3.2)
-                        # Calculate post-compaction token estimate
+                        # If compaction could not reduce tokens below max_tokens,
+                        # emit a warning to alert operators of potential overflow risk.
+                        # Request is still forwarded (fail-open behavior).
                         post_compaction_chars = sum(
                             len(str(msg.content or ""))
                             for msg in final_request.messages
