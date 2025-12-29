@@ -389,7 +389,13 @@ class BinaryFileEditPolicy(ISteeringPolicy):
                 if "/" in ext_lower or "\\" in ext_lower:
                     return None
                 return ext_lower
-        except Exception:
+        except (ValueError, AttributeError, IndexError) as e:
+            logger.debug(
+                "Failed to extract file extension from %s: %s",
+                file_path,
+                e,
+                exc_info=True,
+            )
             # Fallback for edge cases
             if "." in file_path:
                 parts = file_path.rsplit(".", 1)
@@ -399,6 +405,13 @@ class BinaryFileEditPolicy(ISteeringPolicy):
                     if "/" in ext or "\\" in ext:
                         return None
                     return ext
+        except Exception as e:
+            logger.warning(
+                "Unexpected error extracting file extension from %s: %s",
+                file_path,
+                e,
+                exc_info=True,
+            )
 
         return None
 

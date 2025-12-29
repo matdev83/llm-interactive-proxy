@@ -182,7 +182,6 @@ class ConfiguredRulesPolicy(ISteeringPolicy):
         # Sort by priority (highest first)
         return sorted(compiled, key=lambda r: r.priority, reverse=True)
 
-
     def _match_rule(
         self, context: ToolCallContext, command: str
     ) -> _CompiledRule | None:
@@ -205,7 +204,19 @@ class ConfiguredRulesPolicy(ISteeringPolicy):
         # Serialize args for phrase matching
         try:
             args_str = json.dumps(context.tool_arguments, ensure_ascii=False)
-        except Exception:
+        except (TypeError, ValueError) as e:
+            logger.debug(
+                "Failed to serialize tool arguments to JSON: %s",
+                e,
+                exc_info=True,
+            )
+            args_str = str(context.tool_arguments)
+        except Exception as e:
+            logger.warning(
+                "Unexpected error serializing tool arguments: %s",
+                e,
+                exc_info=True,
+            )
             args_str = str(context.tool_arguments)
 
         haystack = f"{tool_name}\n{args_str}"

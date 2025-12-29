@@ -392,7 +392,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 provider = getattr(request.app.state, "service_provider", None)
                 if provider is not None:
                     app_state_service = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
-            except Exception:
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to get app_state_service from provider: %s",
+                    e,
+                    exc_info=True,
+                )
+                app_state_service = None
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error getting app_state_service from provider: %s",
+                    e,
+                    exc_info=True,
+                )
                 app_state_service = None
 
         if app_state_service is not None:
