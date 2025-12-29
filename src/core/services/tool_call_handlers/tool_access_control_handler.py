@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from cachetools import TTLCache
@@ -258,11 +259,12 @@ class ToolAccessControlHandler(IToolCallHandler):
                 },
             )
 
-        except Exception as e:
-            # On error, fail open (allow the tool call)
+        except (AttributeError, TypeError, ValueError, KeyError, re.error) as e:
+            # Expected exceptions from policy service (attribute access, type errors, value errors, dict access, regex errors)
+            # On error, fail open (allow the tool call) - log with context
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Tool access policy evaluation failed for tool '{tool_name}': {e}",
+                    f"Tool access policy evaluation failed for tool '{tool_name}' (expected error: {type(e).__name__}): {e}",
                     exc_info=True,
                 )
             return ToolCallReactionResult(
@@ -272,5 +274,24 @@ class ToolAccessControlHandler(IToolCallHandler):
                     "tool_name": tool_name,
                     "decision": "error_fail_open",
                     "error": str(e),
+                    "error_type": type(e).__name__,
+                },
+            )
+        except Exception as e:
+            # Unexpected errors during policy evaluation (defensive guard for truly unexpected errors)
+            # On error, fail open (allow the tool call) - log with full context
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Unexpected error during tool access policy evaluation for tool '{tool_name}': {e}",
+                    exc_info=True,
+                )
+            return ToolCallReactionResult(
+                should_swallow=False,
+                metadata={
+                    "handler": self.name,
+                    "tool_name": tool_name,
+                    "decision": "error_fail_open",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
                 },
             )
