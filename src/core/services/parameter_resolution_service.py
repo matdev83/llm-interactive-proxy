@@ -274,6 +274,10 @@ class ParameterResolutionService:
             resolved: Resolved parameters
             overridden_sources: Dict of overridden sources for each parameter
         """
+        # Guard: only proceed if DEBUG logging is enabled
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+
         # Only log if there are resolved parameters
         debug_info = resolved.get_debug_info()
         if not debug_info:
@@ -298,5 +302,4 @@ class ParameterResolutionService:
                     f"  {param_name}: {effective_value} (source: {source})"
                 )
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("\n".join(log_lines))
+        logger.debug("\n".join(log_lines))
