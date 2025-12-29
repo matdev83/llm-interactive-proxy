@@ -49,6 +49,14 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
 
                 base_patterns: list[str] = get_request_patterns()
             except Exception:
+                # Log initialization failure but continue with empty patterns
+                # This allows the middleware to function even if pattern loading fails
+                _logger = logging.getLogger(__name__)
+                if _logger.isEnabledFor(logging.WARNING):
+                    _logger.warning(
+                        "Failed to load edit precision patterns from configuration; using empty pattern list",
+                        exc_info=True,
+                    )
                 base_patterns = []
 
             cls._DEFAULT_PATTERNS = [
@@ -174,6 +182,13 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                     role = getattr(msg, "role", None)
                     content = getattr(msg, "content", None)
             except Exception:
+                # Log message extraction failure but continue processing other messages
+                # This allows pattern matching to continue even if some messages are malformed
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Failed to extract role/content from message during edit precision detection",
+                        exc_info=True,
+                    )
                 continue
             if role == "user":
                 if isinstance(content, str):

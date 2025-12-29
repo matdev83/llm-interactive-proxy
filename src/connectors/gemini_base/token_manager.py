@@ -349,8 +349,13 @@ class TokenManager:
                             ):
                                 process.wait(timeout=5)
                 except Exception:
-                    # Suppress all exceptions during cleanup
-                    pass
+                    # Log cleanup errors but don't let them prevent cleanup completion
+                    # This ensures the reference is cleared even if termination fails
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Error during TokenManager cleanup (subprocess termination)",
+                            exc_info=True,
+                        )
                 finally:
                     # Clear reference to prevent leaks
                     self._cli_refresh_process = None
