@@ -778,7 +778,8 @@ class StreamingExecutor:
                     logger.log(TRACE_LEVEL, f"[STREAMING] Calculated usage: {usage}")
             except Exception as e:
                 logger.warning(
-                    f"Could not calculate completion tokens for streaming: {e}"
+                    f"Could not calculate completion tokens for streaming: {e}",
+                    exc_info=True,
                 )
 
             if final_stop_chunk:

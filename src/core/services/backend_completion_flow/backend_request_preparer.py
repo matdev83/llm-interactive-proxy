@@ -113,24 +113,40 @@ class BackendRequestPreparer(IBackendRequestPreparer):
                 project_value = getattr(session.state, "project", None)
                 if isinstance(project_value, str) and project_value:
                     backend_call_kwargs["project"] = project_value
-            except Exception as e:
+            except (AttributeError, TypeError) as e:
+                # Expected exceptions from attribute access or type checking
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to extract project value from session state: %s",
                         e,
                         exc_info=True,
                     )
+            except Exception as e:
+                # Unexpected exceptions should be logged at WARNING level for visibility
+                logger.warning(
+                    "Unexpected error extracting project value from session state: %s",
+                    e,
+                    exc_info=True,
+                )
             try:
                 project_dir_value = getattr(session.state, "project_dir", None)
                 if isinstance(project_dir_value, str) and project_dir_value:
                     backend_call_kwargs["project_dir"] = project_dir_value
-            except Exception as e:
+            except (AttributeError, TypeError) as e:
+                # Expected exceptions from attribute access or type checking
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to extract project_dir value from session state: %s",
                         e,
                         exc_info=True,
                     )
+            except Exception as e:
+                # Unexpected exceptions should be logged at WARNING level for visibility
+                logger.warning(
+                    "Unexpected error extracting project_dir value from session state: %s",
+                    e,
+                    exc_info=True,
+                )
 
         # Special handling for cline backend
         if context is not None and backend_type == "cline":
@@ -146,12 +162,20 @@ class BackendRequestPreparer(IBackendRequestPreparer):
 
                 if headers_dict is not None:
                     backend_call_kwargs["incoming_headers"] = headers_dict
-            except Exception as e:
+            except (AttributeError, TypeError, ValueError) as e:
+                # Expected exceptions from attribute access, type checking, or dict conversion
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to extract headers from context for cline backend: %s",
                         e,
                         exc_info=True,
                     )
+            except Exception as e:
+                # Unexpected exceptions should be logged at WARNING level for visibility
+                logger.warning(
+                    "Unexpected error extracting headers from context for cline backend: %s",
+                    e,
+                    exc_info=True,
+                )
 
         return backend_call_kwargs

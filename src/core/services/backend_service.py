@@ -422,13 +422,14 @@ class BackendService(IBackendService):
                 if value == api_key_value:
                     return name
         except (ValueError, TypeError, AttributeError, KeyError, IndexError):
+            # Expected exceptions from config access, dict operations, or list indexing
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("_detect_key_name failed", exc_info=True)
         except Exception as e:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "_detect_key_name failed unexpectedly: %s", str(e), exc_info=True
-                )
+            # Unexpected exceptions should be logged at WARNING level for visibility
+            logger.warning(
+                "_detect_key_name failed unexpectedly: %s", str(e), exc_info=True
+            )
         return backend_type
 
     async def _execute_complex_failover(
