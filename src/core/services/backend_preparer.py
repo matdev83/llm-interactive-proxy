@@ -97,20 +97,19 @@ class BackendPreparer(IBackendPreparer):
                     # AttributeError: app_state missing get_backend_type
                     # RuntimeError: threading lock issues or state corruption
                     # TypeError: app_state is None or wrong type
-                    logger.debug(
-                        "Failed to get backend type from app_state: %s",
-                        type(err).__name__,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to get backend type from app_state: %s",
+                            type(err).__name__,
+                            exc_info=True,
+                        )
                     backend_type = None
 
                 _rm = getattr(backend_request, "model", None) or getattr(
                     request, "model", ""
                 )
                 requested_model: str = str(_rm)
-                parsed = parse_model_backend(
-                    requested_model, (backend_type or "")
-                )
+                parsed = parse_model_backend(requested_model, (backend_type or ""))
                 backend_key: str = parsed.backend_type
                 model_name: str = parsed.model_name
 
@@ -130,10 +129,7 @@ class BackendPreparer(IBackendPreparer):
                     if md is None:
                         continue
                     # Accept either a ModelDefaults instance or a plain dict-like
-                    if isinstance(md, dict):
-                        model_defaults = md
-                        break
-                    elif hasattr(md, "limits"):
+                    if isinstance(md, dict) or hasattr(md, "limits"):
                         model_defaults = md
                         break
 
@@ -284,7 +280,13 @@ class BackendPreparer(IBackendPreparer):
                     except InvalidRequestError:
                         # Re-raise structured invalid request
                         raise
-                    except (ValueError, TypeError, AttributeError, KeyError, RuntimeError):
+                    except (
+                        ValueError,
+                        TypeError,
+                        AttributeError,
+                        KeyError,
+                        RuntimeError,
+                    ):
                         # Unexpected error during enforcement: fail-open
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
