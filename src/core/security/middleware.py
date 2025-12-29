@@ -206,14 +206,38 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
                 # Basic duck-typing: ensure required method exists
                 if hasattr(injected_service, "get_setting"):
                     app_state_service = injected_service  # type: ignore[assignment]
-            except Exception:
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to access injected app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
+                app_state_service = None
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error accessing injected app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
                 app_state_service = None
         if app_state_service is None:
             try:
                 provider = getattr(request.app.state, "service_provider", None)
                 if provider is not None:
                     app_state_service = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
-            except Exception:
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to get app_state_service from provider: %s",
+                    e,
+                    exc_info=True,
+                )
+                app_state_service = None
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error getting app_state_service from provider: %s",
+                    e,
+                    exc_info=True,
+                )
                 app_state_service = None
 
         if app_state_service is not None:
@@ -279,7 +303,19 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
         if app_state_service is not None:
             try:
                 client_api_key = app_state_service.get_setting("client_api_key")
-            except Exception:
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to get client_api_key from app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
+                client_api_key = None
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error getting client_api_key from app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
                 client_api_key = None
         if not client_api_key:
             client_api_key = getattr(request.app.state, "client_api_key", None)

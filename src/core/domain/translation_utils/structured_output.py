@@ -133,7 +133,21 @@ def attempt_json_repair(
 
         is_valid, _ = validate_json_against_schema(repaired, schema)
         return repaired if is_valid else None
-    except Exception:
+    except (TypeError, ValueError, AttributeError) as e:
+        logger.debug(
+            "JSON repair failed for schema %s: %s",
+            schema.get("name", "<unknown>"),
+            e,
+            exc_info=True,
+        )
+        return None
+    except Exception as e:
+        logger.warning(
+            "Unexpected error during JSON repair for schema %s: %s",
+            schema.get("name", "<unknown>"),
+            e,
+            exc_info=True,
+        )
         return None
 
 
@@ -205,5 +219,17 @@ def extract_and_repair_json(content: str, schema: dict[str, Any]) -> str | None:
                 return json.dumps(repaired, indent=2)
 
         return None
-    except Exception:
+    except (TypeError, ValueError, AttributeError) as e:
+        logger.debug(
+            "Failed to extract and repair JSON: %s",
+            e,
+            exc_info=True,
+        )
+        return None
+    except Exception as e:
+        logger.warning(
+            "Unexpected error during JSON extraction and repair: %s",
+            e,
+            exc_info=True,
+        )
         return None

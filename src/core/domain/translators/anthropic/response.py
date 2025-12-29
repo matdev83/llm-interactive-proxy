@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any
 
@@ -13,6 +14,8 @@ from src.core.domain.chat import (
 from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
 from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
 from src.core.domain.usage_summary import UsageSummary
+
+logger = logging.getLogger(__name__)
 
 
 def anthropic_to_domain_response(response: Any) -> CanonicalChatResponse:
@@ -116,7 +119,21 @@ def from_domain_to_anthropic_response(response: ChatResponse) -> dict[str, Any]:
             arguments_raw = tool_call.function.arguments
             try:
                 arguments = json.loads(arguments_raw)
-            except Exception:
+            except json.JSONDecodeError as e:
+                logger.debug(
+                    "Failed to parse tool call arguments for %s: %s",
+                    tool_call.function.name,
+                    e,
+                    exc_info=True,
+                )
+                arguments = {"_raw": arguments_raw}
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error parsing tool call arguments for %s: %s",
+                    tool_call.function.name,
+                    e,
+                    exc_info=True,
+                )
                 arguments = {"_raw": arguments_raw}
 
             content_blocks.append(

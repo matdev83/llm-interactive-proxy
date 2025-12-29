@@ -149,7 +149,7 @@ class OpenRouterBackend(OpenAIConnector):
             if headers is not None:
                 return headers
 
-        if errors:
+        if errors and logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Headers provider attempts failed: %s",
                 errors[-1],
@@ -191,9 +191,10 @@ class OpenRouterBackend(OpenAIConnector):
                     message="Unexpected error resolving identity configuration",
                     details={"unexpected_error": str(exc)},
                 ) from exc
-        logger.info(
-            f"OpenRouter headers: Authorization: Bearer {self.api_key[:20]}..., HTTP-Referer: {headers.get('HTTP-Referer', 'NOT_SET')}, X-Title: {headers.get('X-Title', 'NOT_SET')}"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"OpenRouter headers: Authorization: Bearer {self.api_key[:20]}..., HTTP-Referer: {headers.get('HTTP-Referer', 'NOT_SET')}, X-Title: {headers.get('X-Title', 'NOT_SET')}"
+            )
         return ensure_loop_guard_header(headers)
 
     async def initialize(self, **kwargs: Any) -> None:
