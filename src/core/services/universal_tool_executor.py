@@ -223,7 +223,7 @@ class UniversalToolExecutor:
         """
         self._custom_tool_handlers[tool_name] = handler
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Registered custom handler for tool: {tool_name}")
+            logger.debug("Registered custom handler for tool: %s", tool_name)
 
     def get_available_tools(self) -> list[str]:
         """Get list of all available tools.
