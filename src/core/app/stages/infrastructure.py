@@ -99,9 +99,9 @@ class InfrastructureStage(InitializationStage):
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Infrastructure services initialized successfully")
-        except Exception:
+        except BaseException as err:
             await self._cleanup_http_client()
-            raise
+            raise err from None
 
     def _configure_streaming_sampler(self, config: AppConfig) -> None:
         """Configure the streaming sampler with settings from AppConfig."""
@@ -121,11 +121,11 @@ class InfrastructureStage(InitializationStage):
                     sampler_config.sample_rate,
                     sampler_config.max_samples,
                 )
-        except Exception as e:
+        except (ImportError, AttributeError, KeyError) as err:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Could not configure streaming sampler: %s",
-                    e,
+                    err,
                     exc_info=True,
                 )
 
