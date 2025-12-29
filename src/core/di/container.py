@@ -285,17 +285,33 @@ class ServiceProvider(IServiceProvider):
                 instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
                 pop_resolution()  # Pop before returning successfully resolved service
                 return instance  # type: ignore[no-any-return]
-        except Exception as e:
-            # On any exception, pop before re-raising
-            # This ensures the resolution stack is properly cleaned up
+        except (RuntimeError, AttributeError, TypeError, ValueError) as e:
+            # Expected exceptions from service resolution (factory errors, type mismatches, etc.)
+            # Pop before re-raising to ensure resolution stack is properly cleaned up
             # Note: BaseException (KeyboardInterrupt, SystemExit) will propagate
             # without cleanup, which is correct behavior for shutdown signals
             type_name = getattr(service_type, "__name__", str(service_type))
             logger.error(
-                "Error resolving service %s",
+                "Error resolving service %s (%s)",
                 type_name,
+                type(e).__name__,
                 exc_info=True,
-                extra={"service_type": type_name},
+                extra={"service_type": type_name, "exception_type": type(e).__name__},
+            )
+            pop_resolution()
+            raise
+        except Exception as e:
+            # Unexpected exceptions - log with more detail for debugging
+            # Pop before re-raising to ensure resolution stack is properly cleaned up
+            # Note: BaseException (KeyboardInterrupt, SystemExit) will propagate
+            # without cleanup, which is correct behavior for shutdown signals
+            type_name = getattr(service_type, "__name__", str(service_type))
+            logger.error(
+                "Unexpected error resolving service %s (%s)",
+                type_name,
+                type(e).__name__,
+                exc_info=True,
+                extra={"service_type": type_name, "exception_type": type(e).__name__},
             )
             pop_resolution()
             raise

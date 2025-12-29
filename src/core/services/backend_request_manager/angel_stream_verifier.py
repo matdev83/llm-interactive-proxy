@@ -13,6 +13,11 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
+from src.core.common.exceptions import (
+    BackendError,
+    LLMProxyError,
+    RateLimitExceededError,
+)
 from src.core.domain.backend_request_manager.context_models import StreamingContext
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -61,7 +66,15 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         if isinstance(content, bytes):
             try:
                 return content.decode("utf-8")
-            except Exception:
+            except UnicodeDecodeError:
+                # Expected for non-UTF-8 content, fallback to ignore errors
+                return content.decode("utf-8", errors="ignore")
+            except Exception as e:
+                # Unexpected exception during decoding
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error decoding chunk content: %s", e, exc_info=True
+                    )
                 return content.decode("utf-8", errors="ignore")
         return str(content) if content is not None else ""
 
@@ -75,7 +88,15 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         if isinstance(value, bytes):
             try:
                 return value.decode("utf-8")
-            except Exception:
+            except UnicodeDecodeError:
+                # Expected for non-UTF-8 content, fallback to ignore errors
+                return value.decode("utf-8", errors="ignore")
+            except Exception as e:
+                # Unexpected exception during decoding
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error decoding response content: %s", e, exc_info=True
+                    )
                 return value.decode("utf-8", errors="ignore")
         return str(value)
 
@@ -117,10 +138,20 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                     and angel_service_instance.is_enabled()
                 ):
                     should_buffer = True
-            except Exception:
+            except (RuntimeError, AttributeError, TypeError, ValueError) as e:
+                # Expected exceptions from service creation/factory calls
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to initialize Angel service for verification",
+                        "Failed to initialize Angel service for verification: %s",
+                        type(e).__name__,
+                        exc_info=True,
+                    )
+            except Exception as e:
+                # Unexpected exceptions - log with more detail for debugging
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error initializing Angel service for verification: %s",
+                        type(e).__name__,
                         exc_info=True,
                     )
 
@@ -238,11 +269,32 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 },
             )
 
-        except Exception:
-            # Fail-open: log error and return original chunks
+        except (BackendError, RateLimitExceededError, LLMProxyError) as e:
+            # Domain exceptions from backend calls - fail-open with specific logging
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Angel streaming verification failed; forwarding original chunks",
+                    "Angel streaming verification failed (domain error: %s); forwarding original chunks",
+                    type(e).__name__,
+                    exc_info=True,
+                )
+            for buffered in buffered_chunks:
+                yield buffered
+        except (RuntimeError, AttributeError, TypeError, ValueError) as e:
+            # Operational errors from service resolution or method calls
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Angel streaming verification failed (operational error: %s); forwarding original chunks",
+                    type(e).__name__,
+                    exc_info=True,
+                )
+            for buffered in buffered_chunks:
+                yield buffered
+        except Exception as e:
+            # Unexpected exceptions - fail-open but log with more detail for debugging
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Angel streaming verification failed (unexpected error: %s); forwarding original chunks",
+                    type(e).__name__,
                     exc_info=True,
                 )
             for buffered in buffered_chunks:
