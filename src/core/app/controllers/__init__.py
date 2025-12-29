@@ -687,8 +687,18 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
             from src.core.services.translation_service import TranslationService
 
             wire_capture = None
-            with contextlib.suppress(Exception):
+            try:
                 wire_capture = service_provider.get_service(cast(type, IWireCapture))
+            except (KeyError, AttributeError) as e:
+                logger.debug(
+                    "Wire capture service not available in DI: %s", e, exc_info=True
+                )
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error getting wire capture service from DI: %s",
+                    e,
+                    exc_info=True,
+                )
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
 
             # Set protocol identifier for normalization (Requirement 1.12)
@@ -709,17 +719,31 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
             domain_request = translation_service.to_domain_request(
                 request_data, source_format="gemini"
             )
-            with contextlib.suppress(Exception):
+            try:
                 ctx.domain_request = domain_request
                 if getattr(domain_request, "session_id", None):
                     ctx.session_id = domain_request.session_id
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to set domain request on context: %s", e, exc_info=True
+                )
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error setting domain request on context: %s",
+                    e,
+                    exc_info=True,
+                )
             if wire_capture and wire_capture.enabled():
-                with contextlib.suppress(Exception):
+                try:
                     await wire_capture.capture_inbound_request(
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=domain_request,
                         raw_body=None,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Wire capture failed on inbound request: %s", e, exc_info=True
                     )
 
             # Get backend service
@@ -922,11 +946,21 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
             from src.core.services.translation_service import TranslationService
 
             wire_capture = None
-            with contextlib.suppress(Exception):
+            try:
                 wire_capture = service_provider.get_service(cast(type, IWireCapture))
+            except (KeyError, AttributeError) as e:
+                logger.debug(
+                    "Wire capture service not available in DI: %s", e, exc_info=True
+                )
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error getting wire capture service from DI: %s",
+                    e,
+                    exc_info=True,
+                )
             ctx = fastapi_to_domain_request_context(request, attach_original=True)
 
-            # Set protocol identifier for normalization (Requirement 1.12)
+            # Set protocol identifier for normalization (Requirement1.12)
             if ctx.extensions is None:
                 ctx.extensions = {}
             ctx.extensions["protocol"] = "gemini"
@@ -951,17 +985,31 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
 
             # Create a new request with stream=True
             domain_request = domain_request.model_copy(update={"stream": True})
-            with contextlib.suppress(Exception):
+            try:
                 ctx.domain_request = domain_request
                 if getattr(domain_request, "session_id", None):
                     ctx.session_id = domain_request.session_id
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to set domain request on context: %s", e, exc_info=True
+                )
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error setting domain request on context: %s",
+                    e,
+                    exc_info=True,
+                )
             if wire_capture and wire_capture.enabled():
-                with contextlib.suppress(Exception):
+                try:
                     await wire_capture.capture_inbound_request(
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=domain_request,
                         raw_body=None,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Wire capture failed on inbound request: %s", e, exc_info=True
                     )
 
             # Get backend service
@@ -1115,14 +1163,19 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
 
             stream_iter: AsyncIterator[bytes] = generate_stream()
             if wire_capture and wire_capture.enabled():
-                with contextlib.suppress(Exception):
+                try:
                     stream_iter = wire_capture.wrap_outbound_stream(
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         backend=None,
                         model=getattr(domain_request, "model", None),
                         key_name=None,
-                        stream=stream_iter,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Wire capture failed wrapping outbound stream: %s",
+                        e,
+                        exc_info=True,
                     )
             return StreamingResponse(stream_iter, media_type="text/event-stream")
         except Exception as e:

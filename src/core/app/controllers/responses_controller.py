@@ -657,7 +657,6 @@ class ResponsesController:
         context: Any | None = None,
     ) -> AsyncIterator[str]:
         async def _generator() -> AsyncIterator[str]:  # noqa: C901
-            import contextlib
             import json
             import time
             from datetime import datetime, timezone
@@ -1367,18 +1366,40 @@ def get_responses_controller(service_provider: IServiceProvider) -> ResponsesCon
             )
 
         wire_capture = None
-        with contextlib.suppress(Exception):
+        try:
             wire_capture = service_provider.get_service(cast(type, IWireCapture))
+        except (KeyError, AttributeError) as e:
+            logger.debug(
+                "Wire capture service not available in DI: %s", e, exc_info=True
+            )
+        except Exception as e:
+            logger.warning(
+                "Unexpected error getting wire capture service from DI: %s",
+                e,
+                exc_info=True,
+            )
 
         # Optional: client end-of-session service for termination reporting
         client_eos_service = None
-        with contextlib.suppress(Exception):
+        try:
             from src.core.interfaces.client_end_of_session_service_interface import (
                 IClientEndOfSessionService,
             )
 
             client_eos_service = service_provider.get_service(
                 cast(type, IClientEndOfSessionService)
+            )
+        except (KeyError, AttributeError) as e:
+            logger.debug(
+                "Client end-of-session service not available in DI: %s",
+                e,
+                exc_info=True,
+            )
+        except Exception as e:
+            logger.warning(
+                "Unexpected error getting client end-of-session service from DI: %s",
+                e,
+                exc_info=True,
             )
 
         return ResponsesController(
