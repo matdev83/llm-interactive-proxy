@@ -191,10 +191,12 @@ class ResponseProcessor(IResponseProcessor):
                     session_cfg = getattr(cfg, "session", None)
                     model_spec = getattr(session_cfg, "angel_model", None)
                     frequency_value = getattr(session_cfg, "angel_frequency", 1)
-                except Exception:
+                except (AttributeError, TypeError, KeyError):
                     model_spec = None
                     frequency_value = 1
                 angel_svc = AngelService(model_spec or "")
+
+
                 if not angel_svc.is_enabled():
                     return {"action": "pass"}
                 self._angel_service = angel_svc
@@ -221,9 +223,11 @@ class ResponseProcessor(IResponseProcessor):
 
             # Resolve RequestContext from context dict for cancellation gate
             request_context: RequestContext | None = None
-            if context and isinstance(context, dict):
+            if context:
                 request_context = context.get("request_context")
                 if not isinstance(request_context, RequestContext):
+
+
                     request_context = None
 
             # Cancellation gate: ensure session is not cancelled before Angel verification backend call
@@ -246,9 +250,11 @@ class ResponseProcessor(IResponseProcessor):
                 if isinstance(value, bytes):
                     try:
                         return value.decode("utf-8")
-                    except Exception:
+                    except UnicodeDecodeError:
                         return value.decode("utf-8", errors="ignore")
                 return str(value)
+
+
 
             angel_response = await backend_service.chat_completions(
                 verification_request,
@@ -417,9 +423,11 @@ class ResponseProcessor(IResponseProcessor):
             # Angel verification for non-streaming responses (post-pipeline)
             try:
                 original_request = None
-                if context and isinstance(context, dict):
+                if context:
                     original_request = context.get("original_request")
                 # Only run when angel is configured in session
+
+
                 if original_request is not None:
                     decision = await self._apply_angel_verification(
                         original_request, processed_response.content or "", context

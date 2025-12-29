@@ -3,8 +3,11 @@ from __future__ import annotations
 import json
 import logging
 import re
+import xml.etree.ElementTree as ElementTree
 from typing import Any
 from uuid import uuid4
+
+
 
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
@@ -519,8 +522,6 @@ class ToolCallRepairService(IToolCallRepairService):
 
         for xml_snippet in candidate_snippets:
             try:
-                import xml.etree.ElementTree as ElementTree
-
                 # Try parsing as-is first
                 try:
                     root = ElementTree.fromstring(xml_snippet)
@@ -530,12 +531,20 @@ class ToolCallRepairService(IToolCallRepairService):
                     sanitized = self._sanitize_xml_for_parsing(xml_snippet)
                     root = ElementTree.fromstring(sanitized)
             except Exception:
+                # Fallback to lenient parsing if XML parsing fails completely
+                # Log this as it might indicate malformed XML that we're patching up
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "XML parsing failed, attempting lenient fallback", exc_info=True
+                    )
                 fallback = self._parse_lenient_tool_call(xml_snippet)
                 if fallback:
                     return fallback
                 continue
 
             # Use heuristics to determine if this is a tool call or not
+
+
             if not self._is_likely_tool_call(root, xml_snippet):
                 continue
 
@@ -573,9 +582,11 @@ class ToolCallRepairService(IToolCallRepairService):
 
                 # Try to parse as JSON if arguments_raw is a string
                 if not isinstance(arguments_raw, dict):
-                    if isinstance(arguments_raw, str) and arguments_raw.strip():
+                    if arguments_raw.strip():
                         parsed: Any = None
+
                         try:
+
                             # DoS protection: Check JSON size before parsing
                             arg_str = arguments_raw.strip()
                             arg_size = len(arg_str.encode("utf-8"))
@@ -612,10 +623,13 @@ class ToolCallRepairService(IToolCallRepairService):
                 # If it's a string, convert to dict format
                 if isinstance(arguments_raw, str):
                     arguments_raw = {"content": arguments_raw}
-                elif not isinstance(arguments_raw, dict):
+                
+                if not isinstance(arguments_raw, dict):
                     arguments_raw = {}
 
                 arguments = self._normalize_tool_arguments(
+
+
                     tool_name_candidate,
                     arguments_raw,
                 )
@@ -1163,13 +1177,12 @@ class ToolCallRepairService(IToolCallRepairService):
         Returns:
             Unwrapped arguments dict, or original if no unwrapping needed
         """
-        if not isinstance(arguments, dict):
-            return arguments
-
         # Check for the specific pattern: {"content": "<json_string>"}
         # where <json_string> is a valid JSON object when parsed
         if (
             len(arguments) == 1
+
+
             and "content" in arguments
             and isinstance(arguments["content"], str)
         ):
