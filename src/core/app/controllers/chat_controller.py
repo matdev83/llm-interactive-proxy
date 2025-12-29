@@ -503,10 +503,18 @@ class ChatController:
                         request_payload=domain_request,
                         raw_body=raw_body_bytes or None,
                     )
+                except OSError as exc:
+                    # Expected I/O errors (disk full, permission denied, etc.)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Wire capture (inbound request) failed: %s",
+                            exc,
+                            exc_info=True,
+                        )
                 except Exception:
-                    if logger.isEnabledFor(TRACE_LEVEL):
-                        logger.log(
-                            TRACE_LEVEL,
+                    # Unexpected errors during wire capture - log at DEBUG level for visibility
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
                             "Wire capture (inbound request) failed",
                             exc_info=True,
                         )

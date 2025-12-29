@@ -454,10 +454,19 @@ class ReasoningStreamProcessor:
 
         try:
             streaming_chunk = StreamingContent.from_raw(chunk)
-        except Exception:  # pragma: no cover - defensive guard
+        except (ValueError, TypeError, AttributeError, KeyError) as exc:
+            # StreamingContent.from_raw can raise these exceptions during parsing/validation
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to create StreamingContent from chunk in _extract_content_from_chunk",
+                    "Failed to create StreamingContent from chunk in _extract_content_from_chunk: %s",
+                    exc,
+                    exc_info=True,
+                )
+            streaming_chunk = None
+        except Exception:  # pragma: no cover - defensive guard for unexpected errors
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to create StreamingContent from chunk in _extract_content_from_chunk (unexpected error)",
                     exc_info=True,
                 )
             streaming_chunk = None
@@ -542,10 +551,20 @@ class ReasoningStreamProcessor:
                 return chunk
             try:
                 text = content.decode("utf-8", errors="ignore")
-            except Exception:
+            except (UnicodeDecodeError, AttributeError) as exc:
+                # UnicodeDecodeError can occur despite errors="ignore" in edge cases
+                # AttributeError if content is not actually bytes
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Failed to decode bytes content in _normalize_chunk",
+                        "Failed to decode bytes content in _normalize_chunk: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                return None
+            except Exception:  # pragma: no cover - defensive guard for unexpected errors
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to decode bytes content in _normalize_chunk (unexpected error)",
                         exc_info=True,
                     )
                 return None
