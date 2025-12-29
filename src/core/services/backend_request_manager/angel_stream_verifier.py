@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import Any
 
 from src.core.common.exceptions import (
     BackendError,
@@ -95,7 +95,9 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 # Unexpected exception during decoding
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Unexpected error decoding response content: %s", e, exc_info=True
+                        "Unexpected error decoding response content: %s",
+                        e,
+                        exc_info=True,
                     )
                 return value.decode("utf-8", errors="ignore")
         return str(value)
@@ -183,6 +185,8 @@ class AngelStreamVerifier(IAngelStreamVerifier):
 
         # Perform verification
         try:
+            from typing import cast
+
             backend_service: IBackendService = self._provider.get_required_service(
                 cast(type, IBackendService)
             )
@@ -236,6 +240,68 @@ class AngelStreamVerifier(IAngelStreamVerifier):
             correction_request = angel_service_instance.build_correction_request(
                 request, combined_text, steering_msg
             )
+
+            # Tag the angel steering message as non-forwardable and set injection boundary
+            if correction_request.messages and request_context:
+                from src.core.domain.non_forwardable import NonForwardableTagScope
+                from src.core.interfaces.non_forwardable_interface import (
+                    INonForwardableMessageIdentityService,
+                    INonForwardableMessageRegistry,
+                )
+                from src.core.services.non_forwardable_message_enforcer import (
+                    PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
+                )
+                from typing import cast
+
+                # Get registry and identity service from provider
+                non_forwardable_registry = self._provider.get_service(
+                    cast(type, INonForwardableMessageRegistry)
+                )
+                non_forwardable_identity_service = self._provider.get_service(
+                    cast(type, INonForwardableMessageIdentityService)
+                )
+
+                # Find the steering message (last system message)
+                steering_message = None
+                for msg in reversed(correction_request.messages):
+                    if msg.role == "system":
+                        steering_message = msg
+                        break
+
+                if (
+                    steering_message
+                    and non_forwardable_registry
+                    and non_forwardable_identity_service
+                ):
+                    try:
+                        session_id = request_context.session_id or "unknown"
+                        identity = non_forwardable_identity_service.compute_identity(
+                            steering_message
+                        )
+                        await non_forwardable_registry.tag_identities(
+                            session_id=session_id,
+                            identities=[identity],
+                            scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
+                            reason="angel_steering",
+                        )
+                        # Set injection boundary
+                        injection_start_index = len(request.messages)
+                        if request_context.extensions is None:
+                            request_context.extensions = {}
+                        request_context.extensions[
+                            PROXY_INJECTED_MESSAGES_START_INDEX_KEY
+                        ] = injection_start_index
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Tagged angel steering message as client-history-only for session {session_id}, "
+                                f"identity={identity[:16]}..."
+                            )
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to tag angel steering message as non-forwardable: {e}",
+                                exc_info=True,
+                            )
 
             # Cancellation gate: ensure session is not cancelled before Angel correction backend call
             if self._cancellation_coordinator and request_context:

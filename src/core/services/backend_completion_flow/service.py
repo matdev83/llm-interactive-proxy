@@ -8,11 +8,14 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, cast
+from uuid import uuid4
 
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     LLMProxyError,
+    NoForwardableContentError,
+    NonForwardableEnforcementError,
     RateLimitExceededError,
     SessionCancelledError,
 )
@@ -35,6 +38,9 @@ from src.core.interfaces.exception_normalizer_interface import IExceptionNormali
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
+)
+from src.core.interfaces.non_forwardable_interface import (
+    INonForwardableMessageEnforcer,
 )
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 from src.core.services.resilience.scope import (
@@ -105,6 +111,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         resilience_coordinator: IResilienceCoordinator | None = None,
         eos_adapter: BackendCompletionFlowEosAdapter | None = None,  # type: ignore[invalid-type-form]
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
+        non_forwardable_enforcer: INonForwardableMessageEnforcer | None = None,
     ) -> None:
         """Initialize the completion flow orchestrator."""
         self._availability_checker = availability_checker
@@ -121,6 +128,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._stream_formatting_service = stream_formatting_service
         self._eos_adapter = eos_adapter
         self._cancellation_coordinator = cancellation_coordinator
+        self._non_forwardable_enforcer = non_forwardable_enforcer
         # Track cancellation tasks to prevent resource leaks
         self._cancellation_tasks: set[asyncio.Task[None]] = set()
         self._cancellation_tasks_lock = threading.Lock()
@@ -274,6 +282,58 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             domain_request = await self._request_preparer.prepare_backend_request(
                 canonical_request, backend_type, session, uri_params
             )
+
+            # Step 7.5: Apply non-forwardable message filtering
+            # This happens after history compaction (if enabled) and before wire capture
+            # to ensure filtered messages are used for both capture and backend calls
+            if self._non_forwardable_enforcer is not None:
+                # Ensure session_id is non-empty (requirement 8.1)
+                # Generate a new session ID if none was resolved
+                if not session_id_for_backend:
+                    session_id_for_backend = str(uuid4())
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Generated new session ID for non-forwardable enforcement: %s",
+                            session_id_for_backend,
+                        )
+
+                try:
+                    filtered_messages, filtered_count = (
+                        await self._non_forwardable_enforcer.filter_messages(
+                            session_id=session_id_for_backend,
+                            messages=domain_request.messages,
+                            context=context,
+                        )
+                    )
+
+                    # Update both canonical_request and domain_request with filtered messages
+                    canonical_request = canonical_request.model_copy(
+                        update={"messages": filtered_messages}
+                    )
+                    domain_request = domain_request.model_copy(
+                        update={"messages": filtered_messages}
+                    )
+
+                    # Log filtering decision if messages were filtered (requirement 6.1, 6.2)
+                    if filtered_count > 0 and logger.isEnabledFor(logging.INFO):
+                        log_extra = {
+                            "session_id": session_id_for_backend,
+                            "filtered_count": filtered_count,
+                            "remaining_count": len(filtered_messages),
+                        }
+                        # Include request correlation identifier if available (requirement 6.1)
+                        if context and context.request_id:
+                            log_extra["request_id"] = context.request_id
+                        logger.info(
+                            "Filtered non-forwardable messages from backend request",
+                            extra=log_extra,
+                        )
+                except (NoForwardableContentError, NonForwardableEnforcementError) as e:
+                    # Fail closed: do not proceed with backend call
+                    raise BackendError(
+                        message=f"Non-forwardable message enforcement failed: {e!s}",
+                        backend_name=backend_type,
+                    ) from e
 
             # Step 8: Prepare wire capture context (identity + backend config)
             identity = (

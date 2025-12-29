@@ -28,7 +28,11 @@ from src.connectors.openai_codex.contracts import (
     ToolExecutionResult,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.responses import (
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+    StreamingResponseHandle,
+)
 from src.core.domain.validation import ValidationResult
 from src.core.services.universal_mcp_client import OpenAIFunctionSchema
 
@@ -144,6 +148,15 @@ class ICredentialManager(ABC):
         Returns:
             ValidationResult with success/error status. If no credentials
             are loaded, returns a failure result.
+        """
+        ...
+
+    @abstractmethod
+    def get_account_id(self) -> str | None:
+        """Return ChatGPT account ID from loaded credentials.
+
+        Returns:
+            Account ID string or None if not available
         """
         ...
 
@@ -572,6 +585,19 @@ class IKiloToolTranslator(Protocol):
         Returns:
             Translation result with tool_name and arguments, or None if translation fails
         """
+        ...
+
+    def get_xml_parser(self) -> Any | None:
+        """Return the XML parser instance.
+
+        Returns:
+            XMLToolParser instance or None if not yet initialized
+        """
+        ...
+
+    def ensure_xml_parser(self) -> Any:
+        """Return an initialized XML parser instance."""
+        ...
 
 
 class IDroidReverseTranslationResult(Protocol):
@@ -598,5 +624,37 @@ class IDroidToolTranslator(Protocol):
 
         Returns:
             Translation result with droid_tool_name and droid_arguments
+        """
+        ...
+
+
+class ICodexTransport(Protocol):
+    """Protocol for Codex streaming transport.
+
+    Public boundary for streaming HTTP requests used by response executor.
+    """
+
+    async def initiate_streaming_request(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        session_id: str,
+    ) -> StreamingResponseHandle:
+        """Initiate a streaming request to Codex API.
+
+        Args:
+            url: Codex API endpoint URL
+            payload: Request payload as dictionary
+            headers: HTTP headers including Authorization
+            session_id: Session identifier for logging and cancellation
+
+        Returns:
+            StreamingResponseHandle with iterator and cancel callback
+
+        Raises:
+            HTTPException: For 4xx/5xx responses
+            ServiceUnavailableError: For network failures
+            AuthenticationError: For missing credentials
         """
         ...

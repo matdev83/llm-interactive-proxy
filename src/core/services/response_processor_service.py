@@ -5,7 +5,7 @@ import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import Any
 
 from src.core.common.exceptions import (
     LoopDetectionError,
@@ -196,7 +196,6 @@ class ResponseProcessor(IResponseProcessor):
                     frequency_value = 1
                 angel_svc = AngelService(model_spec or "")
 
-
                 if not angel_svc.is_enabled():
                     return {"action": "pass"}
                 self._angel_service = angel_svc
@@ -227,7 +226,6 @@ class ResponseProcessor(IResponseProcessor):
                 request_context = context.get("request_context")
                 if not isinstance(request_context, RequestContext):
 
-
                     request_context = None
 
             # Cancellation gate: ensure session is not cancelled before Angel verification backend call
@@ -235,6 +233,8 @@ class ResponseProcessor(IResponseProcessor):
                 session_key = resolve_session_key_from_request_context(request_context)
                 if session_key:
                     self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
+            from typing import cast
 
             provider = get_service_provider()
             backend_service: IBackendService = provider.get_required_service(
@@ -253,8 +253,6 @@ class ResponseProcessor(IResponseProcessor):
                     except UnicodeDecodeError:
                         return value.decode("utf-8", errors="ignore")
                 return str(value)
-
-
 
             angel_response = await backend_service.chat_completions(
                 verification_request,
@@ -275,6 +273,68 @@ class ResponseProcessor(IResponseProcessor):
             correction_request = svc.build_correction_request(
                 original_request, content, steering_msg
             )
+
+            # Tag the angel steering message as non-forwardable and set injection boundary
+            if correction_request.messages and request_context:
+                from src.core.domain.non_forwardable import NonForwardableTagScope
+                from src.core.interfaces.non_forwardable_interface import (
+                    INonForwardableMessageIdentityService,
+                    INonForwardableMessageRegistry,
+                )
+                from src.core.services.non_forwardable_message_enforcer import (
+                    PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
+                )
+                from typing import cast
+
+                # Get registry and identity service from provider
+                non_forwardable_registry = provider.get_service(
+                    cast(type, INonForwardableMessageRegistry)
+                )
+                non_forwardable_identity_service = provider.get_service(
+                    cast(type, INonForwardableMessageIdentityService)
+                )
+
+                # Find the steering message (last system message)
+                steering_message = None
+                for msg in reversed(correction_request.messages):
+                    if msg.role == "system":
+                        steering_message = msg
+                        break
+
+                if (
+                    steering_message
+                    and non_forwardable_registry
+                    and non_forwardable_identity_service
+                ):
+                    try:
+                        session_id = request_context.session_id or "unknown"
+                        identity = non_forwardable_identity_service.compute_identity(
+                            steering_message
+                        )
+                        await non_forwardable_registry.tag_identities(
+                            session_id=session_id,
+                            identities=[identity],
+                            scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
+                            reason="angel_steering",
+                        )
+                        # Set injection boundary
+                        injection_start_index = len(original_request.messages)
+                        if request_context.extensions is None:
+                            request_context.extensions = {}
+                        request_context.extensions[
+                            PROXY_INJECTED_MESSAGES_START_INDEX_KEY
+                        ] = injection_start_index
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Tagged angel steering message as client-history-only for session {session_id}, "
+                                f"identity={identity[:16]}..."
+                            )
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                f"Failed to tag angel steering message as non-forwardable: {e}",
+                                exc_info=True,
+                            )
 
             # Cancellation gate: ensure session is not cancelled before Angel correction backend call
             if self._cancellation_coordinator and request_context:
@@ -431,7 +491,6 @@ class ResponseProcessor(IResponseProcessor):
                     original_request = context.get("original_request")
                 # Only run when angel is configured in session
 
-
                 if original_request is not None:
                     decision = await self._apply_angel_verification(
                         original_request, processed_response.content or "", context
@@ -446,7 +505,9 @@ class ResponseProcessor(IResponseProcessor):
             except (KeyError, TypeError, ValueError, AttributeError):
                 # Be conservative: do not break normal flow on Angel errors
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Angel verification failed; continuing", exc_info=True)
+                    logger.warning(
+                        "Angel verification failed; continuing", exc_info=True
+                    )
 
             return processed_response
 

@@ -389,3 +389,69 @@ class DuplicateRequestError(BackendError):
         super().__init__(
             message, backend_name=None, details=det, status_code=429, **kwargs
         )
+
+
+class NonForwardableEnforcementError(LLMProxyError):
+    """Raised when internal error occurs during non-forwardable message enforcement.
+
+    This error indicates a failure during identity computation, registry lookup,
+    or filtering that prevents safe enforcement. The proxy must fail closed
+    (not call any remote backend) when this error occurs.
+
+    Status code 500 indicates an internal server error.
+    """
+
+    def __init__(
+        self,
+        message: str = "Non-forwardable enforcement failed",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, status_code=500, **kwargs)
+
+
+class NoForwardableContentError(LLMProxyError):
+    """Raised when filtering removes all forwardable user-provided content.
+
+    This error is raised when non-forwardable filtering removes all messages
+    that contain forwardable user-provided content, leaving nothing to send
+    to the remote backend.
+
+    Status code 400 indicates a bad request (nothing forwardable to send).
+    """
+
+    def __init__(
+        self,
+        message: str = "No forwardable content remains after filtering",
+        details: dict | None = None,
+        **kwargs,
+    ):
+        super().__init__(message, details, status_code=400, **kwargs)
+
+
+class NonForwardableTagLimitExceededError(LLMProxyError):
+    """Raised when non-forwardable tag capacity limit is exceeded.
+
+    This error is raised when tagging would exceed the configured per-session
+    tag capacity limit. The proxy must fail closed (not call any remote backend)
+    when this error occurs to prevent unbounded memory growth.
+
+    Status code 400 indicates a bad request (tag capacity exceeded).
+    """
+
+    def __init__(
+        self,
+        message: str = "Non-forwardable tag capacity exceeded",
+        session_id: str | None = None,
+        max_limit: int | None = None,
+        details: dict | None = None,
+        **kwargs,
+    ):
+        self.session_id = session_id
+        self.max_limit = max_limit
+        det = details.copy() if details else {}
+        if session_id:
+            det["session_id"] = session_id
+        if max_limit:
+            det["max_limit"] = max_limit
+        super().__init__(message, det, status_code=400, **kwargs)

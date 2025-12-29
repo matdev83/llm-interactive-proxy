@@ -182,6 +182,10 @@ class CommandStage(InitializationStage):
                 provider: IServiceProvider,
             ) -> NewCommandService:
                 """Factory function for creating CommandService with dependencies."""
+                from src.core.interfaces.non_forwardable_interface import (
+                    INonForwardableMessageIdentityService,
+                    INonForwardableMessageRegistry,
+                )
                 from src.core.services.session_service_impl import SessionService
 
                 session_service = provider.get_required_service(SessionService)
@@ -196,6 +200,13 @@ class CommandStage(InitializationStage):
                 tail_extractor = provider.get_required_service(CommandTailExtractor)
                 match_filter = provider.get_required_service(CommandMatchFilter)
                 app_state = provider.get_service(cast(type, IApplicationState))
+                # Get non-forwardable services (optional - may not be registered)
+                non_forwardable_registry = provider.get_service(
+                    cast(type, INonForwardableMessageRegistry)
+                )
+                non_forwardable_identity_service = provider.get_service(
+                    cast(type, INonForwardableMessageIdentityService)
+                )
                 return NewCommandService(
                     session_service,
                     command_parser,
@@ -206,6 +217,8 @@ class CommandStage(InitializationStage):
                     command_state_service=state_service,
                     command_policy_service=policy_service,
                     config=app_config,
+                    non_forwardable_registry=non_forwardable_registry,
+                    non_forwardable_identity_service=non_forwardable_identity_service,
                 )
 
             services.add_singleton(

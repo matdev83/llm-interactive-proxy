@@ -14,6 +14,7 @@ from src.core.di.container import ServiceCollection
 from src.core.di.registrations import (
     backend,
     core,
+    non_forwardable,
     persistence,
     replacement,
     resilience,
@@ -28,13 +29,14 @@ def register_all(services: ServiceCollection, app_config: AppConfig | None) -> N
 
     The order is:
     1. core - Config, session, app state primitives
-    2. streaming - Streaming pipeline
-    3. persistence - Database, repositories, memory
-    4. security - Sandboxing, path validation
-    5. tooling - Tool call reactor, dangerous commands
-    6. backend - Backend registry, factory, routing
-    7. replacement - Random model replacement
-    8. resilience - Failover, rate limiting, failure strategy
+    2. non_forwardable - Non-forwardable message tagging (identity, registry)
+    3. streaming - Streaming pipeline
+    4. persistence - Database, repositories, memory
+    5. security - Sandboxing, path validation
+    6. tooling - Tool call reactor, dangerous commands
+    7. backend - Backend registry, factory, routing
+    8. replacement - Random model replacement
+    9. resilience - Failover, rate limiting, failure strategy
 
     This order is critical to preserve staged initialization semantics and
     ensure dependencies are registered before dependents.
@@ -45,6 +47,7 @@ def register_all(services: ServiceCollection, app_config: AppConfig | None) -> N
     """
     # Register in deterministic order (as specified in design.md)
     core.register(services, app_config)
+    non_forwardable.register(services, app_config)
     streaming.register(services, app_config)
     persistence.register(services, app_config)
     security.register(services, app_config)

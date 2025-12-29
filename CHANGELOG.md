@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Implemented non-forwardable message tagging system with configuration and domain models
 - Implemented Kiro spec archiving system with documentation updates
 - Added archive functionality and allowlist for completed specifications
 - Added test execution reminder functionality

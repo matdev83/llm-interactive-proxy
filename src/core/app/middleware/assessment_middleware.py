@@ -9,13 +9,19 @@ Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionServ
 
 import logging
 from dataclasses import dataclass
+from uuid import uuid4
 
 from src.core.common.logging_utils import get_logger
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
+from src.core.domain.non_forwardable import NonForwardableTagScope
 from src.core.interfaces.assessment_service_interface import (
     IAssessmentService,
     ITurnCounterService,
+)
+from src.core.interfaces.non_forwardable_interface import (
+    INonForwardableMessageIdentityService,
+    INonForwardableMessageRegistry,
 )
 from src.core.services.assessment_prompts import get_steering_template
 
@@ -46,6 +52,10 @@ class AssessmentMiddleware:
         assessment_service: IAssessmentService,
         turn_counter_service: ITurnCounterService,
         config: AssessmentConfig,
+        non_forwardable_registry: INonForwardableMessageRegistry | None = None,
+        non_forwardable_identity_service: (
+            INonForwardableMessageIdentityService | None
+        ) = None,
     ):
         """
         Initialize assessment middleware.
@@ -54,10 +64,14 @@ class AssessmentMiddleware:
             assessment_service: Service for performing assessments
             turn_counter_service: Service for turn counting and timing
             config: Assessment configuration
+            non_forwardable_registry: Optional registry for tagging non-forwardable messages
+            non_forwardable_identity_service: Optional service for computing message identities
         """
         self.assessment_service = assessment_service
         self.turn_counter_service = turn_counter_service
         self.config = config
+        self._non_forwardable_registry = non_forwardable_registry
+        self._non_forwardable_identity_service = non_forwardable_identity_service
 
     async def process(self, request: ChatRequest) -> ChatRequest:
         """
@@ -124,7 +138,7 @@ class AssessmentMiddleware:
                             )
 
                         # Inject steering message
-                        request = self._inject_steering_message(
+                        request = await self._inject_steering_message(
                             request, assessment_result
                         )
 
@@ -159,23 +173,54 @@ class AssessmentMiddleware:
         """
         Extract or generate session ID from request.
 
+        This method follows a precedence order similar to RequestProcessor's session resolution:
+        1. request.session_id (set by controller layer)
+        2. request.extra_body["session_id"] (metadata fallback)
+        3. Generate UUID fallback (should rarely be used)
+
+        Note: AssessmentMiddleware does not have access to RequestContext, so it cannot check
+        headers/cookies like RequestProcessor does. In practice, the controller layer should
+        set request.session_id before middleware runs, ensuring consistency with RequestProcessor.
+
         Args:
             request: Chat request
 
         Returns:
-            Session ID for tracking
+            Session ID for tracking (must be non-empty per Requirement 8.1)
+
+        See Also:
+            - RequestProcessor.resolve_session_id() for full session resolution logic
+            - Requirement 8.1: Session identity coverage across entry points
         """
-        # Try to get session ID from request metadata
+        # Try to get session ID from request metadata (highest priority)
+        # Controller layer (ChatController.handle_chat_completion) sets this at line 488
         if hasattr(request, "session_id") and request.session_id:
             return request.session_id
 
-        # Try to get from headers or other sources
-        # This would need to be implemented based on how sessions are tracked
-        # For now, generate a simple ID based on request hash
-        request_hash = hash(str(request.messages[-5:]) if request.messages else "empty")
-        return f"session_{abs(request_hash)}"
+        # Try to get from request.extra_body (fallback for session_id passed via metadata)
+        if hasattr(request, "extra_body") and isinstance(request.extra_body, dict):
+            extra_session_id = request.extra_body.get("session_id")
+            if isinstance(extra_session_id, str) and extra_session_id:
+                return extra_session_id
 
-    def _inject_steering_message(
+        # Last resort: generate a UUID-based session ID
+        # This should rarely be used in production - session_id should be set by controller layer
+        # before middleware runs. UUID is stable within a single Python process (unlike hash).
+        # Requirement 8.1: "MUST resolve or create a non-empty session identifier"
+        # Note: This fallback creates a new session per request, which may not match the
+        # session_id used by RequestProcessor/enforcer if controller doesn't set request.session_id.
+        session_id = f"session_{uuid4().hex}"
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                f"AssessmentMiddleware: Generated UUID-based session ID fallback: {session_id}. "
+                f"Session ID should be set by controller layer (request.session_id or "
+                f"request.extra_body['session_id']) before middleware runs. "
+                f"This fallback creates a new session per request, which may not match the "
+                f"session_id used by RequestProcessor/enforcer."
+            )
+        return session_id
+
+    async def _inject_steering_message(
         self, request: ChatRequest, assessment_result
     ) -> ChatRequest:
         """
@@ -211,11 +256,53 @@ class AssessmentMiddleware:
             },
         )
 
+        # Tag the steering message as non-forwardable (client-history-only scope)
+        if (
+            self._non_forwardable_registry is not None
+            and self._non_forwardable_identity_service is not None
+        ):
+            try:
+                identity = self._non_forwardable_identity_service.compute_identity(
+                    steering_message
+                )
+                await self._non_forwardable_registry.tag_identities(
+                    session_id=assessment_result.session_id,
+                    identities=[identity],
+                    scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
+                    reason="assessment_steering",
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Tagged assessment steering message as client-history-only for session {assessment_result.session_id}, "
+                        f"identity={identity[:16]}..."
+                    )
+            except Exception as e:
+                # Log error but don't fail steering injection if tagging fails
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to tag assessment steering message as non-forwardable: {e}",
+                        exc_info=True,
+                    )
+
         # Add steering message to conversation history
         new_messages = [*list(request.messages), steering_message]
+        injection_start_index = len(
+            request.messages
+        )  # Index where injected messages begin
 
         # Create new request with steering message using Pydantic model_copy
         modified_request = request.model_copy(update={"messages": new_messages})
+
+        # Store injection boundary in request metadata for later use in RequestContext
+        # This will be picked up when RequestContext is created/updated
+        if (
+            not hasattr(modified_request, "extra_body")
+            or modified_request.extra_body is None
+        ):
+            modified_request.extra_body = {}
+        modified_request.extra_body["_proxy_injected_messages_start_index"] = (
+            injection_start_index
+        )
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(

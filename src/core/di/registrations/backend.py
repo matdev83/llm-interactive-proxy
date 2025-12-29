@@ -10,6 +10,7 @@ import logging
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
+from src.core.di.registrations._backend.codex import register_codex_services
 from src.core.di.registrations._backend.core_services import (
     register_backend_registry,
     register_translation_service,
@@ -63,6 +64,7 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     register_backend_lifecycle_manager(services)
     register_backend_model_resolver(services)
     register_backend_service(services)
+    register_codex_services(services)
 
     # Register connector-specific coordinator services (optional - connectors have fallback)
     try:

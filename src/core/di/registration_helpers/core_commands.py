@@ -130,6 +130,10 @@ def register_command_pipeline_services(services: ServiceCollection) -> None:
     def _command_service_factory(provider: IServiceProvider) -> ICommandService:
         from src.core.config.app_config import AppConfig
         from src.core.interfaces.application_state_interface import IApplicationState
+        from src.core.interfaces.non_forwardable_interface import (
+            INonForwardableMessageIdentityService,
+            INonForwardableMessageRegistry,
+        )
 
         session_service = provider.get_required_service(SessionService)
         command_parser = provider.get_required_service(CommandParser)
@@ -137,6 +141,13 @@ def register_command_pipeline_services(services: ServiceCollection) -> None:
         app_state = provider.get_service(cast(type, IApplicationState))
         state_service = provider.get_required_service(CommandStateService)
         policy_service = provider.get_required_service(CommandPolicyService)
+        # Get non-forwardable services (optional - may not be registered)
+        non_forwardable_registry = provider.get_service(
+            cast(type, INonForwardableMessageRegistry)
+        )
+        non_forwardable_identity_service = provider.get_service(
+            cast(type, INonForwardableMessageIdentityService)
+        )
         return NewCommandService(
             session_service,
             command_parser,
@@ -145,6 +156,8 @@ def register_command_pipeline_services(services: ServiceCollection) -> None:
             command_state_service=state_service,
             command_policy_service=policy_service,
             config=config,
+            non_forwardable_registry=non_forwardable_registry,
+            non_forwardable_identity_service=non_forwardable_identity_service,
         )
 
     register_singleton_if_absent(

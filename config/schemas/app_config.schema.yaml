@@ -532,6 +532,15 @@ properties:
         type: boolean
         default: false
         description: "Redact file paths and commands in compaction stubs (trade-off: security vs debuggability)"
+  non_forwardable_tagging:
+    type: object
+    additionalProperties: false
+    properties:
+      max_identities_per_session:
+        type: integer
+        minimum: 1
+        default: 10000
+        description: "Maximum number of stored non-forwardable identities per session"
   assessment:
     type: object
     additionalProperties: false

@@ -18,15 +18,23 @@ from pydantic.types import JsonValue
 
 from src.core.domain.backend_request_manager.context_models import ToolCallRetryState
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.non_forwardable import NonForwardableTagScope
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     IToolCallRetryCoordinator,
 )
+from src.core.interfaces.non_forwardable_interface import (
+    INonForwardableMessageIdentityService,
+    INonForwardableMessageRegistry,
+)
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
+)
+from src.core.services.non_forwardable_message_enforcer import (
+    PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
 )
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
@@ -91,15 +99,21 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
         self,
         backend_processor: IBackendProcessor,
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
+        non_forwardable_registry: INonForwardableMessageRegistry | None = None,
+        non_forwardable_identity_service: INonForwardableMessageIdentityService | None = None,
     ) -> None:
         """Initialize the tool-call retry coordinator.
 
         Args:
             backend_processor: Backend processor for executing retry requests
             cancellation_coordinator: Optional cancellation coordinator for checking session cancellation
+            non_forwardable_registry: Optional registry for tagging non-forwardable messages
+            non_forwardable_identity_service: Optional service for computing message identities
         """
         self._backend_processor = backend_processor
         self._cancellation_coordinator = cancellation_coordinator
+        self._non_forwardable_registry = non_forwardable_registry
+        self._non_forwardable_identity_service = non_forwardable_identity_service
 
     def _extract_session_id(self, context: RequestContext) -> str:
         """Extract session ID from request context.
@@ -416,11 +430,42 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
 
         # Create system message to append (preserves all original messages)
         system_message = ChatMessage(role="system", content=proxy_prompt)
+        
+        # Tag the steering message as non-forwardable (client-history-only scope)
+        if self._non_forwardable_registry is not None and self._non_forwardable_identity_service is not None:
+            try:
+                identity = self._non_forwardable_identity_service.compute_identity(system_message)
+                await self._non_forwardable_registry.tag_identities(
+                    session_id=session_id,
+                    identities=[identity],
+                    scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
+                    reason="tool_call_retry_steering",
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Tagged tool-call retry steering message as client-history-only for session {session_id}, "
+                        f"identity={identity[:16]}..."
+                    )
+            except Exception as e:
+                # Log error but don't fail retry if tagging fails
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to tag tool-call retry steering message as non-forwardable: {e}",
+                        exc_info=True,
+                    )
+        
         new_messages = [*list(request.messages), system_message]
+        injection_start_index = len(request.messages)  # Index where injected messages begin
 
         retry_request = request.model_copy(
             update={"messages": new_messages, "extra_body": extra_body}
         )
+        
+        # Set injection boundary in RequestContext for enforcer
+        if context is not None:
+            if context.extensions is None:
+                context.extensions = {}
+            context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = injection_start_index
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
@@ -584,11 +629,42 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
 
         # Create system message to append (preserves all original messages)
         system_message = ChatMessage(role="system", content=proxy_prompt)
+        
+        # Tag the steering message as non-forwardable (client-history-only scope)
+        if self._non_forwardable_registry is not None and self._non_forwardable_identity_service is not None:
+            try:
+                identity = self._non_forwardable_identity_service.compute_identity(system_message)
+                await self._non_forwardable_registry.tag_identities(
+                    session_id=session_id,
+                    identities=[identity],
+                    scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
+                    reason="tool_call_retry_steering",
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Tagged tool-call retry steering message as client-history-only for session {session_id}, "
+                        f"identity={identity[:16]}..."
+                    )
+            except Exception as e:
+                # Log error but don't fail retry if tagging fails
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to tag tool-call retry steering message as non-forwardable: {e}",
+                        exc_info=True,
+                    )
+        
         new_messages = [*list(request.messages), system_message]
+        injection_start_index = len(request.messages)  # Index where injected messages begin
 
         retry_request = request.model_copy(
             update={"messages": new_messages, "extra_body": extra_body}
         )
+        
+        # Set injection boundary in RequestContext for enforcer
+        if context is not None:
+            if context.extensions is None:
+                context.extensions = {}
+            context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = injection_start_index
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(

@@ -26,6 +26,7 @@ from src.connectors.openai_codex.contracts import (
     ProviderStreamChunk,
 )
 from src.connectors.openai_codex.interfaces import (
+    ICodexTransport,
     ICompatibilityLayer,
     ICredentialManager,
     IResponseExecutor,
@@ -35,6 +36,7 @@ from src.core.common.exceptions import AuthenticationError, ServiceUnavailableEr
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
+    StreamingResponseHandle,
 )
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
@@ -42,6 +44,25 @@ from src.core.services.tool_text_renderer import OverrideRenderer
 
 if TYPE_CHECKING:
     from src.connectors.openai import OpenAIConnector
+
+
+class _CodexTransportAdapter:
+    """Adapter that wraps OpenAIConnector to implement ICodexTransport protocol."""
+
+    def __init__(self, connector: OpenAIConnector) -> None:
+        self._connector = connector
+
+    async def initiate_streaming_request(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        session_id: str,
+    ) -> StreamingResponseHandle:
+        return await self._connector._handle_streaming_response(  # type: ignore[misc]
+            url, payload, headers, session_id, "responses"
+        )
+
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +84,7 @@ class ResponseExecutor(IResponseExecutor):
         retry_backoff_seconds: tuple[float, ...] = (0.5, 1.5, 3.0),
         codex_url: str = "https://chatgpt.com/backend-api/codex/responses",
         compatibility_layer: ICompatibilityLayer | None = None,
+        transport: ICodexTransport | None = None,
     ) -> None:
         """Initialize the response executor.
 
@@ -73,6 +95,7 @@ class ResponseExecutor(IResponseExecutor):
             retry_backoff_seconds: Backoff sequence for retries
             codex_url: Codex API endpoint URL
             compatibility_layer: Optional compatibility layer for stream chunk translation
+            transport: Optional transport interface for streaming HTTP requests
         """
         self._base_connector = base_connector
         self._credential_manager = credential_manager
@@ -80,6 +103,11 @@ class ResponseExecutor(IResponseExecutor):
         self._retry_backoff_seconds = retry_backoff_seconds
         self._codex_url = codex_url
         self._compatibility_layer = compatibility_layer
+        self._transport = (
+            transport
+            if transport is not None
+            else _CodexTransportAdapter(base_connector)
+        )
 
     async def execute(
         self, payload: CodexPayload, context: CodexRequestContext
@@ -137,9 +165,6 @@ class ResponseExecutor(IResponseExecutor):
         # Retry logic for non-streaming requests with auth failures
         attempts_used = 0
         max_retries = max(0, self._max_retries)
-        stream_retry_limit = getattr(self._base_connector, "_stream_retry_limit", None)
-        if stream_retry_limit is not None:
-            max_retries = max(0, int(stream_retry_limit))
 
         response_json: dict[str, Any] | None = None
         response: httpx.Response | None = None
@@ -406,27 +431,7 @@ class ResponseExecutor(IResponseExecutor):
         async def _streaming_iterator() -> AsyncIterator[ProcessedResponse]:
             """Streaming iterator with authentication retry logic."""
             attempts_used = 0
-            # Allow connector to override retry limit for test compatibility
-            # Check if connector has _stream_retry_limit set (takes precedence)
-            stream_retry_limit = getattr(
-                self._base_connector, "_stream_retry_limit", None
-            )
-            # Try to use connector's override if it's a real integer value
-            # MagicMock will return a MagicMock for any attribute, but we can try to convert it
-            if stream_retry_limit is not None:
-                try:
-                    # Try to convert to int - if it's a real value (like 1), this will work
-                    # If it's a MagicMock, int() will raise TypeError
-                    max_retries = max(0, int(stream_retry_limit))
-                except (ValueError, TypeError, AttributeError):
-                    # Conversion failed (likely MagicMock), use constructor value
-                    max_retries = max(0, self._max_retries)
-            else:
-                # No override, use constructor value
-                max_retries = max(0, self._max_retries)
-            # If constructor explicitly set max_retries to 0, always use 0 (don't allow override)
-            if self._max_retries == 0:
-                max_retries = 0
+            max_retries = max(0, self._max_retries)
             current_headers = dict(headers)
 
             # Get compatibility state from context metadata if available
@@ -443,12 +448,11 @@ class ResponseExecutor(IResponseExecutor):
                 while True:
                     try:
                         stream_handle = (
-                            await self._base_connector._handle_streaming_response(
+                            await self._transport.initiate_streaming_request(
                                 url,
                                 payload_dict,
                                 current_headers,
                                 context.session_id,
-                                "responses",
                             )
                         )
                         # Fall through to consume the stream iterator below
@@ -821,9 +825,9 @@ class ResponseExecutor(IResponseExecutor):
 
         # Fall back to heuristics based on codes/messages
         code = None
-        if isinstance(details, Mapping):
+        if isinstance(details, Mapping):  # type: ignore[unreachable]
             code = details.get("code")
-        if code is None and isinstance(content, Mapping):
+        if code is None and isinstance(content, Mapping):  # type: ignore[unreachable]
             code = content.get("code")
 
         def _is_auth_code(value: Any) -> bool:
@@ -907,15 +911,8 @@ class ResponseExecutor(IResponseExecutor):
             Account ID or None
         """
         # Try to get account ID from credential manager (preferred)
-        if hasattr(self._credential_manager, "get_account_id"):
-            account_id = self._credential_manager.get_account_id()  # type: ignore[misc]
-            return account_id if isinstance(account_id, str) else None
-
-        # Fallback: Try to get account ID from connector if it has the method
-        if hasattr(self._base_connector, "_codex_account_id"):
-            account_id = self._base_connector._codex_account_id()  # type: ignore[misc]
-            return account_id if isinstance(account_id, str) else None
-        return None
+        account_id = self._credential_manager.get_account_id()
+        return account_id
 
     def _select_renderer_key(self, capabilities: CodexClientCapabilities) -> str:
         """Select renderer key from capabilities.
@@ -934,7 +931,7 @@ class ResponseExecutor(IResponseExecutor):
         # Note: capabilities.tool_text_format should already be set from renderer_default
         # during settings loading, so if it's None/empty, we fall back to "none"
         preferred = capabilities.tool_text_format or "none"
-        preferred = preferred.strip() if isinstance(preferred, str) else "none"
+        preferred = preferred.strip()
 
         if not preferred:
             return "none"

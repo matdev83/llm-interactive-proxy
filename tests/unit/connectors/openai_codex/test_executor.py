@@ -17,7 +17,11 @@ from src.connectors.openai_codex.contracts import (
     ProcessedMessage,
 )
 from src.connectors.openai_codex.executor import ResponseExecutor
-from src.connectors.openai_codex.interfaces import ICredentialManager, IResponseExecutor
+from src.connectors.openai_codex.interfaces import (
+    ICodexTransport,
+    ICredentialManager,
+    IResponseExecutor,
+)
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope

@@ -14,12 +14,18 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from src.core.domain.chat import ChatMessage
 from src.core.domain.command_results import CommandResult
+from src.core.domain.non_forwardable import NonForwardableTagScope
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session
 from src.core.interfaces.agent_response_formatter_interface import (
     IAgentResponseFormatter,
+)
+from src.core.interfaces.non_forwardable_interface import (
+    INonForwardableMessageIdentityService,
+    INonForwardableMessageRegistry,
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
 
@@ -60,10 +66,14 @@ class ResponseManager(IResponseManager):
         self,
         agent_response_formatter: IAgentResponseFormatter,
         session_service=None,
+        non_forwardable_registry: INonForwardableMessageRegistry | None = None,
+        non_forwardable_identity_service: INonForwardableMessageIdentityService | None = None,
     ) -> None:
         """Initialize the response manager."""
         self._agent_response_formatter = agent_response_formatter
         self._session_service = session_service
+        self._non_forwardable_registry = non_forwardable_registry
+        self._non_forwardable_identity_service = non_forwardable_identity_service
 
     async def process_command_result(
         self, command_result: ProcessedResult, session: Session
@@ -85,6 +95,30 @@ class ResponseManager(IResponseManager):
             )
 
         if isinstance(first_result, ResponseEnvelope):
+            # Tag the ResponseEnvelope direct return before returning
+            if self._non_forwardable_registry is not None and self._non_forwardable_identity_service is not None:
+                try:
+                    response_message = self._extract_message_from_envelope(first_result, session)
+                    if response_message is not None:
+                        identity = self._non_forwardable_identity_service.compute_identity(response_message)
+                        await self._non_forwardable_registry.tag_identities(
+                            session_id=session.session_id,
+                            identities=[identity],
+                            scope=NonForwardableTagScope.NEVER_FORWARD,
+                            reason="command_response",
+                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Tagged ResponseEnvelope command response as never-forward for session {session.session_id}, "
+                                f"identity={identity[:16]}..."
+                            )
+                except Exception as e:
+                    # Log error but don't fail response creation if tagging fails
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to tag ResponseEnvelope command response as non-forwardable: {e}",
+                            exc_info=True,
+                        )
             return first_result
 
         # Use the agent response formatter to format the result (async)
@@ -92,11 +126,144 @@ class ResponseManager(IResponseManager):
             first_result, session
         )
 
+        # Tag the command response message as non-forwardable
+        # Construct a ChatMessage representation that matches what clients might resubmit
+        if self._non_forwardable_registry is not None and self._non_forwardable_identity_service is not None:
+            try:
+                response_message = self._construct_response_chat_message(content, session)
+                if response_message is not None:
+                    identity = self._non_forwardable_identity_service.compute_identity(response_message)
+                    await self._non_forwardable_registry.tag_identities(
+                        session_id=session.session_id,
+                        identities=[identity],
+                        scope=NonForwardableTagScope.NEVER_FORWARD,
+                        reason="command_response",
+                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Tagged command response as never-forward for session {session.session_id}, "
+                            f"identity={identity[:16]}..."
+                        )
+            except Exception as e:
+                # Log error but don't fail response creation if tagging fails
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to tag command response as non-forwardable: {e}",
+                        exc_info=True,
+                    )
+
         return ResponseEnvelope(
             content=content,
             headers={"content-type": "application/json"},
             status_code=200,
         )
+
+    def _construct_response_chat_message(
+        self, content: dict[str, Any], session: Session
+    ) -> ChatMessage | None:
+        """Construct a ChatMessage representation of the command response.
+        
+        This matches what clients might resubmit in history, so the identity
+        computation will recognize it when clients echo the response.
+        
+        Args:
+            content: The formatted response content dict from AgentResponseFormatter
+            session: The session object
+            
+        Returns:
+            ChatMessage representation of the response, or None if construction fails
+        """
+        try:
+            # Extract message from content dict (format varies by agent type)
+            if isinstance(content, dict):
+                choices = content.get("choices", [])
+                if choices and isinstance(choices, list) and len(choices) > 0:
+                    message_dict = choices[0].get("message", {})
+                    if message_dict:
+                        role = message_dict.get("role", "assistant")
+                        msg_content = message_dict.get("content")
+                        tool_calls = message_dict.get("tool_calls")
+                        
+                        # Construct ChatMessage matching client resubmission format
+                        if tool_calls:
+                            # Cline agent: tool_calls response
+                            return ChatMessage(
+                                role=role,
+                                content=None,
+                                tool_calls=tool_calls,
+                            )
+                        elif msg_content is not None:
+                            # Non-Cline agent: assistant message with content
+                            return ChatMessage(
+                                role=role,
+                                content=msg_content,
+                            )
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Failed to construct response ChatMessage for tagging: {e}",
+                    exc_info=True,
+                )
+        return None
+
+    def _extract_message_from_envelope(
+        self, envelope: ResponseEnvelope, session: Session
+    ) -> ChatMessage | None:
+        """Extract a ChatMessage representation from ResponseEnvelope.content.
+        
+        Handles all ResponseEnvelope.content types: dict, str, bytes, None.
+        This matches what clients might resubmit in history, so the identity
+        computation will recognize it when clients echo the response.
+        
+        Args:
+            envelope: The ResponseEnvelope to extract message from
+            session: The session object (for agent type detection if needed)
+            
+        Returns:
+            ChatMessage representation of the response, or None if extraction fails
+        """
+        try:
+            content = envelope.content
+            
+            # Handle dict content (most common case - formatted response)
+            if isinstance(content, dict):
+                return self._construct_response_chat_message(content, session)
+            
+            # Handle string content - construct assistant message
+            elif isinstance(content, str):
+                if content:  # Only create message if content is non-empty
+                    return ChatMessage(
+                        role="assistant",
+                        content=content,
+                    )
+            
+            # Handle bytes content - decode and construct assistant message
+            elif isinstance(content, bytes):
+                try:
+                    decoded_content = content.decode("utf-8")
+                    if decoded_content:  # Only create message if content is non-empty
+                        return ChatMessage(
+                            role="assistant",
+                            content=decoded_content,
+                        )
+                except UnicodeDecodeError as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Failed to decode bytes content from ResponseEnvelope: {e}",
+                            exc_info=True,
+                        )
+            
+            # Handle None content - cannot construct a meaningful message
+            elif content is None:
+                return None
+            
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Failed to extract message from ResponseEnvelope for tagging: {e}",
+                    exc_info=True,
+                )
+        return None
 
 
 class AgentResponseFormatter(IAgentResponseFormatter):

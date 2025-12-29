@@ -12,8 +12,13 @@ from src.core.common.env_utils import get_env_flag
 from src.core.config.app_config import AppConfig
 from src.core.domain import chat as models
 from src.core.domain.chat import ChatMessage
+from src.core.domain.non_forwardable import NonForwardableTagScope
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.non_forwardable_interface import (
+    INonForwardableMessageIdentityService,
+    INonForwardableMessageRegistry,
+)
 from src.core.interfaces.command_policy_service_interface import ICommandPolicyService
 from src.core.interfaces.command_service_interface import ICommandService
 from src.core.interfaces.command_state_service_interface import ICommandStateService
@@ -41,6 +46,10 @@ class NewCommandService(ICommandService):
         command_state_service: ICommandStateService | None = None,
         command_policy_service: ICommandPolicyService | None = None,
         config: AppConfig | None = None,
+        non_forwardable_registry: INonForwardableMessageRegistry | None = None,
+        non_forwardable_identity_service: (
+            INonForwardableMessageIdentityService | None
+        ) = None,
     ):
         """
         Initializes the command service.
@@ -49,6 +58,8 @@ class NewCommandService(ICommandService):
             session_service: The session service.
             command_parser: The command parser.
             strict_command_detection: Backward-compatibility flag (deprecated).
+            non_forwardable_registry: Optional registry for tagging non-forwardable messages.
+            non_forwardable_identity_service: Optional service for computing message identities.
         """
         self.session_service = session_service
         self.command_parser = command_parser
@@ -65,6 +76,8 @@ class NewCommandService(ICommandService):
         self._match_filter = match_filter or CommandMatchFilter()
         self._state_service = command_state_service
         self._policy_service = command_policy_service
+        self._non_forwardable_registry = non_forwardable_registry
+        self._non_forwardable_identity_service = non_forwardable_identity_service
 
         # Initialize command parser with app state command prefix if available
         try:
@@ -159,6 +172,36 @@ class NewCommandService(ICommandService):
 
         # Create a copy of the message to avoid in-place modification of the original request
         orig_message = modified_messages[tail_segment.message_index]
+
+        # Tag the original command message as non-forwardable before modification
+        # This ensures the identity matches what clients might resubmit in history
+        if (
+            self._non_forwardable_registry is not None
+            and self._non_forwardable_identity_service is not None
+        ):
+            try:
+                identity = self._non_forwardable_identity_service.compute_identity(
+                    orig_message
+                )
+                await self._non_forwardable_registry.tag_identities(
+                    session_id=session_id,
+                    identities=[identity],
+                    scope=NonForwardableTagScope.NEVER_FORWARD,
+                    reason="slash_command",
+                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Tagged command message as never-forward for session {session_id}, "
+                        f"command={command.name}, identity={identity[:16]}..."
+                    )
+            except Exception as e:
+                # Log error but don't fail command processing if tagging fails
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Failed to tag command message as non-forwardable: {e}",
+                        exc_info=True,
+                    )
+
         message = orig_message.model_copy()
         modified_messages[tail_segment.message_index] = message
 
@@ -166,6 +209,27 @@ class NewCommandService(ICommandService):
         if not handler_class:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Command '{command.name}' not found.")
+            # Tag invalid/unsupported commands too (requirement 2.4)
+            if (
+                self._non_forwardable_registry is not None
+                and self._non_forwardable_identity_service is not None
+            ):
+                try:
+                    identity = self._non_forwardable_identity_service.compute_identity(
+                        orig_message
+                    )
+                    await self._non_forwardable_registry.tag_identities(
+                        session_id=session_id,
+                        identities=[identity],
+                        scope=NonForwardableTagScope.NEVER_FORWARD,
+                        reason="slash_command",
+                    )
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Failed to tag invalid command message as non-forwardable: {e}",
+                            exc_info=True,
+                        )
             return ProcessedResult(
                 modified_messages=modified_messages,
                 command_executed=False,

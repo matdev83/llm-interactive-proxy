@@ -109,6 +109,20 @@ class RequestProcessor(IRequestProcessor):
             context, session_id, request_data
         )
 
+        # Transfer injection boundary from ChatRequest.extra_body to RequestContext.extensions
+        # This allows middleware (like AssessmentMiddleware) to set boundaries that the enforcer can use
+        if request_data.extra_body and isinstance(request_data.extra_body, dict):
+            boundary_key = "_proxy_injected_messages_start_index"
+            if boundary_key in request_data.extra_body:
+                boundary_value = request_data.extra_body[boundary_key]
+                if isinstance(boundary_value, int):
+                    if context.extensions is None:
+                        context.extensions = {}
+                    from src.core.services.non_forwardable_message_enforcer import (
+                        PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
+                    )
+                    context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = boundary_value
+
         # Process commands and handle command-only flows
         result = await self._command_handler.handle(
             context, session, session_id, request_data

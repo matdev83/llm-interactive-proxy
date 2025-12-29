@@ -42,7 +42,8 @@ def register_if_absent(
         True if registration occurred, False if service was already registered
     """
     # Check if service is already registered
-    if service_type in services._descriptors:
+    descriptors = services._descriptors  # pyright: ignore[reportPrivateUsage]
+    if service_type in descriptors:
         if logger.isEnabledFor(logging.DEBUG):
             type_name = getattr(service_type, "__name__", str(service_type))
             logger.debug(
@@ -175,6 +176,7 @@ def register_interface_and_implementation(
     interface_type: type,
     implementation_type: type,
     lifetime: ServiceLifetime = ServiceLifetime.SINGLETON,
+    implementation_factory: Callable[[IServiceProvider], Any] | None = None,
 ) -> bool:
     """Register both interface and implementation, binding interface to implementation.
 
@@ -195,6 +197,7 @@ def register_interface_and_implementation(
         implementation_type,
         lifetime,
         implementation_type=implementation_type,
+        implementation_factory=implementation_factory,
     )
 
     def _interface_factory(provider: IServiceProvider) -> Any:

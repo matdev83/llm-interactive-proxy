@@ -332,6 +332,7 @@ class IPhaseExecutor(Protocol):
         request_data: DomainModel | InternalDTO | dict[str, Any],
         identity: IAppIdentityConfig | None,
         uri_params: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> ReasoningPhaseResult:
         """Execute reasoning phase and return captured output.
 

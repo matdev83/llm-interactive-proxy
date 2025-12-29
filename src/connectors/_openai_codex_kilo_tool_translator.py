@@ -112,7 +112,7 @@ class KiloToolTranslator:
         Raises:
             TranslationError: If translation fails
         """
-        if not xml_text or not isinstance(xml_text, str):
+        if not xml_text:
             return None
 
         start_time = time.time()
@@ -954,6 +954,24 @@ class KiloToolTranslator:
             )
 
         return formatted_result
+
+    def get_xml_parser(self):
+        """Return the XML parser instance (public API for compat layer).
+
+        Returns:
+            XMLToolParser instance or None if not yet initialized
+        """
+        return self._xml_parser
+
+    def ensure_xml_parser(self) -> XMLToolParser:
+        """Return an initialized XMLToolParser instance.
+
+        This is a public seam for collaborator components that need parser
+        metadata (e.g., supported tags) without reaching into private state.
+        """
+        if self._xml_parser is None:
+            self._xml_parser = XMLToolParser()
+        return self._xml_parser
 
     async def _update_session_completion(
         self, session_id: str | None, arguments: dict[str, Any]

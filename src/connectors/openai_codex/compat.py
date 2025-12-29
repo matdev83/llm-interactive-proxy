@@ -11,6 +11,7 @@ import logging
 import re
 from typing import Any, cast
 
+from src.connectors._openai_codex_xml_tool_parser import XMLToolParser
 from src.connectors.openai_codex.contracts import (
     CodexRequestContext,
     CodexToolSchema,
@@ -498,15 +499,31 @@ class CompatibilityLayer(ICompatibilityLayer):
         if not self._kilo_translator:
             return result
 
-        # Initialize XML parser if needed
-        if self._kilo_translator._xml_parser is None:
+        # Initialize XML parser via public translator seam.
+        xml_parser = None
+        ensure_parser = getattr(self._kilo_translator, "ensure_xml_parser", None)
+        if callable(ensure_parser):
             try:
-                from src.connectors._openai_codex_xml_tool_parser import XMLToolParser
-
-                self._kilo_translator._xml_parser = XMLToolParser()
-            except ImportError:
-                logger.debug("XMLToolParser not available")
-                return result
+                xml_parser = ensure_parser()
+            except Exception as exc:
+                logger.debug(
+                    "Failed to initialize XMLToolParser via ensure_xml_parser: %s",
+                    exc,
+                    exc_info=True,
+                )
+        if xml_parser is None:
+            get_parser = getattr(self._kilo_translator, "get_xml_parser", None)
+            if callable(get_parser):
+                try:
+                    xml_parser = get_parser()
+                except Exception:
+                    xml_parser = None
+        if xml_parser is None:
+            logger.debug("XMLToolParser not available")
+            return result
+        if not isinstance(xml_parser, XMLToolParser):
+            logger.debug("XMLToolParser returned unexpected type: %s", type(xml_parser))
+            return result
 
         # Process each message
         for message in processed_messages:
@@ -526,7 +543,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                 continue
 
             try:
-                parsed = self._kilo_translator._xml_parser.parse(content)
+                parsed = xml_parser.parse(content)
                 if not parsed:
                     continue
 
@@ -662,9 +679,24 @@ class CompatibilityLayer(ICompatibilityLayer):
 
         # Get supported tags from XML parser
         supported_tags_list = []
-        if self._kilo_translator and self._kilo_translator._xml_parser:
-            # Optimization: Access class attribute from instance directly
-            supported_tags_list = list(self._kilo_translator._xml_parser.SUPPORTED_TAGS)
+        if self._kilo_translator:
+            xml_parser = None
+            ensure_parser = getattr(self._kilo_translator, "ensure_xml_parser", None)
+            if callable(ensure_parser):
+                try:
+                    xml_parser = ensure_parser()
+                except Exception:
+                    xml_parser = None
+            if xml_parser is None:
+                get_parser = getattr(self._kilo_translator, "get_xml_parser", None)
+                if callable(get_parser):
+                    try:
+                        xml_parser = get_parser()
+                    except Exception:
+                        xml_parser = None
+            supported_tags = getattr(xml_parser, "SUPPORTED_TAGS", None)
+            if supported_tags:
+                supported_tags_list = list(supported_tags)
 
         if not supported_tags_list:
             # Fallback to common tags

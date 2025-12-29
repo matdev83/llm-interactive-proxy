@@ -110,6 +110,17 @@ class HybridOrchestrator:
         start_time = time.time()
         session_id = getattr(identity, "session_id", None) if identity else None
 
+        # Ensure session_id exists for requirement 8.1 and 8.2 (reuse across phases)
+        # Generate one if missing to ensure consistency across reasoning and execution phases
+        if session_id is None:
+            from uuid import uuid4
+
+            session_id = str(uuid4())
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Generated session ID for hybrid backend interaction: %s", session_id
+                )
+
         # Check if hybrid backend is disabled
         self._check_hybrid_backend_enabled(session_id)
 
@@ -161,6 +172,7 @@ class HybridOrchestrator:
             execution_params,
             session_id,
             reasoning_output,
+            original_message_count=len(processed_messages),
             **kwargs,
         )
 
@@ -274,6 +286,7 @@ class HybridOrchestrator:
         execution_params: dict[str, Any],
         session_id: str | None,
         reasoning_output: str,
+        original_message_count: int | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute execution phase with connector fallback for test compatibility."""
@@ -301,6 +314,8 @@ class HybridOrchestrator:
                 execution_model=execution_model,
                 identity=identity,
                 uri_params=execution_params,
+                session_id=session_id,
+                original_message_count=original_message_count,
                 **kwargs,
             )
         except BackendError as e:
@@ -440,6 +455,7 @@ class HybridOrchestrator:
                     request_data=request_data,
                     identity=identity,
                     uri_params=reasoning_params,
+                    session_id=session_id,  # Pass session_id for tag scoping (requirement 8.2)
                 )
             else:
                 reasoning_result = await self.phase_executor.execute_reasoning_phase(
@@ -449,6 +465,7 @@ class HybridOrchestrator:
                     request_data=request_data,
                     identity=identity,
                     uri_params=reasoning_params,
+                    session_id=session_id,  # Pass session_id for tag scoping (requirement 8.2)
                 )
 
             reasoning_output = reasoning_result.text
@@ -593,7 +610,10 @@ class HybridOrchestrator:
                 response.metadata.setdefault("reasoning_backend", reasoning_backend)
                 response.metadata.setdefault("reasoning_model", reasoning_model)
             # Convert filtered_content to proper type for ResponseEnvelope.content
-            if isinstance(filtered_content, dict | str | bytes) or filtered_content is None:
+            if (
+                isinstance(filtered_content, dict | str | bytes)
+                or filtered_content is None
+            ):
                 response.content = filtered_content
             elif hasattr(filtered_content, "model_dump"):
                 response.content = filtered_content.model_dump()  # type: ignore[attr-defined]

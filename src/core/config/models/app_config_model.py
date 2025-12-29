@@ -16,6 +16,7 @@ from src.core.config.models.misc import (
     ResilienceConfig,
     UsageTrackingConfig,
 )
+from src.core.config.models.non_forwardable_config import NonForwardableTaggingConfig
 from src.core.config.models.rewriting import (
     EditPrecisionConfig,
     ModelAliasRule,
@@ -97,6 +98,9 @@ class AppConfigModel(DomainModel, IConfig):
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     memory: MemoryConfiguration = Field(default_factory=MemoryConfiguration)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
+    non_forwardable_tagging: NonForwardableTaggingConfig = Field(
+        default_factory=NonForwardableTaggingConfig
+    )
 
     vtc_client_patterns: list[str] = Field(
         default_factory=lambda: ["cline", "kilo", "roo"]

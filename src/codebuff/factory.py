@@ -57,14 +57,14 @@ def create_codebuff_server(
     # Create format converter
     format_converter = FormatConverter()
 
-    # Get backend factory from service provider
-    from src.core.services.backend_factory import BackendFactory
+    # Get backend service from service provider (routes through shared orchestrator)
+    from src.core.services.backend_service import BackendService
 
-    backend_factory = service_provider.get_required_service(BackendFactory)
+    backend_service = service_provider.get_required_service(BackendService)
 
     # Create handlers
     prompt_handler = PromptHandler(
-        backend_factory=backend_factory,
+        backend_service=backend_service,
         format_converter=format_converter,
         connection_manager=connection_manager,
     )

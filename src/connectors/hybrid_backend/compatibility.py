@@ -52,6 +52,7 @@ class HybridConnectorCompatibilityMixin:
         request_data: DomainModel | InternalDTO | dict[str, Any],
         identity: IAppIdentityConfig | None,
         uri_params: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> ReasoningPhaseResult:
         """Execute reasoning phase (backward-compatibility wrapper).
 
@@ -67,6 +68,7 @@ class HybridConnectorCompatibilityMixin:
                 request_data=request_data,
                 identity=identity,
                 uri_params=uri_params,
+                session_id=session_id,  # Pass session_id for tag scoping (requirement 8.2)
             ),
         )
 

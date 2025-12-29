@@ -141,6 +141,11 @@ def _register_response_manager(services: ServiceCollection) -> None:
             logger.warning(f"Failed to register IAgentResponseFormatter interface: {e}")
 
     def _response_manager_factory(provider: IServiceProvider) -> ResponseManager:
+        from src.core.interfaces.non_forwardable_interface import (
+            INonForwardableMessageIdentityService,
+            INonForwardableMessageRegistry,
+        )
+
         agent_response_formatter: (
             IAgentResponseFormatter
         ) = provider.get_required_service(
@@ -149,7 +154,19 @@ def _register_response_manager(services: ServiceCollection) -> None:
         session_service: ISessionService = provider.get_required_service(
             cast(type, ISessionService)  # type: ignore[type-abstract]
         )
-        return ResponseManager(agent_response_formatter, session_service)
+        # Get non-forwardable services (optional - may not be registered)
+        non_forwardable_registry = provider.get_service(
+            cast(type, INonForwardableMessageRegistry)
+        )
+        non_forwardable_identity_service = provider.get_service(
+            cast(type, INonForwardableMessageIdentityService)
+        )
+        return ResponseManager(
+            agent_response_formatter,
+            session_service,
+            non_forwardable_registry=non_forwardable_registry,
+            non_forwardable_identity_service=non_forwardable_identity_service,
+        )
 
     register_singleton_if_absent(
         services, ResponseManager, implementation_factory=_response_manager_factory

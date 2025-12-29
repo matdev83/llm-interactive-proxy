@@ -495,6 +495,43 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 )
                 cancellation_coordinator = None
 
+            # Get non-forwardable enforcer (optional, registered in core services stage)
+            non_forwardable_enforcer = None
+            try:
+                from src.core.interfaces.non_forwardable_interface import (
+                    INonForwardableMessageEnforcer,
+                )
+
+                non_forwardable_enforcer = provider.get_service(
+                    cast(type, INonForwardableMessageEnforcer)
+                )
+            except ImportError:
+                # Non-forwardable enforcer interface not available (optional dependency)
+                # This is expected when the module doesn't exist
+                pass
+            except (
+                RuntimeError,
+                AttributeError,
+                TypeError,
+                ValueError,
+                LookupError,
+            ) as exc:
+                # Expected exceptions from service resolution
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error resolving INonForwardableMessageEnforcer for BackendCompletionFlow: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                non_forwardable_enforcer = None
+            except Exception:
+                # Unexpected error during service resolution
+                logger.warning(
+                    "Unexpected error resolving INonForwardableMessageEnforcer for BackendCompletionFlow",
+                    exc_info=True,
+                )
+                non_forwardable_enforcer = None
+
             return BackendCompletionFlow(
                 availability_checker=availability_checker,
                 request_preparer=request_preparer,
@@ -508,6 +545,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 resilience_coordinator=resilience_coordinator,
                 eos_adapter=eos_adapter,
                 cancellation_coordinator=cancellation_coordinator,
+                non_forwardable_enforcer=non_forwardable_enforcer,
             )
 
         register_singleton_if_absent(

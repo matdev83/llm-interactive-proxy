@@ -99,6 +99,10 @@ class CredentialWatcher:
         """Prevent future reload scheduling during teardown."""
         self._shutdown_requested = True
 
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop | None) -> None:
+        """Set the event loop used to schedule async reload tasks."""
+        self._event_loop = loop
+
     def start(self, auth_path: Path) -> None:
         """Start watching the credentials file for changes.
 
@@ -135,9 +139,10 @@ class CredentialWatcher:
                 self._observer = None
 
                 observer.stop()
-                if observer is not threading.current_thread():
-                    observer.join(timeout=5.0)
-                if observer.is_alive() and logger.isEnabledFor(logging.WARNING):
+                observer_thread = cast(threading.Thread, observer)
+                if observer_thread is not threading.current_thread():
+                    observer_thread.join(timeout=5.0)
+                if observer_thread.is_alive() and logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "OpenAI Codex credentials file watcher did not terminate cleanly."
                     )
@@ -454,9 +459,6 @@ class CredentialManager(ICredentialManager):
         self, credentials: dict[str, Any]
     ) -> ValidationResult:
         """Validate OAuth credentials structure and content."""
-        if not isinstance(credentials, dict):
-            return ValidationResult.failure("OAuth credentials must be a JSON object")
-
         # Check for tokens.access_token or OPENAI_API_KEY
         access_token = None
         tokens = credentials.get("tokens")
@@ -519,9 +521,30 @@ class CredentialManager(ICredentialManager):
         # 4) Start file watching
         if self._auth_path is not None:
             # Store event loop reference in watcher for reload scheduling
-            self._watcher._event_loop = self._event_loop
+            self._watcher.set_event_loop(self._event_loop)
             self._watcher.start(self._auth_path)
         logger.info("Credentials initialized successfully.")
+
+    async def shutdown(self) -> None:
+        """Stop the credential file watcher and cancel pending reload work."""
+        self._watcher.request_shutdown()
+        self._watcher.stop()
+        await self._watcher.cancel_pending_reload()
+
+    def is_watcher_running(self) -> bool:
+        """Return True if the credential file watcher is active."""
+        return self._watcher.is_running()
+
+    async def reload_credentials(self, force: bool = False) -> bool:
+        """Reload credentials from disk.
+
+        Args:
+            force: If True, bypass cache and force reload based on file mtime.
+
+        Returns:
+            True when credentials were loaded successfully.
+        """
+        return await self._load_auth(force_reload=force)
 
     def _persist_credentials_sync(
         self, credentials: dict[str, Any], auth_path: Path
@@ -702,60 +725,6 @@ class CredentialManager(ICredentialManager):
 
         return None
 
-    def get_account_id(self) -> str | None:
-        """Return the ChatGPT account_id from cached credentials when available.
-
-        Returns:
-            Account ID or None
-        """
-        if self._auth_credentials is None:
-            return None
-
-        if isinstance(self._auth_credentials, dict):
-            tokens = self._auth_credentials.get("tokens")
-            if isinstance(tokens, dict):
-                account_id = tokens.get("account_id")
-                if isinstance(account_id, str) and account_id.strip():
-                    return account_id
-        return None
-
-    async def shutdown(self) -> None:
-        """Stop the file watcher and release resources.
-
-        This method ensures clean shutdown by:
-        - Stopping the credential file watcher
-        - Cancelling any pending reload tasks
-        - Releasing concurrency locks
-
-        Safe to call multiple times; subsequent calls are no-ops.
-        """
-        self._watcher.request_shutdown()
-        await self._watcher.cancel_pending_reload()
-        self._watcher.stop()
-
-    def is_watcher_running(self) -> bool:
-        """Return True if the credential file watcher is active.
-
-        Returns:
-            True if watcher is running, False otherwise
-        """
-        return self._watcher.is_running()
-
-    async def reload_credentials(self, force: bool = False) -> bool:
-        """Reload credentials from file, optionally bypassing cache.
-
-        This method allows external components (e.g., file watchers) to trigger
-        credential reloads without accessing private implementation details.
-
-        Args:
-            force: If True, bypass cache and force reload from file even if
-                file modification time hasn't changed
-
-        Returns:
-            True if reload succeeded, False otherwise
-        """
-        return await self._load_auth(force_reload=force)
-
     def validate_current_credentials(self) -> ValidationResult:
         """Validate currently loaded credentials structure.
 
@@ -770,3 +739,26 @@ class CredentialManager(ICredentialManager):
         if self._auth_credentials is None:
             return ValidationResult.failure("No credentials loaded")
         return self._validate_credentials_structure(self._auth_credentials)
+
+    def get_account_id(self) -> str | None:
+        """Return ChatGPT account ID from loaded credentials.
+
+        Returns:
+            Account ID string or None if not available
+        """
+        if self._auth_credentials is None:
+            return None
+
+        # Account ID is typically stored in top-level 'account_id' field
+        account_id = self._auth_credentials.get("account_id")
+        if isinstance(account_id, str) and account_id:
+            return account_id
+
+        # Also check nested 'user' object for account_id
+        user = self._auth_credentials.get("user")
+        if isinstance(user, dict):
+            nested_account_id = user.get("account_id")
+            if isinstance(nested_account_id, str) and nested_account_id:
+                return nested_account_id
+
+        return None

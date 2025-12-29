@@ -1,6 +1,7 @@
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import httpx
@@ -33,7 +34,38 @@ from src.core.services.tool_text_renderer import (
 )
 
 
-@pytest_asyncio.fixture()
+@asynccontextmanager
+async def _build_connector_with_streaming_settings(
+    *,
+    max_retries: int,
+    retry_backoff_seconds: tuple[float, ...],
+) -> AsyncIterator[OpenAICodexConnector]:
+    reset_renderer_registry()
+    client = httpx.AsyncClient()
+    config = AppConfig()
+
+    config.backends.openai_codex.extra.setdefault("codex", {})["streaming"] = {
+        "max_retries": max_retries,
+        "retry_backoff_seconds": list(retry_backoff_seconds),
+    }
+
+    from src.core.di.container import ServiceCollection
+    from src.core.di.registrations import backend
+    from src.core.di.services import set_service_provider
+
+    services = ServiceCollection()
+    backend.register(services, config)
+    provider = services.build_service_provider()
+    set_service_provider(provider)
+
+    instance = OpenAICodexConnector(client=client, config=config)
+    try:
+        yield instance
+    finally:
+        await client.aclose()
+
+
+@pytest_asyncio.fixture()  # type: ignore[reportUntypedFunctionDecorator]
 async def connector() -> AsyncIterator[OpenAICodexConnector]:
     reset_renderer_registry()
     client = httpx.AsyncClient()
@@ -109,18 +141,21 @@ async def test_build_codex_payload_structure(connector: OpenAICodexConnector) ->
     assert payload.instructions.rstrip() == expected_prompt
 
     # The input items should contain the environment context and the user message
-    input_items = payload.input
+    input_items = cast(list[Any], payload.input)
     assert len(input_items) == 2
     # Access content from CodexInputItem model
-    env_block = input_items[0].content[0]["text"]
+    env_parts = cast(list[dict[str, Any]], input_items[0].content)
+    env_block = env_parts[0]["text"]
     assert env_block.startswith("<environment_context>")
     assert "<model>" not in env_block
     assert "<approval_policy>never</approval_policy>" in env_block
     assert "<sandbox_mode>read-only</sandbox_mode>" in env_block
     assert "<network_access>restricted</network_access>" in env_block
     assert input_items[1].role == "user"
-    assert input_items[1].content[0]["type"] == "input_text"
-    assert input_items[1].content[0]["text"] == "Hello Codex!"
+    user_parts = cast(list[dict[str, Any]], input_items[1].content)
+    assert user_parts[0]["type"] == "input_text"
+    assert user_parts[0]["text"] == "Hello Codex!"
+    assert payload.reasoning is not None
     assert payload.reasoning.effort == "medium"
     assert payload.reasoning.summary == "auto"
     assert payload.include == ["reasoning.encrypted_content"]
@@ -153,19 +188,23 @@ async def test_build_codex_payload_custom_prompt_mode(
     )
 
     assert payload.instructions == "Stay curious"
-    input_items = payload.input
+    input_items = cast(list[Any], payload.input)
     # There should only be one message, the user message
     assert len(input_items) == 1
     # First entry is the system message passed through as-is
     assert input_items[0].role == "user"
-    assert input_items[0].content[0]["text"] == "hello"
+    parts = cast(list[dict[str, Any]], input_items[0].content)
+    assert parts[0]["text"] == "hello"
     # No environment block injected
-    assert all(
-        "<environment_context>" not in part["text"]
-        for item in input_items
-        for part in (item.content if isinstance(item.content, list) else [])
-        if isinstance(part, dict) and part.get("type") == "input_text"
-    )
+    for item in input_items:
+        item_parts = (
+            cast(list[dict[str, Any]], item.content)
+            if isinstance(item.content, list)
+            else []
+        )
+        for part in item_parts:
+            if part.get("type") == "input_text":
+                assert "<environment_context>" not in part["text"]
 
 
 @pytest.mark.asyncio
@@ -214,15 +253,17 @@ async def test_codex_default_mode_merges_client_system_prompt(
     ).rstrip()
     assert instructions == expected_prompt
 
-    input_items = payload.input
+    input_items = cast(list[Any], payload.input)
     assert len(input_items) == 3
     user_block = input_items[0]
     assert user_block.role == "user"
-    assert user_block.content[0]["type"] == "input_text"
-    assert user_block.content[0]["text"].startswith("<user_instructions>")
-    assert "Prioritize security fixes." in user_block.content[0]["text"]
+    user_content = cast(list[dict[str, Any]], user_block.content)
+    assert user_content[0]["type"] == "input_text"
+    assert user_content[0]["text"].startswith("<user_instructions>")
+    assert "Prioritize security fixes." in user_content[0]["text"]
     env_block = input_items[1]
-    assert env_block.content[0]["text"].startswith("<environment_context>")
+    env_content = cast(list[dict[str, Any]], env_block.content)
+    assert env_content[0]["text"].startswith("<environment_context>")
 
 
 @pytest.mark.asyncio
@@ -438,7 +479,8 @@ async def test_codex_passthrough_skips_translation(
     # The payload should be the native one, with minor adjustments
     assert payload.model == "gpt-5.1-codex"
     assert payload.stream is True
-    assert payload.input[0].role == "user"
+    input_items = cast(list[Any], payload.input)
+    assert input_items[0].role == "user"
 
     # The key assertion: translation was bypassed
     build_input_items_mock.assert_not_called()
@@ -462,392 +504,395 @@ async def test_codex_headers_include_expected_fields() -> None:
 
 @pytest.mark.asyncio
 async def test_streaming_refresh_rebuilds_authorization_header(
-    connector: OpenAICodexConnector, mocker: MockerFixture
+    mocker: MockerFixture,
 ) -> None:
-    request = ChatRequest(
-        messages=[ChatMessage(role="user", content="hi")],
-        model="gpt-5.1-codex",
-        stream=True,
-    )
-    payload = CodexPayload(
-        model="gpt-5.1-codex",
-        input=[],
-        tools=[],
-        tool_choice="auto",
-        parallel_tool_calls=False,
-        store=False,
-        prompt_cache_key="conv-123",
-        stream=True,
-        include=[],
-    )
+    async with _build_connector_with_streaming_settings(
+        max_retries=2, retry_backoff_seconds=(0.0, 0.0, 0.0)
+    ) as connector:
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hi")],
+            model="gpt-5.1-codex",
+            stream=True,
+        )
+        payload = CodexPayload(
+            model="gpt-5.1-codex",
+            input=[],
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            prompt_cache_key="conv-123",
+            stream=True,
+            include=[],
+        )
 
-    mocker.patch.object(
-        connector, "_build_codex_payload", return_value=(payload, "conv-123")
-    )
-    mocker.patch.object(
-        connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
-    )
+        mocker.patch.object(
+            connector, "_build_codex_payload", return_value=(payload, "conv-123")
+        )
+        mocker.patch.object(
+            connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
+        )
 
-    connector.api_key = "token_old"
-    connector._auth_credentials = {"tokens": {"access_token": "token_old"}}
-    connector._stream_retry_limit = 2
-    connector._stream_retry_backoff = (0.0, 0.0, 0.0)
+        connector.api_key = "token_old"
 
-    refresh_count = 0
+        refresh_count = 0
 
-    async def refresh_stub() -> bool:
-        nonlocal refresh_count
-        refresh_count += 1
-        connector.api_key = f"token_new_{refresh_count}"
-        return True
+        async def refresh_stub() -> bool:
+            nonlocal refresh_count
+            refresh_count += 1
+            connector.api_key = f"token_new_{refresh_count}"
+            return True
 
-    refresh_mock = mocker.patch.object(
-        connector, "_refresh_access_token", side_effect=refresh_stub
-    )
+        refresh_mock = mocker.patch.object(
+            connector, "_refresh_access_token", side_effect=refresh_stub
+        )
 
-    headers_seen: list[str | None] = []
-    call_count = 0
+        headers_seen: list[str | None] = []
+        call_count = 0
 
-    async def _successful_event_iterator() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(content={"event": "ok"})
+        async def _successful_event_iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content={"event": "ok"})
 
-    success_handle = StreamingResponseHandle(
-        iterator=_successful_event_iterator(),
-        cancel_callback=AsyncMock(),
-        headers={"Authorization": "Bearer token_new_2"},
-    )
+        success_handle = StreamingResponseHandle(
+            iterator=_successful_event_iterator(),
+            cancel_callback=AsyncMock(),
+            headers={"Authorization": "Bearer token_new_2"},
+        )
 
-    async def streaming_side_effect(
-        url: str,
-        request_payload: dict[str, Any],
-        request_headers: dict[str, str],
-        request_session_id: str,
-        stream_format: str,
-    ) -> StreamingResponseHandle:
-        nonlocal call_count
-        headers_seen.append(request_headers.get("Authorization"))
-        call_count += 1
-        if call_count <= 2:
-            raise HTTPException(status_code=401, detail="expired")
-        return success_handle
+        async def streaming_side_effect(
+            url: str,
+            request_payload: dict[str, Any],
+            request_headers: dict[str, str],
+            request_session_id: str,
+            stream_format: str,
+        ) -> StreamingResponseHandle:
+            nonlocal call_count
+            headers_seen.append(request_headers.get("Authorization"))
+            call_count += 1
+            if call_count <= 2:
+                raise HTTPException(status_code=401, detail="expired")
+            return success_handle
 
-    mocker.patch.object(
-        connector,
-        "_handle_streaming_response",
-        side_effect=streaming_side_effect,
-    )
+        mocker.patch.object(
+            connector,
+            "_handle_streaming_response",
+            side_effect=streaming_side_effect,
+        )
 
-    result = await connector._call_codex_responses_api(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gpt-5.1-codex",
-        domain_request=request,
-    )
+        result = await connector._call_codex_responses_api(
+            request_data=request,
+            processed_messages=request.messages,
+            effective_model="gpt-5.1-codex",
+            domain_request=request,
+        )
 
-    assert isinstance(result, StreamingResponseEnvelope)
-    assert result.content is not None
-    chunk = await result.content.__anext__()
-    assert isinstance(chunk, ProcessedResponse)
-    assert chunk.content == {"event": "ok"}
-    assert headers_seen == [
-        "Bearer token_old",
-        "Bearer token_new_1",
-        "Bearer token_new_2",
-    ]
-    assert refresh_mock.await_count == 2
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+        chunk = await result.content.__anext__()
+        assert isinstance(chunk, ProcessedResponse)
+        assert chunk.content == {"event": "ok"}
+        assert headers_seen == [
+            "Bearer token_old",
+            "Bearer token_new_1",
+            "Bearer token_new_2",
+        ]
+        assert refresh_mock.await_count == 2
 
 
 @pytest.mark.asyncio
 async def test_streaming_auth_failure_chunk_triggers_retry(
-    connector: OpenAICodexConnector, mocker: MockerFixture
+    mocker: MockerFixture,
 ) -> None:
-    request = ChatRequest(
-        messages=[ChatMessage(role="user", content="hi")],
-        model="gpt-5.1-codex",
-        stream=True,
-    )
-    payload = CodexPayload(
-        model="gpt-5.1-codex",
-        input=[],
-        tools=[],
-        tool_choice="auto",
-        parallel_tool_calls=False,
-        store=False,
-        prompt_cache_key="conv-123",
-        stream=True,
-        include=[],
-    )
-
-    mocker.patch.object(
-        connector, "_build_codex_payload", return_value=(payload, "conv-123")
-    )
-    mocker.patch.object(
-        connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
-    )
-
-    connector.api_key = "token_old"
-    connector._auth_credentials = {"tokens": {"access_token": "token_old"}}
-    connector._stream_retry_limit = 2
-    connector._stream_retry_backoff = (0.0, 0.0, 0.0)
-
-    refresh_count = 0
-
-    async def refresh_stub() -> bool:
-        nonlocal refresh_count
-        refresh_count += 1
-        connector.api_key = f"token_new_{refresh_count}"
-        return True
-
-    refresh_mock = mocker.patch.object(
-        connector, "_refresh_access_token", side_effect=refresh_stub
-    )
-
-    async def failing_iterator(
-        status: int, code: str
-    ) -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(
-            content={
-                "error": "Responses stream reported failure",
-                "details": {"status": status, "code": code},
-            }
+    async with _build_connector_with_streaming_settings(
+        max_retries=2, retry_backoff_seconds=(0.0, 0.0, 0.0)
+    ) as connector:
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hi")],
+            model="gpt-5.1-codex",
+            stream=True,
+        )
+        payload = CodexPayload(
+            model="gpt-5.1-codex",
+            input=[],
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            prompt_cache_key="conv-123",
+            stream=True,
+            include=[],
         )
 
-    async def success_iterator() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(
-            content={
-                "choices": [
-                    {"index": 0, "delta": {"content": "hello"}, "finish_reason": None}
-                ]
-            }
+        mocker.patch.object(
+            connector, "_build_codex_payload", return_value=(payload, "conv-123")
+        )
+        mocker.patch.object(
+            connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
         )
 
-    cancel_first = AsyncMock()
-    cancel_second = AsyncMock()
-    cancel_third = AsyncMock()
-    first_handle = StreamingResponseHandle(
-        iterator=failing_iterator(401, "authentication_error"),
-        cancel_callback=cancel_first,
-        headers={"Authorization": "Bearer token_old"},
-    )
-    second_handle = StreamingResponseHandle(
-        iterator=failing_iterator(401, "token_expired"),
-        cancel_callback=cancel_second,
-        headers={"Authorization": "Bearer token_new_1"},
-    )
-    success_handle = StreamingResponseHandle(
-        iterator=success_iterator(),
-        cancel_callback=cancel_third,
-        headers={"Authorization": "Bearer token_new_2"},
-    )
+        connector.api_key = "token_old"
 
-    stream_handles = [first_handle, second_handle, success_handle]
-    headers_seen: list[str | None] = []
+        refresh_count = 0
 
-    def handle_side_effect(
-        url: str,
-        request_payload: dict[str, Any],
-        request_headers: dict[str, str],
-        request_session_id: str,
-        stream_format: str,
-    ) -> StreamingResponseHandle:
-        headers_seen.append(request_headers.get("Authorization"))
-        return stream_handles.pop(0)
+        async def refresh_stub() -> bool:
+            nonlocal refresh_count
+            refresh_count += 1
+            connector.api_key = f"token_new_{refresh_count}"
+            return True
 
-    handle_mock = mocker.patch.object(
-        connector, "_handle_streaming_response", side_effect=handle_side_effect
-    )
+        refresh_mock = mocker.patch.object(
+            connector, "_refresh_access_token", side_effect=refresh_stub
+        )
 
-    result = await connector._call_codex_responses_api(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gpt-5.1-codex",
-        domain_request=request,
-    )
+        async def failing_iterator(
+            status: int, code: str
+        ) -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content={
+                    "error": "Responses stream reported failure",
+                    "details": {"status": status, "code": code},
+                }
+            )
 
-    assert isinstance(result, StreamingResponseEnvelope)
-    assert result.content is not None
-    chunk = await result.content.__anext__()
-    assert isinstance(chunk, ProcessedResponse)
-    assert chunk.content is not None
-    assert chunk.content["choices"][0]["delta"]["content"] == "hello"
-    assert headers_seen == [
-        "Bearer token_old",
-        "Bearer token_new_1",
-        "Bearer token_new_2",
-    ]
-    assert refresh_mock.await_count == 2
-    cancel_first.assert_awaited_once()
-    cancel_second.assert_awaited_once()
-    cancel_third.assert_not_called()
-    assert handle_mock.call_count == 3
-    # Failure chunk must not be forwarded to the caller
-    with pytest.raises(StopAsyncIteration):
-        await result.content.__anext__()
-    assert result.headers is not None
-    assert dict(result.headers) == {"Authorization": "Bearer token_new_2"}
+        async def success_iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content={
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": "hello"},
+                            "finish_reason": None,
+                        }
+                    ]
+                }
+            )
+
+        cancel_first = AsyncMock()
+        cancel_second = AsyncMock()
+        cancel_third = AsyncMock()
+        first_handle = StreamingResponseHandle(
+            iterator=failing_iterator(401, "authentication_error"),
+            cancel_callback=cancel_first,
+            headers={"Authorization": "Bearer token_old"},
+        )
+        second_handle = StreamingResponseHandle(
+            iterator=failing_iterator(401, "token_expired"),
+            cancel_callback=cancel_second,
+            headers={"Authorization": "Bearer token_new_1"},
+        )
+        success_handle = StreamingResponseHandle(
+            iterator=success_iterator(),
+            cancel_callback=cancel_third,
+            headers={"Authorization": "Bearer token_new_2"},
+        )
+
+        stream_handles = [first_handle, second_handle, success_handle]
+        headers_seen: list[str | None] = []
+
+        def handle_side_effect(
+            url: str,
+            request_payload: dict[str, Any],
+            request_headers: dict[str, str],
+            request_session_id: str,
+            stream_format: str,
+        ) -> StreamingResponseHandle:
+            headers_seen.append(request_headers.get("Authorization"))
+            return stream_handles.pop(0)
+
+        handle_mock = mocker.patch.object(
+            connector, "_handle_streaming_response", side_effect=handle_side_effect
+        )
+
+        result = await connector._call_codex_responses_api(
+            request_data=request,
+            processed_messages=request.messages,
+            effective_model="gpt-5.1-codex",
+            domain_request=request,
+        )
+
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+        chunk = await result.content.__anext__()
+        assert isinstance(chunk, ProcessedResponse)
+        assert chunk.content is not None
+        assert chunk.content["choices"][0]["delta"]["content"] == "hello"
+        assert headers_seen == [
+            "Bearer token_old",
+            "Bearer token_new_1",
+            "Bearer token_new_2",
+        ]
+        assert refresh_mock.await_count == 2
+        cancel_first.assert_awaited_once()
+        cancel_second.assert_awaited_once()
+        cancel_third.assert_not_called()
+        assert handle_mock.call_count == 3
+        with pytest.raises(StopAsyncIteration):
+            await result.content.__anext__()
+        assert result.headers is not None
+        assert dict(result.headers) == {"Authorization": "Bearer token_new_2"}
 
 
 @pytest.mark.asyncio
 async def test_streaming_handshake_exceeds_retry_limit(
-    connector: OpenAICodexConnector, mocker: MockerFixture
+    mocker: MockerFixture,
 ) -> None:
-    request = ChatRequest(
-        messages=[ChatMessage(role="user", content="hi")],
-        model="gpt-5.1-codex",
-        stream=True,
-    )
-    payload = CodexPayload(
-        model="gpt-5.1-codex",
-        input=[],
-        tools=[],
-        tool_choice="auto",
-        parallel_tool_calls=False,
-        store=False,
-        prompt_cache_key="conv-123",
-        stream=True,
-        include=[],
-    )
-    mocker.patch.object(
-        connector, "_build_codex_payload", return_value=(payload, "conv-123")
-    )
+    async with _build_connector_with_streaming_settings(
+        max_retries=1, retry_backoff_seconds=(0.0,)
+    ) as connector:
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hi")],
+            model="gpt-5.1-codex",
+            stream=True,
+        )
+        payload = CodexPayload(
+            model="gpt-5.1-codex",
+            input=[],
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            prompt_cache_key="conv-123",
+            stream=True,
+            include=[],
+        )
+        mocker.patch.object(
+            connector, "_build_codex_payload", return_value=(payload, "conv-123")
+        )
 
-    mocker.patch.object(
-        connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
-    )
+        mocker.patch.object(
+            connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
+        )
 
-    connector.api_key = "token_old"
-    connector._auth_credentials = {"tokens": {"access_token": "token_old"}}
-    connector._stream_retry_limit = 1
-    connector._stream_retry_backoff = (0.0,)
+        connector.api_key = "token_old"
 
-    async def refresh_stub() -> bool:
-        connector.api_key = "token_new_1"
-        return True
+        async def refresh_stub() -> bool:
+            connector.api_key = "token_new_1"
+            return True
 
-    refresh_mock = mocker.patch.object(
-        connector, "_refresh_access_token", side_effect=refresh_stub
-    )
-    degrade_mock = mocker.patch.object(connector, "_degrade")
+        refresh_mock = mocker.patch.object(
+            connector, "_refresh_access_token", side_effect=refresh_stub
+        )
+        degrade_mock = mocker.patch.object(connector, "_degrade")
 
-    headers_seen: list[str | None] = []
+        headers_seen: list[str | None] = []
 
-    async def streaming_side_effect(
-        url: str,
-        request_payload: dict[str, Any],
-        request_headers: dict[str, str],
-        request_session_id: str,
-        stream_format: str,
-    ) -> StreamingResponseHandle:
-        headers_seen.append(request_headers.get("Authorization"))
-        raise HTTPException(status_code=401, detail="expired")
+        async def streaming_side_effect(
+            url: str,
+            request_payload: dict[str, Any],
+            request_headers: dict[str, str],
+            request_session_id: str,
+            stream_format: str,
+        ) -> StreamingResponseHandle:
+            headers_seen.append(request_headers.get("Authorization"))
+            raise HTTPException(status_code=401, detail="expired")
 
-    mocker.patch.object(
-        connector, "_handle_streaming_response", side_effect=streaming_side_effect
-    )
+        mocker.patch.object(
+            connector, "_handle_streaming_response", side_effect=streaming_side_effect
+        )
 
-    result = await connector._call_codex_responses_api(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gpt-5.1-codex",
-        domain_request=request,
-    )
+        result = await connector._call_codex_responses_api(
+            request_data=request,
+            processed_messages=request.messages,
+            effective_model="gpt-5.1-codex",
+            domain_request=request,
+        )
 
-    assert isinstance(result, StreamingResponseEnvelope)
-    assert result.content is not None
-    with pytest.raises(HTTPException) as exc_info:
-        await result.content.__anext__()
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+        with pytest.raises(HTTPException) as exc_info:
+            await result.content.__anext__()
 
-    assert exc_info.value.status_code == 401
-    assert refresh_mock.await_count == 1
-    degrade_mock.assert_called_once()
-    degrade_messages = degrade_mock.call_args[0][0]
-    assert any("handshake" in msg for msg in degrade_messages)
-    assert headers_seen == ["Bearer token_old", "Bearer token_new_1"]
+        assert exc_info.value.status_code == 401
+        assert refresh_mock.await_count == 1
+        degrade_mock.assert_called_once()
+        degrade_messages = degrade_mock.call_args[0][0]
+        assert any("handshake" in msg for msg in degrade_messages)
+        assert headers_seen == ["Bearer token_old", "Bearer token_new_1"]
 
 
 @pytest.mark.asyncio
 async def test_streaming_auth_failure_chunk_unrecoverable(
-    connector: OpenAICodexConnector, mocker: MockerFixture
+    mocker: MockerFixture,
 ) -> None:
-    request = ChatRequest(
-        messages=[ChatMessage(role="user", content="hi")],
-        model="gpt-5.1-codex",
-        stream=True,
-    )
-    payload = CodexPayload(
-        model="gpt-5.1-codex",
-        input=[],
-        tools=[],
-        tool_choice="auto",
-        parallel_tool_calls=False,
-        store=False,
-        prompt_cache_key="conv-123",
-        stream=True,
-        include=[],
-    )
-    mocker.patch.object(
-        connector, "_build_codex_payload", return_value=(payload, "conv-123")
-    )
-
-    mocker.patch.object(
-        connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
-    )
-
-    connector.api_key = "stale"
-    connector._auth_credentials = {"tokens": {"access_token": "stale"}}
-    connector._stream_retry_limit = 2
-    connector._stream_retry_backoff = (0.0, 0.0)
-
-    mocker.patch.object(
-        connector, "_refresh_access_token", AsyncMock(return_value=False)
-    )
-    degrade_mock = mocker.patch.object(connector, "_degrade")
-
-    async def failing_iterator() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(
-            content={
-                "error": "Responses stream reported failure",
-                "details": {"status": 401, "code": "invalid_token"},
-            }
+    async with _build_connector_with_streaming_settings(
+        max_retries=2, retry_backoff_seconds=(0.0, 0.0)
+    ) as connector:
+        request = ChatRequest(
+            messages=[ChatMessage(role="user", content="hi")],
+            model="gpt-5.1-codex",
+            stream=True,
+        )
+        payload = CodexPayload(
+            model="gpt-5.1-codex",
+            input=[],
+            tools=[],
+            tool_choice="auto",
+            parallel_tool_calls=False,
+            store=False,
+            prompt_cache_key="conv-123",
+            stream=True,
+            include=[],
+        )
+        mocker.patch.object(
+            connector, "_build_codex_payload", return_value=(payload, "conv-123")
         )
 
-    cancel_cb = AsyncMock()
-    stream_handle = StreamingResponseHandle(
-        iterator=failing_iterator(),
-        cancel_callback=cancel_cb,
-        headers={"Authorization": "Bearer stale"},
-    )
+        mocker.patch.object(
+            connector, "_resolve_capabilities", return_value=CodexClientCapabilities()
+        )
 
-    def handle_side_effect(
-        url: str,
-        request_payload: dict[str, Any],
-        request_headers: dict[str, str],
-        request_session_id: str,
-        stream_format: str,
-    ) -> StreamingResponseHandle:
-        return stream_handle
+        connector.api_key = "stale"
 
-    mocker.patch.object(
-        connector, "_handle_streaming_response", side_effect=handle_side_effect
-    )
+        mocker.patch.object(
+            connector, "_refresh_access_token", AsyncMock(return_value=False)
+        )
+        degrade_mock = mocker.patch.object(connector, "_degrade")
 
-    result = await connector._call_codex_responses_api(
-        request_data=request,
-        processed_messages=request.messages,
-        effective_model="gpt-5.1-codex",
-        domain_request=request,
-    )
+        async def failing_iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content={
+                    "error": "Responses stream reported failure",
+                    "details": {"status": 401, "code": "invalid_token"},
+                }
+            )
 
-    assert isinstance(result, StreamingResponseEnvelope)
-    assert result.content is not None
-    with pytest.raises(HTTPException) as exc_info:
-        await result.content.__anext__()
+        cancel_cb = AsyncMock()
+        stream_handle = StreamingResponseHandle(
+            iterator=failing_iterator(),
+            cancel_callback=cancel_cb,
+            headers={"Authorization": "Bearer stale"},
+        )
 
-    assert exc_info.value.status_code == 401
-    degrade_mock.assert_called_once()
-    degrade_messages = degrade_mock.call_args[0][0]
-    assert any("token refresh" in msg for msg in degrade_messages)
-    cancel_cb.assert_awaited_once()
+        def handle_side_effect(
+            url: str,
+            request_payload: dict[str, Any],
+            request_headers: dict[str, str],
+            request_session_id: str,
+            stream_format: str,
+        ) -> StreamingResponseHandle:
+            return stream_handle
+
+        mocker.patch.object(
+            connector, "_handle_streaming_response", side_effect=handle_side_effect
+        )
+
+        result = await connector._call_codex_responses_api(
+            request_data=request,
+            processed_messages=request.messages,
+            effective_model="gpt-5.1-codex",
+            domain_request=request,
+        )
+
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+        with pytest.raises(HTTPException) as exc_info:
+            await result.content.__anext__()
+
+        assert exc_info.value.status_code == 401
+        degrade_mock.assert_called_once()
+        degrade_messages = degrade_mock.call_args[0][0]
+        assert any("token refresh" in msg for msg in degrade_messages)
+        cancel_cb.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -1051,7 +1096,10 @@ async def test_codex_retries_after_token_refresh(
 
     # Verify result is a ResponseEnvelope with the expected content
     assert isinstance(result, ResponseEnvelope)
-    assert result.content.get("ok") is not None or "ok" in str(result.content)
+    if isinstance(result.content, dict):
+        assert result.content.get("choices") is not None
+    else:
+        assert "ok" in str(result.content)
     # Verify client.post was called twice (initial + retry)
     assert connector._response_executor._base_connector.client.post.await_count == 2  # type: ignore[attr-defined]
     refresh_mock.assert_awaited_once()

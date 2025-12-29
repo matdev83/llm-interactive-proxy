@@ -15,13 +15,18 @@ from src.codebuff.exceptions import CodebuffError
 from src.codebuff.format_converter import FormatConverter
 from src.codebuff.schemas import PromptAction
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.request_context import (
+    RequestContext,
+    RequestCookies,
+    RequestHeaders,
+)
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.interfaces.backend_service import IBackendService
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
 
     from src.codebuff.connection_manager import ConnectionManager
-    from src.core.services.backend_factory import BackendFactory
 
 logger = logging.getLogger(__name__)
 
@@ -43,18 +48,18 @@ class PromptHandler:
 
     def __init__(
         self,
-        backend_factory: BackendFactory,
+        backend_service: IBackendService,
         format_converter: FormatConverter,
         connection_manager: ConnectionManager,
     ) -> None:
         """Initialize the prompt handler.
 
         Args:
-            backend_factory: Factory for creating backend instances
+            backend_service: Backend service for routing backend calls through shared orchestrator
             format_converter: Converter for message formats
             connection_manager: Manager for WebSocket connections
         """
-        self._backend_factory = backend_factory
+        self._backend_service = backend_service
         self._format_converter = format_converter
         self._connection_manager = connection_manager
         self._active_requests: dict[str, asyncio.Task] = {}
@@ -296,20 +301,32 @@ class PromptHandler:
             CodebuffError: If streaming fails
         """
         try:
+            # Get session to extract session_id for RequestContext
+            session = await self._connection_manager.get_session(websocket)
+            if session is None:
+                raise CodebuffError(
+                    "Session not found for WebSocket connection",
+                    details={"prompt_id": prompt_id},
+                )
+
             # messages are already ChatMessage objects
             request = ChatRequest(model=model, messages=messages, stream=True)
 
-            # Get the backend for this model
-            backend = await self._get_backend_for_model(model)
+            # Create RequestContext with session_id to ensure enforcement boundary is invoked
+            context = RequestContext(
+                headers=RequestHeaders(),
+                cookies=RequestCookies(),
+                state=None,
+                app_state=None,
+                session_id=session.session_id,
+            )
 
-            # Call the backend
-            # Note: processed_messages expects list of dicts for some backends,
-            # but we can convert them here if needed.
-            # Most backends just use request_data.messages which is list[ChatMessage].
-            response = await backend.chat_completions(
-                request_data=request,
-                processed_messages=[m.to_dict() for m in messages],
-                effective_model=model,
+            # Call backend through shared orchestrator (ensures non-forwardable enforcement)
+            response = await self._backend_service.call_completion(
+                request=request,
+                stream=True,
+                allow_failover=True,
+                context=context,
             )
 
             # Handle streaming response
@@ -322,11 +339,13 @@ class PromptHandler:
                 )
             else:
                 # Non-streaming response - send as single chunk
-                content = (
-                    response.response.get("choices", [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                )
+                content = ""
+                if isinstance(response.content, dict):
+                    content = (
+                        response.content.get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                    )
                 if content:
                     chunk_msg = self._format_converter.create_response_chunk(
                         user_input_id=prompt_id,
@@ -434,90 +453,6 @@ class PromptHandler:
                 error_message=f"Streaming error: {e!s}",
             )
             await websocket.send_json(error_msg.model_dump(by_alias=True))
-
-    async def _get_backend_for_model(self, model: str) -> Any:
-        """Get the appropriate backend for a model.
-
-        Args:
-            model: The model name
-
-        Returns:
-            Backend instance for the model
-
-        Raises:
-            CodebuffError: If backend cannot be determined or created
-        """
-        # Map model names to backend types
-        # This is a simplified mapping - in production, this would be more sophisticated
-        backend_type = self._determine_backend_type(model)
-
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Routing model %s to backend %s", model, backend_type)
-
-        try:
-            # Get backend configuration from app config
-
-            app_config = self._backend_factory._config
-            backend_config = None
-
-            # Try to get backend config from app config
-            if hasattr(app_config, "backends") and app_config.backends:
-                backend_config = app_config.backends.get(backend_type)
-
-            # Create and initialize backend
-            backend = await self._backend_factory.ensure_backend(
-                backend_type=backend_type,
-                app_config=app_config,
-                backend_config=backend_config,
-            )
-
-            return backend
-
-        except Exception as e:
-            logger.error(
-                "Failed to get backend for model %s: %s",
-                model,
-                str(e),
-                exc_info=True,
-            )
-            raise CodebuffError(
-                f"Backend not available for model {model}: {e!s}",
-                details={"model": model, "backend_type": backend_type},
-            )
-
-    def _determine_backend_type(self, model: str) -> str:
-        """Determine the backend type for a model name.
-
-        Args:
-            model: The model name
-
-        Returns:
-            Backend type string
-        """
-        model_lower = model.lower()
-
-        # Anthropic models
-        if "claude" in model_lower:
-            return "anthropic"
-
-        # OpenAI models
-        if any(
-            prefix in model_lower
-            for prefix in ["gpt-", "o1-", "text-", "davinci", "curie", "babbage"]
-        ):
-            return "openai"
-
-        # Gemini models
-        if "gemini" in model_lower:
-            return "gemini"
-
-        # Default to OpenAI
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "Unknown model %s, defaulting to OpenAI backend",
-                model,
-            )
-        return "openai"
 
     async def cancel_request(self, prompt_id: str) -> None:
         """Cancel an active streaming request.

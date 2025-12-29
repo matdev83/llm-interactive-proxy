@@ -7,7 +7,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.di.diagnostics import (
@@ -88,6 +88,14 @@ class ServiceScope(IServiceScope):
             raise RuntimeError("This scope has been disposed")
         return self._provider
 
+    def get_cached_instance(self, service_type: type[Any]) -> Any | None:
+        """Return a cached scoped instance if present."""
+        return self._instances.get(service_type)
+
+    def set_cached_instance(self, service_type: type[Any], instance: Any) -> None:
+        """Cache a scoped instance for reuse."""
+        self._instances[service_type] = instance
+
     async def dispose(self) -> None:
         """Dispose of this scope and any scoped services."""
         with self._lock:
@@ -121,7 +129,9 @@ class ScopedServiceProvider(IServiceProvider):
 
     def get_service(self, service_type: type[T]) -> T | None:
         """Get a service of the given type if registered."""
-        return self._root._get_service(service_type, self._scope)
+        return self._root._get_service(  # pyright: ignore[reportPrivateUsage]
+            service_type, self._scope
+        )
 
     def get_required_service(self, service_type: type[T]) -> T:
         """Get a service of the given type, throwing if not found."""
@@ -220,9 +230,7 @@ class ServiceProvider(IServiceProvider):
                         )
             self._singleton_instances.clear()
 
-    def _get_service(
-        self, service_type: type[T], scope: ServiceScope | None
-    ) -> T | None:
+    def _get_service(self, service_type: type[T], scope: ServiceScope | None) -> T:
         """Internal method to get a service of the given type."""
         push_resolution(service_type)
         try:
@@ -236,7 +244,7 @@ class ServiceProvider(IServiceProvider):
                         len(self._descriptors),
                     )
                 # Don't pop here - keep on stack for error enrichment
-                return None
+                raise RuntimeError(f"Service {service_type} is not registered")
 
             # Check if it's a singleton with existing instance
             if descriptor.instance is not None:
@@ -271,13 +279,14 @@ class ServiceProvider(IServiceProvider):
 
                 # Check for cached scoped instance (with lock for thread safety)
                 with self._lock:
-                    if service_type in scope._instances:
+                    cached = scope.get_cached_instance(service_type)
+                    if cached is not None:
                         pop_resolution()  # Pop before returning successfully resolved service
-                        return scope._instances[service_type]  # type: ignore[no-any-return]
+                        return cast(T, cached)
 
                     # Create and cache scoped instance
                     instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
-                    scope._instances[service_type] = instance
+                    scope.set_cached_instance(service_type, instance)
                     pop_resolution()  # Pop before returning successfully resolved service
                     return instance  # type: ignore[no-any-return]
 
@@ -335,13 +344,6 @@ class ServiceProvider(IServiceProvider):
 
             # Otherwise, create instance of implementation type
             impl_type = descriptor.implementation_type
-            if impl_type is None:
-                error = RuntimeError(
-                    "Implementation type is None and no factory provided"
-                )
-                if self._diagnostics:
-                    raise enrich_factory_error(service_type, error) from error
-                raise error
 
             # Check if constructor needs service provider
             try:

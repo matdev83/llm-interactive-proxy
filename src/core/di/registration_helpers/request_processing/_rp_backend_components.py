@@ -98,15 +98,29 @@ def _register_tool_call_retry_coordinator(services: ServiceCollection) -> None:
     def _tool_call_retry_coordinator_factory(
         provider: IServiceProvider,
     ) -> ToolCallRetryCoordinator:
+        from src.core.interfaces.non_forwardable_interface import (
+            INonForwardableMessageIdentityService,
+            INonForwardableMessageRegistry,
+        )
+
         backend_processor: IBackendProcessor = provider.get_required_service(
             cast(type, IBackendProcessor)  # type: ignore[type-abstract]
         )
         cancellation_coordinator = provider.get_service(
             cast(type, ISessionCancellationCoordinator)
         )
+        # Get non-forwardable services (optional - may not be registered)
+        non_forwardable_registry = provider.get_service(
+            cast(type, INonForwardableMessageRegistry)
+        )
+        non_forwardable_identity_service = provider.get_service(
+            cast(type, INonForwardableMessageIdentityService)
+        )
         return ToolCallRetryCoordinator(
             backend_processor=backend_processor,
             cancellation_coordinator=cancellation_coordinator,
+            non_forwardable_registry=non_forwardable_registry,
+            non_forwardable_identity_service=non_forwardable_identity_service,
         )
 
     register_singleton_if_absent(

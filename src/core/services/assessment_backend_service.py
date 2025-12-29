@@ -69,8 +69,23 @@ class AssessmentBackendService(IAssessmentBackendService):
                     f"using {self.config.backend}/{self.config.model}"
                 )
 
-            # Process request through backend
-            response = await self.backend_service.chat_completions(chat_request)
+            # Process request through backend with session_id in context (requirement 8.1)
+            from src.core.domain.request_context import (
+                RequestContext,
+                RequestCookies,
+                RequestHeaders,
+            )
+
+            context = RequestContext(
+                headers=RequestHeaders(),
+                cookies=RequestCookies(),
+                state={},
+                app_state=None,
+                session_id=request.session_id,  # Reuse session_id from assessment request
+            )
+            response = await self.backend_service.call_completion(
+                chat_request, stream=False, context=context
+            )
 
             # Parse JSON response
             if hasattr(response, "content"):
@@ -146,7 +161,23 @@ class AssessmentBackendService(IAssessmentBackendService):
                 max_tokens=50,
             )
 
-            response = await self.backend_service.chat_completions(test_request)
+            # Use call_completion with context for proper session_id propagation (requirement 8.1)
+            from src.core.domain.request_context import (
+                RequestContext,
+                RequestCookies,
+                RequestHeaders,
+            )
+
+            context = RequestContext(
+                headers=RequestHeaders(),
+                cookies=RequestCookies(),
+                state={},
+                app_state=None,
+                session_id=None,  # Health check doesn't need session scoping
+            )
+            response = await self.backend_service.call_completion(
+                test_request, stream=False, context=context
+            )
 
             # Try to parse response as JSON
             if hasattr(response, "content"):

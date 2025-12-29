@@ -108,7 +108,11 @@ class CoreServicesStage(InitializationStage):
                 implementation_factory=itool_call_repair_factory,
             )
         except ImportError as e:
-            logger.warning("Could not register IToolCallRepairService interface: %s", e, exc_info=True)
+            logger.warning(
+                "Could not register IToolCallRepairService interface: %s",
+                e,
+                exc_info=True,
+            )
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -176,7 +180,9 @@ class CoreServicesStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered session repository services")
         except ImportError as e:  # type: ignore[misc]
-            logger.warning("Could not register session repository: %s", e, exc_info=True)
+            logger.warning(
+                "Could not register session repository: %s", e, exc_info=True
+            )
 
     def _register_session_service(self, services: ServiceCollection) -> None:
         """Register session service with dependency injection."""
@@ -297,6 +303,21 @@ class CoreServicesStage(InitializationStage):
                 )
             raise
 
+        # Register non-forwardable message tagging services
+        # These must be registered before CommandStage which depends on them
+        try:
+            from src.core.di.registrations import non_forwardable
+
+            non_forwardable.register(services, config)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered non-forwardable message tagging services")
+        except Exception as e:
+            logger.warning(
+                "Could not register non-forwardable services: %s",
+                e,
+                exc_info=True,
+            )
+
         # Register streaming and tooling services via registrars
         # These are needed for services like IResponseParser, IStreamNormalizer, etc.
         try:
@@ -412,7 +433,9 @@ class CoreServicesStage(InitializationStage):
                 )
 
         except ImportError as e:
-            logger.warning("Could not register activity tracker service: %s", e, exc_info=True)
+            logger.warning(
+                "Could not register activity tracker service: %s", e, exc_info=True
+            )
 
     def _register_wire_capture_service(self, services: ServiceCollection) -> None:
         """Register wire capture service.
@@ -503,7 +526,9 @@ class CoreServicesStage(InitializationStage):
                         "WireCaptureEosSubscriber not available, skipping registration"
                     )
         except ImportError as e:
-            logger.warning("Could not register wire capture service: %s", e, exc_info=True)
+            logger.warning(
+                "Could not register wire capture service: %s", e, exc_info=True
+            )
 
     def _register_usage_tracking_services(
         self, services: ServiceCollection, config: AppConfig
@@ -635,7 +660,9 @@ class CoreServicesStage(InitializationStage):
                         "UsageTrackingEosSubscriber not available, skipping registration"
                     )
         except ImportError as e:
-            logger.warning("Could not register usage tracking services: %s", e, exc_info=True)
+            logger.warning(
+                "Could not register usage tracking services: %s", e, exc_info=True
+            )
 
     def _register_usage_normalization_service(
         self, services: ServiceCollection

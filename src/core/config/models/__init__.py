@@ -15,6 +15,7 @@ from src.core.config.models.misc import (
     ResilienceConfig,
     UsageTrackingConfig,
 )
+from src.core.config.models.non_forwardable_config import NonForwardableTaggingConfig
 from src.core.config.models.rewriting import (
     EditPrecisionConfig,
     ModelAliasRule,
@@ -51,5 +52,6 @@ __all__ = [
     "StreamingSamplerConfig",
     "ToolCallReactorConfig",
     "UsageTrackingConfig",
+    "NonForwardableTaggingConfig",
     "get_openrouter_headers",
 ]

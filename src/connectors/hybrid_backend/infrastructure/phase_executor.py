@@ -9,7 +9,6 @@ Requirements satisfied:
 """
 
 import asyncio
-import contextlib
 import logging
 from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Any, cast
@@ -93,6 +92,7 @@ class PhaseExecutor:
         request_data: DomainModel | InternalDTO | dict[str, Any],
         identity: IAppIdentityConfig | None,
         uri_params: dict[str, Any] | None = None,
+        session_id: str | None = None,
     ) -> ReasoningPhaseResult:
         """Execute reasoning phase and return captured output.
 
@@ -103,6 +103,7 @@ class PhaseExecutor:
             request_data: Original request data
             identity: Optional identity configuration
             uri_params: Optional URI parameter overrides
+            session_id: Optional session identifier for tag scoping (requirement 8.2)
 
         Returns:
             Structured result containing reasoning text, tool calls, and stream metadata
@@ -222,14 +223,19 @@ class PhaseExecutor:
 
             backend_service = get_required_service(BackendService)
 
-            # Create a clean context without session to prevent session backend inheritance
-            # This ensures the reasoning backend is resolved from the model name, not session state
+            # Extract session_id from identity if not provided (requirement 8.2: reuse session_id across calls)
+            if session_id is None and identity is not None:
+                session_id = getattr(identity, "session_id", None)
+
+            # Create context with session_id for non-forwardable enforcement (requirement 8.1, 8.2)
+            # Note: We still prevent session backend inheritance by not passing session in extra_body
+            # The session_id is used only for non-forwardable tag scoping, not backend selection
             clean_context = RequestContext(
                 headers=RequestHeaders(),
                 cookies=RequestCookies(),
                 state=None,
                 app_state=None,
-                session_id=None,  # No session to prevent backend inheritance
+                session_id=session_id,  # Set session_id for tag scoping (requirement 8.2)
             )
 
             # Call reasoning model with timeout via backend service
@@ -325,7 +331,6 @@ class PhaseExecutor:
                     "elapsed_seconds": elapsed_time,
                 },
             )
-
 
             return ReasoningPhaseResult(
                 text=reasoning_text,
@@ -513,6 +518,8 @@ class PhaseExecutor:
         execution_model: str,
         identity: IAppIdentityConfig | None,
         uri_params: dict[str, Any] | None = None,
+        session_id: str | None = None,
+        original_message_count: int | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute execution phase with augmented messages.
@@ -524,6 +531,8 @@ class PhaseExecutor:
             execution_model: Model name for execution
             identity: Optional identity configuration
             uri_params: Optional URI parameter overrides
+            session_id: Optional session identifier for enforcement boundary
+            original_message_count: Optional count of original messages before augmentation (for injection boundary)
             **kwargs: Additional arguments
 
         Returns:
@@ -557,69 +566,9 @@ class PhaseExecutor:
                 },
             )
 
-        try:
-            # Get backend config for execution backend
-            execution_backend_config = None
-            if hasattr(self.config, "backends"):
-                with contextlib.suppress(AttributeError):
-                    execution_backend_config = getattr(
-                        self.config.backends, execution_backend
-                    )
-
-            execution_identity = self.identity_resolver.resolve(
-                execution_backend, identity, execution_backend_config
-            )
-
-            # Use backend factory to properly create and initialize the backend
-            from src.core.di.services import get_required_service
-            from src.core.services.backend_factory import BackendFactory
-
-            backend_factory_instance = get_required_service(BackendFactory)
-
-            # Use ensure_backend which properly handles API key initialization
-            execution_connector = await backend_factory_instance.ensure_backend(
-                execution_backend, self.config, execution_backend_config
-            )
-
-        except ValueError as e:
-            logger.error(
-                f"Execution backend '{execution_backend}' not found in registry",
-                extra={
-                    "phase": "execution",
-                    "execution_backend": execution_backend,
-                    "execution_model": execution_model,
-                    "error": str(e),
-                },
-            )
-            raise BackendError(
-                message=f"Execution backend '{execution_backend}' not found: {e}",
-                code="execution_backend_not_found",
-                details={
-                    "phase": "execution",
-                    "execution_backend": execution_backend,
-                    "execution_model": execution_model,
-                },
-            ) from e
-        except Exception as e:
-            logger.error(
-                f"Failed to initialize execution backend '{execution_backend}'",
-                extra={
-                    "phase": "execution",
-                    "execution_backend": execution_backend,
-                    "execution_model": execution_model,
-                    "error": str(e),
-                },
-                exc_info=True,
-            )
-            raise BackendError(
-                message=f"Failed to initialize execution backend: {e}",
-                code="execution_backend_init_failed",
-                details={
-                    "phase": "execution",
-                    "execution_backend": execution_backend,
-                    "execution_model": execution_model,
-                },
-            ) from e
+        # Extract session_id from identity if not provided
+        if session_id is None and identity is not None:
+            session_id = getattr(identity, "session_id", None)
 
         # Create request payload with augmented messages
         execution_preset_params = dict(get_execution_params(execution_backend))
@@ -674,14 +623,52 @@ class PhaseExecutor:
                 )
 
         try:
-            # Call execution model with augmented messages and timeout
+            # Prepare canonical request for backend service
+            canonical_execution_request = self._prepare_backend_request(
+                execution_request,
+                target_model=f"{execution_backend}:{execution_model}",
+                stream=False,  # Execution phase is typically non-streaming
+                messages=augmented_messages,
+            )
+
+            # Get BackendService from DI
+            from src.core.di.services import get_required_service
+            from src.core.services.backend_service import BackendService
+
+            backend_service = get_required_service(BackendService)
+
+            # Create RequestContext with session_id and injection provenance boundary
+            # If original_message_count is provided, set the injection boundary
+            from pydantic.types import JsonValue
+
+            context_extensions: dict[str, JsonValue] = {}
+            if original_message_count is not None and original_message_count < len(
+                augmented_messages
+            ):
+                from src.core.services.non_forwardable_message_enforcer import (
+                    PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
+                )
+
+                context_extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = (
+                    original_message_count
+                )
+
+            context = RequestContext(
+                headers=RequestHeaders(),
+                cookies=RequestCookies(),
+                state=None,
+                app_state=None,
+                session_id=session_id,
+                extensions=context_extensions if context_extensions else {},
+            )
+
+            # Call execution model with timeout via backend service (ensures non-forwardable enforcement)
             response = await asyncio.wait_for(
-                execution_connector.chat_completions(
-                    request_data=execution_request,
-                    processed_messages=augmented_messages,
-                    effective_model=execution_model,
-                    identity=execution_identity,
-                    **kwargs,
+                backend_service.call_completion(
+                    request=canonical_execution_request,
+                    stream=False,
+                    allow_failover=False,
+                    context=context,
                 ),
                 timeout=self.config.backends.hybrid_execution_model_timeout,
             )
