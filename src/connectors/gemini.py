@@ -110,12 +110,18 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 )
                 self.available_models = [m.id for m in data.data if m.id]
 
-            except Exception as e:
+            except (ServiceUnavailableError, BackendError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Failed to fetch Gemini models: %s", e, exc_info=True
                     )
                 # Return empty list on failure, don't crash
+                self.available_models = []
+            except Exception as e:
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Unexpected error fetching Gemini models: %s", e, exc_info=True
+                    )
                 self.available_models = []
 
     def get_available_models(self) -> list[str]:
@@ -151,25 +157,26 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         if isinstance(part, MessageContentPartText):
             # Text content is already processed by middleware
             return {"text": part.text}
-        if isinstance(part, MessageContentPartImage):
-            url = part.image_url.url
-            # Data URL -> inlineData
-            if url.startswith("data:"):
-                try:
-                    header, b64_data = url.split(",", 1)
-                    mime = header.split(";")[0][5:]
-                except (ValueError, IndexError) as parse_err:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Failed to parse data URL MIME type: %s", str(parse_err)
-                        )
-                    mime = "application/octet-stream"
-                    b64_data = ""
-                return {"inlineData": {"mimeType": mime, "data": b64_data}}
-            # Otherwise treat as remote file URI
-            return {
-                "fileData": {"mimeType": "application/octet-stream", "fileUri": url}
-            }
+        
+        # Must be MessageContentPartImage
+        url = part.image_url.url
+        # Data URL -> inlineData
+        if url.startswith("data:"):
+            try:
+                header, b64_data = url.split(",", 1)
+                mime = header.split(";")[0][5:]
+            except (ValueError, IndexError) as parse_err:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to parse data URL MIME type: %s", str(parse_err)
+                    )
+                mime = "application/octet-stream"
+                b64_data = ""
+            return {"inlineData": {"mimeType": mime, "data": b64_data}}
+        # Otherwise treat as remote file URI
+        return {
+            "fileData": {"mimeType": "application/octet-stream", "fileUri": url}
+        }
         data = part.model_dump(exclude_unset=True)
         if data.get("type") == "text" and "text" in data:
             # Text content is already processed by middleware
@@ -436,10 +443,19 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     json=payload_body,
                     headers=cancel_headers,
                 )
-            except Exception as exc:
+            except httpx.RequestError as exc:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Gemini cancel request failed - url=%s request_id=%s error=%s",
+                        cancel_url,
+                        request_id,
+                        exc,
+                        exc_info=True,
+                    )
+            except Exception as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error during Gemini cancel request - url=%s request_id=%s error=%s",
                         cancel_url,
                         request_id,
                         exc,
@@ -536,8 +552,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         # (the frontend controller converts from frontend-specific format to domain format)
         # Backends should ONLY convert FROM domain TO backend-specific format
         # Type assertion: we know from architectural design that request_data is ChatRequest-like
-
-        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 
         if not isinstance(request_data, ChatRequest):
             raise TypeError(
@@ -1089,11 +1103,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         """
         # Prepare payload
 
-        from src.core.domain.chat import CanonicalChatRequest
-
-        if not isinstance(request, CanonicalChatRequest):
-            request = cast(CanonicalChatRequest, request)
-
         # Get processed messages and effective model
         processed_messages = getattr(request, "messages", [])
         effective_model = getattr(request, "model", "gemini-1.5-flash")
@@ -1120,8 +1129,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         )
 
         # Apply generation config including temperature clamping
-        from src.core.domain.chat import ChatRequest
-
         domain_request: ChatRequest = cast(ChatRequest, request)
         self._apply_generation_config(payload, domain_request)
 
@@ -1281,8 +1288,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         # Apply generation config including temperature clamping
         # Type assertion: we know from architectural design that request_data is ChatRequest-like
-
-        from src.core.domain.chat import ChatRequest
 
         domain_request: ChatRequest = cast(ChatRequest, request)
         self._apply_generation_config(payload, domain_request)

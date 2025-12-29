@@ -13,10 +13,16 @@ import logging
 from collections.abc import Awaitable
 from typing import Any, cast
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 
 # Import HTTP status constants
-from src.core.common.exceptions import InitializationError, ServiceResolutionError
+from src.core.common.exceptions import (
+    BackendError,
+    InitializationError,
+    ServiceResolutionError,
+    ServiceUnavailableError,
+)
 from src.core.constants import HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.interfaces.backend_service_interface import IBackendService
@@ -81,7 +87,7 @@ async def get_backend_service() -> IBackendService:
         service_provider = get_service_provider()
         service = service_provider.get_required_service(IBackendService)  # type: ignore[type-abstract]
         return service  # type: ignore[no-any-return]
-    except Exception as e:
+    except (KeyError, ServiceResolutionError, ImportError) as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "Global service provider unavailable: %s; trying request context",
@@ -424,10 +430,19 @@ async def _list_models_impl(
                         "Discovered %d models from %s", len(models), backend_type
                     )
 
-            except Exception as e:  # type: ignore[misc]
+            except (ServiceUnavailableError, BackendError, httpx.RequestError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to get models from %s: %s",
+                        "Failed to get models from %s (known error): %s",
+                        backend_type,
+                        e,
+                        exc_info=True,
+                    )
+                continue
+            except Exception as e:  # type: ignore[misc]
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Unexpected error getting models from %s: %s",
                         backend_type,
                         e,
                         exc_info=True,
