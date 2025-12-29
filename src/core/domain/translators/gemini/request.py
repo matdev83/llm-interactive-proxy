@@ -381,7 +381,7 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
         if cached_content:
             result["cachedContent"] = cached_content
 
-    if "tools" in result:
+    if "tools" in result and logger.isEnabledFor(logging.DEBUG):
         logger.debug("Translation produced tools: %s", str(result["tools"])[:500])
 
     return result
