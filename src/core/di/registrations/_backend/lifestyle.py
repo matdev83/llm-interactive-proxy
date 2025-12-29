@@ -54,7 +54,12 @@ def register_backend_lifecycle_manager(services: ServiceCollection) -> None:
                     )
                     per_session_limit = int(per_session_limit_raw or 32)
                     global_backend_limit = int(global_backend_limit_raw or 200)
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to get backend lifecycle limits from AppConfig; using defaults",
+                        exc_info=True,
+                    )
                 per_session_limit = 32
                 global_backend_limit = 200
 

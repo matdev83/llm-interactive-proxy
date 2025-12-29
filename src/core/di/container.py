@@ -26,6 +26,8 @@ from src.core.interfaces.di_interface import (
 
 T = TypeVar("T")
 
+logger = logging.getLogger(__name__)
+
 
 class ServiceDescriptor:
     """Describes a service registration in the container."""
@@ -283,11 +285,18 @@ class ServiceProvider(IServiceProvider):
                 instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
                 pop_resolution()  # Pop before returning successfully resolved service
                 return instance  # type: ignore[no-any-return]
-        except Exception:
+        except Exception as e:
             # On any exception, pop before re-raising
             # This ensures the resolution stack is properly cleaned up
             # Note: BaseException (KeyboardInterrupt, SystemExit) will propagate
             # without cleanup, which is correct behavior for shutdown signals
+            type_name = getattr(service_type, "__name__", str(service_type))
+            logger.error(
+                "Error resolving service %s",
+                type_name,
+                exc_info=True,
+                extra={"service_type": type_name},
+            )
             pop_resolution()
             raise
 
