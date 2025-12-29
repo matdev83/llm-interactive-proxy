@@ -101,7 +101,7 @@ class InfrastructureStage(InitializationStage):
                 logger.info("Infrastructure services initialized successfully")
         except BaseException as err:
             await self._cleanup_http_client()
-            raise err from None
+            raise err
 
     def _configure_streaming_sampler(self, config: AppConfig) -> None:
         """Configure the streaming sampler with settings from AppConfig."""
@@ -180,7 +180,7 @@ class InfrastructureStage(InitializationStage):
                 # Registration failed - clean up and rethrow
                 self._schedule_http_client_cleanup(shared_httpx_client)
                 self._http_client = None
-                raise err from None
+                raise err
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered shared HTTP client")

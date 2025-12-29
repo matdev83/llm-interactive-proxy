@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import math
 import time
-import traceback
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any
@@ -104,8 +103,12 @@ def create_exception_handler() -> (
             )
 
         # Unhandled exceptions - log and return 500
-        logger.error(f"Unhandled exception: {exc}")
-        logger.error(traceback.format_exc())
+        # Use exc_info tuple to preserve traceback (exception handler context may not have sys.exc_info())
+        logger.error(
+            "Unhandled exception: %s",
+            exc,
+            exc_info=(type(exc), exc, getattr(exc, "__traceback__", None)),
+        )
         return JSONResponse(
             status_code=500,
             content={
