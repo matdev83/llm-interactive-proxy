@@ -193,7 +193,10 @@ class GeminiCliAcpConnector(GeminiBackend):
         except Exception as e:
             self._initialization_failed = True
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to initialize gemini-cli-acp backend: {e}")
+                logger.error(
+                    f"Failed to initialize gemini-cli-acp backend: {e}",
+                    exc_info=True,
+                )
             raise
 
     async def _check_gemini_cli_available(self) -> bool:
@@ -317,7 +320,10 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to spawn gemini-cli process: {e}")
+                logger.error(
+                    f"Failed to spawn gemini-cli process: {e}",
+                    exc_info=True,
+                )
             # Ensure process is cleaned up even if exception occurs before assignment
             if process is not None and process is not self._process:
                 self._cleanup_process(process)
@@ -395,7 +401,10 @@ class GeminiCliAcpConnector(GeminiBackend):
                 logger.debug("Sent JSON-RPC message: %s", method)
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to send JSON-RPC message: {e}")
+                logger.error(
+                    f"Failed to send JSON-RPC message: {e}",
+                    exc_info=True,
+                )
             raise APIConnectionError(
                 message=f"Failed to communicate with gemini-cli: {e}"
             )
@@ -454,14 +463,20 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         except json.JSONDecodeError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to parse JSON-RPC response: {e}")
+                logger.error(
+                    f"Failed to parse JSON-RPC response: {e}",
+                    exc_info=True,
+                )
             raise BackendError(
                 message="Invalid JSON response from gemini-cli",
                 details={"error": str(e)},
             )
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to read JSON-RPC response: {e}")
+                logger.error(
+                    f"Failed to read JSON-RPC response: {e}",
+                    exc_info=True,
+                )
             raise APIConnectionError(message=f"Failed to read from gemini-cli: {e}")
 
     async def _initialize_agent(self) -> None:
@@ -735,7 +750,10 @@ class GeminiCliAcpConnector(GeminiBackend):
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error in gemini-cli-acp chat_completions: {e}")
+                logger.error(
+                    f"Error in gemini-cli-acp chat_completions: {e}",
+                    exc_info=True,
+                )
             # Kill process on error to force restart
             await self._kill_process()
             raise

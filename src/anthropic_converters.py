@@ -291,7 +291,9 @@ def anthropic_to_openai_request(
                 except (TypeError, ValueError) as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "JSON serialization failed for passthrough_parts: %s", e
+                            "JSON serialization failed for passthrough_parts: %s",
+                            e,
+                            exc_info=True,
                         )
                     openai_msg["content"] = str(passthrough_parts)
             else:
@@ -650,7 +652,11 @@ def _build_content_blocks(
             args = json.loads(args_raw) if isinstance(args_raw, str) else args_raw
         except (json.JSONDecodeError, TypeError) as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to parse tool arguments JSON: %s", e)
+                logger.warning(
+                    "Failed to parse tool arguments JSON: %s",
+                    e,
+                    exc_info=True,
+                )
             args = {"_raw": args_raw}
         content_blocks.append(
             {
@@ -764,7 +770,11 @@ def _convert_tool_use_block(block: dict[str, Any]) -> dict[str, Any]:
         )
     except (TypeError, ValueError) as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to serialize tool arguments: %s", e)
+            logger.warning(
+                "Failed to serialize tool arguments: %s",
+                e,
+                exc_info=True,
+            )
         arguments_str = json.dumps({"_raw": arguments_obj})
 
     return {
