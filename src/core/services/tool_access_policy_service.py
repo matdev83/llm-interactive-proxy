@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic import BaseModel, Field
+
 from src.core.common.logging_utils import get_logger
 from src.core.config.app_config import ToolCallReactorConfig
 
@@ -195,9 +196,9 @@ class ToolAccessPolicyService:
         self._policies.sort(key=lambda p: p.priority, reverse=True)
 
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Loaded {len(self._policies)} tool access policies")
-        if self._policies and logger.is_enabled_for(logging.DEBUG):
-            logger.debug(f"Policy names: {[p.name for p in self._policies]}")
+            logger.info("Loaded %d tool access policies", len(self._policies))
+        if self._policies and logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Policy names: %s", [p.name for p in self._policies])
 
     def _load_policies(self, config: ToolCallReactorConfig) -> None:
         """Load policies from configuration."""
@@ -211,7 +212,7 @@ class ToolAccessPolicyService:
                 if not isinstance(policy_data, dict):
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            f"Invalid policy data (not a dict): {policy_data}"
+                            "Invalid policy data (not a dict): %s", policy_data
                         )
                     continue
 
@@ -221,22 +222,26 @@ class ToolAccessPolicyService:
 
                 if not name:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(f"Policy missing 'name' field: {policy_data}")
+                        logger.warning("Policy missing 'name' field: %s", policy_data)
                     continue
                 if not model_pattern:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(f"Policy '{name}' missing 'model_pattern' field")
+                        logger.warning(
+                            "Policy '%s' missing 'model_pattern' field", name
+                        )
                     continue
                 if not default_policy:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            f"Policy '{name}' missing 'default_policy' field"
+                            "Policy '%s' missing 'default_policy' field", name
                         )
                     continue
                 if default_policy not in ("allow", "deny"):
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            f"Policy '{name}' has invalid default_policy: {default_policy}"
+                            "Policy '%s' has invalid default_policy: %s",
+                            name,
+                            default_policy,
                         )
                     continue
 
@@ -259,7 +264,7 @@ class ToolAccessPolicyService:
 
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Failed to load policy: {e}", exc_info=True)
+                    logger.error("Failed to load policy: %s", e, exc_info=True)
 
     def _apply_global_overrides(self, overrides: dict[str, Any]) -> None:
         """Apply global policy overrides from CLI."""
@@ -282,7 +287,7 @@ class ToolAccessPolicyService:
                 logger.info("Applied global policy overrides")
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to apply global overrides: {e}", exc_info=True)
+                logger.error("Failed to apply global overrides: %s", e, exc_info=True)
 
     def _select_policy(
         self, model_name: str, agent: str | None = None
@@ -375,16 +380,20 @@ class ToolAccessPolicyService:
         if filtered_names:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Filtered {len(filtered_names)} tool definitions for model "
-                    f"{model_name} by policy '{policy.name}': {filtered_names}"
+                    "Filtered %d tool definitions for model %s by policy '%s': %s",
+                    len(filtered_names),
+                    model_name,
+                    policy.name,
+                    filtered_names,
                 )
-            if logger.is_enabled_for(logging.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Remaining tools: {[self._extract_tool_name(t) for t in filtered_tools]}"
+                    "Remaining tools: %s",
+                    [self._extract_tool_name(t) for t in filtered_tools],
                 )
 
-        if logger.is_enabled_for(logging.DEBUG):
-            logger.debug(f"Policy evaluation time: {elapsed_ms:.3f}ms")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Policy evaluation time: %.3fms", elapsed_ms)
 
         return ToolFilterResult(filtered_tools=filtered_tools, metadata=metadata)
 
@@ -429,9 +438,12 @@ class ToolAccessPolicyService:
         metadata.evaluation_time_ms = elapsed_ms
         self._record_evaluation_time(elapsed_ms)
 
-        if logger.is_enabled_for(logging.DEBUG):
+        if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Policy evaluation for '{tool_name}': {metadata.reason} in {elapsed_ms:.3f}ms"
+                "Policy evaluation for '%s': %s in %.3fms",
+                tool_name,
+                metadata.reason,
+                elapsed_ms,
             )
 
         return ToolCheckResult(is_allowed=is_allowed, metadata=metadata)
