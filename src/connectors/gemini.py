@@ -680,61 +680,58 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         if domain_request.stream:
             # Use the new streaming pipeline orchestrator
             # This integrates: Backend → Normalizer → Processors → Assembler
+            # To pass protocol-constrained parameters to stream_completion,
+            # we create a copy of the request and embed them in extra_body.
+            extra_data: dict[str, Any] = {
+                "gemini_api_base_url": gemini_api_base_url,
+                "api_key": api_key,
+                "key_name": key_name,
+                "openrouter_api_base_url": openrouter_api_base_url,
+            }
+
+            new_extra_body = (domain_request.extra_body or {}).copy()
+            new_extra_body.update(extra_data)
+
+            streaming_request = domain_request.model_copy(
+                update={"extra_body": new_extra_body}
+            )
+
+            # Get raw stream from backend via StreamProducer protocol
+            raw_stream = self.stream_completion(streaming_request)
+
+            # Integrate with streaming pipeline
+            # Calculate prompt tokens for usage tracking
+            prompt_tokens = 0
             try:
-                # To pass protocol-constrained parameters to stream_completion,
-                # we create a copy of the request and embed them in extra_body.
-                extra_data: dict[str, Any] = {
-                    "gemini_api_base_url": gemini_api_base_url,
-                    "api_key": api_key,
-                    "key_name": key_name,
-                    "openrouter_api_base_url": openrouter_api_base_url,
-                }
-
-                new_extra_body = (domain_request.extra_body or {}).copy()
-                new_extra_body.update(extra_data)
-
-                streaming_request = domain_request.model_copy(
-                    update={"extra_body": new_extra_body}
+                from src.core.utils.token_count import (
+                    count_tokens,
+                    extract_prompt_text,
                 )
 
-                # Get raw stream from backend via StreamProducer protocol
-                raw_stream = self.stream_completion(streaming_request)
-
-                # Integrate with streaming pipeline
-                # Calculate prompt tokens for usage tracking
-                prompt_tokens = 0
-                try:
-                    from src.core.utils.token_count import (
-                        count_tokens,
-                        extract_prompt_text,
+                prompt_text = extract_prompt_text(processed_messages)
+                prompt_tokens = count_tokens(prompt_text, model=effective_model)
+            except Exception:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to calculate prompt tokens", exc_info=True
                     )
 
-                    prompt_text = extract_prompt_text(processed_messages)
-                    prompt_tokens = count_tokens(prompt_text, model=effective_model)
-                except Exception:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Failed to calculate prompt tokens", exc_info=True
-                        )
+            # Integrate with streaming pipeline
+            from src.core.ports.streaming_integration import (
+                integrate_streaming_pipeline,
+            )
 
-                # Integrate with streaming pipeline
-                from src.core.ports.streaming_integration import (
-                    integrate_streaming_pipeline,
-                )
-
-                return await integrate_streaming_pipeline(
-                    raw_stream=raw_stream,
-                    provider=self.get_provider_name(),
-                    stream_id=getattr(domain_request, "session_id", None),
-                    enable_loop_detection=True,
-                    enable_tool_call_repair=True,
-                    enable_think_tags=True,
-                    prompt_tokens=prompt_tokens,
-                    model_name=effective_model,
-                    vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
-                )
-            except Exception:
-                raise
+            return await integrate_streaming_pipeline(
+                raw_stream=raw_stream,
+                provider=self.get_provider_name(),
+                stream_id=getattr(domain_request, "session_id", None),
+                enable_loop_detection=True,
+                enable_tool_call_repair=True,
+                enable_think_tags=True,
+                prompt_tokens=prompt_tokens,
+                model_name=effective_model,
+                vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
+            )
 
         response_envelope = await self._handle_gemini_non_streaming_response(
             model_url, payload, api_config.headers, effective_model

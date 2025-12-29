@@ -1029,7 +1029,14 @@ class BackendStage(InitializationStage):
                     ),
                     trust_env=False,
                 )
-            except Exception:
+            except (ValueError, RuntimeError, OSError, ImportError, httpx.UnsupportedProtocol) as e:
+                # Fallback to HTTP/1.1 if HTTP/2 setup fails
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "HTTP/2 client creation failed, falling back to HTTP/1.1: %s",
+                        e,
+                        exc_info=True,
+                    )
                 client = httpx.AsyncClient(
                     http2=False,
                     timeout=httpx.Timeout(
