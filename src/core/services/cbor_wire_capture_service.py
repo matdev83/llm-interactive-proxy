@@ -210,7 +210,7 @@ class CborWireCaptureService(IWireCapture):
             self._maybe_start_flush_task()
 
             if logger.isEnabledFor(logging.INFO):
-                logger.info(f"CBOR wire capture initialized: {self._file_path}")
+                logger.info("CBOR wire capture initialized: %s", self._file_path)
 
         except Exception as e:
             logger.error(f"Failed to initialize CBOR wire capture: {e}")
@@ -781,7 +781,7 @@ class CborWireCaptureService(IWireCapture):
                 await self._flush_buffer()
 
         if self._file_path and logger.isEnabledFor(logging.INFO):
-            logger.info(f"CBOR wire capture shutdown: {self._file_path}")
+            logger.info("CBOR wire capture shutdown: %s", self._file_path)
 
     def get_capture_file_path(self) -> Path | None:
         """Return the path to the current capture file."""
