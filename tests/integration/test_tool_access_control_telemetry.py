@@ -159,13 +159,13 @@ class TestToolAccessControlTelemetry:
         # Note: The counter is incremented in request_processor_service.py
         # This test verifies the counter exists and can be incremented
         reactor_service.increment_tool_definitions_filtered(
-            len(metadata["filtered_tool_names"])
+            len(metadata.filtered_tool_names)
         )
 
         # Verify counter was incremented
         updated_stats = reactor_service.get_telemetry_stats()
         assert updated_stats["tool_definitions_filtered"] == initial_filtered + len(
-            metadata["filtered_tool_names"]
+            metadata.filtered_tool_names
         )
 
     @pytest.mark.asyncio

@@ -291,16 +291,17 @@ class TestToolCallTrackerFunctionality:
             enabled=True, max_repeats=3, ttl_seconds=60, mode=ToolLoopMode.BREAK
         )
 
-    def test_track_tool_call_different_calls(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_different_calls(self, config) -> None:
         """Test tracking different tool calls."""
         tracker = ToolCallTracker(config)
 
         # First call
-        tracker.track_tool_call("test_tool", '{"arg": "value1"}')
+        await tracker.track_tool_call("test_tool", '{"arg": "value1"}')
         # Different tool
-        tracker.track_tool_call("different_tool", '{"arg": "value1"}')
+        await tracker.track_tool_call("different_tool", '{"arg": "value1"}')
         # Same tool, different args
-        tracker.track_tool_call("test_tool", '{"arg": "value2"}')
+        await tracker.track_tool_call("test_tool", '{"arg": "value2"}')
 
         # Should have 3 signatures
         assert len(tracker.signatures) == 3
@@ -309,13 +310,14 @@ class TestToolCallTrackerFunctionality:
         for sig in tracker.signatures:
             assert tracker.consecutive_repeats[sig.get_full_signature()] == 1
 
-    def test_track_tool_call_repeated_below_threshold(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_repeated_below_threshold(self, config) -> None:
         """Test tracking repeated calls below the threshold."""
         tracker = ToolCallTracker(config)
 
         # Make repeated calls but not enough to trigger blocking
         for _ in range(config.max_repeats - 1):
-            result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+            result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
             assert result.should_block is False
 
         # Check that the consecutive count is correct
@@ -323,36 +325,38 @@ class TestToolCallTrackerFunctionality:
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.consecutive_repeats[full_sig] == config.max_repeats - 1
 
-    def test_track_tool_call_repeated_at_threshold_break_mode(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_repeated_at_threshold_break_mode(self, config) -> None:
         """Test tracking repeated calls at the threshold with break mode."""
         config.mode = ToolLoopMode.BREAK
         tracker = ToolCallTracker(config)
 
         # Make repeated calls to trigger blocking
         for _ in range(config.max_repeats - 1):
-            result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+            result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
             assert result.should_block is False
 
         # The last call should be blocked
-        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is True
         assert result.reason is not None
         assert "Tool call loop detected" in result.reason
         assert result.repeat_count == config.max_repeats
 
-    def test_track_tool_call_repeated_at_threshold_chance_mode(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_repeated_at_threshold_chance_mode(self, config) -> None:
         """Test tracking repeated calls at the threshold with chance_then_break mode."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
 
         # Make repeated calls to trigger the chance
         for _ in range(config.max_repeats - 1):
-            result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+            result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
             assert result.should_block is False
 
         # The call at the threshold should be blocked with a chance
-        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is True
         assert result.reason is not None
@@ -398,17 +402,18 @@ class TestToolCallTrackerFunctionality:
         assert result.repeat_count is None
         assert tracker.consecutive_repeats[full_sig] == 2
 
-    def test_track_tool_call_after_chance_different_call(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_after_chance_different_call(self, config) -> None:
         """Test tracking a different call after a chance was given."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
 
         # Make repeated calls to trigger the chance
         for _ in range(config.max_repeats):
-            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+            await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Now make a different call
-        result = tracker.track_tool_call("test_tool", '{"arg": "different"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "different"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -420,24 +425,26 @@ class TestToolCallTrackerFunctionality:
         full_sig = f"test_tool:{json.dumps({'arg': 'different'}, sort_keys=True)}"
         assert full_sig not in tracker.chance_given
 
-    def test_track_tool_call_after_chance_same_call(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_after_chance_same_call(self, config) -> None:
         """Test tracking the same call after a chance was given."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)
 
         # Make repeated calls to trigger the chance
         for _ in range(config.max_repeats):
-            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+            await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Now make the same call again
-        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is True
         assert result.reason is not None
         assert "After guidance" in result.reason
         assert result.repeat_count == config.max_repeats + 1
 
-    def test_track_tool_call_reset_after_different(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_reset_after_different(self, config) -> None:
         """Test that consecutive count resets after a different call.
 
         Note: While consecutive count resets, total count within TTL window
@@ -449,14 +456,14 @@ class TestToolCallTrackerFunctionality:
         # Use max_repeats - 2 so we have room for the different call + return
         initial_calls = max(1, config.max_repeats - 2)
         for _ in range(initial_calls):
-            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+            await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Make a different call
-        tracker.track_tool_call("different_tool", '{"arg": "value"}')
+        await tracker.track_tool_call("different_tool", '{"arg": "value"}')
 
         # Now make the original call again
         # Total count is now initial_calls + 1 = max_repeats - 1, should not block
-        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -466,7 +473,8 @@ class TestToolCallTrackerFunctionality:
         full_sig = f"test_tool:{json.dumps({'arg': 'value'}, sort_keys=True)}"
         assert tracker.consecutive_repeats[full_sig] == 1
 
-    def test_track_tool_call_interleaved_repeats_blocked(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_interleaved_repeats_blocked(self, config) -> None:
         """Interleaved identical calls within TTL should still trigger blocking."""
         tracker = ToolCallTracker(config)
 
@@ -474,33 +482,34 @@ class TestToolCallTrackerFunctionality:
         read_args = '{"path": "file.txt"}'
 
         # First occurrence of target tool call
-        tracker.track_tool_call("edit", edit_args)
+        await tracker.track_tool_call("edit", edit_args)
         # Different tool call interleaved
-        tracker.track_tool_call("read", read_args)
+        await tracker.track_tool_call("read", read_args)
         # Second occurrence - still below threshold
-        result = tracker.track_tool_call("edit", edit_args)
+        result = await tracker.track_tool_call("edit", edit_args)
         assert result.should_block is False
         assert result.reason is None
         assert result.repeat_count is None
 
         # Another different tool call interleaved
-        tracker.track_tool_call("read", read_args)
+        await tracker.track_tool_call("read", read_args)
 
         # Third occurrence within TTL should now block even though not consecutive
-        result = tracker.track_tool_call("edit", edit_args)
+        result = await tracker.track_tool_call("edit", edit_args)
 
         assert result.should_block is True
         assert result.reason is not None
         assert "Tool call loop detected" in result.reason
         assert result.repeat_count == config.max_repeats
 
-    def test_track_tool_call_with_ttl_expiry(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_with_ttl_expiry(self, config) -> None:
         """Test that TTL expiry resets consecutive counting."""
         tracker = ToolCallTracker(config)
 
         # Make some repeated calls
         for _ in range(config.max_repeats - 1):
-            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+            await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         # Manually set the timestamp of the signatures to be in the past
         with freeze_time("2024-01-01 12:00:00"):
@@ -510,7 +519,7 @@ class TestToolCallTrackerFunctionality:
                 ) - datetime.timedelta(seconds=config.ttl_seconds + 10)
 
         # Make the same call again - should not block due to TTL expiry
-        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None

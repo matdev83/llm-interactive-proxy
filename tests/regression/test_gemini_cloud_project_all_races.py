@@ -70,7 +70,9 @@ class TestGeminiCloudProjectConnectorRaceConditions:
 
         threads = []
         for i in range(5):
-            t = threading.Thread(target=concurrent_call, args=(i,), name=f"Caller-{i}")
+            t = threading.Thread(
+                target=concurrent_call, args=(i,), name=f"Caller-{i}", daemon=True
+            )
             threads.append(t)
 
         for t in threads:
@@ -78,6 +80,9 @@ class TestGeminiCloudProjectConnectorRaceConditions:
 
         for t in threads:
             t.join(timeout=2)
+
+        stuck_threads = [t.name for t in threads if t.is_alive()]
+        assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
         # Only 1 scheduling should have occurred, all others should return early
         # (due to pending_reload_task being set)
@@ -155,7 +160,9 @@ class TestGeminiCloudProjectConnectorRaceConditions:
         threads = []
         for i in range(10):
             t = threading.Thread(
-                target=connector._validate_runtime_credentials, name=f"Validator-{i}"
+                target=connector._validate_runtime_credentials,
+                name=f"Validator-{i}",
+                daemon=True,
             )
             threads.append(t)
 
@@ -164,6 +171,9 @@ class TestGeminiCloudProjectConnectorRaceConditions:
 
         for t in threads:
             t.join(timeout=2)
+
+        stuck_threads = [t.name for t in threads if t.is_alive()]
+        assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
         # With 10 threads (0-9), odd ones (1,3,5,7,9) should call _fail_init
         # That's 5 calls
@@ -212,6 +222,7 @@ class TestGeminiCloudProjectConnectorRaceConditions:
             t = threading.Thread(
                 target=lambda idx=i: connector._fail_init([f"error-{idx}"]),
                 name=f"Failer-{i}",
+                daemon=True,
             )
             threads.append(t)
 
@@ -220,6 +231,9 @@ class TestGeminiCloudProjectConnectorRaceConditions:
 
         for t in threads:
             t.join(timeout=2)
+
+        stuck_threads = [t.name for t in threads if t.is_alive()]
+        assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
         # With the fix, all 10 errors should be recorded
         assert (

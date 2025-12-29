@@ -175,8 +175,8 @@ class TestToolAccessControlCLIOverrides:
         )
 
         # With no patterns and default allow, everything should be allowed
-        is_allowed, _ = policy_service.is_tool_allowed("any_tool", "test:model")
-        assert is_allowed is True
+        result = policy_service.is_tool_allowed("any_tool", "test:model")
+        assert result.is_allowed is True
 
     def test_cli_override_precedence_in_filtering(self):
         """Test that CLI overrides work correctly in tool definition filtering."""
@@ -317,5 +317,5 @@ class TestToolAccessControlCLIOverrides:
         )
 
         # Should work normally
-        is_allowed, _ = policy_service.is_tool_allowed("read_file", "test:model")
-        assert is_allowed is True
+        result = policy_service.is_tool_allowed("read_file", "test:model")
+        assert result.is_allowed is True

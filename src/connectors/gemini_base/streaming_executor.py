@@ -538,7 +538,7 @@ class StreamingExecutor:
                                 code=502,
                             )
                             yield ProcessedResponse(
-                                content=error_chunk.model_dump(),
+                                content=self._get_error_chunk_content(error_chunk),
                                 metadata=self._build_error_metadata(error_chunk),
                             )
                             done = True
@@ -1174,8 +1174,14 @@ class StreamingExecutor:
                 code=400,
                 error_type=code,  # e.g., "invalid_request_error"
             )
+            # Handle both Pydantic models and dicts (for test compatibility)
+            chunk_content = (
+                error_chunk.model_dump()
+                if hasattr(error_chunk, "model_dump")
+                else error_chunk
+            )
             yield ProcessedResponse(
-                content=error_chunk.model_dump(),
+                content=self._get_error_chunk_content(error_chunk),
                 metadata=self._build_error_metadata(error_chunk),
             )
             return
@@ -1184,6 +1190,26 @@ class StreamingExecutor:
             response.close()
 
         raise backend_error
+
+    def _get_error_chunk_content(
+        self, error_chunk: OpenAIErrorChunk | dict[str, Any]
+    ) -> dict[str, Any]:
+        """Get error chunk content as dict, handling both Pydantic models and dicts.
+
+        Args:
+            error_chunk: Either an OpenAIErrorChunk object or a dict with error chunk data.
+
+        Returns:
+            Dict representation of the error chunk.
+        """
+        # Handle both OpenAIErrorChunk objects and dicts (for test compatibility)
+        if isinstance(error_chunk, dict):
+            return error_chunk
+        elif hasattr(error_chunk, "model_dump"):
+            return error_chunk.model_dump()
+        else:
+            # Fallback: try to convert to dict
+            return dict(error_chunk) if hasattr(error_chunk, "__dict__") else {}
 
     def _build_error_metadata(
         self, error_chunk: OpenAIErrorChunk | dict[str, Any]

@@ -61,7 +61,7 @@ def test_concurrent_detection_recording():
             errors.append(e)
 
     threads = [
-        threading.Thread(target=record_detections, args=(i,))
+        threading.Thread(target=record_detections, args=(i,), daemon=True)
         for i in range(num_threads)
     ]
 
@@ -70,6 +70,9 @@ def test_concurrent_detection_recording():
 
     for t in threads:
         t.join(timeout=30.0)
+
+    stuck_threads = [t.name for t in threads if t.is_alive()]
+    assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
     assert len(errors) == 0, f"Errors during concurrent recording: {errors}"
 
@@ -112,7 +115,7 @@ def test_concurrent_translation_recording():
             errors.append(e)
 
     threads = [
-        threading.Thread(target=record_translations, args=(i,))
+        threading.Thread(target=record_translations, args=(i,), daemon=True)
         for i in range(num_threads)
     ]
 
@@ -121,6 +124,9 @@ def test_concurrent_translation_recording():
 
     for t in threads:
         t.join(timeout=30.0)
+
+    stuck_threads = [t.name for t in threads if t.is_alive()]
+    assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
     assert len(errors) == 0, f"Errors during concurrent recording: {errors}"
 
@@ -160,7 +166,7 @@ def test_concurrent_error_recording():
             errors.append(e)
 
     threads = [
-        threading.Thread(target=record_errors, args=(i,))
+        threading.Thread(target=record_errors, args=(i,), daemon=True)
         for i in range(num_threads)
     ]
 
@@ -169,6 +175,9 @@ def test_concurrent_error_recording():
 
     for t in threads:
         t.join(timeout=30.0)
+
+    stuck_threads = [t.name for t in threads if t.is_alive()]
+    assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
     assert len(errors) == 0, f"Errors during concurrent recording: {errors}"
 
@@ -201,7 +210,7 @@ def test_concurrent_enable_disable():
             errors.append(e)
 
     threads = [
-        threading.Thread(target=toggle_enable, args=(i,))
+        threading.Thread(target=toggle_enable, args=(i,), daemon=True)
         for i in range(num_threads)
     ]
 
@@ -210,6 +219,9 @@ def test_concurrent_enable_disable():
 
     for t in threads:
         t.join(timeout=30.0)
+
+    stuck_threads = [t.name for t in threads if t.is_alive()]
+    assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
     assert len(errors) == 0, f"Errors during concurrent enable/disable: {errors}"
 

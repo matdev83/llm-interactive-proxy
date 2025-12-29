@@ -192,7 +192,7 @@ class TestToolAccessControlEndToEnd:
         # Verify the tool call was blocked
         assert isinstance(result, ProcessedResponse)
         assert result != response  # Should be modified
-        assert result.metadata.tool_call_swallowed is True
+        assert result.metadata.get("tool_call_swallowed") is True
         # Extract content from OpenAI-compatible response structure
         if isinstance(result.content, dict):
             content = result.content["choices"][0]["message"]["content"]
@@ -575,7 +575,7 @@ class TestToolAccessControlEndToEnd:
         )
 
         # Verify tool call was blocked
-        assert result.metadata.tool_call_swallowed is True
+        assert result.metadata.get("tool_call_swallowed") is True
         # Extract content from OpenAI-compatible response structure
         if isinstance(result.content, dict):
             content = result.content["choices"][0]["message"]["content"]
@@ -962,4 +962,4 @@ class TestToolAccessControlEndToEnd:
         )
 
         # The blocked tool should be swallowed
-        assert result.metadata.tool_call_swallowed is True
+        assert result.metadata.get("tool_call_swallowed") is True

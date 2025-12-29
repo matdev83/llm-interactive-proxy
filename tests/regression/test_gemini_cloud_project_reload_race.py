@@ -168,7 +168,10 @@ def test_schedule_credentials_reload_race_condition():
         threads = []
         for i in range(5):
             t = threading.Thread(
-                target=concurrent_call, args=(i,), name=f"FileWatcher-{i}"
+                target=concurrent_call,
+                args=(i,),
+                name=f"FileWatcher-{i}",
+                daemon=True,
             )
             threads.append(t)
 
@@ -177,6 +180,9 @@ def test_schedule_credentials_reload_race_condition():
 
         for t in threads:
             t.join(timeout=2)
+
+        stuck_threads = [t.name for t in threads if t.is_alive()]
+        assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
         # Use freezegun to advance time instead of sleeping
         with freeze_time() as frozen_time:
@@ -220,7 +226,10 @@ def test_schedule_credentials_reload_race_condition():
         threads = []
         for i in range(5):
             t = threading.Thread(
-                target=concurrent_call, args=(i,), name=f"FileWatcher-{i}"
+                target=concurrent_call,
+                args=(i,),
+                name=f"FileWatcher-{i}",
+                daemon=True,
             )
             threads.append(t)
 
@@ -229,6 +238,9 @@ def test_schedule_credentials_reload_race_condition():
 
         for t in threads:
             t.join(timeout=2)
+
+        stuck_threads = [t.name for t in threads if t.is_alive()]
+        assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
         # Use freezegun to advance time instead of sleeping
         with freeze_time() as frozen_time:

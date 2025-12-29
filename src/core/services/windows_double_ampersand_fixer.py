@@ -309,7 +309,7 @@ class WindowsDoubleAmpersandFixer:
                 return CommandFixResult(fixed_command=fixed_command, was_modified=True)
 
         if isinstance(tool_arguments, dict):
-            result = dict(tool_arguments)
+            result = {str(key): value for key, value in tool_arguments.items()}
             self._set_nested_value(result, extraction.key_path, fixed_command)
             return CommandFixResult(fixed_command=result, was_modified=True)
 

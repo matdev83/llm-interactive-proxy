@@ -515,12 +515,14 @@ def test_property_20_thread_safe_concurrent_access(
             )
             record_subset = records[start_idx:end_idx]
 
-            thread = threading.Thread(target=add_records_worker, args=(record_subset,))
+            thread = threading.Thread(
+                target=add_records_worker, args=(record_subset,), daemon=True
+            )
             threads.append(thread)
 
         # Create query threads
         for _ in range(num_threads // 2):
-            thread = threading.Thread(target=query_records_worker)
+            thread = threading.Thread(target=query_records_worker, daemon=True)
             threads.append(thread)
 
         # Start all threads
@@ -530,6 +532,9 @@ def test_property_20_thread_safe_concurrent_access(
         # Wait for all threads to complete
         for thread in threads:
             thread.join(timeout=3.0)  # Reduced from 5.0 for performance
+
+        stuck_threads = [thread.name for thread in threads if thread.is_alive()]
+        assert not stuck_threads, f"Threads did not finish: {stuck_threads}"
 
         # Check for errors
         assert len(errors) == 0, f"Concurrent operations produced errors: {errors}"
