@@ -110,7 +110,7 @@ class UniversalMCPClient:
             # 4. Storing connection handle
 
             if logger.isEnabledFor(logging.INFO):
-                logger.info(f"Connecting to MCP server: {server_name}")
+                logger.info("Connecting to MCP server: %s", server_name)
 
             # Placeholder implementation
             self._connected_servers[server_name] = {
@@ -143,7 +143,7 @@ class UniversalMCPClient:
             # and parsing the response to get tool definitions
 
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Discovering tools from MCP server: {server_name}")
+                logger.debug("Discovering tools from MCP server: %s", server_name)
 
             # Placeholder: In real implementation, this would query the server
             # For now, we'll simulate an empty tool list
@@ -258,7 +258,7 @@ class UniversalMCPClient:
             # 5. Returning the resource content
 
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Reading MCP resource: {uri}")
+                logger.debug("Reading MCP resource: %s", uri)
 
             # Placeholder implementation
             # In a real implementation, we would:
@@ -315,10 +315,7 @@ class UniversalMCPClient:
         Returns:
             List of OpenAI function schemas
         """
-        return [
-            tool.to_openai_schema()
-            for tool in self._discovered_tools.values()
-        ]
+        return [tool.to_openai_schema() for tool in self._discovered_tools.values()]
 
     def is_mcp_tool(self, tool_name: str) -> bool:
         """Check if a tool is an MCP tool.
@@ -348,7 +345,7 @@ class UniversalMCPClient:
                 # This would involve properly closing the MCP connection
 
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"Disconnecting from MCP server: {server_name}")
+                    logger.info("Disconnecting from MCP server: %s", server_name)
 
                 # Remove tools from this server
                 tools_to_remove = [
