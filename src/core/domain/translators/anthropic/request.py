@@ -204,6 +204,7 @@ def from_domain_to_anthropic_request(request: CanonicalChatRequest) -> dict[str,
                 msg_dict["content"] = content_parts  # type: ignore[assignment]
 
         if message.tool_calls:
+            # PERFORMANCE: Use explicit loop to avoid multiple model_dump() calls
             tool_calls = []
             for tool_call in message.tool_calls:
                 if hasattr(tool_call, "model_dump"):

@@ -305,10 +305,15 @@ def anthropic_to_openai_request(
         msg_tool_calls = getattr(msg, "tool_calls", None)
         if msg_tool_calls and not tool_calls:
             try:
-                openai_msg["tool_calls"] = [
-                    tc if isinstance(tc, dict) else tc.model_dump()
-                    for tc in msg_tool_calls
-                ]
+                # PERFORMANCE: Convert to list first to avoid multiple iterations
+                # and cache model_dump() calls outside the comprehension
+                converted_calls = []
+                for tc in msg_tool_calls:
+                    if isinstance(tc, dict):
+                        converted_calls.append(tc)
+                    else:
+                        converted_calls.append(tc.model_dump())
+                openai_msg["tool_calls"] = converted_calls
             except (AttributeError, TypeError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(

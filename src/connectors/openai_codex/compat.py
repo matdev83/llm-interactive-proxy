@@ -116,6 +116,8 @@ class CompatibilityLayer(ICompatibilityLayer):
         if self._droid_detector:
             try:
                 # Extract tools and messages for detection
+                # PERFORMANCE: Pre-convert Pydantic models to dicts to avoid
+                # repeated model_dump() calls in downstream detection logic
                 request_tools = getattr(context.request, "tools", []) or []
                 tools_for_detection = []
                 for tool in request_tools:
