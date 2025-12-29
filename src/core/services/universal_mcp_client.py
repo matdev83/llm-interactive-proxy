@@ -7,15 +7,56 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel, Field
+
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class MCPServerStatus:
-    """Represents the status of an MCP server."""
+    """Represents status of an MCP server."""
 
     status: str
     tool_count: int
+
+
+class OpenAIFunctionSchema(BaseModel):
+    """OpenAI function schema format for tool definitions."""
+
+    type: str = Field(
+        default="function", description="Type identifier (always 'function')"
+    )
+    name: str = Field(description="Function name")
+    description: str = Field(description="Function description")
+    strict: bool = Field(default=False, description="Whether strict mode is enabled")
+    parameters: dict[str, Any] = Field(description="Input schema parameters")
+
+
+class MCPResource(BaseModel):
+    """MCP resource content with metadata."""
+
+    content: str = Field(description="Resource content")
+    uri: str = Field(description="Resource URI")
+    mime_type: str = Field(default="text/plain", description="MIME type of the content")
+
+
+class MCPToolResult(BaseModel):
+    """Result of executing an MCP tool."""
+
+    output: str = Field(default="", description="Tool output content")
+    exit_code: int = Field(
+        default=0, description="Exit code (0 for success, non-zero for error)"
+    )
+    error: str | None = Field(
+        default=None, description="Error message if execution failed"
+    )
+    tool_name: str | None = Field(
+        default=None, description="Name of the tool that was executed"
+    )
+    server_name: str | None = Field(default=None, description="Name of the MCP server")
+    mcp_result: dict[str, Any] | None = Field(
+        default=None, description="Raw MCP response"
+    )
 
 
 class MCPToolDefinition:
@@ -26,15 +67,14 @@ class MCPToolDefinition:
         self.description = description
         self.input_schema = input_schema
 
-    def to_openai_schema(self) -> dict[str, Any]:
+    def to_openai_schema(self) -> OpenAIFunctionSchema:
         """Convert MCP tool definition to OpenAI function schema."""
-        return {
-            "type": "function",
-            "name": self.name,
-            "description": self.description,
-            "strict": False,
-            "parameters": self.input_schema,
-        }
+        return OpenAIFunctionSchema(
+            name=self.name,
+            description=self.description,
+            strict=False,
+            parameters=self.input_schema,
+        )
 
 
 class UniversalMCPClient:
@@ -134,11 +174,11 @@ class UniversalMCPClient:
 
     async def execute_tool(
         self, tool_name: str, arguments: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Execute an MCP tool with the given arguments.
+    ) -> MCPToolResult:
+        """Execute an MCP tool with given arguments.
 
         Args:
-            tool_name: Name of the tool to execute
+            tool_name: Name of tool to execute
             arguments: Tool arguments
 
         Returns:
@@ -148,26 +188,26 @@ class UniversalMCPClient:
             # Find which server hosts this tool
             server_name = self._tool_to_server_map.get(tool_name)
             if not server_name:
-                return {
-                    "output": f"MCP tool '{tool_name}' not found",
-                    "exit_code": 1,
-                    "error": f"Tool '{tool_name}' is not available in any connected MCP server",
-                }
+                return MCPToolResult(
+                    output=f"MCP tool '{tool_name}' not found",
+                    exit_code=1,
+                    error=f"Tool '{tool_name}' is not available in any connected MCP server",
+                )
 
             # Check if server is still connected
             if server_name not in self._connected_servers:
-                return {
-                    "output": f"MCP server '{server_name}' not connected",
-                    "exit_code": 1,
-                    "error": f"Server hosting tool '{tool_name}' is not connected",
-                }
+                return MCPToolResult(
+                    output=f"MCP server '{server_name}' not connected",
+                    exit_code=1,
+                    error=f"Server hosting tool '{tool_name}' is not connected",
+                )
 
             # TODO: Implement actual tool execution via MCP protocol
             # This would involve:
-            # 1. Sending a "tools/call" request to the MCP server
-            # 2. Waiting for the response
+            # 1. Sending a "tools/call" request to MCP server
+            # 2. Waiting for response
             # 3. Handling any errors or streaming responses
-            # 4. Formatting the result appropriately
+            # 4. Formatting result appropriately
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -177,26 +217,26 @@ class UniversalMCPClient:
             # Placeholder implementation
             result = await self._send_tool_call(server_name, tool_name, arguments)
 
-            return {
-                "output": result.get("content", ""),
-                "exit_code": 0 if not result.get("isError", False) else 1,
-                "tool_name": tool_name,
-                "server_name": server_name,
-                "mcp_result": result,
-            }
+            return MCPToolResult(
+                output=result.get("content", ""),
+                exit_code=0 if not result.get("isError", False) else 1,
+                tool_name=tool_name,
+                server_name=server_name,
+                mcp_result=result,
+            )
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Error executing MCP tool {tool_name}: {e}", exc_info=True
                 )
-            return {
-                "output": f"Error executing MCP tool '{tool_name}': {e!s}",
-                "exit_code": 1,
-                "error": str(e),
-            }
+            return MCPToolResult(
+                output=f"Error executing MCP tool '{tool_name}': {e!s}",
+                exit_code=1,
+                error=str(e),
+            )
 
-    async def read_resource(self, uri: str) -> dict[str, Any]:
+    async def read_resource(self, uri: str) -> MCPResource:
         """Read an MCP resource by URI.
 
         Args:
@@ -212,8 +252,8 @@ class UniversalMCPClient:
             # TODO: Implement actual MCP resource reading via MCP protocol
             # This would involve:
             # 1. Parsing the URI to determine which server to query
-            # 2. Sending a "resources/read" request to the MCP server
-            # 3. Waiting for the response
+            # 2. Sending a "resources/read" request to MCP server
+            # 3. Waiting for response
             # 4. Handling any errors
             # 5. Returning the resource content
 
@@ -227,11 +267,11 @@ class UniversalMCPClient:
             # 3. Return the actual resource content
 
             # For now, return a placeholder response
-            return {
-                "content": f"MCP resource content for URI: {uri}",
-                "uri": uri,
-                "mimeType": "text/plain",
-            }
+            return MCPResource(
+                content=f"MCP resource content for URI: {uri}",
+                uri=uri,
+                mime_type="text/plain",
+            )
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
@@ -275,7 +315,10 @@ class UniversalMCPClient:
         Returns:
             List of OpenAI function schemas
         """
-        return [tool.to_openai_schema() for tool in self._discovered_tools.values()]
+        return [
+            tool.to_openai_schema().model_dump()
+            for tool in self._discovered_tools.values()
+        ]
 
     def is_mcp_tool(self, tool_name: str) -> bool:
         """Check if a tool is an MCP tool.

@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any
 
 from src.core.domain.tool_results import UniversalToolResult
-from src.core.services.universal_mcp_client import UniversalMCPClient
+from src.core.services.universal_mcp_client import (
+    MCPToolResult,
+    UniversalMCPClient,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -182,20 +185,26 @@ class UniversalToolExecutor:
             )
 
     def _format_result_from_dict(
-        self, tool_name: str, result: dict[str, Any]
+        self, tool_name: str, result: dict[str, Any] | MCPToolResult
     ) -> UniversalToolResult:
         """Convert a dictionary result to a UniversalToolResult."""
-        output = result.pop("output", "")
-        exit_code = result.pop("exit_code", 0)
-        error = result.pop("error", None)
+        # Handle MCPToolResult by converting to dict first
+        if isinstance(result, MCPToolResult):
+            result_dict = result.model_dump()
+        else:
+            result_dict = result
+
+        output = result_dict.pop("output", "")
+        exit_code = result_dict.pop("exit_code", 0)
+        error = result_dict.pop("error", None)
         # Remove tool_name from result if present to avoid conflict
-        result.pop("tool_name", None)
+        result_dict.pop("tool_name", None)
         return self._format_result(
             output=output,
             exit_code=exit_code,
             tool_name=tool_name,
             error=error,
-            **result,
+            **result_dict,
         )
 
     def register_tool_handler(
@@ -367,10 +376,25 @@ class UniversalToolExecutor:
 
             # Format result in KiloCode's expected format
             if self.result_format == "kilo_standard":
-                # Ensure output is formatted with tool name prefix
-                output = result.get("output", "")
+                # Handle both dict and MCPToolResult
+                if isinstance(result, MCPToolResult):
+                    output = result.output
+                else:
+                    output = result.get("output", "")
+
                 if not output.startswith(f"[{tool_name}]"):
-                    result["output"] = f"[{tool_name}] Result:\n{output}"
+                    if isinstance(result, MCPToolResult):
+                        # Create new MCPToolResult with modified output
+                        result = MCPToolResult(
+                            output=f"[{tool_name}] Result:\n{output}",
+                            exit_code=result.exit_code,
+                            error=result.error,
+                            tool_name=result.tool_name,
+                            server_name=result.server_name,
+                            mcp_result=result.mcp_result,
+                        )
+                    else:
+                        result["output"] = f"[{tool_name}] Result:\n{output}"
 
             return self._format_result_from_dict(tool_name, result)
 
