@@ -54,10 +54,25 @@ def register_backend_lifecycle_manager(services: ServiceCollection) -> None:
                     )
                     per_session_limit = int(per_session_limit_raw or 32)
                     global_backend_limit = int(global_backend_limit_raw or 200)
-            except Exception:
+            except (AttributeError, TypeError, ValueError) as exc:
+                # Expected errors when reading config values:
+                # AttributeError: session attribute or nested attributes missing
+                # TypeError: getattr returns wrong type or int() receives wrong type
+                # ValueError: int() receives invalid value
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to get backend lifecycle limits from AppConfig; using defaults",
+                        "Failed to get backend lifecycle limits from AppConfig (%s); using defaults",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+                per_session_limit = 32
+                global_backend_limit = 200
+            except Exception as exc:
+                # Unexpected exception - log with full context
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error reading backend lifecycle limits from AppConfig (%s); using defaults",
+                        type(exc).__name__,
                         exc_info=True,
                     )
                 per_session_limit = 32

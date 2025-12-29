@@ -433,11 +433,23 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             from src.core.di.services import get_service_provider
 
             provider = get_service_provider()
-        except Exception:
-            # DI not available, will construct locally
+        except (RuntimeError, AttributeError, ImportError) as exc:
+            # DI not available or provider not initialized, will construct locally
+            # RuntimeError: provider not initialized or event loop issues
+            # AttributeError: provider object malformed
+            # ImportError: module import failure
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "DI service provider not available during connector initialization, using local construction",
+                    "DI service provider not available during connector initialization, using local construction: %s",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+        except Exception as exc:
+            # Unexpected exception - log at WARNING level for visibility
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error accessing DI service provider during connector initialization: %s",
+                    type(exc).__name__,
                     exc_info=True,
                 )
 
@@ -1067,9 +1079,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     and hasattr(registry, "_models_from_api")
                 ):
                     # Access private attributes for backward compatibility with concrete implementations
-                    self.available_models = getattr(registry, "_available_models", None)  # type: ignore[attr-defined]
-                    self._available_models_set = getattr(registry, "_available_models_set", None)  # type: ignore[attr-defined]
-                    self._models_from_api = getattr(registry, "_models_from_api", None)  # type: ignore[attr-defined]
+                    self.available_models = getattr(registry, "_available_models", None)  # type: ignore[assignment,attr-defined]
+                    self._available_models_set = getattr(registry, "_available_models_set", None)  # type: ignore[assignment,attr-defined]
+                    self._models_from_api = getattr(registry, "_models_from_api", None)  # type: ignore[assignment,attr-defined]
             except Exception as e:
                 logger.warning(
                     f"Failed to load models during initialization: {e}", exc_info=True
@@ -1100,9 +1112,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 and hasattr(registry, "_models_from_api")
             ):
                 # Access private attributes for backward compatibility with concrete implementations
-                self.available_models = getattr(registry, "_available_models", None)  # type: ignore[attr-defined]
-                self._available_models_set = getattr(registry, "_available_models_set", None)  # type: ignore[attr-defined]
-                self._models_from_api = getattr(registry, "_models_from_api", None)  # type: ignore[attr-defined]
+                self.available_models = getattr(registry, "_available_models", None)  # type: ignore[assignment,attr-defined]
+                self._available_models_set = getattr(registry, "_available_models_set", None)  # type: ignore[assignment,attr-defined]
+                self._models_from_api = getattr(registry, "_models_from_api", None)  # type: ignore[assignment,attr-defined]
         else:
             # Fallback to old logic
             if self.available_models:
