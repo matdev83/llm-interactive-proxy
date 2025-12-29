@@ -94,6 +94,7 @@
 
 - [ ] 5.2 (P) Tag server-generated command responses as never-forward
   - Tag the server-generated command response message as `never_forward` for the session at creation time.
+  - Ensure the tag is persisted for the session lifetime as soon as the response is generated and before it is returned to the client.
   - Ensure recognition does not rely on client-preserved metadata if the client resubmits the response in history.
   - _Requirements: 3.1, 3.2, 3.3_
 
@@ -107,6 +108,7 @@
 - [ ] 6.1 Register identity, registry, and enforcer services in staged initialization
   - Register new services with appropriate lifetimes and dependency wiring.
   - Ensure configuration values (tag capacity limit) are available to the registry at runtime.
+  - Confirm services are available to command handling, steering injection, and backend orchestration in staged initialization order.
   - _Requirements: 1.1, 1.2, 1.3, 14.3_
 
 - [ ] 6.2 Integrate enforcement into backend completion flow before capture and invocation
@@ -125,6 +127,7 @@
 - [ ]* 6.4 Add property-based tests for identity and filtering invariants (deferrable)
   - Generate diverse canonical message shapes (role/content/tool variants) and assert identity determinism.
   - Assert filtering invariants (order preserved; removed messages are always tagged for the session and scope).
+  - Include cases covering tool-result messages whose content is rewritten by compaction.
   - _Requirements: 1.2, 1.5, 5.2_
 
 - [ ] 7. Ensure coverage across entry points and session identity propagation (Option B)
@@ -143,11 +146,13 @@
 - [ ] 7.3 Ensure internal retry/steering workflows propagate session id and injection provenance
   - Reuse the same session id across multiple backend calls made within a single logical interaction.
   - Provide the injected-message provenance boundary for every backend call that appends steering/internal messages.
+  - Confirm internal workflows never bypass the shared enforcement boundary.
   - _Requirements: 7.2, 8.2, 8.3_
 
 - [ ] 7.4 Add integration tests for session scoping and non-leakage across entry points
   - Verify tags are applied only within the resolved session id and do not leak across sessions.
   - Verify a non-HTTP entry point reuses the same session id across multiple backend calls in a single interaction.
+  - Verify concurrent interactions do not cross-apply tags between different session identifiers.
   - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
 - [ ] 8. Remove legacy regex-based enforcement and legacy code paths (alpha finality)
@@ -160,9 +165,11 @@
 - [ ] 8.2 Update tests to remove legacy regex expectations and assert final behavior only
   - Remove or rewrite tests that depended on legacy regex stripping and replace with tagging/enforcement assertions.
   - Add regression coverage that fails if legacy regex-based non-forwardable filtering is reintroduced.
+  - Remove obsolete helpers/fixtures that existed only to support legacy regex-based enforcement tests.
   - _Requirements: 13.1, 13.3_
 
 - [ ] 8.3 Run the full unit and integration suites for this feature and fix failures
   - Ensure unit tests for identity/registry/enforcer pass.
   - Ensure integration tests for backend flow, compaction compatibility, and entry point coverage pass.
+  - Ensure static checks pass for modified modules (lint, formatting, type checks).
   - _Requirements: 9.1, 10.1, 11.1_
