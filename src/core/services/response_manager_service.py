@@ -80,7 +80,9 @@ class ResponseManager(IResponseManager):
         first_result = command_result.command_results[0]
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"First command result: {first_result}, type: {type(first_result)}"
+                "First command result: %s, type: %s",
+                first_result,
+                type(first_result),
             )
 
         if isinstance(first_result, ResponseEnvelope):
@@ -251,7 +253,8 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         is_cline_agent = session.agent == "cline"
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"is_cline_agent value in format_command_result_for_agent: {is_cline_agent}"
+                "is_cline_agent value in format_command_result_for_agent: %s",
+                is_cline_agent,
             )
 
         if is_cline_agent:
@@ -275,7 +278,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 )
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        f"Cline agent - creating '{command_name}' tool call for command: {command_name}, message: {command_result.message}"
+                        "Cline agent - creating '%s' tool call for command: %s, message: %s",
+                        command_name,
+                        command_name,
+                        command_result.message,
                     )
                 return _AwaitableDict(
                     self._create_tool_calls_response(command_name, arguments)
@@ -284,7 +290,8 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 # Fallback for unexpected types
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Unexpected result type for Cline agent: {type(command_result)}. Returning unknown_command tool call."
+                        "Unexpected result type for Cline agent: %s. Returning unknown_command tool call.",
+                        type(command_result),
                     )
                 return self._create_tool_calls_response(
                     "unknown_command",
@@ -297,7 +304,8 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             # 2. Otherwise, return the message content
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Non-Cline agent - processing command result as message content: {command_result}"
+                    "Non-Cline agent - processing command result as message content: %s",
+                    command_result,
                 )
             message = ""
             command_name = "unknown_command"
@@ -326,7 +334,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 message = str(command_result)
 
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Non-Cline agent - final message content: {message}")
+                logger.debug("Non-Cline agent - final message content: %s", message)
 
             # For unit test that expects tool calls
             if command_name == "hello" and message == "Hello acknowledged":
@@ -381,7 +389,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Creating tool calls response for command: {command_name}, arguments: {arguments}"
+                "Creating tool calls response for command: %s, arguments: %s",
+                command_name,
+                arguments,
             )
 
         # Create the function call
@@ -481,7 +491,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                     actual_command = extracted
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Detected pytest command execution: {actual_command} (tool: {command_name})"
+                    "Detected pytest command execution: %s (tool: %s)",
+                    actual_command,
+                    command_name,
                 )
         except Exception as exc:
             logger.debug(
@@ -541,13 +553,21 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             if message_lines < min_lines:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        f"Skipping pytest compression for command result: {actual_command} (tool: {command_name}) - {message_lines} lines < {min_lines} threshold"
+                        "Skipping pytest compression for command result: %s (tool: %s) - %d lines < %d threshold",
+                        actual_command,
+                        command_name,
+                        message_lines,
+                        min_lines,
                     )
                 return message
 
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Applying pytest compression to command result: {actual_command} (tool: {command_name}) - {message_lines} lines >= {min_lines} threshold"
+                    "Applying pytest compression to command result: %s (tool: %s) - %d lines >= %d threshold",
+                    actual_command,
+                    command_name,
+                    message_lines,
+                    min_lines,
                 )
         except Exception as exc:
             logger.debug(
@@ -727,8 +747,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             compression_ratio = (1 - compressed_lines / original_lines) * 100
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Pytest compression applied: {original_lines} -> {compressed_lines} lines "
-                    f"({compression_ratio:.1f}% reduction)"
+                    "Pytest compression applied: %d -> %d lines (%.1f%% reduction)",
+                    original_lines,
+                    compressed_lines,
+                    compression_ratio,
                 )
 
         return filtered_output
@@ -761,7 +783,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Pytest compression started - Original metrics: {original_tokens} tokens, {original_lines} lines"
+                "Pytest compression started - Original metrics: %d tokens, %d lines",
+                original_tokens,
+                original_lines,
             )
 
         lines = output.strip().split("\n")
@@ -812,11 +836,20 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         # Log comprehensive compression metrics
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Pytest compression completed - Detailed metrics:\n"
-                f"  Original: {original_tokens} tokens, {original_lines} lines\n"
-                f"  Filtered: {tokens_filtered} tokens ({token_compression_ratio:.1f}%), {lines_filtered} lines ({line_compression_ratio:.1f}%)\n"
-                f"  Final: {final_tokens} tokens, {final_lines} lines\n"
-                f"  Lines dropped: {lines_dropped}"
+                "Pytest compression completed - Detailed metrics:\n"
+                "  Original: %d tokens, %d lines\n"
+                "  Filtered: %d tokens (%.1f%%), %d lines (%.1f%%)\n"
+                "  Final: %d tokens, %d lines\n"
+                "  Lines dropped: %d",
+                original_tokens,
+                original_lines,
+                tokens_filtered,
+                token_compression_ratio,
+                lines_filtered,
+                line_compression_ratio,
+                final_tokens,
+                final_lines,
+                lines_dropped,
             )
 
         return PytestCompressionResult(output=filtered_output, token_count=final_tokens)

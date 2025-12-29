@@ -471,7 +471,11 @@ FAILED tests/unit/test_example2.py::test_failure - AssertionError: assert False
 
             # Check that threshold-based compression was logged
             mock_logger.info.assert_any_call(
-                "Applying pytest compression to command result: pytest (tool: pytest) - 33 lines >= 10 threshold"
+                "Applying pytest compression to command result: %s (tool: %s) - %d lines >= %d threshold",
+                "pytest",
+                "pytest",
+                33,
+                10,
             )
 
             # Verify that detailed metrics were logged
