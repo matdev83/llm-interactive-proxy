@@ -228,6 +228,7 @@ class ToolSchemaResolver(IToolSchemaResolver):
                 if isinstance(name_value, str):
                     merged_tools[name_value] = deepcopy(tool)
                     # Create signature from parameters for collision detection
+                    # Cache the signature to avoid redundant serialization
                     tool_signatures[name_value] = json.dumps(params, sort_keys=True)
 
             # Merge custom tools with collision detection
@@ -240,21 +241,25 @@ class ToolSchemaResolver(IToolSchemaResolver):
                     params = tool.get("parameters", {})
 
                 if isinstance(name_value, str):
+                    # Serialize params once for this tool
+                    params_sig = json.dumps(params, sort_keys=True)
+
                     # Check for parameter collision
-                    if name_value in merged_tools:
-                        new_sig = json.dumps(params, sort_keys=True)
-                        if new_sig != tool_signatures.get(name_value):
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    "Tool schema collision: tool '%s' defined with different parameters. "
-                                    "Keeping default definition. Custom parameters: %s",
-                                    name_value,
-                                    json.dumps(params)[:200],
-                                )
-                            continue  # Keep default, skip custom
+                    if (
+                        name_value in merged_tools
+                        and params_sig != tool_signatures.get(name_value)
+                    ):
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Tool schema collision: tool '%s' defined with different parameters. "
+                                "Keeping default definition. Custom parameters: %s",
+                                name_value,
+                                params_sig[:200],
+                            )
+                        continue  # Keep default, skip custom
                     # No collision or same parameters - merge (custom overwrites)
                     merged_tools[name_value] = deepcopy(tool)
-                    tool_signatures[name_value] = json.dumps(params, sort_keys=True)
+                    tool_signatures[name_value] = params_sig
 
             return self._dict_tools_to_schemas(list(merged_tools.values()))
 

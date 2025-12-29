@@ -189,14 +189,14 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
             metadata["index"] = candidate["index"]
 
         # Extract content and tool calls from parts
-        content_text = ""
+        text_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         usage = json_obj.get("usage")
 
         for part in parts:
             # Extract text content
             if "text" in part:
-                content_text += part["text"]
+                text_parts.append(part["text"])
 
             # Extract function_call and map to tool_calls
             if "functionCall" in part:
@@ -204,6 +204,9 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
                 tool_call = self._map_function_call_to_tool_call(function_call)
                 if tool_call:
                     tool_calls.append(tool_call)
+
+        # Build content_text efficiently from collected parts
+        content_text = "".join(text_parts)
 
         # Add tool_calls to metadata if present
         if tool_calls:

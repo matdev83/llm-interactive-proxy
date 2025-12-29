@@ -454,13 +454,16 @@ class SSESerializer:
             # Inject tool_calls from typed metadata if present
             tool_calls_to_inject = chunk.metadata.tool_calls
             if tool_calls_to_inject:
-                # Convert ToolCall objects to dicts
-                tool_calls_dicts = []
-                for tc in tool_calls_to_inject:
-                    if hasattr(tc, "model_dump"):
-                        tool_calls_dicts.append(tc.model_dump(exclude_none=True))
-                    elif isinstance(tc, dict):
-                        tool_calls_dicts.append(tc)
+                # Convert ToolCall objects to dicts efficiently
+                # Use list comprehension to avoid redundant hasattr/isinstance checks
+                tool_calls_dicts = [
+                    (
+                        tc.model_dump(exclude_none=True)
+                        if hasattr(tc, "model_dump")
+                        else tc
+                    )
+                    for tc in tool_calls_to_inject
+                ]
                 if tool_calls_dicts:
                     content_copy = self._inject_tool_calls_into_chunk(
                         content_copy, tool_calls_dicts
