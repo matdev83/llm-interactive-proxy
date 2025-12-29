@@ -79,11 +79,12 @@ class FailoverService:
         """
         failover_route = self.failover_routes.get(backend_type)
         if failover_route:
-            logger.info(
-                "Found failover route",
-                backend_type=backend_type,
-                failover_route=failover_route.model_dump(),
-            )
+            if is_log_level_enabled(logger, logging.INFO):
+                logger.info(
+                    "Found failover route",
+                    backend_type=backend_type,
+                    failover_route=failover_route.model_dump(),
+                )
         else:
             if is_log_level_enabled(logger, logging.DEBUG):
                 logger.debug("No failover route found", backend_type=backend_type)
@@ -131,13 +132,13 @@ class FailoverService:
 
         try:
             route_config = FailoverRouteConfig.model_validate(route_data)
-        except ValidationError as e:
+        except ValidationError:
             logger.warning(
                 "Invalid failover route configuration format (validation error)",
                 exc_info=True,
             )
             return []
-        except Exception as e:
+        except Exception:
             logger.warning(
                 "Invalid failover route configuration format (unexpected error)",
                 exc_info=True,
@@ -188,11 +189,12 @@ class FailoverService:
         typed_route = FailoverRouteConfig.model_validate(failover_route)
 
         self.failover_routes[backend_type] = typed_route
-        logger.info(
-            "Added failover route",
-            backend_type=backend_type,
-            failover_route=typed_route.model_dump(),
-        )
+        if is_log_level_enabled(logger, logging.INFO):
+            logger.info(
+                "Added failover route",
+                backend_type=backend_type,
+                failover_route=typed_route.model_dump(),
+            )
 
     def remove_failover_route(self, backend_type: str) -> bool:
         """Remove a failover route.
