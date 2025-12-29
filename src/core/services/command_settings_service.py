@@ -55,7 +55,8 @@ class CommandSettingsService(ICommandSettingsService):
             value: The new command prefix
         """
         if not value:
-            logger.warning("Attempted to set empty command prefix, ignoring")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Attempted to set empty command prefix, ignoring")
             return
 
         self._command_prefix = value
