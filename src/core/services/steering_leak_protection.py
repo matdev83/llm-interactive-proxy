@@ -17,9 +17,46 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SanitizationResult:
+    """Result of content sanitization.
+
+    Attributes:
+        content: The sanitized content string.
+        had_leak: True if a leak was detected and removed, False otherwise.
+    """
+    content: str
+    had_leak: bool
+
+
+@dataclass(frozen=True)
+class BytesSanitizationResult:
+    """Result of byte data sanitization.
+
+    Attributes:
+        data: The sanitized bytes.
+        had_leak: True if a leak was detected and removed, False otherwise.
+    """
+    data: bytes
+    had_leak: bool
+
+
+@dataclass(frozen=True)
+class DictSanitizationResult:
+    """Result of dictionary sanitization.
+
+    Attributes:
+        data: The sanitized dictionary.
+        had_leak: True if internal keys were found and removed, False otherwise.
+    """
+    data: dict[str, Any]
+    had_leak: bool
 
 
 # Patterns that indicate internal steering data has leaked into client responses
@@ -74,10 +111,12 @@ class SteeringLeakProtector:
         protector = SteeringLeakProtector()
 
         # For string content
-        safe_content, had_leak = protector.sanitize_content(content)
+        result = protector.sanitize_content(content)
+        safe_content = result.content
 
         # For bytes (SSE)
-        safe_bytes, had_leak = protector.sanitize_bytes(sse_chunk)
+        bytes_result = protector.sanitize_bytes(sse_chunk)
+        safe_bytes = bytes_result.data
     """
 
     def __init__(
@@ -146,26 +185,26 @@ class SteeringLeakProtector:
         except Exception:
             return False
 
-    def sanitize_content(self, content: str) -> tuple[str, bool]:
+    def sanitize_content(self, content: str) -> SanitizationResult:
         """Sanitize content by removing leaked steering data.
 
         Args:
             content: The content string to sanitize.
 
         Returns:
-            Tuple of (sanitized_content, had_leak).
-            If no leak was detected, returns the original content unchanged.
+            SanitizationResult containing sanitized content and leak detection status.
+            If no leak was detected, returns original content unchanged.
         """
         if not self._enabled or not content:
-            return content, False
+            return SanitizationResult(content=content, had_leak=False)
 
         if not self.has_leak(content):
-            return content, False
+            return SanitizationResult(content=content, had_leak=False)
 
         self._leak_count += 1
 
         if self._log_leaks:
-            # Log a truncated sample of the leak for debugging
+            # Log a truncated sample of leak for debugging
             sample = content[:500] + "..." if len(content) > 500 else content
             logger.warning(
                 "SECURITY: Steering message leak detected in outbound response. "
@@ -179,48 +218,48 @@ class SteeringLeakProtector:
                 "This indicates a bug in the response pipeline."
             )
 
-        # Attempt to remove the leaked steering response structure
+        # Attempt to remove leaked steering response structure
         sanitized = self._remove_leaked_structure(content)
 
-        return sanitized, True
+        return SanitizationResult(content=sanitized, had_leak=True)
 
-    def sanitize_bytes(self, data: bytes) -> tuple[bytes, bool]:
+    def sanitize_bytes(self, data: bytes) -> BytesSanitizationResult:
         """Sanitize byte data by removing leaked steering data.
 
         Args:
             data: The byte data to sanitize.
 
         Returns:
-            Tuple of (sanitized_bytes, had_leak).
-            If no leak was detected, returns the original data unchanged.
+            BytesSanitizationResult containing sanitized bytes and leak detection status.
+            If no leak was detected, returns original data unchanged.
         """
         if not self._enabled or not data:
-            return data, False
+            return BytesSanitizationResult(data=data, had_leak=False)
 
         try:
             content = data.decode("utf-8")
         except UnicodeDecodeError:
             # Can't decode, assume no leak
-            return data, False
+            return BytesSanitizationResult(data=data, had_leak=False)
 
-        sanitized_content, had_leak = self.sanitize_content(content)
+        result = self.sanitize_content(content)
 
-        if not had_leak:
-            return data, False
+        if not result.had_leak:
+            return BytesSanitizationResult(data=data, had_leak=False)
 
-        return sanitized_content.encode("utf-8"), True
+        return BytesSanitizationResult(data=result.content.encode("utf-8"), had_leak=True)
 
-    def sanitize_dict(self, data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    def sanitize_dict(self, data: dict[str, Any]) -> DictSanitizationResult:
         """Sanitize a dictionary by removing steering-related keys.
 
         Args:
             data: The dictionary to sanitize.
 
         Returns:
-            Tuple of (sanitized_dict, had_leak).
+            DictSanitizationResult containing sanitized dictionary and leak detection status.
         """
         if not self._enabled or not data:
-            return data, False
+            return DictSanitizationResult(data=data, had_leak=False)
 
         # Keys that should never appear in client responses
         internal_keys = {
@@ -241,10 +280,10 @@ class SteeringLeakProtector:
             if isinstance(metadata, dict):
                 nested_found = set(metadata.keys()) & internal_keys
                 if not nested_found:
-                    return data, False
+                    return DictSanitizationResult(data=data, had_leak=False)
                 found_keys = nested_found
             else:
-                return data, False
+                return DictSanitizationResult(data=data, had_leak=False)
 
         self._leak_count += 1
 
@@ -269,7 +308,7 @@ class SteeringLeakProtector:
                 k: v for k, v in sanitized["metadata"].items() if k not in internal_keys
             }
 
-        return sanitized, True
+        return DictSanitizationResult(data=sanitized, had_leak=True)
 
     def _remove_leaked_structure(self, content: str) -> str:
         """Remove leaked steering JSON structures from content.
@@ -318,35 +357,39 @@ def get_steering_leak_protector() -> SteeringLeakProtector:
     return _global_protector
 
 
-def set_steering_leak_protector(protector: SteeringLeakProtector) -> None:
+def set_steering_leak_protector(protector: SteeringLeakProtector | None) -> None:
     """Set the global steering leak protector instance."""
     global _global_protector
     with _global_lock:
         _global_protector = protector
 
 
-def check_and_sanitize_response(content: Any) -> tuple[Any, bool]:
+def check_and_sanitize_response(content: str | bytes | dict) -> str | bytes | dict:
     """Convenience function to check and sanitize any response content.
 
     Args:
         content: The content to check (str, bytes, or dict).
 
     Returns:
-        Tuple of (sanitized_content, had_leak).
+        Sanitized content (str, bytes, or dict). The original type is preserved.
+        Use the protector's methods directly if you need to leak detection status.
     """
     protector = get_steering_leak_protector()
 
     if isinstance(content, str):
-        return protector.sanitize_content(content)
+        result = protector.sanitize_content(content)
+        return result.content
     if isinstance(content, bytes):
-        return protector.sanitize_bytes(content)
+        bytes_result = protector.sanitize_bytes(content)
+        return bytes_result.data
     if isinstance(content, dict):
-        return protector.sanitize_dict(content)
+        dict_result = protector.sanitize_dict(content)
+        return dict_result.data
 
     # For other types, convert to string and check
     str_content = str(content)
     if protector.has_leak(str_content):
-        sanitized, _ = protector.sanitize_content(str_content)
-        return sanitized, True
+        result = protector.sanitize_content(str_content)
+        return result.content
 
-    return content, False
+    return str_content

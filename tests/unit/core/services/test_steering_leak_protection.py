@@ -109,27 +109,27 @@ class TestSteeringLeakProtector:
         """Test that leaked steering content is sanitized."""
         protector = SteeringLeakProtector(log_leaks=False)
         content = 'Normal text {"id": "chatcmpl-steering-123", "object": "chat.completion"} more text'
-        sanitized, had_leak = protector.sanitize_content(content)
-        assert had_leak is True
-        assert "chatcmpl-steering" not in sanitized
+        result = protector.sanitize_content(content)
+        assert result.had_leak is True
+        assert "chatcmpl-steering" not in result.content
         assert protector.leak_count == 1
 
     def test_sanitize_content_no_leak_unchanged(self) -> None:
         """Test that content without leaks is unchanged."""
         protector = SteeringLeakProtector()
         content = "This is normal content without any steering data"
-        sanitized, had_leak = protector.sanitize_content(content)
-        assert had_leak is False
-        assert sanitized == content
+        result = protector.sanitize_content(content)
+        assert result.had_leak is False
+        assert result.content == content
         assert protector.leak_count == 0
 
     def test_sanitize_content_disabled(self) -> None:
         """Test that disabled protection does not sanitize."""
         protector = SteeringLeakProtector(enabled=False)
         content = '{"id": "chatcmpl-steering-123"}'
-        sanitized, had_leak = protector.sanitize_content(content)
-        assert had_leak is False
-        assert sanitized == content
+        result = protector.sanitize_content(content)
+        assert result.had_leak is False
+        assert result.content == content
 
     def test_sanitize_bytes(self) -> None:
         """Test byte data sanitization."""
@@ -137,10 +137,10 @@ class TestSteeringLeakProtector:
         data = (
             b'data: {"id": "chatcmpl-steering-123", "steering_message": "blocked"}\n\n'
         )
-        sanitized, had_leak = protector.sanitize_bytes(data)
-        assert had_leak is True
-        assert b"chatcmpl-steering" not in sanitized
-        assert b"steering_message" not in sanitized
+        result = protector.sanitize_bytes(data)
+        assert result.had_leak is True
+        assert b"chatcmpl-steering" not in result.data
+        assert b"steering_message" not in result.data
 
     def test_sanitize_dict_removes_internal_keys(self) -> None:
         """Test that internal steering keys are removed from dicts."""
@@ -151,20 +151,20 @@ class TestSteeringLeakProtector:
             "tool_call_swallowed": True,
             "_steering_replacement": True,
         }
-        sanitized, had_leak = protector.sanitize_dict(data)
-        assert had_leak is True
-        assert "content" in sanitized
-        assert "steering_message" not in sanitized
-        assert "tool_call_swallowed" not in sanitized
-        assert "_steering_replacement" not in sanitized
+        result = protector.sanitize_dict(data)
+        assert result.had_leak is True
+        assert "content" in result.data
+        assert "steering_message" not in result.data
+        assert "tool_call_swallowed" not in result.data
+        assert "_steering_replacement" not in result.data
 
     def test_sanitize_dict_preserves_normal_keys(self) -> None:
         """Test that normal keys are preserved."""
         protector = SteeringLeakProtector()
         data = {"content": "Hello", "model": "gpt-4", "usage": {"tokens": 10}}
-        sanitized, had_leak = protector.sanitize_dict(data)
-        assert had_leak is False
-        assert sanitized == data
+        result = protector.sanitize_dict(data)
+        assert result.had_leak is False
+        assert result.data == data
 
     def test_sanitize_dict_nested_metadata(self) -> None:
         """Test sanitization of nested metadata."""
@@ -173,10 +173,10 @@ class TestSteeringLeakProtector:
             "content": "Hello",
             "metadata": {"steering_message": "blocked", "session_id": "123"},
         }
-        sanitized, had_leak = protector.sanitize_dict(data)
-        assert had_leak is True
-        assert "steering_message" not in sanitized.get("metadata", {})
-        assert sanitized["metadata"]["session_id"] == "123"
+        result = protector.sanitize_dict(data)
+        assert result.had_leak is True
+        assert "steering_message" not in result.data.get("metadata", {})
+        assert result.data["metadata"]["session_id"] == "123"
 
     def test_strict_mode_raises_error(self) -> None:
         """Test that strict mode raises error on leak detection."""
@@ -231,31 +231,31 @@ class TestCheckAndSanitizeResponse:
     def test_sanitize_string(self) -> None:
         """Test sanitizing string content."""
         content = 'text {"id": "chatcmpl-steering-123"} more'
-        sanitized, had_leak = check_and_sanitize_response(content)
-        assert had_leak is True
-        assert isinstance(sanitized, str)
+        result = check_and_sanitize_response(content)
+        assert isinstance(result, str)
+        assert "chatcmpl-steering" not in result
 
     def test_sanitize_bytes(self) -> None:
         """Test sanitizing bytes content."""
         content = b'{"steering_message": "blocked"}'
-        sanitized, had_leak = check_and_sanitize_response(content)
-        assert had_leak is True
-        assert isinstance(sanitized, bytes)
+        result = check_and_sanitize_response(content)
+        assert isinstance(result, bytes)
 
     def test_sanitize_dict(self) -> None:
         """Test sanitizing dict content."""
         content = {"tool_call_swallowed": True, "content": "Hello"}
-        sanitized, had_leak = check_and_sanitize_response(content)
-        assert had_leak is True
-        assert isinstance(sanitized, dict)
-        assert "tool_call_swallowed" not in sanitized
+        result = check_and_sanitize_response(content)
+        assert isinstance(result, dict)
+        assert "tool_call_swallowed" not in result
 
     def test_no_leak_passthrough(self) -> None:
         """Test that content without leaks passes through unchanged."""
         content = {"content": "Hello", "model": "gpt-4"}
-        sanitized, had_leak = check_and_sanitize_response(content)
-        assert had_leak is False
-        assert sanitized == content
+        result = check_and_sanitize_response(content)
+        assert result == content
+        # Verify calling with the same content again returns the same result
+        result2 = check_and_sanitize_response(content)
+        assert result2 == content
 
 
 class TestRealWorldScenarios:
@@ -283,12 +283,12 @@ class TestRealWorldScenarios:
 
         assert protector.has_leak(content) is True
 
-        sanitized, had_leak = protector.sanitize_content(content)
-        assert had_leak is True
+        result = protector.sanitize_content(content)
+        assert result.had_leak is True
         # The legitimate content should be preserved
-        assert "paths are validated" in sanitized
+        assert "paths are validated" in result.content
         # The steering response should be removed
-        assert "chatcmpl-steering" not in sanitized
+        assert "chatcmpl-steering" not in result.content
 
     def test_full_steering_response_structure(self) -> None:
         """Test detection of complete steering response structure."""
@@ -312,9 +312,9 @@ class TestRealWorldScenarios:
 
         assert protector.has_leak(content) is True
 
-        sanitized, had_leak = protector.sanitize_content(content)
-        assert had_leak is True
-        assert "chatcmpl-steering" not in sanitized
+        result = protector.sanitize_content(content)
+        assert result.had_leak is True
+        assert "chatcmpl-steering" not in result.content
 
     def test_streaming_sse_with_steering_leak(self) -> None:
         """Test detection in SSE-formatted streaming content."""
@@ -329,9 +329,9 @@ class TestRealWorldScenarios:
 
         assert protector.has_leak_bytes(sse_chunk) is True
 
-        sanitized, had_leak = protector.sanitize_bytes(sse_chunk)
-        assert had_leak is True
-        assert b"chatcmpl-steering" not in sanitized
+        bytes_result = protector.sanitize_bytes(sse_chunk)
+        assert bytes_result.had_leak is True
+        assert b"chatcmpl-steering" not in bytes_result.data
 
 
 class TestGlobalProtectorConcurrency:

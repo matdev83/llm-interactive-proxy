@@ -52,12 +52,12 @@ class JSONSanitizer:
         if isinstance(content, dict):
             protector = self._get_protector()
             if protector and protector.enabled:
-                sanitized_dict, had_leak = protector.sanitize_dict(content)
-                if had_leak:
+                result = protector.sanitize_dict(content)
+                if result.had_leak:
                     logger.warning(
                         "SECURITY: Sanitized leaked steering data from JSON content"
                     )
-                content = sanitized_dict
+                content = result.data
 
         return self._sanitize_recursive(content)
 

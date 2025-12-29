@@ -557,8 +557,9 @@ class JSONResponseBuilder:
         protector = self._cached_steering_leak_protector
         safe_content = content
         if protector.enabled and isinstance(content, dict):
-            safe_content, had_leak = protector.sanitize_dict(content)
-            if had_leak:
+            result = protector.sanitize_dict(content)
+            safe_content = result.data
+            if result.had_leak:
                 logger.warning(
                     "SECURITY: Sanitized leaked steering data from non-streaming JSON response"
                 )

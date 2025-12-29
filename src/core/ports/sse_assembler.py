@@ -161,8 +161,9 @@ class SSEAssembler(IStreamAssembler):
                         )
                     # CRITICAL: Final safety check for steering message leaks
                     protector = get_steering_leak_protector()
-                    chunk_bytes, had_leak = protector.sanitize_bytes(chunk_bytes)
-                    if had_leak and logger.isEnabledFor(logging.WARNING):
+                    result = protector.sanitize_bytes(chunk_bytes)
+                    chunk_bytes = result.data
+                    if result.had_leak and logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             "[STREAMING][SSE] Steering leak detected in terminal chunk "
                             "for stream %s - sanitized before sending to client",
@@ -190,8 +191,9 @@ class SSEAssembler(IStreamAssembler):
                 # upstream code fails to properly sanitize responses
                 protector = get_steering_leak_protector()
                 if protector.enabled:
-                    chunk_bytes, had_leak = protector.sanitize_bytes(chunk_bytes)
-                    if had_leak and logger.isEnabledFor(logging.WARNING):
+                    result = protector.sanitize_bytes(chunk_bytes)
+                    chunk_bytes = result.data
+                    if result.had_leak and logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             "[STREAMING][SSE] SECURITY: Sanitized leaked steering data "
                             "from outbound chunk for stream %s",
@@ -243,8 +245,9 @@ class SSEAssembler(IStreamAssembler):
                     # CRITICAL: Final safety check for steering message leaks
                     # This is the last line of defense before bytes reach the client
                     protector = get_steering_leak_protector()
-                    chunk_bytes, had_leak = protector.sanitize_bytes(chunk_bytes)
-                    if had_leak and logger.isEnabledFor(logging.WARNING):
+                    result = protector.sanitize_bytes(chunk_bytes)
+                    chunk_bytes = result.data
+                    if result.had_leak and logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             "[STREAMING][SSE] Steering leak detected and sanitized "
                             "for stream %s - this indicates a bug in upstream processing",

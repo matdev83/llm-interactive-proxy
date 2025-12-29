@@ -115,11 +115,11 @@ class TestSteeringLeakProtector:
             '"usage": null}'
         )
 
-        sanitized, had_leak = protector.sanitize_content(leaked_content)
-        assert had_leak is True
-        assert "chatcmpl-steering" not in sanitized
+        result = protector.sanitize_content(leaked_content)
+        assert result.had_leak is True
+        assert "chatcmpl-steering" not in result.content
         # The legitimate content should be preserved
-        assert "Here is my response" in sanitized
+        assert "Here is my response" in result.content
 
     def test_sanitize_bytes_works_with_utf8(self) -> None:
         """Ensure sanitize_bytes correctly handles UTF-8 encoded content."""
@@ -128,9 +128,9 @@ class TestSteeringLeakProtector:
         content = '{"id": "chatcmpl-steering-123456", "object": "chat.completion"}'
         data = content.encode("utf-8")
 
-        sanitized, had_leak = protector.sanitize_bytes(data)
-        assert had_leak is True
-        assert b"chatcmpl-steering" not in sanitized
+        result = protector.sanitize_bytes(data)
+        assert result.had_leak is True
+        assert b"chatcmpl-steering" not in result.data
 
     def test_sanitize_dict_removes_internal_keys(self) -> None:
         """Ensure sanitize_dict removes internal steering keys."""
@@ -145,15 +145,15 @@ class TestSteeringLeakProtector:
             "original_tool_call": {"id": "call_123"},
         }
 
-        sanitized, had_leak = protector.sanitize_dict(leaked_dict)
-        assert had_leak is True
-        assert "steering_message" not in sanitized
-        assert "tool_call_swallowed" not in sanitized
-        assert "_steering_replacement" not in sanitized
-        assert "original_tool_call" not in sanitized
+        result = protector.sanitize_dict(leaked_dict)
+        assert result.had_leak is True
+        assert "steering_message" not in result.data
+        assert "tool_call_swallowed" not in result.data
+        assert "_steering_replacement" not in result.data
+        assert "original_tool_call" not in result.data
         # Legitimate keys preserved
-        assert "id" in sanitized
-        assert "choices" in sanitized
+        assert "id" in result.data
+        assert "choices" in result.data
 
     def test_sanitize_dict_handles_nested_metadata(self) -> None:
         """Ensure sanitize_dict also cleans nested metadata."""
@@ -168,10 +168,10 @@ class TestSteeringLeakProtector:
             },
         }
 
-        sanitized, had_leak = protector.sanitize_dict(leaked_dict)
-        assert had_leak is True
-        assert "steering_message" not in sanitized.get("metadata", {})
-        assert sanitized["metadata"].get("legitimate_key") == "Keep this"
+        result = protector.sanitize_dict(leaked_dict)
+        assert result.had_leak is True
+        assert "steering_message" not in result.data.get("metadata", {})
+        assert result.data["metadata"].get("legitimate_key") == "Keep this"
 
     def test_strict_mode_raises_on_leak(self) -> None:
         """Ensure strict mode raises SteeringLeakError on detection."""
@@ -187,10 +187,10 @@ class TestSteeringLeakProtector:
         protector = SteeringLeakProtector(enabled=False)
 
         leaked_content = '{"id": "chatcmpl-steering-123"}'
-        sanitized, had_leak = protector.sanitize_content(leaked_content)
+        result = protector.sanitize_content(leaked_content)
 
-        assert had_leak is False
-        assert sanitized == leaked_content
+        assert result.had_leak is False
+        assert result.content == leaked_content
 
     def test_leak_count_increments(self) -> None:
         """Ensure leak_count tracks detected leaks."""
@@ -207,37 +207,36 @@ class TestSteeringLeakProtector:
         """Ensure empty content is handled gracefully."""
         protector = SteeringLeakProtector()
 
-        sanitized, had_leak = protector.sanitize_content("")
-        assert had_leak is False
-        assert sanitized == ""
+        result = protector.sanitize_content("")
+        assert result.had_leak is False
+        assert result.content == ""
 
-        sanitized_bytes, had_leak = protector.sanitize_bytes(b"")
-        assert had_leak is False
-        assert sanitized_bytes == b""
+        bytes_result = protector.sanitize_bytes(b"")
+        assert bytes_result.had_leak is False
+        assert bytes_result.data == b""
 
 
 class TestCheckAndSanitizeResponse:
-    """Tests for the check_and_sanitize_response convenience function."""
+    """Tests for check_and_sanitize_response convenience function."""
 
     def test_handles_string_content(self) -> None:
         """Ensure string content is properly handled."""
         content = '{"id": "chatcmpl-steering-123"}'
-        result, had_leak = check_and_sanitize_response(content)
-        assert had_leak is True
+        result = check_and_sanitize_response(content)
         assert isinstance(result, str)
+        assert "chatcmpl-steering" not in result
 
     def test_handles_bytes_content(self) -> None:
         """Ensure bytes content is properly handled."""
         content = b'{"id": "chatcmpl-steering-123"}'
-        result, had_leak = check_and_sanitize_response(content)
-        assert had_leak is True
+        result = check_and_sanitize_response(content)
         assert isinstance(result, bytes)
+        assert b"chatcmpl-steering" not in result
 
     def test_handles_dict_content(self) -> None:
         """Ensure dict content is properly handled."""
         content = {"steering_message": "internal", "id": "legitimate"}
-        result, had_leak = check_and_sanitize_response(content)
-        assert had_leak is True
+        result = check_and_sanitize_response(content)
         assert isinstance(result, dict)
         assert "steering_message" not in result
 
@@ -280,12 +279,12 @@ class TestRealWorldLeakScenarios:
 
         assert protector.has_leak(leaked_content) is True
 
-        sanitized, had_leak = protector.sanitize_content(leaked_content)
-        assert had_leak is True
+        result = protector.sanitize_content(leaked_content)
+        assert result.had_leak is True
         # The leaked steering struct should be removed
-        assert "chatcmpl-steering" not in sanitized
+        assert "chatcmpl-steering" not in result.content
         # The legitimate content should be preserved
-        assert "The issue might be in how paths are validated" in sanitized
+        assert "The issue might be in how paths are validated" in result.content
 
     def test_full_steering_response_in_sse_chunk(self) -> None:
         """Test detection of full steering response in SSE chunk format."""
@@ -304,3 +303,17 @@ class TestRealWorldLeakScenarios:
 
         # Should be detected in bytes form too
         assert protector.has_leak_bytes(sse_chunk.encode("utf-8")) is True
+
+    def test_handles_dict_content(self) -> None:
+        """Ensure dict content is properly handled."""
+        content = {"id": "chatcmpl-steering-123", "steering_message": "leak"}
+        result = check_and_sanitize_response(content)
+        assert isinstance(result, dict)
+        assert "steering_message" not in result
+
+    def test_no_leak_passthrough(self) -> None:
+        """Ensure clean content is not modified."""
+        content = '{"id": "chatcmpl-normal-123", "content": "Hello"}'
+        result = check_and_sanitize_response(content)
+        assert isinstance(result, str)
+        assert result == content
