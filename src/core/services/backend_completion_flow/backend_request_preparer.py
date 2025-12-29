@@ -72,17 +72,11 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         domain_request: ChatRequest = request
 
         # Apply session reasoning configuration if available
+        # Note: ReasoningConfigApplicator.apply handles exceptions internally
         if session is not None:
-            try:
-                domain_request = self._reasoning_config_applicator.apply(
-                    domain_request, session
-                )
-            except Exception:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to apply reasoning config from session",
-                        exc_info=True,
-                    )
+            domain_request = self._reasoning_config_applicator.apply(
+                domain_request, session
+            )
 
         # Apply backend configuration
         if self._backend_config_service:
@@ -91,17 +85,11 @@ class BackendRequestPreparer(IBackendRequestPreparer):
             )
 
         # Apply URI parameters with precedence resolution
+        # Note: URIParameterApplicator.apply handles exceptions internally
         if uri_params:
-            try:
-                domain_request = self._uri_parameter_applicator.apply(
-                    domain_request, uri_params, backend_type, session
-                )
-            except Exception:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to apply URI parameters",
-                        exc_info=True,
-                    )
+            domain_request = self._uri_parameter_applicator.apply(
+                domain_request, uri_params, backend_type, session
+            )
 
         return cast(CanonicalChatRequest, domain_request)
 
