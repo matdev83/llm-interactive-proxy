@@ -45,22 +45,22 @@ def build_app(config: AppConfig | dict[str, Any] | None = None) -> FastAPI:
         # If isinstance fails, handle gracefully without test environment detection
         is_app_config = False
 
-    # Validate config type consistently, but allow MagicMock-like objects in tests
-    if not is_app_config:
-        # Some tests patch AppConfig.from_env to return a MagicMock; accept it
-        try:
-            from unittest.mock import MagicMock
+        # Validate config type consistently, but allow MagicMock-like objects in tests
+        if not is_app_config:
+            # Some tests patch AppConfig.from_env to return a MagicMock; accept it
+            try:
+                from unittest.mock import MagicMock
 
-            if isinstance(config, MagicMock):
-                pass
-            else:
+                if isinstance(config, MagicMock):
+                    pass
+                else:
+                    raise ValueError(
+                        f"Invalid config type: {type(config)}. Expected AppConfig or dict."
+                    )
+            except Exception as err:
                 raise ValueError(
                     f"Invalid config type: {type(config)}. Expected AppConfig or dict."
-                )
-        except Exception:
-            raise ValueError(
-                f"Invalid config type: {type(config)}. Expected AppConfig or dict."
-            )
+                ) from err
 
     # Use the new staged initialization approach
     return new_build_app(config)

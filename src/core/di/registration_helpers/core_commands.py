@@ -55,10 +55,11 @@ def register_command_pipeline_services(services: ServiceCollection) -> None:
         package = importlib.import_module(package_name)
         for m in pkgutil.iter_modules(package.__path__):  # type: ignore[attr-defined]
             importlib.import_module(f"{package_name}.{m.name}")
-    except Exception:
+    except (ImportError, ModuleNotFoundError, AttributeError):
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                "Failed to import command handlers for registration", exc_info=True
+                "Failed to import command handlers for registration",
+                exc_info=True,
             )
 
     # Register CommandParser
