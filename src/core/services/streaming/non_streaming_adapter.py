@@ -120,24 +120,25 @@ class NonStreamingAdapter:
                         metadata=metadata,
                     )
 
-        # Process accumulated chunks
+        # Process accumulated chunks - use list to avoid O(n²) string concatenation
+        content_parts: list[str] = []
         for chunk in collected_chunks:
             if isinstance(chunk, bytes):
                 # Handle bytes directly - decode and accumulate
                 try:
-                    final_content += chunk.decode("utf-8")
+                    content_parts.append(chunk.decode("utf-8"))
                 except UnicodeDecodeError:
-                    final_content += chunk.decode("latin-1")
+                    content_parts.append(chunk.decode("latin-1"))
             elif isinstance(chunk, StreamingContent):
                 # Accumulate content (should be just one chunk for non-streaming)
                 if chunk.content:
                     if isinstance(chunk.content, str):
-                        final_content += chunk.content
+                        content_parts.append(chunk.content)
                     elif isinstance(chunk.content, bytes):
                         try:
-                            final_content += chunk.content.decode("utf-8")
+                            content_parts.append(chunk.content.decode("utf-8"))
                         except UnicodeDecodeError:
-                            final_content += chunk.content.decode("latin-1")
+                            content_parts.append(chunk.content.decode("latin-1"))
                     elif isinstance(chunk.content, dict):
                         # For dict content, check for StopChunkWithUsage first
                         # to avoid leaking usage data into accumulated content
@@ -156,7 +157,7 @@ class NonStreamingAdapter:
                             if stop_chunk_usage and isinstance(stop_chunk_usage, dict):
                                 final_usage = UsageSummary.from_dict(stop_chunk_usage)
                         else:
-                            final_content += json.dumps(chunk.content)
+                            content_parts.append(json.dumps(chunk.content))
                 if chunk.usage:
                     final_usage = chunk.usage
                 if chunk.metadata:
@@ -164,11 +165,14 @@ class NonStreamingAdapter:
             elif isinstance(chunk, ProcessedResponse):
                 # Handle ProcessedResponse directly
                 if chunk.content:
-                    final_content += str(chunk.content)
+                    content_parts.append(str(chunk.content))
                 if chunk.usage:
                     final_usage = chunk.usage
                 if chunk.metadata:
                     final_metadata.update(chunk.metadata)
+
+        # Join all content parts efficiently
+        final_content = "".join(content_parts)
 
         # Remove internal flags from output metadata
         final_metadata.pop("non_streaming", None)

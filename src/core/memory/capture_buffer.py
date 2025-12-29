@@ -278,6 +278,11 @@ class SessionCaptureBuffer:
         size = len(interaction.content.encode("utf-8"))
         size += len(interaction.role)
         if interaction.metadata:
+            # Optimize: avoid repeated str() conversions
             for key, value in interaction.metadata.items():
-                size += len(key) + len(str(value))
+                size += len(key)
+                if not isinstance(value, str):
+                    size += len(str(value))
+                else:
+                    size += len(value)
         return size

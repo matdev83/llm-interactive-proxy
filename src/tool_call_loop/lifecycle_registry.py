@@ -68,30 +68,6 @@ def build_tool_call_signature(tool_call: ToolCallDict | dict[str, Any]) -> str:
     ).hexdigest()
     return f"{name}:{digest}"
 
-    identifier = tool_call.get("id")
-    if isinstance(identifier, str) and identifier:
-        return identifier
-
-    function_block = tool_call.get("function")
-    if not isinstance(function_block, dict):
-        function_block = {}
-
-    name = function_block.get("name", "unknown")
-    arguments = function_block.get("arguments", "")
-
-    if isinstance(arguments, dict | list):
-        try:
-            arguments_repr = json.dumps(arguments, sort_keys=True)
-        except (TypeError, ValueError):
-            arguments_repr = str(arguments)
-    else:
-        arguments_repr = str(arguments)
-
-    digest = hashlib.sha256(
-        f"{name}:{arguments_repr}".encode("utf-8", "ignore")
-    ).hexdigest()
-    return f"{name}:{digest}"
-
 
 class ToolCallLifecycleRegistry:
     """Registry that prevents duplicate tool call processing across the pipeline."""
