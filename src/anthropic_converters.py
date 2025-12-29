@@ -180,8 +180,8 @@ def anthropic_to_openai_request(
                     accumulator.clear()
 
             for block in content:
-                if not isinstance(block, dict):
-                    continue
+                # if not isinstance(block, dict):
+                #     continue
                 btype = block.get("type")
 
                 if btype == "text":
@@ -255,12 +255,8 @@ def anthropic_to_openai_request(
             # Flush any remaining text
             _flush_text_accumulator()
 
-        elif isinstance(content, str):
+        else:
             content_parts.append({"type": "text", "text": content})
-
-        elif content is not None:
-            # Unknown structured content
-            passthrough_parts.append({"type": "unknown", "value": content})
 
         if tool_result_block is not None:
             openai_msg["role"] = "tool"
@@ -358,7 +354,6 @@ def anthropic_to_openai_request(
                     tool, _logged_flat_format=_logged_tools
                 )
                 for tool in anthropic_request.tools
-                if tool is not None
             )
             if tool_def
         ]
@@ -373,18 +368,7 @@ def anthropic_to_openai_request(
     # Handle user from metadata
     user = None
     if anthropic_request.metadata:
-        try:
-            metadata_dict = (
-                anthropic_request.metadata
-                if isinstance(anthropic_request.metadata, dict)
-                else dict(anthropic_request.metadata)
-            )
-        except (TypeError, ValueError) as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to convert metadata to dict: %s", e, exc_info=True
-                )
-            metadata_dict = {}
+        metadata_dict = anthropic_request.metadata
         user_id = metadata_dict.get("user_id") or metadata_dict.get("user")
         if user_id is not None:
             user = str(user_id)
@@ -649,8 +633,6 @@ def _build_content_blocks(
             content_blocks.append({"type": "text", "text": normalized_text})
 
     for idx, raw_tool_call in enumerate(tool_calls):
-        if not isinstance(raw_tool_call, dict):
-            continue
         fn = raw_tool_call.get("function", {}) or {}
         name = fn.get("name", "tool")
         args_raw = fn.get("arguments", "{}")
@@ -678,9 +660,9 @@ def _build_content_blocks(
 def _extract_tool_calls(
     choice: dict[str, Any], message: dict[str, Any]
 ) -> list[dict[str, Any]] | None:
-    if isinstance(message, dict) and message.get("tool_calls"):
+    if message.get("tool_calls"):
         return message.get("tool_calls")
-    if isinstance(choice, dict) and choice.get("tool_calls"):
+    if choice.get("tool_calls"):
         return choice.get("tool_calls")
     return None
 
@@ -875,9 +857,7 @@ async def openai_stream_to_anthropic_stream(
                     "type": "message_delta",
                     "delta": {"stop_reason": "end_turn"},
                 }
-                final_delta_event = (
-                    f"event: message_delta\ndata: {json.dumps(final_delta)}\n\n"
-                )
+                final_delta_event = f"event: message_delta\ndata: {json.dumps(final_delta, ensure_ascii=False, separators=(',', ':'))}\n\n"
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL,
@@ -915,7 +895,7 @@ async def openai_stream_to_anthropic_stream(
                         "output_tokens": usage.get("completion_tokens", 0),
                     },
                 }
-                usage_event = f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
+                usage_event = f"event: message_delta\ndata: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(TRACE_LEVEL, f"YIELDING usage delta: {usage_event!r}")
                 events.append(usage_event)
@@ -936,7 +916,7 @@ async def openai_stream_to_anthropic_stream(
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             }
             start_payload = {"type": "message_start", "message": message_payload}
-            start_event = f"event: message_start\ndata: {json.dumps(start_payload)}\n\n"
+            start_event = f"event: message_start\ndata: {json.dumps(start_payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.log(TRACE_LEVEL, f"YIELDING message_start: {start_event!r}")
             events.append(start_event)
@@ -974,7 +954,7 @@ async def openai_stream_to_anthropic_stream(
                             "input": {},
                         },
                     }
-                    start_block_event = f"event: content_block_start\ndata: {json.dumps(start_block)}\n\n"
+                    start_block_event = f"event: content_block_start\ndata: {json.dumps(start_block, ensure_ascii=False, separators=(',', ':'))}\n\n"
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.log(
                             TRACE_LEVEL,
@@ -991,7 +971,7 @@ async def openai_stream_to_anthropic_stream(
                             "partial_json": tool_call["function"]["arguments"],
                         },
                     }
-                    args_delta_event = f"event: content_block_delta\ndata: {json.dumps(args_delta)}\n\n"
+                    args_delta_event = f"event: content_block_delta\ndata: {json.dumps(args_delta, ensure_ascii=False, separators=(',', ':'))}\n\n"
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.log(
                             TRACE_LEVEL,
@@ -1018,7 +998,7 @@ async def openai_stream_to_anthropic_stream(
                 },
             }
             content_event = (
-                f"event: content_block_delta\ndata: {json.dumps(content_payload)}\n\n"
+                f"event: content_block_delta\ndata: {json.dumps(content_payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
             )
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.log(TRACE_LEVEL, f"YIELDING text_delta: {content_event!r}")
@@ -1040,7 +1020,7 @@ async def openai_stream_to_anthropic_stream(
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             }
             finish_event = (
-                f"event: message_delta\ndata: {json.dumps(finish_payload)}\n\n"
+                f"event: message_delta\ndata: {json.dumps(finish_payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
             )
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.log(
@@ -1052,11 +1032,6 @@ async def openai_stream_to_anthropic_stream(
         return PayloadTranslationResult(is_done_marker=False, events=events)
 
     async for chunk_bytes in chunk_generator:
-        if chunk_bytes is None:
-            if logger.isEnabledFor(TRACE_LEVEL):
-                logger.log(TRACE_LEVEL, "Received None chunk; skipping.")
-            continue
-
         try:
             chunk_data = chunk_bytes.decode("utf-8")
         except UnicodeDecodeError:
@@ -1132,7 +1107,7 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
                     "model": model,
                 },
             }
-            return "event: message_start\n" f"data: {json.dumps(payload)}\n\n"
+            return "event: message_start\n" f"data: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
 
         # Content delta
         if delta.get("content"):
@@ -1142,7 +1117,7 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
                 "index": 0,
                 "delta": {"type": "text_delta", "text": content},
             }
-            return f"event: content_block_delta\ndata: {json.dumps(payload)}\n\n"
+            return f"event: content_block_delta\ndata: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
 
         # Finish reason delta
         if choice.get("finish_reason"):
@@ -1151,7 +1126,7 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
                 "type": "message_delta",
                 "delta": {"stop_reason": anthropic_reason},
             }
-            return f"event: message_delta\ndata: {json.dumps(payload)}\n\n"
+            return f"event: message_delta\ndata: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
     except json.JSONDecodeError:
         # Ignore bad JSON chunk
         return ""

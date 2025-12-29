@@ -30,11 +30,10 @@ class SSEFormatter:
             # but json.dumps() doesn't call __str__(), so we need to explicitly
             # convert to plain dict to avoid accidental stringification elsewhere.
             # Format as SSE: data: {json}\n\n
-            sse_line = f"data: {json.dumps(dict(content))}\n\n"
+            sse_line = f"data: {json.dumps(dict(content), ensure_ascii=False, separators=(',', ':'))}\n\n"
             return sse_line.encode("utf-8")
         elif isinstance(content, bytes):
             return content
-        elif isinstance(content, str):
-            return content.encode("utf-8")
         else:
             return str(content).encode("utf-8")
+

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import inspect
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
@@ -189,14 +188,8 @@ class ResponseExecutor(IResponseExecutor):
                     # Check for 401 auth errors and retry if within limit
                     if response.status_code == 401 and attempts_used < max_retries:
                         # Use connector's refresh method to ensure consistency and test compatibility
-                        refresh_method = getattr(
-                            self._base_connector, "_refresh_access_token", None
-                        )
-                        if (
-                            refresh_method
-                            and callable(refresh_method)
-                            and inspect.iscoroutinefunction(refresh_method)
-                        ):
+                        refresh_method = getattr(self._base_connector, "_refresh_access_token", None)
+                        if refresh_method is not None:
                             refreshed = await refresh_method()
                         else:
                             refreshed = (
@@ -261,12 +254,8 @@ class ResponseExecutor(IResponseExecutor):
                 break
 
             # Ensure response_json is set (MyPy type narrowing)
-            assert (
-                response_json is not None
-            ), "response_json should be set after successful request"
-            assert (
-                response is not None
-            ), "response should be set after successful request"
+            assert response_json is not None, "response_json should be set after successful request"
+            assert response is not None, "response should be set after successful request"
 
             # Debug log raw response for non-streaming requests
             if logger.isEnabledFor(logging.DEBUG):
@@ -459,14 +448,8 @@ class ResponseExecutor(IResponseExecutor):
                                     },
                                 )
                             # Use connector's refresh method to ensure consistency and test compatibility
-                            refresh_method = getattr(
-                                self._base_connector, "_refresh_access_token", None
-                            )
-                            if (
-                                refresh_method
-                                and callable(refresh_method)
-                                and inspect.iscoroutinefunction(refresh_method)
-                            ):
+                            refresh_method = getattr(self._base_connector, "_refresh_access_token", None)
+                            if refresh_method is not None:
                                 refreshed = await refresh_method()
                             else:
                                 refreshed = (
@@ -577,9 +560,7 @@ class ResponseExecutor(IResponseExecutor):
                                 await stream_handle.cancel_callback()
 
                         # Check retry limit before attempting refresh
-                        # If max_retries is 0, we should raise immediately without attempting refresh
-                        # Otherwise, check if we've already used all retries
-                        if max_retries == 0 or attempts_used >= max_retries:
+                        if attempts_used >= max_retries:
                             # Notify connector of authentication failure for degradation
                             degrade_method = getattr(self._base_connector, "_degrade", None)
                             if degrade_method is not None:
@@ -602,14 +583,8 @@ class ResponseExecutor(IResponseExecutor):
                             )
 
                         # Use connector's refresh method to ensure consistency and test compatibility
-                        refresh_method = getattr(
-                            self._base_connector, "_refresh_access_token", None
-                        )
-                        if (
-                            refresh_method
-                            and callable(refresh_method)
-                            and inspect.iscoroutinefunction(refresh_method)
-                        ):
+                        refresh_method = getattr(self._base_connector, "_refresh_access_token", None)
+                        if refresh_method is not None:
                             refreshed = await refresh_method()
                         else:
                             refreshed = (

@@ -5,6 +5,7 @@ Handles all chat completion related API endpoints.
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -410,7 +411,7 @@ class ChatController:
                         import json as _json
 
                         anth_json = _json.loads(body_content.decode())
-                    except Exception as e:
+                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
                         if logger.isEnabledFor(TRACE_LEVEL):
                             logger.log(
                                 TRACE_LEVEL,
@@ -786,7 +787,7 @@ class ChatController:
                                 )
 
                                 return response.model_dump()
-                        except Exception as e:
+                        except (ValueError, TypeError) as e:
                             if logger.isEnabledFor(TRACE_LEVEL):
                                 logger.log(
                                     TRACE_LEVEL,
@@ -904,7 +905,7 @@ class ChatController:
                                 dict(content) if isinstance(content, dict) else content
                             )
                             text = _json.dumps(safe_content)
-                        except Exception as e:
+                        except (TypeError, ValueError) as e:
                             if logger.isEnabledFor(TRACE_LEVEL):
                                 logger.log(
                                     TRACE_LEVEL,

@@ -10,6 +10,7 @@ import contextlib
 import logging
 import re
 from pathlib import Path
+from re import Pattern
 from typing import TYPE_CHECKING
 
 from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
@@ -72,33 +73,44 @@ class FileSandboxingHandler(IToolCallHandler):
         self._validator = path_validator
         self._session_service = session_service
 
+        # Type annotations for pattern attributes
+        self._tool_pattern: Pattern[str] | None
+        self._excluded_pattern: Pattern[str] | None
+
         # Compile tool patterns for efficient matching
         all_patterns = list(self._config.default_tool_patterns) + list(
             self._config.custom_tool_patterns
         )
-        self._tool_patterns = [
-            re.compile(pattern, re.IGNORECASE) for pattern in all_patterns
+        # Optimization: Combined regex for faster matching O(1) vs O(N)
+        if all_patterns:
+            self._tool_pattern = re.compile(
+                "|".join(f"(?:{p})" for p in all_patterns), re.IGNORECASE
+            )
+        else:
+            self._tool_pattern = None
+
+        shell_patterns_list = [
+            r"\bexecute\b",
+            r"execute_command",
+            r"run_shell_command",
+            r"run_terminal_command",
+            r"exec_command",
+            r"\bshell\b",
+            r"\bbash\b",
+            r"local_shell",
+            r"container\.exec",
         ]
-        self._shell_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in [
-                r"\bexecute\b",
-                r"execute_command",
-                r"run_shell_command",
-                r"run_terminal_command",
-                r"exec_command",
-                r"\bshell\b",
-                r"\bbash\b",
-                r"local_shell",
-                r"container\.exec",
-            ]
-        ]
+        self._shell_pattern = re.compile(
+            "|".join(f"(?:{p})" for p in shell_patterns_list), re.IGNORECASE
+        )
 
         # Compile exclusion patterns
-        self._excluded_patterns = [
-            re.compile(pattern, re.IGNORECASE)
-            for pattern in self._config.excluded_tools
-        ]
+        if self._config.excluded_tools:
+            self._excluded_pattern = re.compile(
+                "|".join(f"(?:{p})" for p in self._config.excluded_tools), re.IGNORECASE
+            )
+        else:
+            self._excluded_pattern = None
 
         # Metrics tracking
         self._blocked_count = 0
@@ -109,8 +121,8 @@ class FileSandboxingHandler(IToolCallHandler):
             logger.info(
                 "FileSandboxingHandler initialized with %d tool patterns "
                 "and %d exclusion patterns",
-                len(self._tool_patterns),
-                len(self._excluded_patterns),
+                len(all_patterns),
+                len(self._config.excluded_tools),
             )
 
     @property
@@ -149,17 +161,16 @@ class FileSandboxingHandler(IToolCallHandler):
             True if the tool is a file-changing tool
         """
         # Check if tool is excluded
-        for pattern in self._excluded_patterns:
-            if pattern.search(tool_name):
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Tool '{tool_name}' is excluded from sandboxing")
-                return False
+        if self._excluded_pattern and self._excluded_pattern.search(tool_name):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Tool '{tool_name}' is excluded from sandboxing")
+            return False
 
         # Check if tool matches file-changing patterns
-        return any(pattern.search(tool_name) for pattern in self._tool_patterns)
+        return bool(self._tool_pattern and self._tool_pattern.search(tool_name))
 
     def _is_shell_tool(self, tool_name: str) -> bool:
-        return any(pattern.search(tool_name) for pattern in self._shell_patterns)
+        return bool(self._shell_pattern.search(tool_name))
 
     def _extract_command_strings(self, arguments: dict[str, object]) -> list[str]:
         """Pull raw command strings out of common command tool args."""
