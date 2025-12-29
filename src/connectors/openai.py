@@ -1026,7 +1026,10 @@ class OpenAIConnector(LLMBackend):
 
         try:
             response_headers = dict(response.headers)
-        except Exception:
+        except (TypeError, AttributeError):
+            # Catch specific exceptions from dict() conversion or missing headers attribute
+            # TypeError: headers object doesn't support iteration/conversion
+            # AttributeError: response object doesn't have headers attribute
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Failed to convert response headers to dict, using empty dict",
@@ -1397,7 +1400,11 @@ class OpenAIConnector(LLMBackend):
                 else:
                     body_bytes = b""
                 body = body_bytes.decode("utf-8")
-            except Exception:
+            except (UnicodeDecodeError, IOError, httpx.RequestError, httpx.HTTPError):
+                # Catch specific exceptions from reading/decoding error response body
+                # UnicodeDecodeError: decode("utf-8") failed
+                # IOError: I/O error during aread() or aiter_bytes()
+                # httpx.RequestError, httpx.HTTPError: HTTP client errors
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to read error response body, using fallback",

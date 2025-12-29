@@ -915,7 +915,12 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                         key_name=None,
                         response_content=response_payload,
                     )
-                except Exception:
+                except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
+                    # Catch specific exceptions from wire capture operations
+                    # ValueError, TypeError, AttributeError: data serialization/conversion errors
+                    # RuntimeError: runtime errors during capture (e.g., buffer full)
+                    # OSError: file I/O errors during wire capture writes
+                    # Matches the pattern used in wire_capture_orchestrator.py
                     logger.debug(
                         "Wire capture outbound (gemini generateContent) failed",
                         exc_info=True,
