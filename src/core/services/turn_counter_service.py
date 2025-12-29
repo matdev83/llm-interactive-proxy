@@ -154,7 +154,9 @@ class TurnCounterService(ITurnCounterService):
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Assessment marked as performed for session {session_id}. New check interval: {state.current_check_interval}"
+                "Assessment marked as performed for session %s. New check interval: %d",
+                session_id,
+                state.current_check_interval,
             )
 
     def adjust_check_interval(self, session_id: str, confidence: float):
@@ -187,8 +189,11 @@ class TurnCounterService(ITurnCounterService):
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Adjusted check interval for session {session_id}: "
-                f"{old_interval} -> {state.current_check_interval} (confidence: {confidence})"
+                "Adjusted check interval for session %s: %d -> %d (confidence: %s)",
+                session_id,
+                old_interval,
+                state.current_check_interval,
+                confidence,
             )
 
     def disable_for_session(self, session_id: str):
@@ -203,7 +208,7 @@ class TurnCounterService(ITurnCounterService):
         self.repository.update_session_state(state)
 
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Assessment disabled for session {session_id}")
+            logger.info("Assessment disabled for session %s", session_id)
 
     def enable_for_session(self, session_id: str):
         """
@@ -217,7 +222,7 @@ class TurnCounterService(ITurnCounterService):
         self.repository.update_session_state(state)
 
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Assessment enabled for session {session_id}")
+            logger.info("Assessment enabled for session %s", session_id)
 
     def get_session_stats(self, session_id: str) -> SessionStats:
         """
