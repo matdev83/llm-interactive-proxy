@@ -358,6 +358,7 @@ class ToolCallReactorService(IToolCallReactor):
             }
 
         # MEDIUM PATH: Try JSON serialization first (faster than deepcopy for most data)
+        serialization_failed_due_to_type = False
         try:
             # Use standard JSON serialization for consistency with original behavior
             serialized = json.dumps(arguments, ensure_ascii=False)
@@ -378,9 +379,10 @@ class ToolCallReactorService(IToolCallReactor):
                     "preview": truncated.decode("utf-8", errors="ignore"),
                     "omitted_bytes": len(encoded) - len(truncated),
                 }
-        except (TypeError, ValueError, RecursionError):
+        except (TypeError, ValueError, RecursionError) as e:
             # JSON serialization failed, could be due to non-serializable objects or recursion
-            pass
+            if isinstance(e, (TypeError, ValueError)):
+                serialization_failed_due_to_type = True
 
         # If the structure is already too deep, avoid deepcopy to prevent stack overflow
         if cls._detect_excessive_depth(arguments):
@@ -417,10 +419,15 @@ class ToolCallReactorService(IToolCallReactor):
             }
 
         # Handle the deep copied data with size limits
-        try:
-            serialized = json.dumps(deep_copied, ensure_ascii=False)
-        except (TypeError, ValueError):
+        if serialization_failed_due_to_type:
+            # OPTIMIZATION: If JSON serialization failed earlier due to types/cycles,
+            # it will fail here too. Skip directly to repr().
             serialized = repr(deep_copied)
+        else:
+            try:
+                serialized = json.dumps(deep_copied, ensure_ascii=False)
+            except (TypeError, ValueError):
+                serialized = repr(deep_copied)
 
         encoded = serialized.encode("utf-8", errors="ignore")
         if len(encoded) > cls._MAX_ARGUMENT_SNAPSHOT_BYTES:

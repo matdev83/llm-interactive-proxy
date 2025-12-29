@@ -5,9 +5,12 @@ This module defines the data structures for Gemini API interactions,
 replacing manual dictionary construction with type-safe Pydantic models.
 """
 
+import logging
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiPart(BaseModel):
@@ -226,7 +229,12 @@ def convert_openai_to_gemini_content(
                             pass
                         except Exception:
                             # json module might not be available in some contexts
-                            pass
+                            # Log unexpected errors for debugging
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Unexpected error parsing tool call arguments as JSON",
+                                    exc_info=True,
+                                )
 
                     parts.append(GeminiPart(function_call=function_call))
 

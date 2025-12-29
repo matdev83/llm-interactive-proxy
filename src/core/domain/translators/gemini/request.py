@@ -119,15 +119,34 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
         if has_tool_calls:
             try:
                 for tc in message.tool_calls or []:
-                    # Cache model_dump() to avoid repeated calls per tool call
+                    # OPTIMIZATION: Extract attributes directly to avoid expensive model_dump()
+                    fn = ""
+                    args_raw = ""
+                    tc_id = None
+                    extra_content = None
+
                     if isinstance(tc, dict):
                         tc_dict = tc
+                        fn = (tc_dict.get("function") or {}).get("name", "")
+                        args_raw = (tc_dict.get("function") or {}).get("arguments", "")
+                        tc_id = tc_dict.get("id")
+                        extra_content = tc_dict.get("extra_content")
                     else:
-                        tc_dict = tc.model_dump()
-                    fn = (tc_dict.get("function") or {}).get("name", "")
-                    args_raw = (tc_dict.get("function") or {}).get("arguments", "")
-                    if "id" in tc_dict:
-                        tool_name_by_id[tc_dict["id"]] = fn
+                        # Fast path for Pydantic models
+                        function = getattr(tc, "function", None)
+                        if function:
+                            if isinstance(function, dict):
+                                fn = function.get("name", "")
+                                args_raw = function.get("arguments", "")
+                            else:
+                                fn = getattr(function, "name", "")
+                                args_raw = getattr(function, "arguments", "")
+
+                        tc_id = getattr(tc, "id", None)
+                        extra_content = getattr(tc, "extra_content", None)
+
+                    if tc_id:
+                        tool_name_by_id[tc_id] = fn
                     import json as _json
 
                     try:
@@ -151,10 +170,9 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                         "functionCall": {"name": fn, "args": args_val}
                     }
 
-                    if "id" in tc_dict:
-                        function_call_part["functionCall"]["id"] = tc_dict["id"]
+                    if tc_id:
+                        function_call_part["functionCall"]["id"] = tc_id
 
-                    extra_content = tc_dict.get("extra_content")
                     if isinstance(extra_content, dict):
                         google_extra = extra_content.get("google", {})
                         thought_sig = google_extra.get("thought_signature")

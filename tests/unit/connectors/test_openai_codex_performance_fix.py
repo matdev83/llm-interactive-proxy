@@ -18,10 +18,11 @@ class TestOpenAICodexPerformanceOptimization:
         Test that token refresh doesn't rebuild payload unnecessarily.
 
         This was causing slow performance and rapid quota consumption.
-        After refactoring, retry logic is in executor.py, not connector.py.
+        After refactoring, retry logic is in executor.py, not connector.
         """
         # Verify retry logic is NOT in connector (legacy removed)
-        with open("src/connectors/openai_codex.py") as f:
+        # Connector code is now in _openai_codex_connector.py after refactoring
+        with open("src/connectors/_openai_codex_connector.py") as f:
             connector_code = f.read()
 
         # Retry logic should not be in connector anymore
@@ -29,7 +30,7 @@ class TestOpenAICodexPerformanceOptimization:
         retry_sections = re.findall(retry_pattern, connector_code, re.DOTALL)
         assert (
             len(retry_sections) == 0
-        ), "Retry logic should not be in connector.py - it has been moved to executor.py"
+        ), "Retry logic should not be in connector - it has been moved to executor.py"
 
         # Verify retry logic IS in executor (new location)
         with open("src/connectors/openai_codex/executor.py") as f:
@@ -57,13 +58,14 @@ class TestOpenAICodexPerformanceOptimization:
         After refactoring, retry logic is in executor.py.
         """
         # Verify retry logic is NOT in connector (legacy removed)
-        with open("src/connectors/openai_codex.py") as f:
+        # Connector code is now in _openai_codex_connector.py after refactoring
+        with open("src/connectors/_openai_codex_connector.py") as f:
             connector_code = f.read()
 
         # Retry logic should not be in connector
         assert (
             "for attempt in range" not in connector_code
-        ), "Retry logic should not be in connector.py - moved to executor.py"
+        ), "Retry logic should not be in connector - moved to executor.py"
 
         # Verify retry logic IS in executor (new location)
         with open("src/connectors/openai_codex/executor.py") as f:
@@ -82,30 +84,43 @@ class TestOpenAICodexPerformanceOptimization:
     def test_session_continuity_preservation(self):
         """
         Test that session continuity is preserved during token refresh.
+        After refactoring, retry logic is in executor.py, not connector.
         """
-        with open("src/connectors/openai_codex.py") as f:
+        # Check executor for conversation_id usage patterns
+        # After refactoring, executor uses conversation_id from payload/context, doesn't generate it
+        with open("src/connectors/openai_codex/executor.py") as f:
             source_code = f.read()
 
-        # Look for conversation_id generation
-        conversation_id_pattern = r"conversation_id = str\(uuid\.uuid4\(\)\)"
-        conversation_id_matches = re.findall(conversation_id_pattern, source_code)
-
-        # Should only generate conversation_id once per request, not on retries
-        assert len(conversation_id_matches) <= 2, (
-            f"Found {len(conversation_id_matches)} conversation_id generations. "
-            f"Should be minimal to avoid session fragmentation. "
-            f"Multiple generations indicate unnecessary rebuilding on retries."
+        # Executor should derive conversation_id from payload, not generate it
+        # Look for conversation_id assignment from payload (not UUID generation)
+        conversation_id_from_payload = (
+            "conversation_id = payload.prompt_cache_key or context.session_id"
         )
+        assert (
+            conversation_id_from_payload in source_code
+            or "conversation_id = payload.prompt_cache_key" in source_code
+        ), "Executor should use conversation_id from payload/context, not generate new ones"
+
+        # Should NOT generate UUIDs for conversation_id in retry logic
+        # Check retry sections don't regenerate conversation_id
+        retry_sections = re.findall(
+            r"if.*401.*?conversation_id.*?uuid", source_code, re.DOTALL | re.IGNORECASE
+        )
+        assert (
+            len(retry_sections) == 0
+        ), "Retry logic should not regenerate conversation_id - this causes session fragmentation"
 
     def test_no_double_processing_patterns(self):
         """
         Test that there are no patterns that could cause double processing.
+        After refactoring, retry logic is in executor.py.
         """
-        with open("src/connectors/openai_codex.py") as f:
+        # Check executor for retry patterns (should not have expensive operations in retry loop)
+        with open("src/connectors/openai_codex/executor.py") as f:
             source_code = f.read()
 
-        # Look for retry sections
-        retry_pattern = r"for attempt in range.*?except.*?continue"
+        # Look for retry sections (executor uses while True with attempts_used, not for attempt in range)
+        retry_pattern = r"while True.*?if.*401.*?attempts_used"
         retry_sections = re.findall(retry_pattern, source_code, re.DOTALL)
 
         for section in retry_sections:
@@ -152,7 +167,8 @@ class TestOpenAICodexPerformanceOptimization:
         )
 
         # Verify connector does NOT have retry logic (legacy removed)
-        with open("src/connectors/openai_codex.py") as f:
+        # Connector code is now in _openai_codex_connector.py after refactoring
+        with open("src/connectors/_openai_codex_connector.py") as f:
             connector_code = f.read()
 
         assert (

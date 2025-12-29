@@ -103,7 +103,9 @@ class SteeringStage(InitializationStage):
                 )
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register SessionStateStore: {e}")
+                logger.warning(
+                    f"Could not register SessionStateStore: {e}", exc_info=True
+                )
 
     def _register_steering_policies(
         self, services: ServiceCollection, config: AppConfig
@@ -177,7 +179,9 @@ class SteeringStage(InitializationStage):
                 logger.debug("Registered steering policies")
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register steering policies: {e}")
+                logger.warning(
+                    f"Could not register steering policies: {e}", exc_info=True
+                )
 
     def _create_configured_rules_policy(
         self, provider: IServiceProvider, reactor_config: Any
@@ -299,4 +303,6 @@ class SteeringStage(InitializationStage):
                 logger.debug("Registered UnifiedSteeringHandler")
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register UnifiedSteeringHandler: {e}")
+                logger.warning(
+                    f"Could not register UnifiedSteeringHandler: {e}", exc_info=True
+                )

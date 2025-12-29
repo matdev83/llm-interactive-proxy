@@ -620,7 +620,10 @@ class TestResponseExecutor:
 
     def test_build_headers(self, executor, mock_base_connector, sample_context):
         """Test header building."""
-        headers = executor._build_headers(sample_context.session_id)
+        # Pass both conversation_id and session_id (method signature requires both)
+        headers = executor._build_headers(
+            sample_context.session_id, sample_context.session_id
+        )
 
         assert "Authorization" in headers
         assert headers["OpenAI-Beta"] == "responses=experimental"

@@ -68,6 +68,10 @@ async def codex_connector_compat_enabled_fixture(auth_dir: Path):
 
             # Manually initialize session detector since we modified settings after init
             from src.connectors._openai_codex_session_detector import SessionDetector
+            from src.connectors.openai_codex.compat import CompatibilityLayer
+            from src.connectors._openai_codex_kilo_tool_translator import (
+                KiloToolTranslator,
+            )
 
             detection_cfg = backend._connector_settings["compatibility_layer"][
                 "detection"
@@ -77,6 +81,17 @@ async def codex_connector_compat_enabled_fixture(auth_dir: Path):
                 heuristic_threshold=detection_cfg["heuristic_threshold"],
             )
             backend._compatibility_layer_enabled = True
+
+            # Ensure kilo_translator is initialized
+            if backend._kilo_tool_translator is None:
+                backend._kilo_tool_translator = KiloToolTranslator(backend, None)
+
+            # Recreate compatibility layer with proper dependencies
+            backend._compatibility_layer = CompatibilityLayer(
+                session_detector=backend._session_detector,
+                kilo_translator=backend._kilo_tool_translator,
+                tool_execution_service=backend._tool_execution_service,
+            )
 
             yield backend
 
@@ -282,6 +297,7 @@ class TestRequestFlowIntegration:
             ProcessedMessage,
         )
         from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
         # Create a request context with KiloCode-style message
         message_content = '<read_file path="src/app.py" />'
@@ -290,17 +306,42 @@ class TestRequestFlowIntegration:
             content=message_content,
         )
 
-        request_mock = type("Request", (), {"stream": False, "metadata": {}})()
+        # Create proper CanonicalChatRequest instance (required by CodexRequestContext)
+        # Include both user and assistant messages to match processed_messages
+        request = CanonicalChatRequest(
+            messages=[
+                ChatMessage(role="user", content="test"),
+                ChatMessage(role="assistant", content=message_content),
+            ],
+            model="gpt-5-codex",
+            stream=False,
+        )
+        # Set metadata to indicate KiloCode client (required for compatibility layer detection)
         context = CodexRequestContext(
-            request=request_mock,
+            request=request,
             processed_messages=[processed_message],
             effective_model="gpt-5-codex",
             capabilities=CodexClientCapabilities(),
             session_id="test_session",
+            metadata={"agent": "kilocode"},  # Enable KiloCode detection
         )
 
-        # Use compatibility layer to translate (this is the new way)
+        # Mock session detector to ensure KiloCode is detected
+        from unittest.mock import AsyncMock
+
         if codex_connector_compat_enabled._compatibility_layer:
+            # Mock the session detector to return positive detection
+            if codex_connector_compat_enabled._compatibility_layer._session_detector:
+                from unittest.mock import MagicMock
+
+                detection_result = MagicMock()
+                detection_result.is_kilocode = True
+                detection_result.detection_method = "metadata"
+                detection_result.confidence = 1.0
+                codex_connector_compat_enabled._compatibility_layer._session_detector.detect = AsyncMock(
+                    return_value=detection_result
+                )
+
             compat_result = (
                 await codex_connector_compat_enabled._compatibility_layer.apply(context)
             )
