@@ -98,7 +98,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         if isinstance(content, bytes):
             try:
                 return content.decode("utf-8")
-            except Exception:
+            except UnicodeDecodeError:
                 return content.decode("utf-8", errors="ignore")
         if isinstance(content, dict):
             # Use dict() to safely handle StopChunkWithUsage which is a dict subclass
@@ -137,7 +137,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         elif isinstance(content, bytes | bytearray):
             try:
                 decoded = content.decode("utf-8")
-            except Exception:
+            except UnicodeDecodeError:
                 decoded = content.decode("utf-8", errors="ignore")
             if decoded.strip():
                 return True
@@ -269,11 +269,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         """Create loop detector with fail-open behavior."""
         try:
             return self._loop_detector_factory.create()
-        except Exception:
+        except Exception as err:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to create loop detector for session %s",
+                    "Failed to create loop detector for session %s: %s",
                     session_id,
+                    err,
                     exc_info=True,
                 )
             return None
@@ -313,11 +314,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 request_context=request_context,
             )
             return verified_stream
-        except Exception:
+        except Exception as err:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Angel verification failed for session %s, using original stream",
+                    "Angel verification failed for session %s, using original stream: %s",
                     processing_context.session_id,
+                    err,
                     exc_info=True,
                 )
             return processed_stream
@@ -417,11 +419,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         )
 
                 return retry_chunks()
-        except Exception:
+        except (TypeError, AttributeError, RuntimeError, asyncio.CancelledError) as err:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Tool-call retry coordination failed for session %s",
+                    "Tool-call retry coordination failed for session %s: %s",
                     processing_context.session_id,
+                    err,
                     exc_info=True,
                 )
         return None
@@ -604,11 +607,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                                         usage=retry_chunk.usage,
                                     )
                             return
-                    except Exception:
+                    except (TypeError, AttributeError, RuntimeError) as err:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                "Tool-call retry coordination failed for session %s",
+                                "Tool-call retry coordination failed for session %s: %s",
                                 processing_context.session_id,
+                                err,
                                 exc_info=True,
                             )
 
@@ -666,11 +670,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                                         },
                                     )
                                     return
-                    except Exception:
+                    except (TypeError, AttributeError, RuntimeError, ValueError) as err:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                "Loop detection failed for chunk in session %s",
+                                "Loop detection failed for chunk in session %s: %s",
                                 processing_context.session_id,
+                                err,
                                 exc_info=True,
                             )
 
@@ -684,7 +689,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     original_request_payload = cast(
                         JsonValue, request.model_dump(mode="json")
                     )
-            except Exception:
+            except (AttributeError, TypeError, ValueError):
                 original_request_payload = None
 
             async for chunk in monitored_stream():

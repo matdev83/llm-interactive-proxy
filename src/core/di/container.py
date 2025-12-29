@@ -188,6 +188,36 @@ class ServiceProvider(IServiceProvider):
         """Create a new service scope."""
         return ServiceScope(self)
 
+    async def dispose(self) -> None:
+        """Dispose of service provider and clean up singleton instances.
+
+        This method ensures that all singleton instances are properly cleaned up:
+        - Async context managers (like httpx.AsyncClient) have __aexit__ called
+        - Other resources with dispose() methods are disposed
+        - The _singleton_instances dict is cleared to prevent memory leaks
+
+        Should be called during application shutdown to release all resources.
+        """
+        with self._lock:
+            for service_type, instance in list(self._singleton_instances.items()):
+                try:
+                    if hasattr(instance, "__aexit__") and callable(instance.__aexit__):
+                        await instance.__aexit__(None, None, None)
+                    elif hasattr(instance, "dispose") and callable(instance.dispose):
+                        if asyncio.iscoroutinefunction(instance.dispose):
+                            await instance.dispose()
+                        else:
+                            instance.dispose()
+                except Exception as e:
+                    if self._diag_logger.isEnabledFor(logging.WARNING):
+                        self._diag_logger.warning(
+                            "Error disposing singleton instance %s: %s",
+                            service_type,
+                            e,
+                            exc_info=True,
+                        )
+            self._singleton_instances.clear()
+
     def _get_service(
         self, service_type: type[T], scope: ServiceScope | None
     ) -> T | None:
@@ -253,8 +283,9 @@ class ServiceProvider(IServiceProvider):
                 instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
                 pop_resolution()  # Pop before returning successfully resolved service
                 return instance  # type: ignore[no-any-return]
-        except Exception:
-            # On any exception, pop before re-raising
+        except BaseException:
+            # On any exception (including KeyboardInterrupt), pop before re-raising
+            # This ensures the resolution stack is properly cleaned up
             pop_resolution()
             raise
 
@@ -321,6 +352,7 @@ class ServiceCollection(IServiceCollection):
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
         self._cleanup_lock = asyncio.Lock()
         self._disposed = False
+        self._logger = logging.getLogger("llm.di")
 
     def add_singleton(
         self,
@@ -435,9 +467,18 @@ class ServiceCollection(IServiceCollection):
             from src.core.di.provider_lifecycle import post_build_hooks
 
             post_build_hooks(provider)
-        except Exception:
-            # Don't fail if hooks can't be executed (e.g., in tests)
+        except ImportError:
+            # Don't fail if provider_lifecycle is not available (e.g., in tests)
             pass
+        except (AttributeError, RuntimeError, TypeError) as err:
+            # Log unexpected errors in post-build hooks but continue
+            logger = logging.getLogger("llm.di")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Post-build hooks failed: %s",
+                    err,
+                    exc_info=False,
+                )
         return provider
 
     async def dispose(self) -> None:
@@ -472,7 +513,7 @@ class ServiceCollection(IServiceCollection):
                     # Await cancelled tasks to ensure they complete
                     with contextlib.suppress(Exception):
                         await asyncio.gather(*pending_tasks, return_exceptions=True)
-                except Exception:
+                except RuntimeError:
                     # If gather fails, cancel all tasks
                     for task in pending_tasks:
                         if not task.done():
