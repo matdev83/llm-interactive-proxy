@@ -99,7 +99,7 @@ class AntigravityAuthStatus(BaseModel):
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v: str) -> str:
-        if not v or not isinstance(v, str):
+        if not v:
             raise ValueError("apiKey must be a non-empty string")
         return v
 
@@ -207,7 +207,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     exc_info=True,
                 )
             # Close custom client if initialization fails
-            if self._owns_custom_client and custom_client is not None:
+            if self._owns_custom_client:
                 try:
                     if not custom_client.is_closed:
                         await custom_client.aclose()
@@ -404,7 +404,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     # Stream processing with bounded memory usage
                     # We only need to buffer content for XML tool call detection
                     # and keep track of the first chunk type for reconstruction
-                    content_buffer = ""
+                    content_parts: list[str] = []
                     first_chunk_type: type[Any] | None = None
                     original_chunks: list[Any] = []
 
@@ -426,14 +426,19 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                     delta = choices[0].get("delta", {})
                                     content_part = delta.get("content", "")
                                     if content_part:
-                                        content_buffer += content_part
+                                        content_parts.append(content_part)
                             elif isinstance(chunk_content, str):
-                                content_buffer += chunk_content
+                                content_parts.append(chunk_content)
 
                         # Early exit if we detect tool calls and have enough content
+                        # Build content_buffer efficiently using list accumulation
+                        content_buffer = "".join(content_parts)
                         if "<Tool>" in content_buffer and "</Tool>" in content_buffer:
                             # We have a complete tool call, break to process it
                             break
+
+                    # Build final content buffer after loop (may have been built in loop)
+                    content_buffer = "".join(content_parts)
 
                     # Check for XML tool calls in the accumulated content
                     tool_calls = []
@@ -536,9 +541,8 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                             yield chunk
 
                         # Continue yielding remaining chunks from original iterator
-                        if original_iterator is not None:
-                            async for chunk in original_iterator:  # type: ignore[union-attr]
-                                yield chunk
+                        async for chunk in original_iterator:  # type: ignore[union-attr]
+                            yield chunk
 
                 response.content = _intercept_stream()  # type: ignore[assignment]
 
@@ -1257,10 +1261,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         # Convert model to dict if needed
         if isinstance(credentials, AntigravityAuthStatus):
             base_dict = credentials.to_dict()
-        elif isinstance(credentials, dict):
-            base_dict = credentials
         else:
-            return credentials
+            # credentials is dict[str, Any] at this point due to type narrowing
+            base_dict = credentials
 
         # Create a copy to avoid modifying the original
         normalized = base_dict.copy()
@@ -1396,7 +1399,6 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             hasattr(self, "_owns_custom_client")
             and self._owns_custom_client
             and hasattr(self, "client")
-            and self.client is not None
             and not self.client.is_closed
         ):
             try:
@@ -1422,7 +1424,6 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             hasattr(self, "_owns_custom_client")
             and self._owns_custom_client
             and hasattr(self, "client")
-            and self.client is not None
             and not self.client.is_closed
         ):
             try:

@@ -752,7 +752,9 @@ class ClineAuthMixin:
             if encrypted_key.startswith(b"DPAPI"):
                 encrypted_key = encrypted_key[5:]
             return await self._dpapi_decrypt(encrypted_key)
-        except Exception:
+        except asyncio.CancelledError:
+            raise
+        except (OSError, json.JSONDecodeError, ValueError, KeyError):
             logger.debug("Failed to extract VSCode AES key", exc_info=True)
             return None
 

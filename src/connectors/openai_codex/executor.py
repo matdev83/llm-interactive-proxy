@@ -317,7 +317,12 @@ class ResponseExecutor(IResponseExecutor):
                     headers_holder.clear()
                     try:
                         headers_holder.update(dict(stream_handle.headers or {}))
-                    except Exception:
+                    except (TypeError, AttributeError, ValueError) as e:
+                        logger.debug(
+                            "Failed to extract response headers from stream: %s",
+                            e,
+                            exc_info=True,
+                        )
                         headers_holder.clear()
 
                     restart_stream = False

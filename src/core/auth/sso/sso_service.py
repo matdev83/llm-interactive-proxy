@@ -692,10 +692,10 @@ class SSOService:
                         )
                 except AuthenticationError as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Failed to verify/parse ID token: %s", e)
+                        logger.warning("Failed to verify/parse ID token: %s", e, exc_info=True)
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Unexpected error parsing ID token: %s", e)
+                        logger.warning("Unexpected error parsing ID token: %s", e, exc_info=True)
 
             # Method 2: Try userinfo endpoint
             if (not user_id or not user_email) and userinfo_endpoint:
@@ -719,7 +719,7 @@ class SSOService:
                         )
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Failed to fetch userinfo: %s", e)
+                        logger.warning("Failed to fetch userinfo: %s", e, exc_info=True)
 
             # Method 3: Provider-specific handling
             if not user_id or not user_email:
