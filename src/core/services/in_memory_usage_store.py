@@ -138,7 +138,10 @@ class InMemoryUsageStore:
             target=self._persistence_loop, daemon=True, name="UsageStorePersistence"
         )
         self._flush_thread.start()
-        logger.info(f"Started persistence thread with {self._flush_interval}s interval")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                f"Started persistence thread with {self._flush_interval}s interval"
+            )
 
     def stop_persistence_thread(self) -> None:
         """Stop the background persistence thread and perform final flush."""
