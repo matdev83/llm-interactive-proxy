@@ -182,9 +182,10 @@ class SteeringLeakProtector:
         try:
             content = data.decode("utf-8", errors="ignore")
             return self.has_leak(content)
-        except Exception:
+        except (AttributeError, TypeError) as e:
+            # Handle cases where data is not actually bytes (type hint violation at runtime)
             logger.warning(
-                "Failed to decode bytes for leak detection",
+                "Failed to decode bytes for leak detection: data type violation",
                 exc_info=True,
             )
             return False

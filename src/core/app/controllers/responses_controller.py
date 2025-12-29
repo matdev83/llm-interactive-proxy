@@ -373,7 +373,8 @@ class ResponsesController:
                         # Best-effort stringify for non-dict/list types
                         try:
                             text = _json.dumps(content)
-                        except Exception:
+                        except TypeError:
+                            # Content is not JSON serializable (e.g., contains custom objects)
                             logger.debug(
                                 f"Failed to JSON serialize content, using str - request_id={request_id}",
                                 exc_info=True,
