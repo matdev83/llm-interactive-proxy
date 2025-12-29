@@ -1,5 +1,5 @@
 """
-Streaming processors that implement the IStreamProcessor interface.
+Streaming processors that implement IStreamProcessor interface.
 
 This module contains middleware processors that observe or transform
 streaming content as it flows through the pipeline.
@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from typing import Any
 from uuid import uuid4
@@ -179,6 +180,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         self._max_cached_sessions = max_cached_sessions
         self._session_order: list[str] = []  # Track LRU order
         self._logger = logging.getLogger(__name__)
+        self._lock = threading.Lock()
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process streaming content and check for tool call loops.
@@ -265,8 +267,9 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
     def reset(self) -> None:
         """Reset tool call tracking state for new stream."""
-        self._session_trackers.clear()
-        self._session_order.clear()
+        with self._lock:
+            self._session_trackers.clear()
+            self._session_order.clear()
         if self._logger.isEnabledFor(logging.DEBUG):
             self._logger.debug("Tool call repair processor state reset")
 
@@ -304,7 +307,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
     def _get_or_create_tracker(
         self, session_id: str, config: LoopDetectionConfiguration
     ) -> ToolCallTracker:
-        """Get or create a tracker for the session.
+        """Get or create a tracker for a session.
 
         Args:
             session_id: The session identifier
@@ -313,26 +316,27 @@ class ToolCallRepairProcessor(IStreamProcessor):
         Returns:
             ToolCallTracker for the session
         """
-        tracker = self._session_trackers.get(session_id)
-        if tracker is None:
-            # Create new tracker
-            from src.tool_call_loop.config import ToolCallLoopConfig
+        with self._lock:
+            tracker = self._session_trackers.get(session_id)
+            if tracker is None:
+                # Create new tracker
+                from src.tool_call_loop.config import ToolCallLoopConfig
 
-            tracker_config = ToolCallLoopConfig(
-                enabled=config.tool_loop_detection_enabled,
-                max_repeats=config.tool_loop_max_repeats or 4,
-                ttl_seconds=config.tool_loop_ttl_seconds or 120,
-                mode=self._resolve_tool_loop_mode(config.tool_loop_mode),
-            )
-            tracker = ToolCallTracker(config=tracker_config)
-            self._session_trackers[session_id] = tracker
-            self._session_order.append(session_id)
-            self._enforce_cache_limit()
-        else:
-            # Move to end (LRU)
-            if session_id in self._session_order:
-                self._session_order.remove(session_id)
-            self._session_order.append(session_id)
+                tracker_config = ToolCallLoopConfig(
+                    enabled=config.tool_loop_detection_enabled,
+                    max_repeats=config.tool_loop_max_repeats or 4,
+                    ttl_seconds=config.tool_loop_ttl_seconds or 120,
+                    mode=self._resolve_tool_loop_mode(config.tool_loop_mode),
+                )
+                tracker = ToolCallTracker(config=tracker_config)
+                self._session_trackers[session_id] = tracker
+                self._session_order.append(session_id)
+                self._enforce_cache_limit()
+            else:
+                # Move to end (LRU)
+                if session_id in self._session_order:
+                    self._session_order.remove(session_id)
+                self._session_order.append(session_id)
 
         return tracker
 
@@ -389,16 +393,17 @@ class ToolCallRepairProcessor(IStreamProcessor):
 
     def _enforce_cache_limit(self) -> None:
         """Ensure the session tracker cache does not grow without bound."""
-        while len(self._session_trackers) > self._max_cached_sessions:
-            # Remove oldest session (first in order list)
-            if self._session_order:
-                evicted_session_id = self._session_order.pop(0)
-                self._session_trackers.pop(evicted_session_id, None)
-                if self._logger.isEnabledFor(logging.DEBUG):
-                    self._logger.debug(
-                        "Evicted tool call tracker for session %s due to cache limit",
-                        evicted_session_id,
-                    )
+        with self._lock:
+            while len(self._session_trackers) > self._max_cached_sessions:
+                # Remove oldest session (first in order list)
+                if self._session_order:
+                    evicted_session_id = self._session_order.pop(0)
+                    self._session_trackers.pop(evicted_session_id, None)
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Evicted tool call tracker for session %s due to cache limit",
+                            evicted_session_id,
+                        )
 
 
 class ThinkTagsProcessor(IStreamProcessor):

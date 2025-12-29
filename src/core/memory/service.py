@@ -487,14 +487,13 @@ class MemoryService:
         try:
             session_id = self._analysis_queue.get_nowait()
             metrics_service.inc("memory.analysis.dequeued")
+            # Clean up stale entries before adding new one
+            await self._cleanup_stale_analysis_in_progress()
             # Track when session entered analysis_in_progress for TTL cleanup
             # Enforce max limit to prevent unbounded growth
-            if len(self._analysis_in_progress) >= _MAX_ANALYSIS_IN_PROGRESS:
-                # Clean up stale entries first
-                await self._cleanup_stale_analysis_in_progress()
-                # If still at limit, evict oldest entries (by timestamp)
+            async with self._analysis_lock:
                 if len(self._analysis_in_progress) >= _MAX_ANALYSIS_IN_PROGRESS:
-                    # Evict oldest entries (sorted by timestamp)
+                    # If still at limit, evict oldest entries (by timestamp)
                     sorted_entries = sorted(
                         self._analysis_in_progress.items(), key=lambda x: x[1]
                     )
@@ -509,9 +508,7 @@ class MemoryService:
                             excess_count,
                             _MAX_ANALYSIS_IN_PROGRESS,
                         )
-            self._analysis_in_progress[session_id] = time.time()
-            # Clean up stale analysis_in_progress entries
-            await self._cleanup_stale_analysis_in_progress()
+                self._analysis_in_progress[session_id] = time.time()
             return session_id
         except asyncio.QueueEmpty:
             # Still clean up stale entries even if queue is empty
@@ -520,7 +517,8 @@ class MemoryService:
 
     async def complete_analysis(self, session_id: str) -> None:
         """Mark analysis as complete for a session."""
-        self._analysis_in_progress.pop(session_id, None)
+        async with self._analysis_lock:
+            self._analysis_in_progress.pop(session_id, None)
         metrics_service.inc("memory.analysis.completed")
 
         async with self._state_lock:
@@ -643,7 +641,8 @@ class MemoryService:
                 # Remove from session states
                 del self._session_states[sid]
                 # Also remove from analysis_in_progress if present
-                self._analysis_in_progress.pop(sid, None)
+                async with self._analysis_lock:
+                    self._analysis_in_progress.pop(sid, None)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Removed stale session state: %s (last access: %.1fs ago)",
@@ -688,7 +687,8 @@ class MemoryService:
         # Remove from session states
         del self._session_states[oldest_session_id]
         # Also remove from analysis_in_progress if present
-        self._analysis_in_progress.pop(oldest_session_id, None)
+        async with self._analysis_lock:
+            self._analysis_in_progress.pop(oldest_session_id, None)
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Evicted oldest session state: %s (max_sessions=%d reached)",
@@ -718,17 +718,18 @@ class MemoryService:
         This prevents accumulation of sessions stuck in analysis if worker crashes.
         """
         now = time.time()
-        expired_sessions = [
-            (sid, timestamp)
-            for sid, timestamp in self._analysis_in_progress.items()
-            if now - timestamp > _ANALYSIS_IN_PROGRESS_TTL_SECONDS
-        ]
+        async with self._analysis_lock:
+            expired_sessions = [
+                (sid, timestamp)
+                for sid, timestamp in self._analysis_in_progress.items()
+                if now - timestamp > _ANALYSIS_IN_PROGRESS_TTL_SECONDS
+            ]
 
-        for sid, timestamp in expired_sessions:
-            self._analysis_in_progress.pop(sid, None)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Removed stale analysis_in_progress entry: %s (stuck for %.1fs)",
-                    sid,
-                    now - timestamp,
-                )
+            for sid, timestamp in expired_sessions:
+                self._analysis_in_progress.pop(sid, None)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Removed stale analysis_in_progress entry: %s (stuck for %.1fs)",
+                        sid,
+                        now - timestamp,
+                    )
