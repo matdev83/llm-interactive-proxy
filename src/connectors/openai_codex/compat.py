@@ -6,6 +6,7 @@ tool translation, and streaming chunk translation.
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 from typing import Any, cast
@@ -128,12 +129,12 @@ class CompatibilityLayer(ICompatibilityLayer):
 
                 messages_for_detection = []
                 for msg in context.processed_messages:
-                    if isinstance(msg, ProcessedMessage):
+                    if isinstance(msg, ProcessedMessage):  # type: ignore
                         msg_dict = (
                             msg.model_dump() if hasattr(msg, "model_dump") else {}
                         )
                         messages_for_detection.append(msg_dict)
-                    elif isinstance(msg, dict):
+                    elif isinstance(msg, dict):  # type: ignore
                         messages_for_detection.append(msg)
 
                 # Extract headers from metadata if available (headers are HTTP-level
@@ -252,7 +253,7 @@ class CompatibilityLayer(ICompatibilityLayer):
             # Clean XML from messages
             if codex_tools or proxy_tools or mcp_tools:
                 for message in context.processed_messages:
-                    if isinstance(message, ProcessedMessage):
+                    if isinstance(message, ProcessedMessage):  # type: ignore
                         content = message.content
                         if (
                             isinstance(content, str)
@@ -267,10 +268,10 @@ class CompatibilityLayer(ICompatibilityLayer):
                                     len(content),
                                     len(cleaned_content),
                                 )
-                    elif isinstance(message, dict):
+                    elif isinstance(message, dict):  # type: ignore
                         content = message.get("content", "")
                         if (
-                            isinstance(content, str)
+                            isinstance(content, str)  # type: ignore
                             and "<" in content
                             and ">" in content
                         ):
@@ -318,7 +319,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                 tc: dict[str, Any], finish_reason: str | None
             ) -> None:
                 """Translate a single tool call dict in-place."""
-                if not isinstance(tc, dict) or "function" not in tc:
+                if not isinstance(tc, dict) or "function" not in tc:  # type: ignore
                     return
 
                 func = tc.get("function")
@@ -510,14 +511,14 @@ class CompatibilityLayer(ICompatibilityLayer):
         # Process each message
         for message in processed_messages:
             # Extract message content and role
-            if isinstance(message, ProcessedMessage):
+            if isinstance(message, ProcessedMessage):  # type: ignore
                 content = message.content
                 message_role = message.role.lower() if message.role else ""
             else:
                 content = message.get("content", "")
                 message_role = (
                     message.get("role", "").lower()
-                    if isinstance(message.get("role"), str)
+                    if isinstance(message.get("role"), str)  # type: ignore
                     else ""
                 )
 
@@ -564,7 +565,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                         },
                     }
 
-                    if isinstance(message, ProcessedMessage):
+                    if isinstance(message, ProcessedMessage):  # type: ignore
                         if message.tool_calls is None:
                             message.tool_calls = []
                         try:
@@ -586,7 +587,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                             )
                             tool_call_obj = cast(ToolCall, tool_call_entry)
                         message.tool_calls.append(tool_call_obj)
-                    elif isinstance(message, dict):
+                    elif isinstance(message, dict):  # type: ignore
                         message.setdefault("tool_calls", []).append(tool_call_entry)
 
                 # Determine execution mode based on tool name prefix
@@ -626,6 +627,27 @@ class CompatibilityLayer(ICompatibilityLayer):
 
         return result
 
+    @staticmethod
+    @functools.lru_cache(maxsize=4)
+    def _get_xml_cleaning_pattern(tags: tuple[str, ...]) -> re.Pattern[str]:
+        """Get cached compiled regex for cleaning XML tags.
+
+        Args:
+            tags: Tuple of tag names to remove
+
+        Returns:
+            Compiled regex pattern
+        """
+        tag_group = "|".join(re.escape(t) for t in tags)
+        # Match <TAG...>...</TAG> OR <TAG.../>
+        # We use a non-capturing group for the tag name alternatives inside the capturing group
+        # Pattern 1: Paired tags <(TAG) [attrs]> ... </\1>
+        p1 = rf"<({tag_group})(?:\s[^>]*)?>.*?</\1>"
+        # Pattern 2: Self-closing tags <(TAG) [attrs]/>
+        p2 = rf"<({tag_group})(?:\s[^>]*)?/>"
+
+        return re.compile(f"{p1}|{p2}", flags=re.IGNORECASE | re.DOTALL)
+
     def _clean_xml_from_message(self, content: str) -> str:
         """Remove XML tool tags from message content.
 
@@ -635,22 +657,18 @@ class CompatibilityLayer(ICompatibilityLayer):
         Returns:
             Content with XML tags removed
         """
-        if not content or not isinstance(content, str):
+        if not content:
             return content
 
         # Get supported tags from XML parser
-        supported_tags = []
+        supported_tags_list = []
         if self._kilo_translator and self._kilo_translator._xml_parser:
-            try:
-                from src.connectors._openai_codex_xml_tool_parser import XMLToolParser
+            # Optimization: Access class attribute from instance directly
+            supported_tags_list = list(self._kilo_translator._xml_parser.SUPPORTED_TAGS)
 
-                supported_tags = list(XMLToolParser.SUPPORTED_TAGS)
-            except (ImportError, AttributeError):
-                pass
-
-        if not supported_tags:
+        if not supported_tags_list:
             # Fallback to common tags
-            supported_tags = [
+            supported_tags_list = [
                 "read_file",
                 "list_files",
                 "execute_command",
@@ -666,15 +684,11 @@ class CompatibilityLayer(ICompatibilityLayer):
                 "edit_file",
             ]
 
-        cleaned = content
-        for tag in supported_tags:
-            # Remove opening and closing tags with content
-            pattern = rf"<{tag}(?:\s[^>]*)?>.*?</{tag}>"
-            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+        # Sort by length (descending) to ensure longer tags match first in regex alternation
+        sorted_tags = tuple(sorted(supported_tags_list, key=len, reverse=True))
 
-            # Remove self-closing tags
-            pattern = rf"<{tag}(?:\s[^>]*)?/>"
-            cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+        pattern = self._get_xml_cleaning_pattern(sorted_tags)
+        cleaned = pattern.sub("", content)
 
         # Clean up extra whitespace
         cleaned = re.sub(r"\n\s*\n\s*\n", "\n\n", cleaned)

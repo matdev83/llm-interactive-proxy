@@ -989,17 +989,12 @@ async def openai_stream_to_anthropic_stream(
                     )
                 events.append(stop_block_event)
                 active_tool_call_index = -1
-            content_payload = {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {
-                    "type": "text_delta",
-                    "text": _normalize_text_content(delta["content"]),
-                },
-            }
-            content_event = (
-                f"event: content_block_delta\ndata: {json.dumps(content_payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
-            )
+
+            # Optimization: avoid intermediate dict creation and full serialization for frequent text deltas
+            text_content = _normalize_text_content(delta["content"])
+            text_json = json.dumps(text_content, ensure_ascii=False)
+            content_event = f'event: content_block_delta\ndata: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{text_json}}}}}\n\n'
+
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.log(TRACE_LEVEL, f"YIELDING text_delta: {content_event!r}")
             events.append(content_event)
@@ -1019,9 +1014,7 @@ async def openai_stream_to_anthropic_stream(
                 "delta": {"stop_reason": _map_finish_reason(choice["finish_reason"])},
                 "usage": {"input_tokens": 0, "output_tokens": 0},
             }
-            finish_event = (
-                f"event: message_delta\ndata: {json.dumps(finish_payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
-            )
+            finish_event = f"event: message_delta\ndata: {json.dumps(finish_payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
             if logger.isEnabledFor(TRACE_LEVEL):
                 logger.log(
                     TRACE_LEVEL, f"YIELDING message_delta (finish): {finish_event!r}"
@@ -1107,26 +1100,30 @@ def openai_to_anthropic_stream_chunk(chunk_data: str, id: str, model: str) -> st
                     "model": model,
                 },
             }
-            return "event: message_start\n" f"data: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+            return (
+                "event: message_start\n"
+                f"data: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+            )
 
         # Content delta
         if delta.get("content"):
             content = _normalize_text_content(delta["content"])
-            payload = {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {"type": "text_delta", "text": content},
-            }
-            return f"event: content_block_delta\ndata: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+            # Optimization: avoid intermediate dict creation and full serialization for frequent text deltas
+            content_json = json.dumps(content, ensure_ascii=False)
+            return (
+                "event: content_block_delta\n"
+                f'data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{content_json}}}}}\n\n'
+            )
 
         # Finish reason delta
         if choice.get("finish_reason"):
             anthropic_reason = _map_finish_reason(choice["finish_reason"])
-            payload = {
-                "type": "message_delta",
-                "delta": {"stop_reason": anthropic_reason},
-            }
-            return f"event: message_delta\ndata: {json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n\n"
+            # Optimization: avoid intermediate dict creation
+            reason_json = json.dumps(anthropic_reason, ensure_ascii=False)
+            return (
+                "event: message_delta\n"
+                f'data: {{"type":"message_delta","delta":{{"stop_reason":{reason_json}}}}}\n\n'
+            )
     except json.JSONDecodeError:
         # Ignore bad JSON chunk
         return ""
