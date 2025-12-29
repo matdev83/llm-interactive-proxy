@@ -114,7 +114,9 @@ class ResponseExecutor(IResponseExecutor):
             Response envelope with parsed response, usage metadata, and capture data
         """
         url = self._codex_url
-        headers = self._build_headers(context.session_id)
+        # Derive conversation_id from prompt_cache_key, fallback to session_id
+        conversation_id = payload.prompt_cache_key or context.session_id
+        headers = self._build_headers(conversation_id)
         payload_dict = payload.model_dump(exclude_none=True)
 
         if not headers or not headers.get("Authorization"):
@@ -144,14 +146,36 @@ class ResponseExecutor(IResponseExecutor):
             # Handle HTTP status errors (e.g., 429, 500, etc.)
             try:
                 err = e.response.json()
-            except Exception:
+            except Exception as json_err:
+                logger.debug(
+                    "Failed to parse error response JSON, falling back to text: %s",
+                    json_err,
+                    exc_info=True,
+                    extra={
+                        "backend": "openai-codex",
+                        "session_id": context.session_id,
+                        "model": context.effective_model,
+                        "status_code": e.response.status_code,
+                    },
+                )
                 err = e.response.text
             raise HTTPException(status_code=e.response.status_code, detail=err) from e
 
         if int(response.status_code) >= 400:
             try:
                 err = response.json()
-            except Exception:
+            except Exception as json_err:
+                logger.debug(
+                    "Failed to parse error response JSON, falling back to text: %s",
+                    json_err,
+                    exc_info=True,
+                    extra={
+                        "backend": "openai-codex",
+                        "session_id": context.session_id,
+                        "model": context.effective_model,
+                        "status_code": response.status_code,
+                    },
+                )
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
 
@@ -231,7 +255,9 @@ class ResponseExecutor(IResponseExecutor):
             Streaming response envelope with retry handling
         """
         url = self._codex_url
-        headers = self._build_headers(context.session_id)
+        # Derive conversation_id from prompt_cache_key, fallback to session_id
+        conversation_id = payload.prompt_cache_key or context.session_id
+        headers = self._build_headers(conversation_id)
         payload_dict = payload.model_dump(exclude_none=True)
 
         headers_holder: dict[str, str] = {}
@@ -307,9 +333,7 @@ class ResponseExecutor(IResponseExecutor):
                             attempts_used += 1
                             if delay > 0:
                                 await asyncio.sleep(delay)
-                            self._refresh_headers_auth(
-                                current_headers, context.session_id
-                            )
+                            self._refresh_headers_auth(current_headers, conversation_id)
                             continue
                         raise
 
@@ -363,6 +387,7 @@ class ResponseExecutor(IResponseExecutor):
                                     logger.debug(
                                         "Compatibility layer translation failed: %s",
                                         e,
+                                        exc_info=True,
                                         extra={
                                             "backend": "openai-codex",
                                             "session_id": context.session_id,
@@ -416,7 +441,7 @@ class ResponseExecutor(IResponseExecutor):
                         attempts_used += 1
                         if delay > 0:
                             await asyncio.sleep(delay)
-                        self._refresh_headers_auth(current_headers, context.session_id)
+                        self._refresh_headers_auth(current_headers, conversation_id)
                         # Restart the stream by continuing the outer while loop
                         continue
 
@@ -430,7 +455,15 @@ class ResponseExecutor(IResponseExecutor):
                             compatibility_state
                         )
                     except Exception as e:
-                        logger.debug("Compatibility state cleanup failed: %s", e)
+                        logger.debug(
+                            "Compatibility state cleanup failed: %s",
+                            e,
+                            exc_info=True,
+                            extra={
+                                "backend": "openai-codex",
+                                "session_id": context.session_id,
+                            },
+                        )
 
         return StreamingResponseEnvelope(
             content=_streaming_iterator(),
