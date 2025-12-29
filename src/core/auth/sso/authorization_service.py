@@ -353,7 +353,8 @@ class AuthorizationService:
                         else response.text
                     )
                     logger.error(
-                        f"Authorization API returned status {response.status_code}: {safe_text}"
+                        f"Authorization API returned status {response.status_code}: {safe_text}",
+                        exc_info=True,
                     )
                     return AuthorizationResult(
                         authorized=False,
@@ -371,7 +372,9 @@ class AuthorizationService:
                     elif isinstance(data, dict):
                         authorized = bool(data.get("authorized", False))
                     else:
-                        logger.error(f"Unexpected API response format: {data}")
+                        logger.error(
+                            f"Unexpected API response format: {data}", exc_info=True
+                        )
                         return AuthorizationResult(
                             authorized=False, error="Invalid response format"
                         )
@@ -392,13 +395,15 @@ class AuthorizationService:
                     )
 
         except httpx.TimeoutException:
-            logger.error("Authorization API timed out")
+            logger.error("Authorization API timed out", exc_info=True)
             return AuthorizationResult(authorized=False, error="API timeout")
         except httpx.RequestError as e:
-            logger.error(f"Authorization API request failed: {e}")
+            logger.error(f"Authorization API request failed: {e}", exc_info=True)
             return AuthorizationResult(authorized=False, error=f"Request failed: {e!s}")
         except Exception as e:
-            logger.error(f"Unexpected error during authorization API query: {e}")
+            logger.error(
+                f"Unexpected error during authorization API query: {e}", exc_info=True
+            )
             return AuthorizationResult(
                 authorized=False, error=f"Unexpected error: {e!s}"
             )

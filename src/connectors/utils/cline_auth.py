@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from pydantic import ValidationError
 
 from src.connectors.utils.cline_auth_types import ClineTokenData
 from src.core.common.exceptions import AuthenticationError, BackendError
@@ -56,16 +57,29 @@ class _ClineTokenStore:
             try:
                 parsed = json.loads(raw_value)
                 return ClineTokenData.model_validate(parsed)
-            except (json.JSONDecodeError, Exception):
-                logger.warning("Failed to parse Cline auth payload from secrets file")
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    "Failed to parse Cline auth payload from secrets file (JSON decode): %s",
+                    e,
+                    exc_info=True,
+                )
+                return None
+            except ValidationError as e:
+                logger.warning(
+                    "Failed to validate Cline auth payload from secrets file (validation): %s",
+                    e,
+                    exc_info=True,
+                )
                 return None
 
         if isinstance(raw_value, Mapping):
             try:
                 return ClineTokenData.model_validate(raw_value)
-            except Exception:
+            except ValidationError as e:
                 logger.warning(
-                    "Failed to validate Cline auth payload from secrets file"
+                    "Failed to validate Cline auth payload from secrets file: %s",
+                    e,
+                    exc_info=True,
                 )
                 return None
 
@@ -96,8 +110,13 @@ class _ClineTokenStore:
                 data = json.load(handle)
                 if isinstance(data, Mapping):
                     return dict(data)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse secrets JSON at %s", self._secrets_path)
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "Failed to parse secrets JSON at %s: %s",
+                self._secrets_path,
+                e,
+                exc_info=True,
+            )
 
         return {}
 
@@ -539,7 +558,7 @@ class ClineAuthMixin:
                 timeout=self._request_timeout,
             )
         except httpx.HTTPError as exc:
-            logger.warning("Failed to fetch Cline user info: %s", exc)
+            logger.warning("Failed to fetch Cline user info: %s", exc, exc_info=True)
             return None
 
         if response.status_code != 200:
@@ -551,8 +570,12 @@ class ClineAuthMixin:
 
         try:
             payload = response.json()
-        except json.JSONDecodeError:
-            logger.warning("Received invalid JSON when fetching Cline user info")
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "Received invalid JSON when fetching Cline user info: %s",
+                e,
+                exc_info=True,
+            )
             return None
 
         data = payload.get("data") if isinstance(payload, Mapping) else None
@@ -622,8 +645,13 @@ class ClineAuthMixin:
         except FileNotFoundError:
             logger.debug("Codex auth file not found at %s", candidate)
             return None
-        except json.JSONDecodeError:
-            logger.debug("Failed to parse Codex auth file at %s", candidate)
+        except json.JSONDecodeError as e:
+            logger.debug(
+                "Failed to parse Codex auth file at %s: %s",
+                candidate,
+                e,
+                exc_info=True,
+            )
             return None
 
         tokens = payload.get("tokens")
@@ -751,9 +779,12 @@ class ClineAuthMixin:
                         data = buffer_json.get("data")
                         if isinstance(data, list):
                             return bytes(data)
-                    except Exception:
+                    except (json.JSONDecodeError, KeyError, TypeError) as e:
                         logger.debug(
-                            "Failed to parse VSCode secret blob for key %s", pattern
+                            "Failed to parse VSCode secret blob for key %s: %s",
+                            pattern,
+                            e,
+                            exc_info=True,
                         )
                         continue
         except sqlite3.Error:
@@ -853,7 +884,8 @@ class ClineAuthMixin:
         try:
             decoded = base64.urlsafe_b64decode(payload_part + padding)
             data = json.loads(decoded.decode("utf-8"))
-        except (json.JSONDecodeError, ValueError, OSError):
+        except (json.JSONDecodeError, ValueError, OSError) as e:
+            logger.debug("Failed to decode JWT payload: %s", e, exc_info=True)
             return None
         if isinstance(data, Mapping):
             return data

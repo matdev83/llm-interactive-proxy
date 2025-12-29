@@ -11,8 +11,11 @@ import logging
 import re
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
+
+from pydantic import ValidationError
 
 from src.core.common.exceptions import ToolCallLoopError
 from src.core.domain.configuration.loop_detection_config import (
@@ -41,6 +44,19 @@ _MAX_SESSION_STATES = 10_000
 # TTL for session states: remove if not accessed for 1 hour
 # This prevents accumulation of stale sessions that were never completed
 _SESSION_STATE_TTL_SECONDS = 3600
+
+
+@dataclass(frozen=True, slots=True)
+class ThinkTagFixResult:
+    """Result of fixing think tags in content.
+
+    Attributes:
+        response_content: The content outside the think tags (or original content if no tags found).
+        reasoning_content: The extracted reasoning content inside the tags, or None if no tags found.
+    """
+
+    response_content: str
+    reasoning_content: str | None
 
 
 class LoopDetectionProcessor(IStreamProcessor):
@@ -295,10 +311,11 @@ class ToolCallRepairProcessor(IStreamProcessor):
         if isinstance(config_data, dict):
             try:
                 return LoopDetectionConfiguration(**config_data)
-            except Exception as e:
+            except ValidationError as e:
                 if self._logger.isEnabledFor(logging.WARNING):
                     self._logger.warning(
-                        f"Failed to construct LoopDetectionConfiguration: {e}"
+                        f"Failed to construct LoopDetectionConfiguration: {e}",
+                        exc_info=True,
                     )
                 return None
 
@@ -569,7 +586,7 @@ class ThinkTagsProcessor(IStreamProcessor):
                 )
             result = self._fix_think_tags(new_buffer)
             self._cleanup_session_state(session_id)
-            return result
+            return result.response_content, result.reasoning_content
 
         if current_state == "waiting":
             # Check for think tags in the combined buffer
@@ -581,10 +598,10 @@ class ThinkTagsProcessor(IStreamProcessor):
                         "Started think tag detection for session %s", session_id
                     )
                 if _THINK_CLOSING_PATTERN.search(new_buffer):
-                    result_content, reasoning_content = self._fix_think_tags(new_buffer)
+                    result = self._fix_think_tags(new_buffer)
                     self._stream_states[session_id] = "post_think"
                     self._streaming_buffers[session_id] = ""
-                    return result_content, reasoning_content
+                    return result.response_content, result.reasoning_content
 
                 # Keep the buffered reasoning content until we see a closing tag
                 return "", None
@@ -599,10 +616,10 @@ class ThinkTagsProcessor(IStreamProcessor):
             # Store buffer while inside think tag
             self._streaming_buffers[session_id] = new_buffer
             if _THINK_CLOSING_PATTERN.search(new_buffer):
-                result_content, reasoning_content = self._fix_think_tags(new_buffer)
+                result = self._fix_think_tags(new_buffer)
                 self._stream_states[session_id] = "post_think"
                 self._streaming_buffers[session_id] = ""
-                return result_content, reasoning_content
+                return result.response_content, result.reasoning_content
 
             # Still inside <think>...</think>, keep buffering until we can close it
             return "", None
@@ -614,28 +631,28 @@ class ThinkTagsProcessor(IStreamProcessor):
 
         return chunk_content, None
 
-    def _fix_think_tags(self, content: str) -> tuple[str, str | None]:
+    def _fix_think_tags(self, content: str) -> ThinkTagFixResult:
         """Fix improperly formatted <think> tags in content.
 
         Args:
             content: The original content that may contain improper think tags
 
         Returns:
-            Tuple of (response_content, reasoning_content)
+            ThinkTagFixResult containing response_content and reasoning_content
         """
         if not content or not isinstance(content, str):
-            return content, None
+            return ThinkTagFixResult(response_content=content, reasoning_content=None)
 
         # Check if content starts with <think> tag
         if not _THINK_OPENING_PATTERN.match(content):
-            return content, None
+            return ThinkTagFixResult(response_content=content, reasoning_content=None)
 
-        # Try to match the full <think>...</think> pattern
+        # Try to match full <think>...</think> pattern
         match = _THINK_TAG_PATTERN.match(content)
         if not match:
             # If we have opening <think> but no proper closing, treat entire content as reasoning
             if content.strip().startswith("<think>"):
-                # Remove the opening tag and treat rest as reasoning
+                # Remove opening tag and treat rest as reasoning
                 reasoning_content = content.replace("<think>", "", 1).strip()
                 if reasoning_content.endswith("</think>"):
                     reasoning_content = reasoning_content[:-8].strip()
@@ -645,14 +662,16 @@ class ThinkTagsProcessor(IStreamProcessor):
                         "Fixed incomplete think tags - treating as pure reasoning"
                     )
                 # Return empty content since this was all reasoning
-                return "", reasoning_content
-            return content, None
+                return ThinkTagFixResult(
+                    response_content="", reasoning_content=reasoning_content
+                )
+            return ThinkTagFixResult(response_content=content, reasoning_content=None)
 
         leading_space, reasoning_content, middle_space, remaining_content = (
             match.groups()
         )
 
-        # Clean up the reasoning content while keeping response whitespace intact
+        # Clean up reasoning content while keeping response whitespace intact
         reasoning_content = reasoning_content.strip() if reasoning_content else ""
         response_content = (
             f"{leading_space}{middle_space}{remaining_content}"
@@ -667,7 +686,9 @@ class ThinkTagsProcessor(IStreamProcessor):
                 len(response_content),
             )
 
-        return response_content, reasoning_content
+        return ThinkTagFixResult(
+            response_content=response_content, reasoning_content=reasoning_content
+        )
 
     def _cleanup_session_state(self, session_id: str) -> None:
         """Clean up streaming state for a session.
