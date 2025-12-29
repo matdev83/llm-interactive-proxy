@@ -184,22 +184,30 @@ def sanitize_code_assist_tools(
         )
 
     if function_declarations:
+        # PERFORMANCE: Avoid model_dump() if already dict
         code_assist_request["tools"] = [
             {
                 "function_declarations": [
-                    fd.model_dump() for fd in function_declarations
+                    fd if isinstance(fd, dict) else fd.model_dump()
+                    for fd in function_declarations
                 ]
             }
         ]
 
         # Filter allowedFunctionNames to declared functions
-        declared_names = {fd.name for fd in function_declarations}
+        declared_names: set[str] = set()
+        for fd in function_declarations:
+            if isinstance(fd, dict):
+                name = fd.get("name")  # type: ignore[assignment]
+            else:
+                name = fd.name
+            if name:
+                declared_names.add(name)
         filter_allowed_function_names(code_assist_request, declared_names)
     else:
         code_assist_request.pop("tools", None)
         # If no tools, drop toolConfig entirely to avoid invalid references
         code_assist_request.pop("toolConfig", None)
-
 
 
 __all__ = [

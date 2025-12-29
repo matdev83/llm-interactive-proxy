@@ -559,9 +559,14 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
     tool_calls = getattr(first_choice.message, "tool_calls", None)
     if tool_calls:
         try:
-            msg_obj["tool_calls"] = [
-                tc.model_dump(exclude_none=True) for tc in tool_calls
-            ]
+            # PERFORMANCE: Avoid model_dump() if already dict
+            converted_calls = []
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    converted_calls.append(tc)
+                else:
+                    converted_calls.append(tc.model_dump(exclude_none=True))
+            msg_obj["tool_calls"] = converted_calls
         except (AttributeError, TypeError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("Failed to convert tool_calls using model_dump: %s", e)

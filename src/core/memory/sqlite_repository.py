@@ -177,12 +177,33 @@ class MemoryRepository:
                 summary.title,
                 summary.scope,
                 json.dumps(summary.goals),
-                json.dumps([f.model_dump() for f in summary.modified_files]),
-                json.dumps([t.model_dump() for t in summary.remaining_tasks]),
-                json.dumps([g.model_dump() for g in summary.git_operations]),
+                # PERFORMANCE: Avoid repeated model_dump() - check if already dict
+                json.dumps(
+                    [
+                        f if isinstance(f, dict) else f.model_dump()
+                        for f in summary.modified_files
+                    ]
+                ),
+                json.dumps(
+                    [
+                        t if isinstance(t, dict) else t.model_dump()
+                        for t in summary.remaining_tasks
+                    ]
+                ),
+                json.dumps(
+                    [
+                        g if isinstance(g, dict) else g.model_dump()
+                        for g in summary.git_operations
+                    ]
+                ),
                 json.dumps(summary.operations_performed),
                 json.dumps(summary.open_questions),
-                json.dumps([t.model_dump() for t in summary.tests_run]),
+                json.dumps(
+                    [
+                        t if isinstance(t, dict) else t.model_dump()
+                        for t in summary.tests_run
+                    ]
+                ),
                 json.dumps(summary.errors),
                 summary.branch,
                 summary.head_sha,
