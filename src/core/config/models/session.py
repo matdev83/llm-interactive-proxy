@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from src.core.interfaces.model_bases import DomainModel
 from src.services.steering.models import SteeringRule
+
+logger = logging.getLogger(__name__)
 
 
 class ToolCallReactorConfig(DomainModel):
@@ -278,7 +281,27 @@ class SessionConfig(DomainModel):
         if angel_model is not None and not isinstance(angel_model, str):
             try:
                 values["angel_model"] = str(angel_model)
-            except Exception:
+            except (MemoryError, RecursionError) as exc:
+                # System-level exceptions from str() conversion (memory issues, recursion errors)
+                # Log with context and set to None to allow model construction
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to convert angel_model to string due to system error, setting to None: value=%s, type=%s",
+                        angel_model,
+                        type(angel_model).__name__,
+                        exc_info=True,
+                    )
+                values["angel_model"] = None
+            except Exception as exc:
+                # Unexpected errors during conversion (defensive guard for custom __str__ exceptions or other errors)
+                # Log with full context and set to None to allow model construction
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to convert angel_model to string, setting to None: value=%s, type=%s",
+                        angel_model,
+                        type(angel_model).__name__,
+                        exc_info=True,
+                    )
                 values["angel_model"] = None
 
         freq_value = values.get("angel_frequency", 1)

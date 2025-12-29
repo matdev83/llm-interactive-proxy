@@ -223,8 +223,19 @@ class BackendHealthNotifier:
                     await backend.on_endpoint_healthy(api_url)
                 else:
                     await backend.on_endpoint_unhealthy(api_url, reason)
-            except Exception:
+            except (RuntimeError, ValueError, TypeError, AttributeError) as exc:
+                # Expected exceptions from backend notification methods (runtime errors, argument/type errors)
+                # Log with full context and continue to notify other backends
                 logger.exception(
-                    "Error notifying backend about health change: api_url=%s",
+                    "Error notifying backend about health change: api_url=%s, backend_type=%s",
                     api_url,
+                    type(backend).__name__,
+                )
+            except Exception as exc:
+                # Unexpected errors during backend notification (defensive guard)
+                # Log with full context and continue to notify other backends
+                logger.exception(
+                    "Unexpected error notifying backend about health change: api_url=%s, backend_type=%s",
+                    api_url,
+                    type(backend).__name__,
                 )

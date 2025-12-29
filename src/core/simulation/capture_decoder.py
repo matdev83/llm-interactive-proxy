@@ -347,5 +347,23 @@ class CaptureDecoder:
         try:
             decoded = data.decode("utf-8", errors="ignore")
             return decoded.startswith("data: ") or decoded.strip() == "[DONE]"
-        except Exception:
+        except (MemoryError, RecursionError) as exc:
+            # System-level exceptions from string operations (memory issues, recursion errors)
+            # Log with context and return False (best-effort decoding)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to check if data looks like SSE due to system error: data_length=%d",
+                    len(data),
+                    exc_info=True,
+                )
+            return False
+        except Exception as exc:
+            # Unexpected errors during SSE format detection (defensive guard)
+            # Log with context and return False (best-effort decoding)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to check if data looks like SSE: data_length=%d",
+                    len(data),
+                    exc_info=True,
+                )
             return False
