@@ -165,9 +165,10 @@ class AssessmentService(IAssessmentService):
         try:
             return await self.assess_conversation(history, session_id)
         except Exception as e:
-            logger.warning(
-                f"Assessment failed gracefully for session {session_id}: {e}"
-            )
+            if is_log_level_enabled(logger, logging.WARNING):
+                logger.warning(
+                    f"Assessment failed gracefully for session {session_id}: {e}"
+                )
             return None
 
     def _trim_recent_history(self, history: list[ChatMessage]) -> list[ChatMessage]:
