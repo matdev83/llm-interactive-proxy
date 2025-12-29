@@ -424,7 +424,7 @@ class ResponsesController:
                     f"LLM Proxy error in Responses API - request_id={request_id}, error={e}"
                 )
             # Map domain exceptions to HTTP exceptions
-            raise map_domain_exception_to_http_exception(e)
+            raise map_domain_exception_to_http_exception(e) from e
         except HTTPException as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
@@ -448,7 +448,8 @@ class ResponsesController:
                         "code": "internal_error",
                     }
                 },
-            )
+            ) from e
+
 
     @staticmethod
     def _resolve_request_id(request: Request) -> str:

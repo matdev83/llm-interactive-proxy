@@ -366,8 +366,8 @@ class ApplicationBuilder:
             try:
                 app.state.application_state_service = app_state_service
             except Exception:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
                         "Failed to expose application_state_service on app.state",
                         exc_info=True,
                     )
@@ -376,8 +376,8 @@ class ApplicationBuilder:
                 try:
                     app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]
                 except Exception:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
                             "Failed to set state provider on application state service",
                             exc_info=True,
                         )
@@ -391,15 +391,15 @@ class ApplicationBuilder:
                     try:
                         setattr(app.state, attribute_name, attribute_value)
                     except Exception:
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
                                 "Failed to expose application state attribute '%s' on app.state",
                                 attribute_name,
                                 exc_info=True,
                             )
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
                     "Unable to bind application state service methods to FastAPI state",
                     exc_info=True,
                 )
@@ -410,8 +410,9 @@ class ApplicationBuilder:
 
             set_service_provider(service_provider)
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Unable to set global service provider", exc_info=True)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Unable to set global service provider", exc_info=True)
+
 
         # Configure middleware
         self._configure_middleware(app, config)

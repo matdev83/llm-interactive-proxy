@@ -281,9 +281,13 @@ class ChatRequestPreparer:
                         continue
                     if not isinstance(val, expected_type):
                         setattr(canonical_request, field, None)
-        except Exception:
-            # Never fail preparation due to best-effort normalization.
-            pass
+        except Exception as e:
+            # Log failure but proceed with best-effort normalization
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"{log_prefix}Backward compatibility normalization failed: {e}",
+                    exc_info=True,
+                )
 
         # Debug logging to trace message flow
         if logger.isEnabledFor(logging.DEBUG):
