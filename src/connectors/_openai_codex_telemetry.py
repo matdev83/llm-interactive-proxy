@@ -247,20 +247,26 @@ class CompatibilityTelemetry:
         self.translation_metrics = TranslationMetrics()
         self.error_metrics = ErrorMetrics()
         self._enabled = True
+        self._lock = threading.Lock()
 
     def enable(self) -> None:
         """Enable telemetry collection."""
-        self._enabled = True
-        logger.info("Compatibility layer telemetry enabled")
+        with self._lock:
+            self._enabled = True
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Compatibility layer telemetry enabled")
 
     def disable(self) -> None:
         """Disable telemetry collection."""
-        self._enabled = False
-        logger.info("Compatibility layer telemetry disabled")
+        with self._lock:
+            self._enabled = False
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Compatibility layer telemetry disabled")
 
     def is_enabled(self) -> bool:
         """Check if telemetry is enabled."""
-        return bool(self._enabled)
+        with self._lock:
+            return bool(self._enabled)
 
     def log_detection_event(
         self,
@@ -284,26 +290,29 @@ class CompatibilityTelemetry:
         if not self._enabled:
             return
 
-        # Record metrics
         is_cached = detection_method == "cached"
-        self.detection_metrics.record_detection(
-            detection_method, duration_ms, is_cached
-        )
+
+        # Thread-safe: Record metrics under lock to prevent concurrent mutations
+        with self._lock:
+            self.detection_metrics.record_detection(
+                detection_method, duration_ms, is_cached
+            )
 
         # Structured logging (DEBUG level to avoid spam in performance tests)
-        logger.debug(
-            "Codex-Kilo compatibility layer detection",
-            extra={
-                "event_type": "detection",
-                "session_id": session_id,
-                "is_kilocode": is_kilocode,
-                "detection_method": detection_method,
-                "confidence": confidence,
-                "duration_ms": duration_ms,
-                "agent_string": agent_string,
-                "cached": is_cached,
-            },
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Codex-Kilo compatibility layer detection",
+                extra={
+                    "event_type": "detection",
+                    "session_id": session_id,
+                    "is_kilocode": is_kilocode,
+                    "detection_method": detection_method,
+                    "confidence": confidence,
+                    "duration_ms": duration_ms,
+                    "agent_string": agent_string,
+                    "cached": is_cached,
+                },
+            )
 
     def log_translation_event(
         self,
@@ -329,8 +338,9 @@ class CompatibilityTelemetry:
         if not self._enabled:
             return
 
-        # Record metrics
-        self.translation_metrics.record_translation(tool_name, duration_ms, success)
+        # Thread-safe: Record metrics under lock to prevent concurrent mutations
+        with self._lock:
+            self.translation_metrics.record_translation(tool_name, duration_ms, success)
 
         # Truncate XML for logging
         xml_preview = None
@@ -340,19 +350,20 @@ class CompatibilityTelemetry:
             )
 
         # Structured logging
-        logger.debug(
-            "Codex-Kilo tool translation",
-            extra={
-                "event_type": "translation",
-                "session_id": session_id,
-                "tool_name": tool_name,
-                "original_xml_preview": xml_preview,
-                "translated_tool": translated_tool,
-                "execution_mode": execution_mode,
-                "duration_ms": duration_ms,
-                "success": success,
-            },
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Codex-Kilo tool translation",
+                extra={
+                    "event_type": "translation",
+                    "session_id": session_id,
+                    "tool_name": tool_name,
+                    "original_xml_preview": xml_preview,
+                    "translated_tool": translated_tool,
+                    "execution_mode": execution_mode,
+                    "duration_ms": duration_ms,
+                    "success": success,
+                },
+            )
 
     def log_error_event(
         self,
@@ -376,8 +387,9 @@ class CompatibilityTelemetry:
         if not self._enabled:
             return
 
-        # Record metrics
-        self.error_metrics.record_error(error_code, tool_name)
+        # Thread-safe: Record metrics under lock to prevent concurrent mutations
+        with self._lock:
+            self.error_metrics.record_error(error_code, tool_name)
 
         # Truncate XML for logging
         xml_preview = None
@@ -406,60 +418,64 @@ class CompatibilityTelemetry:
         Returns:
             TelemetrySummary model containing metrics summary.
         """
-        return TelemetrySummary(
-            detection=DetectionMetricsSummary(
-                total=self.detection_metrics.total_detections,
-                by_method={
-                    "metadata": self.detection_metrics.metadata_detections,
-                    "header": self.detection_metrics.header_detections,
-                    "heuristic": self.detection_metrics.heuristic_detections,
-                },
-                cache={
-                    "hits": self.detection_metrics.cache_hits,
-                    "misses": self.detection_metrics.cache_misses,
-                    "hit_rate": (
-                        self.detection_metrics.cache_hits
-                        / self.detection_metrics.total_detections
-                        if self.detection_metrics.total_detections > 0
+        # Thread-safe: Acquire lock to ensure consistent snapshot
+        with self._lock:
+            return TelemetrySummary(
+                detection=DetectionMetricsSummary(
+                    total=self.detection_metrics.total_detections,
+                    by_method={
+                        "metadata": self.detection_metrics.metadata_detections,
+                        "header": self.detection_metrics.header_detections,
+                        "heuristic": self.detection_metrics.heuristic_detections,
+                    },
+                    cache={
+                        "hits": self.detection_metrics.cache_hits,
+                        "misses": self.detection_metrics.cache_misses,
+                        "hit_rate": (
+                            self.detection_metrics.cache_hits
+                            / self.detection_metrics.total_detections
+                            if self.detection_metrics.total_detections > 0
+                            else 0.0
+                        ),
+                    },
+                    average_duration_ms=self.detection_metrics.get_average_duration(),
+                ),
+                translation=TranslationMetricsSummary(
+                    total=self.translation_metrics.total_translations,
+                    successful=self.translation_metrics.successful_translations,
+                    failed=self.translation_metrics.failed_translations,
+                    success_rate=(
+                        self.translation_metrics.successful_translations
+                        / self.translation_metrics.total_translations
+                        if self.translation_metrics.total_translations > 0
                         else 0.0
                     ),
-                },
-                average_duration_ms=self.detection_metrics.get_average_duration(),
-            ),
-            translation=TranslationMetricsSummary(
-                total=self.translation_metrics.total_translations,
-                successful=self.translation_metrics.successful_translations,
-                failed=self.translation_metrics.failed_translations,
-                success_rate=(
-                    self.translation_metrics.successful_translations
-                    / self.translation_metrics.total_translations
-                    if self.translation_metrics.total_translations > 0
-                    else 0.0
+                    average_duration_ms=self.translation_metrics.get_average_duration(),
+                    by_tool={
+                        tool: ToolTranslationSummary(
+                            count=count,
+                            average_duration_ms=self.translation_metrics.get_average_duration(
+                                tool
+                            ),
+                        )
+                        for tool, count in self.translation_metrics.translations_by_tool.items()
+                    },
                 ),
-                average_duration_ms=self.translation_metrics.get_average_duration(),
-                by_tool={
-                    tool: ToolTranslationSummary(
-                        count=count,
-                        average_duration_ms=self.translation_metrics.get_average_duration(
-                            tool
-                        ),
-                    )
-                    for tool, count in self.translation_metrics.translations_by_tool.items()
-                },
-            ),
-            errors=ErrorMetricsSummary(
-                total=self.error_metrics.total_errors,
-                by_code=self.error_metrics.errors_by_code,
-                by_tool=self.error_metrics.errors_by_tool,
-            ),
-        )
+                errors=ErrorMetricsSummary(
+                    total=self.error_metrics.total_errors,
+                    by_code=self.error_metrics.errors_by_code,
+                    by_tool=self.error_metrics.errors_by_tool,
+                ),
+            )
 
     def reset_metrics(self) -> None:
         """Reset all collected metrics."""
-        self.detection_metrics = DetectionMetrics()
-        self.translation_metrics = TranslationMetrics()
-        self.error_metrics = ErrorMetrics()
-        logger.info("Compatibility layer metrics reset")
+        with self._lock:
+            self.detection_metrics = DetectionMetrics()
+            self.translation_metrics = TranslationMetrics()
+            self.error_metrics = ErrorMetrics()
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("Compatibility layer metrics reset")
 
 
 # Global telemetry instance
