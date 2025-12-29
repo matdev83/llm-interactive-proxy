@@ -328,8 +328,8 @@ async def test_redaction_middleware_caches_processed_messages() -> None:
     # Check cache stats
     cache = get_global_redaction_cache()
     stats = cache.get_stats(session_id)
-    assert stats["cached_hashes"] == 2
-    assert stats["total_processed"] == 2
+    assert stats.cached_hashes == 2
+    assert stats.total_processed == 2
 
 
 @pytest.mark.asyncio
@@ -363,9 +363,9 @@ async def test_redaction_middleware_skips_cached_messages() -> None:
     # Cache should now have 3 hashes (2 original + 1 new)
     cache = get_global_redaction_cache()
     stats = cache.get_stats(session_id)
-    assert stats["cached_hashes"] == 3
+    assert stats.cached_hashes == 3
     # Total processed should be 3 (not 5) because first 2 were skipped
-    assert stats["total_processed"] == 3
+    assert stats.total_processed == 3
 
 
 @pytest.mark.asyncio
@@ -409,8 +409,8 @@ async def test_redaction_middleware_different_sessions_isolated() -> None:
 
     # Each session should have its own cache
     cache = get_global_redaction_cache()
-    assert cache.get_stats("session-1")["cached_hashes"] == 1
-    assert cache.get_stats("session-2")["cached_hashes"] == 1
+    assert cache.get_stats("session-1").cached_hashes == 1
+    assert cache.get_stats("session-2").cached_hashes == 1
 
 
 @pytest.mark.asyncio

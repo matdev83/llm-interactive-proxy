@@ -127,20 +127,20 @@ class TestRedactionCache:
         assert cache.is_processed("session2", "Hello world") is True
 
     def test_get_stats(self, cache: RedactionCache) -> None:
-        """Stats should reflect the number of cached hashes."""
+        """Stats should reflect number of cached hashes."""
         cache.mark_processed("session1", "Message 1")
         cache.mark_processed("session1", "Message 2")
         cache.mark_processed("session1", "Message 3")
 
         stats = cache.get_stats("session1")
-        assert stats["cached_hashes"] == 3
-        assert stats["total_processed"] == 3
+        assert stats.cached_hashes == 3
+        assert stats.total_processed == 3
 
     def test_get_stats_empty_session(self, cache: RedactionCache) -> None:
         """Stats for non-existent session should return zeros."""
         stats = cache.get_stats("nonexistent")
-        assert stats["cached_hashes"] == 0
-        assert stats["total_processed"] == 0
+        assert stats.cached_hashes == 0
+        assert stats.total_processed == 0
 
     def test_handles_none_content(self, cache: RedactionCache) -> None:
         """None content should be handled gracefully."""

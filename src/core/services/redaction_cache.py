@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cachetools import LRUCache
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,13 @@ _MAX_HASHES_PER_SESSION = 10000
 
 # Session TTL in seconds (1 hour) - cleanup stale entries
 _SESSION_TTL_SECONDS = 3600
+
+
+class RedactionCacheStats(BaseModel):
+    """Statistics for a session's redaction cache."""
+
+    cached_hashes: int
+    total_processed: int
 
 
 @dataclass
@@ -215,16 +223,16 @@ class RedactionCache:
         with self._lock:
             self._states.pop(session_id, None)
 
-    def get_stats(self, session_id: str) -> dict[str, Any]:
+    def get_stats(self, session_id: str) -> RedactionCacheStats:
         """Get statistics for a session's redaction cache."""
         with self._lock:
             state = self._states.get(session_id)
             if state is None:
-                return {"cached_hashes": 0, "total_processed": 0}
-            return {
-                "cached_hashes": len(state.processed_hashes),
-                "total_processed": state.total_processed,
-            }
+                return RedactionCacheStats(cached_hashes=0, total_processed=0)
+            return RedactionCacheStats(
+                cached_hashes=len(state.processed_hashes),
+                total_processed=state.total_processed,
+            )
 
 
 # Global singleton instance

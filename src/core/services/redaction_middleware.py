@@ -18,7 +18,9 @@ from pydantic.types import JsonValue
 from src.core.common.env_utils import get_env_flag
 from src.core.domain.chat import ChatMessage, ChatRequest, MessageContentPartText
 from src.core.interfaces.request_processor_interface import IRequestMiddleware
-from src.core.services.redaction_cache import get_global_redaction_cache
+from src.core.services.redaction_cache import (
+    get_global_redaction_cache,
+)
 from src.security import APIKeyRedactor, ProxyCommandFilter
 
 logger = logging.getLogger(__name__)
@@ -223,8 +225,8 @@ class RedactionMiddleware(IRequestMiddleware):
                 stats = cache.get_stats(session_id)
                 logger.debug(
                     f"Redaction cache updated for session {session_id}: "
-                    f"{stats['cached_hashes']} hashes cached, "
-                    f"{stats['total_processed']} total processed"
+                    f"{stats.cached_hashes} hashes cached, "
+                    f"{stats.total_processed} total processed"
                 )
 
         return processed_request
