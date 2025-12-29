@@ -252,11 +252,13 @@ class TestStageValidator:
                 # AsyncMock is okay for async services, but warn about potential issues
                 import logging
 
-                logger = logging.getLogger(__name__)
-                logger.debug(
-                    f"Service {service_type.__name__} is an AsyncMock. "
-                    "Ensure all methods that should be sync return real objects, not coroutines."
-                )
+                logger_instance = logging.getLogger(__name__)
+                if logger_instance.isEnabledFor(logging.DEBUG):
+                    logger_instance.debug(
+                        "Service %s is an AsyncMock. "
+                        "Ensure all methods that should be sync return real objects, not coroutines.",
+                        service_type.__name__,
+                    )
 
 
 class SafeAsyncMockWrapper:
@@ -320,11 +322,14 @@ def enforce_async_sync_separation(cls: type) -> type:
                 if isinstance(attr, AsyncMock) and not attr_name.startswith("async_"):
                     import logging
 
-                    logger = logging.getLogger(__name__)
-                    logger.warning(
-                        f"{cls.__name__}.{attr_name} is an AsyncMock. "
-                        "If this method should be synchronous, use MagicMock instead."
-                    )
+                    logger_instance = logging.getLogger(__name__)
+                    if logger_instance.isEnabledFor(logging.WARNING):
+                        logger_instance.warning(
+                            "%s.%s is an AsyncMock. "
+                            "If this method should be synchronous, use MagicMock instead.",
+                            cls.__name__,
+                            attr_name,
+                        )
 
     cls.__init__ = validated_init  # type: ignore[misc]
     return cls
