@@ -135,6 +135,12 @@ class CircuitBreaker:
             return result
         except Exception:
             self._on_failure()
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Circuit breaker %s caught exception during operation",
+                    self.name,
+                    exc_info=True,
+                )
             raise
 
     def _on_success(self) -> None:

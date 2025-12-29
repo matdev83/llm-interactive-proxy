@@ -212,7 +212,11 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     if not custom_client.is_closed:
                         await custom_client.aclose()
                 except Exception:
-                    pass
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to close custom client during initialization cleanup",
+                            exc_info=True,
+                        )
                 self._owns_custom_client = False
             self._fail_init([f"Initialization failed: {exc}"])
         finally:
@@ -222,7 +226,11 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                     if not original_client.is_closed:
                         await original_client.aclose()
                 except Exception:
-                    pass
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to close original client during initialization cleanup",
+                            exc_info=True,
+                        )
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -1405,8 +1413,12 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 await self.client.aclose()
                 self._owns_custom_client = False
             except Exception:
-                # Suppress errors during cleanup
-                pass
+                # Log cleanup errors for debugging, but don't propagate
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to close custom client during cleanup",
+                        exc_info=True,
+                    )
 
     async def shutdown(self) -> None:
         """Shutdown the connector and clean up resources.
