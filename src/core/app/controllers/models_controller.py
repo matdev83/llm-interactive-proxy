@@ -350,7 +350,11 @@ async def _list_models_impl(
                             )
                 except Exception as e:
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("Failed to check opencode-zen credentials: %s", e)
+                        logger.debug(
+                            "Failed to check opencode-zen credentials: %s",
+                            e,
+                            exc_info=True,
+                        )
                 finally:
                     # Clean up temporary backend instance to prevent resource leak
                     if temp_backend is not None:
@@ -484,7 +488,7 @@ async def _list_models_impl(
     except Exception as e:  # type: ignore[misc]
         if logger.isEnabledFor(logging.ERROR):
             logger.error("Error listing models: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/models")

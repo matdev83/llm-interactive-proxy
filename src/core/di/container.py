@@ -283,9 +283,11 @@ class ServiceProvider(IServiceProvider):
                 instance = self._create_instance(descriptor, scope)  # type: ignore[no-any-return]
                 pop_resolution()  # Pop before returning successfully resolved service
                 return instance  # type: ignore[no-any-return]
-        except BaseException:
-            # On any exception (including KeyboardInterrupt), pop before re-raising
+        except Exception:
+            # On any exception, pop before re-raising
             # This ensures the resolution stack is properly cleaned up
+            # Note: BaseException (KeyboardInterrupt, SystemExit) will propagate
+            # without cleanup, which is correct behavior for shutdown signals
             pop_resolution()
             raise
 
