@@ -48,13 +48,25 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                 )
 
                 base_patterns: list[str] = get_request_patterns()
-            except Exception:
+            except (ImportError, AttributeError, RuntimeError) as e:
+                # Expected exceptions: import failures, missing attributes, runtime errors
                 # Log initialization failure but continue with empty patterns
                 # This allows the middleware to function even if pattern loading fails
                 _logger = logging.getLogger(__name__)
                 if _logger.isEnabledFor(logging.WARNING):
                     _logger.warning(
-                        "Failed to load edit precision patterns from configuration; using empty pattern list",
+                        "Failed to load edit precision patterns from configuration; using empty pattern list: %s",
+                        e,
+                        exc_info=True,
+                    )
+                base_patterns = []
+            except Exception as e:
+                # Unexpected exceptions - log with full context for debugging
+                _logger = logging.getLogger(__name__)
+                if _logger.isEnabledFor(logging.WARNING):
+                    _logger.warning(
+                        "Unexpected error loading edit precision patterns from configuration; using empty pattern list: %s",
+                        e,
                         exc_info=True,
                     )
                 base_patterns = []
@@ -149,10 +161,18 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                 new_top_k,
                 extra_body.get("_edit_precision_meta", {}),
             )
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError) as e:
+            # Expected exceptions: attribute access errors, type conversion errors, value errors
+            # Logging failures should not affect request processing flow
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
                     "Error logging edit-precision overrides: %s", e, exc_info=True
+                )
+        except Exception as e:
+            # Unexpected exceptions - log with full context for debugging
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Unexpected error logging edit-precision overrides: %s", e, exc_info=True
                 )
 
         return request.model_copy(
@@ -181,12 +201,23 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                 else:
                     role = getattr(msg, "role", None)
                     content = getattr(msg, "content", None)
-            except Exception:
+            except (AttributeError, TypeError) as e:
+                # Expected exceptions: attribute access errors, type errors
                 # Log message extraction failure but continue processing other messages
                 # This allows pattern matching to continue even if some messages are malformed
                 if self._logger.isEnabledFor(logging.DEBUG):
                     self._logger.debug(
-                        "Failed to extract role/content from message during edit precision detection",
+                        "Failed to extract role/content from message during edit precision detection: %s",
+                        e,
+                        exc_info=True,
+                    )
+                continue
+            except Exception as e:
+                # Unexpected exceptions - log with full context for debugging
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Unexpected error extracting role/content from message during edit precision detection: %s",
+                        e,
                         exc_info=True,
                     )
                 continue

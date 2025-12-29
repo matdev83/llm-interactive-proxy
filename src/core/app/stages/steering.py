@@ -101,10 +101,18 @@ class SteeringStage(InitializationStage):
                     ttl_seconds,
                     max_sessions,
                 )
-        except Exception as e:
+        except (ImportError, AttributeError, TypeError, RuntimeError, ValueError) as e:
+            # Expected exceptions: import failures, config access errors, type mismatches,
+            # service registration failures, invalid values
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     f"Could not register SessionStateStore: {e}", exc_info=True
+                )
+        except Exception as e:
+            # Unexpected exceptions - log with full context for debugging
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Unexpected error registering SessionStateStore: {e}", exc_info=True
                 )
 
     def _register_steering_policies(
@@ -177,10 +185,18 @@ class SteeringStage(InitializationStage):
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered steering policies")
-        except Exception as e:
+        except (ImportError, AttributeError, TypeError, RuntimeError, ValueError) as e:
+            # Expected exceptions: import failures, config access errors, type mismatches,
+            # service registration failures, invalid values
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     f"Could not register steering policies: {e}", exc_info=True
+                )
+        except Exception as e:
+            # Unexpected exceptions - log with full context for debugging
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Unexpected error registering steering policies: {e}", exc_info=True
                 )
 
     def _create_configured_rules_policy(
@@ -222,11 +238,22 @@ class SteeringStage(InitializationStage):
                                 "Loaded apply_diff steering prompt from %s",
                                 override_path,
                             )
-                    except Exception:
+                    except (OSError, IOError, UnicodeDecodeError) as e:
+                        # Expected exceptions: file not found, permission errors, encoding errors
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                "Failed to read apply_diff steering prompt from %s, using default.",
+                                "Failed to read apply_diff steering prompt from %s, using default: %s",
                                 override_path,
+                                e,
+                                exc_info=True,
+                            )
+                    except Exception as e:
+                        # Unexpected exceptions - log with full context for debugging
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Unexpected error reading apply_diff steering prompt from %s, using default: %s",
+                                override_path,
+                                e,
                                 exc_info=True,
                             )
 
@@ -301,8 +328,16 @@ class SteeringStage(InitializationStage):
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered UnifiedSteeringHandler")
-        except Exception as e:
+        except (ImportError, AttributeError, TypeError, RuntimeError, ValueError) as e:
+            # Expected exceptions: import failures, config access errors, type mismatches,
+            # service registration failures, invalid values
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     f"Could not register UnifiedSteeringHandler: {e}", exc_info=True
+                )
+        except Exception as e:
+            # Unexpected exceptions - log with full context for debugging
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Unexpected error registering UnifiedSteeringHandler: {e}", exc_info=True
                 )
