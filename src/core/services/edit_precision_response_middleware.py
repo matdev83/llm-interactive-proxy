@@ -146,11 +146,31 @@ class EditPrecisionFeature(IResponseFeature):
                     if p.search(combined_text):
                         matched_pattern = getattr(p, "pattern", None) or str(p)
                         break
-                except Exception:
-                    # Log pattern matching failures for debugging
+                except re.error as exc:
+                    # Invalid regex pattern (should not happen with compiled patterns, but defensive)
                     if self._logger.isEnabledFor(logging.DEBUG):
                         self._logger.debug(
-                            "Pattern matching failed during edit precision detection",
+                            "Regex pattern error during edit precision detection: %s",
+                            exc,
+                            exc_info=True,
+                            extra={"pattern": getattr(p, "pattern", None) or str(p)},
+                        )
+                    continue
+                except (TypeError, AttributeError) as exc:
+                    # Wrong argument type or pattern attribute access issues
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Pattern matching type/attribute error during edit precision detection: %s",
+                            exc,
+                            exc_info=True,
+                            extra={"pattern": getattr(p, "pattern", None) or str(p)},
+                        )
+                    continue
+                except Exception:
+                    # Unexpected errors (defensive guard for truly unexpected errors)
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Unexpected error during pattern matching in edit precision detection",
                             exc_info=True,
                             extra={"pattern": getattr(p, "pattern", None) or str(p)},
                         )
@@ -765,11 +785,31 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     if p.search(combined_text):
                         matched_pattern = getattr(p, "pattern", None) or str(p)
                         break
-                except Exception:
-                    # Log pattern matching failures for debugging
+                except re.error as exc:
+                    # Invalid regex pattern (should not happen with compiled patterns, but defensive)
                     if self._logger.isEnabledFor(logging.DEBUG):
                         self._logger.debug(
-                            "Pattern matching failed during edit precision detection",
+                            "Regex pattern error during edit precision detection: %s",
+                            exc,
+                            exc_info=True,
+                            extra={"pattern": getattr(p, "pattern", None) or str(p)},
+                        )
+                    continue
+                except (TypeError, AttributeError) as exc:
+                    # Wrong argument type or pattern attribute access issues
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Pattern matching type/attribute error during edit precision detection: %s",
+                            exc,
+                            exc_info=True,
+                            extra={"pattern": getattr(p, "pattern", None) or str(p)},
+                        )
+                    continue
+                except Exception:
+                    # Unexpected errors (defensive guard for truly unexpected errors)
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Unexpected error during pattern matching in edit precision detection",
                             exc_info=True,
                             extra={"pattern": getattr(p, "pattern", None) or str(p)},
                         )

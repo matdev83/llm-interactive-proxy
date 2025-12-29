@@ -855,8 +855,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         try:
             await asyncio.to_thread(_save_sync)
-        except (OSError, PermissionError) as exc:
+        except OSError as exc:
             # File system errors: permission denied, disk full, etc.
+            # Note: PermissionError, FileNotFoundError, IOError are all subclasses of OSError
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     "File system error saving OAuth credentials: %s", exc, exc_info=True
@@ -868,7 +869,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     "JSON encoding error saving OAuth credentials: %s", exc, exc_info=True
                 )
         except Exception:
-            # Unexpected errors
+            # Unexpected errors (defensive guard for truly unexpected errors)
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Unexpected error saving OAuth credentials", exc_info=True)
 
@@ -932,9 +933,18 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     f"Error decoding OAuth credentials JSON: {e}", exc_info=True
                 )
             return False
-        except Exception:
+        except OSError as exc:
+            # File system errors (permissions, missing files, I/O issues)
+            # Note: PermissionError, FileNotFoundError, IOError are all subclasses of OSError
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Error loading OAuth credentials", exc_info=True)
+                logger.error(
+                    "File system error loading OAuth credentials: %s", exc, exc_info=True
+                )
+            return False
+        except Exception:
+            # Unexpected errors (defensive guard for truly unexpected errors)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Unexpected error loading OAuth credentials", exc_info=True)
             return False
 
     async def initialize(self, **kwargs: Any) -> None:

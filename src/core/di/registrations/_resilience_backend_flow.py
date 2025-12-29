@@ -286,8 +286,18 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 # Cancellation coordinator interface not available (optional dependency)
                 # This is expected when the module doesn't exist
                 pass
+            except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+                # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies)
+                # Log with full context but continue with None to allow service construction
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error resolving ISessionCancellationCoordinator for FailureRecoveryExecutor: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                cancellation_coordinator = None
             except Exception:
-                # Unexpected error during service resolution (e.g., DI container bug, circular dependency)
+                # Unexpected error during service resolution (defensive guard for truly unexpected errors)
                 # Log with full context but continue with None to allow service construction
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -453,8 +463,18 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 # Cancellation coordinator interface not available (optional dependency)
                 # This is expected when the module doesn't exist
                 pass
+            except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+                # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies)
+                # Log with full context but continue with None to allow service construction
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error resolving ISessionCancellationCoordinator for BackendCompletionFlow: %s",
+                        exc,
+                        exc_info=True,
+                    )
+                cancellation_coordinator = None
             except Exception:
-                # Unexpected error during service resolution (e.g., DI container bug, circular dependency)
+                # Unexpected error during service resolution (defensive guard for truly unexpected errors)
                 # Log with full context but continue with None to allow service construction
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
