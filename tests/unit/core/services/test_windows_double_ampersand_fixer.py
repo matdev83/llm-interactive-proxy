@@ -9,6 +9,8 @@ import json
 import pytest
 from src.core.services.windows_double_ampersand_fixer import (
     WindowsDoubleAmpersandFixer,
+    CommandExtraction,
+    CommandFixResult,
 )
 
 
@@ -201,58 +203,58 @@ class TestFixCommandString:
     def test_replaces_single_double_ampersand(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
-        result, modified = fixer.fix_command_string("echo test1 && echo test2")
-        assert modified is True
-        assert result == "echo test1 ; echo test2"
+        result = fixer.fix_command_string("echo test1 && echo test2")
+        assert result.was_modified is True
+        assert result.fixed_command == "echo test1 ; echo test2"
 
     def test_replaces_multiple_double_ampersands(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
-        result, modified = fixer.fix_command_string("cmd1 && cmd2 && cmd3 && cmd4")
-        assert modified is True
-        assert result == "cmd1 ; cmd2 ; cmd3 ; cmd4"
+        result = fixer.fix_command_string("cmd1 && cmd2 && cmd3 && cmd4")
+        assert result.was_modified is True
+        assert result.fixed_command == "cmd1 ; cmd2 ; cmd3 ; cmd4"
 
     def test_handles_no_space_around_ampersands(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
-        result, modified = fixer.fix_command_string("cmd1&&cmd2")
-        assert modified is True
-        assert result == "cmd1 ; cmd2"
+        result = fixer.fix_command_string("cmd1&&cmd2")
+        assert result.was_modified is True
+        assert result.fixed_command == "cmd1 ; cmd2"
 
     def test_handles_extra_spaces(self, fixer: WindowsDoubleAmpersandFixer) -> None:
-        result, modified = fixer.fix_command_string("cmd1  &&  cmd2")
-        assert modified is True
-        assert result == "cmd1 ; cmd2"
+        result = fixer.fix_command_string("cmd1  &&  cmd2")
+        assert result.was_modified is True
+        assert result.fixed_command == "cmd1 ; cmd2"
 
     def test_no_modification_without_double_ampersand(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
-        result, modified = fixer.fix_command_string("echo test")
-        assert modified is False
-        assert result == "echo test"
+        result = fixer.fix_command_string("echo test")
+        assert result.was_modified is False
+        assert result.fixed_command == "echo test"
 
     def test_no_modification_for_single_ampersand(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
-        result, modified = fixer.fix_command_string("cmd1 & cmd2")
-        assert modified is False
-        assert result == "cmd1 & cmd2"
+        result = fixer.fix_command_string("cmd1 & cmd2")
+        assert result.was_modified is False
+        assert result.fixed_command == "cmd1 & cmd2"
 
     def test_handles_empty_string(self, fixer: WindowsDoubleAmpersandFixer) -> None:
-        result, modified = fixer.fix_command_string("")
-        assert modified is False
-        assert result == ""
+        result = fixer.fix_command_string("")
+        assert result.was_modified is False
+        assert result.fixed_command == ""
 
     def test_handles_none(self, fixer: WindowsDoubleAmpersandFixer) -> None:
-        result, modified = fixer.fix_command_string(None)  # type: ignore[arg-type]
-        assert modified is False
-        assert result is None
+        result = fixer.fix_command_string(None)  # type: ignore[arg-type]
+        assert result.was_modified is False
+        assert result.fixed_command is None
 
     def test_handles_triple_ampersand(self, fixer: WindowsDoubleAmpersandFixer) -> None:
-        result, modified = fixer.fix_command_string("cmd1 &&& cmd2")
-        assert modified is True
-        assert ";" in result
-        assert "&" in result
+        result = fixer.fix_command_string("cmd1 &&& cmd2")
+        assert result.was_modified is True
+        assert ";" in result.fixed_command
+        assert "&" in result.fixed_command
 
 
 class TestFixToolArguments:
@@ -266,67 +268,67 @@ class TestFixToolArguments:
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
         args = {"command": "echo test1 && echo test2"}
-        result, modified = fixer.fix_tool_arguments(args, "execute", "win32")
-        assert modified is True
-        assert result["command"] == "echo test1 ; echo test2"
+        result = fixer.fix_tool_arguments(args, "execute", "win32")
+        assert result.was_modified is True
+        assert result.fixed_command["command"] == "echo test1 ; echo test2"
 
     def test_fixes_dict_with_cmd_key(self, fixer: WindowsDoubleAmpersandFixer) -> None:
         args = {"cmd": "echo test1 && echo test2"}
-        result, modified = fixer.fix_tool_arguments(args, "execute", "win32")
-        assert modified is True
-        assert result["cmd"] == "echo test1 ; echo test2"
+        result = fixer.fix_tool_arguments(args, "execute", "win32")
+        assert result.was_modified is True
+        assert result.fixed_command["cmd"] == "echo test1 ; echo test2"
 
     def test_fixes_raw_string_argument(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
         args = "echo test1 && echo test2"
-        result, modified = fixer.fix_tool_arguments(args, "execute", "win32")
-        assert modified is True
-        assert result == "echo test1 ; echo test2"
+        result = fixer.fix_tool_arguments(args, "execute", "win32")
+        assert result.was_modified is True
+        assert result.fixed_command == "echo test1 ; echo test2"
 
     def test_fixes_json_string_argument(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
         args = json.dumps({"command": "echo test1 && echo test2"})
-        result, modified = fixer.fix_tool_arguments(args, "execute", "win32")
-        assert modified is True
-        parsed = json.loads(result)
+        result = fixer.fix_tool_arguments(args, "execute", "win32")
+        assert result.was_modified is True
+        parsed = json.loads(result.fixed_command)
         assert parsed["command"] == "echo test1 ; echo test2"
 
     def test_skips_file_editing_tools(self, fixer: WindowsDoubleAmpersandFixer) -> None:
         args = {"command": "echo test1 && echo test2"}
-        result, modified = fixer.fix_tool_arguments(args, "write_file", "win32")
-        assert modified is False
-        assert result["command"] == "echo test1 && echo test2"
+        result = fixer.fix_tool_arguments(args, "write_file", "win32")
+        assert result.was_modified is False
+        assert result.fixed_command["command"] == "echo test1 && echo test2"
 
     def test_skips_non_windows_clients(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
         args = {"command": "echo test1 && echo test2"}
-        result, modified = fixer.fix_tool_arguments(args, "execute", "linux")
-        assert modified is False
-        assert result["command"] == "echo test1 && echo test2"
+        result = fixer.fix_tool_arguments(args, "execute", "linux")
+        assert result.was_modified is False
+        assert result.fixed_command["command"] == "echo test1 && echo test2"
 
     def test_skips_when_disabled(self) -> None:
         fixer = WindowsDoubleAmpersandFixer(enabled=False)
         args = {"command": "echo test1 && echo test2"}
-        result, modified = fixer.fix_tool_arguments(args, "execute", "win32")
-        assert modified is False
-        assert result["command"] == "echo test1 && echo test2"
+        result = fixer.fix_tool_arguments(args, "execute", "win32")
+        assert result.was_modified is False
+        assert result.fixed_command["command"] == "echo test1 && echo test2"
 
     def test_no_modification_without_double_ampersand(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
         args = {"command": "echo test"}
-        result, modified = fixer.fix_tool_arguments(args, "execute", "win32")
-        assert modified is False
-        assert result["command"] == "echo test"
+        result = fixer.fix_tool_arguments(args, "execute", "win32")
+        assert result.was_modified is False
+        assert result.fixed_command["command"] == "echo test"
 
     def test_handles_nested_dict(self, fixer: WindowsDoubleAmpersandFixer) -> None:
         args = {"input": {"command": "echo test1 && echo test2"}}
-        result, modified = fixer.fix_tool_arguments(args, "execute", "win32")
-        assert modified is True
-        assert result["input"]["command"] == "echo test1 ; echo test2"
+        result = fixer.fix_tool_arguments(args, "execute", "win32")
+        assert result.was_modified is True
+        assert result.fixed_command["input"]["command"] == "echo test1 ; echo test2"
 
     def test_preserves_other_keys(self, fixer: WindowsDoubleAmpersandFixer) -> None:
         args = {
@@ -334,11 +336,11 @@ class TestFixToolArguments:
             "timeout": 60,
             "cwd": "/home/user",
         }
-        result, modified = fixer.fix_tool_arguments(args, "execute", "win32")
-        assert modified is True
-        assert result["command"] == "echo test1 ; echo test2"
-        assert result["timeout"] == 60
-        assert result["cwd"] == "/home/user"
+        result = fixer.fix_tool_arguments(args, "execute", "win32")
+        assert result.was_modified is True
+        assert result.fixed_command["command"] == "echo test1 ; echo test2"
+        assert result.fixed_command["timeout"] == 60
+        assert result.fixed_command["cwd"] == "/home/user"
 
 
 class TestEdgeCases:
@@ -350,28 +352,28 @@ class TestEdgeCases:
 
     def test_very_long_command(self, fixer: WindowsDoubleAmpersandFixer) -> None:
         long_cmd = " && ".join([f"cmd{i}" for i in range(1000)])
-        result, modified = fixer.fix_command_string(long_cmd)
-        assert modified is True
-        assert "&&" not in result
-        assert " ; " in result
+        result = fixer.fix_command_string(long_cmd)
+        assert result.was_modified is True
+        assert "&&" not in result.fixed_command
+        assert " ; " in result.fixed_command
 
     def test_command_with_ampersand_in_quotes(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
         cmd = 'echo "test && value" && echo done'
-        result, modified = fixer.fix_command_string(cmd)
-        assert modified is True
-        assert " ; " in result
+        result = fixer.fix_command_string(cmd)
+        assert result.was_modified is True
+        assert " ; " in result.fixed_command
 
     def test_whitespace_only_command(self, fixer: WindowsDoubleAmpersandFixer) -> None:
-        result, modified = fixer.fix_command_string("   ")
-        assert modified is False
-        assert result == "   "
+        result = fixer.fix_command_string("   ")
+        assert result.was_modified is False
+        assert result.fixed_command == "   "
 
     def test_case_insensitive_tool_matching(
         self, fixer: WindowsDoubleAmpersandFixer
     ) -> None:
         args = {"command": "echo test && echo done"}
-        result, modified = fixer.fix_tool_arguments(args, "EXECUTE", "WIN32")
-        assert modified is True
-        assert result["command"] == "echo test ; echo done"
+        result = fixer.fix_tool_arguments(args, "EXECUTE", "WIN32")
+        assert result.was_modified is True
+        assert result.fixed_command["command"] == "echo test ; echo done"

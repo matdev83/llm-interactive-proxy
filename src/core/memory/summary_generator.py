@@ -46,6 +46,14 @@ class SummaryResult:
     retries: int = 0
 
 
+@dataclass(frozen=True)
+class ValidationResult:
+    """Result of XML validation."""
+
+    is_valid: bool
+    error: str | None = None
+
+
 class SummaryValidator:
     """Validates XML summaries against schema requirements.
 
@@ -67,34 +75,38 @@ class SummaryValidator:
     # Required metadata elements per spec (Req 12.3)
     REQUIRED_METADATA = ["session_id", "analysis_timestamp", "summary_version"]
 
-    def validate(self, xml_content: str) -> tuple[bool, str | None]:
+    def validate(self, xml_content: str) -> ValidationResult:
         """Validate XML content against summary schema.
 
         Args:
             xml_content: The XML string to validate.
 
         Returns:
-            Tuple of (is_valid, error_message).
+            ValidationResult containing validity status and optional error message.
         """
         # Strip any preamble/postamble
         xml_content = self._extract_xml(xml_content)
 
         if not xml_content:
-            return False, "No valid XML found in response"
+            return ValidationResult(is_valid=False, error="No valid XML found in response")
 
         try:
             root = ElementTree.fromstring(xml_content)
         except ElementTree.ParseError as e:
-            return False, f"XML parse error: {e}"
+            return ValidationResult(is_valid=False, error=f"XML parse error: {e}")
 
         if root.tag != "session_summary":
-            return False, f"Expected root element 'session_summary', got '{root.tag}'"
+            return ValidationResult(
+                is_valid=False, error=f"Expected root element 'session_summary', got '{root.tag}'"
+            )
 
         # Check required elements
         for elem_name in self.REQUIRED_ELEMENTS:
             elem = root.find(elem_name)
             if elem is None or not elem.text:
-                return False, f"Missing required element: {elem_name}"
+                return ValidationResult(
+                    is_valid=False, error=f"Missing required element: {elem_name}"
+                )
 
         # Validate completion_status enum
         status_elem = root.find("completion_status")
@@ -103,7 +115,9 @@ class SummaryValidator:
             and status_elem.text
             and status_elem.text.strip() not in self.VALID_COMPLETION_STATUSES
         ):
-            return False, f"Invalid completion_status: {status_elem.text}"
+            return ValidationResult(
+                is_valid=False, error=f"Invalid completion_status: {status_elem.text}"
+            )
 
         # Validate metadata block (Req 12.3)
         metadata = root.find("metadata")
@@ -111,7 +125,10 @@ class SummaryValidator:
             for meta_elem in self.REQUIRED_METADATA:
                 elem = metadata.find(meta_elem)
                 if elem is None:
-                    return False, f"Missing required metadata element: {meta_elem}"
+                    return ValidationResult(
+                        is_valid=False,
+                        error=f"Missing required metadata element: {meta_elem}",
+                    )
 
         # Validate task statuses in remaining_tasks
         remaining_tasks = root.find("remaining_tasks")
@@ -119,7 +136,7 @@ class SummaryValidator:
             for task in remaining_tasks.findall("task"):
                 status = task.get("status")
                 if status and status not in self.VALID_TASK_STATUSES:
-                    return False, f"Invalid task status: {status}"
+                    return ValidationResult(is_valid=False, error=f"Invalid task status: {status}")
 
         # Validate file statuses in touched_files
         touched_files = root.find("touched_files")
@@ -127,7 +144,7 @@ class SummaryValidator:
             for file_elem in touched_files.findall("file"):
                 status = file_elem.get("status")
                 if status and status not in self.VALID_FILE_STATUSES:
-                    return False, f"Invalid file status: {status}"
+                    return ValidationResult(is_valid=False, error=f"Invalid file status: {status}")
 
         # Validate git operation types
         git_ops = root.find("git_operations")
@@ -135,7 +152,9 @@ class SummaryValidator:
             for op in git_ops.findall("operation"):
                 op_type = op.get("type")
                 if op_type and op_type not in self.VALID_GIT_TYPES:
-                    return False, f"Invalid git operation type: {op_type}"
+                    return ValidationResult(
+                        is_valid=False, error=f"Invalid git operation type: {op_type}"
+                    )
 
         # Validate test statuses
         tests_run = root.find("tests_run")
@@ -143,9 +162,9 @@ class SummaryValidator:
             for test in tests_run.findall("test"):
                 status = test.get("status")
                 if status and status not in self.VALID_TEST_STATUSES:
-                    return False, f"Invalid test status: {status}"
+                    return ValidationResult(is_valid=False, error=f"Invalid test status: {status}")
 
-        return True, None
+        return ValidationResult(is_valid=True, error=None)
 
     def _extract_xml(self, content: str) -> str:
         """Extract XML from content, stripping preamble/postamble."""
@@ -338,17 +357,17 @@ class SummaryGenerator:
             )
 
         # Validate response
-        is_valid, error = self._validator.validate(xml_response)
-        if not is_valid:
+        validation_result = self._validator.validate(xml_response)
+        if not validation_result.is_valid:
             logger.warning(
                 "Summary validation failed for session %s: %s",
                 session_id,
-                error,
+                validation_result.error,
             )
             metrics_service.inc("memory.summary.failure")
             return SummaryResult(
                 success=False,
-                error=f"Validation failed: {error}",
+                error=f"Validation failed: {validation_result.error}",
             )
 
         # Parse XML into SessionSummary

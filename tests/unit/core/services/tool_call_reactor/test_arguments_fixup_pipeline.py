@@ -198,8 +198,14 @@ class TestWindowsAmpersandFixupDelegation:
 
     def test_windows_fixup_delegates_to_fixer(self) -> None:
         """Test that pipeline delegates to WindowsDoubleAmpersandFixer."""
+        from src.core.services.windows_double_ampersand_fixer import (
+            CommandFixResult,
+        )
+
         mock_fixer = Mock(spec=WindowsDoubleAmpersandFixer)
-        mock_fixer.fix_tool_arguments = Mock(return_value=({"command": "fixed"}, True))
+        mock_fixer.fix_tool_arguments = Mock(
+            return_value=CommandFixResult(fixed_command="fixed", was_modified=True)
+        )
         pipeline = ToolArgumentsFixupPipeline(windows_ampersand_fixer=mock_fixer)
         envelope = ToolArgumentsEnvelope(
             parse_outcome="success",

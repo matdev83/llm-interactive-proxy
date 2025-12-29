@@ -14,6 +14,7 @@ from src.core.memory.sqlite_repository import MemoryRepository
 from src.core.memory.summary_generator import (
     SummaryGenerator,
     SummaryValidator,
+    ValidationResult,
 )
 
 
@@ -41,9 +42,9 @@ class TestSummaryValidator:
             <completion_status>completed</completion_status>
         </session_summary>"""
 
-        is_valid, error = validator.validate(xml)
-        assert is_valid is True
-        assert error is None
+        result = validator.validate(xml)
+        assert result.is_valid is True
+        assert result.error is None
 
     def test_rejects_missing_title(self) -> None:
         """Test validation fails for missing title."""
@@ -52,9 +53,9 @@ class TestSummaryValidator:
             <completion_status>completed</completion_status>
         </session_summary>"""
 
-        is_valid, error = validator.validate(xml)
-        assert is_valid is False
-        assert "title" in error.lower()
+        result = validator.validate(xml)
+        assert result.is_valid is False
+        assert "title" in result.error.lower()
 
     def test_rejects_missing_completion_status(self) -> None:
         """Test validation fails for missing completion_status."""
@@ -63,9 +64,9 @@ class TestSummaryValidator:
             <title>Test</title>
         </session_summary>"""
 
-        is_valid, error = validator.validate(xml)
-        assert is_valid is False
-        assert "completion_status" in error.lower()
+        result = validator.validate(xml)
+        assert result.is_valid is False
+        assert "completion_status" in result.error.lower()
 
     def test_rejects_invalid_completion_status(self) -> None:
         """Test validation fails for invalid completion_status value."""
@@ -75,9 +76,9 @@ class TestSummaryValidator:
             <completion_status>invalid</completion_status>
         </session_summary>"""
 
-        is_valid, error = validator.validate(xml)
-        assert is_valid is False
-        assert "invalid" in error.lower()
+        result = validator.validate(xml)
+        assert result.is_valid is False
+        assert "invalid" in result.error.lower()
 
     def test_rejects_wrong_root_element(self) -> None:
         """Test validation fails for wrong root element."""
@@ -86,18 +87,18 @@ class TestSummaryValidator:
             <title>Test</title>
         </summary>"""
 
-        is_valid, error = validator.validate(xml)
-        assert is_valid is False
-        assert "session_summary" in error.lower()
+        result = validator.validate(xml)
+        assert result.is_valid is False
+        assert "session_summary" in result.error.lower()
 
     def test_rejects_invalid_xml(self) -> None:
         """Test validation fails for malformed XML."""
         validator = SummaryValidator()
         xml = "<session_summary><unclosed>"
 
-        is_valid, error = validator.validate(xml)
-        assert is_valid is False
-        assert "parse" in error.lower()
+        result = validator.validate(xml)
+        assert result.is_valid is False
+        assert "parse" in result.error.lower()
 
     def test_extracts_xml_with_preamble(self) -> None:
         """Test XML extraction strips preamble text."""
@@ -111,17 +112,17 @@ class TestSummaryValidator:
 
 That's all!"""
 
-        is_valid, error = validator.validate(content)
-        assert is_valid is True
+        result = validator.validate(content)
+        assert result.is_valid is True
 
     def test_rejects_no_xml(self) -> None:
         """Test validation fails when no XML present."""
         validator = SummaryValidator()
         content = "This is just plain text without any XML."
 
-        is_valid, error = validator.validate(content)
-        assert is_valid is False
-        assert "no valid xml" in error.lower()
+        result = validator.validate(content)
+        assert result.is_valid is False
+        assert "no valid xml" in result.error.lower()
 
 
 class TestSummaryGenerator:

@@ -79,13 +79,14 @@ class ToolArgumentsFixupPipeline(IToolArgumentsFixupPipeline):
                 args_dict = fixed_args
 
         # Apply Windows ampersand fixup
-        fixed_args, ampersand_modified = self._windows_fixup.fix_tool_arguments(
+        fix_result = self._windows_fixup.fix_tool_arguments(
             tool_arguments=args_dict,
             tool_name=context.tool_name,
             client_os=context.client_os,
         )
-        if ampersand_modified:
+        if fix_result.was_modified:
             # Update normalized arguments if fixup modified them
+            fixed_args = fix_result.fixed_command
             if isinstance(fixed_args, dict):
                 envelope.normalized_arguments.root = fixed_args
             else:

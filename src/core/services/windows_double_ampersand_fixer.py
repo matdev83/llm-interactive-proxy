@@ -12,12 +12,29 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 # Pattern to match && with optional surrounding whitespace
 _DOUBLE_AMPERSAND_PATTERN = re.compile(r"\s*&&\s*")
+
+
+@dataclass(frozen=True)
+class CommandExtraction:
+    """Result of extracting a command string from tool arguments."""
+
+    command: str | None
+    key_path: str | None
+
+
+@dataclass(frozen=True)
+class CommandFixResult:
+    """Result of fixing a command string."""
+
+    fixed_command: str
+    was_modified: bool
 
 
 class WindowsDoubleAmpersandFixer:
@@ -152,25 +169,25 @@ class WindowsDoubleAmpersandFixer:
 
         return self.is_command_execution_tool(tool_name)
 
-    def fix_command_string(self, command: str) -> tuple[str, bool]:
+    def fix_command_string(self, command: str) -> CommandFixResult:
         """Replace && with ; in a command string.
 
         Args:
             command: The command string to fix
 
         Returns:
-            Tuple of (fixed_command, was_modified)
+            CommandFixResult containing fixed command and modification flag.
         """
         if not command or not isinstance(command, str):
-            return command, False
+            return CommandFixResult(fixed_command=command, was_modified=False)
 
         if "&&" not in command:
-            return command, False
+            return CommandFixResult(fixed_command=command, was_modified=False)
 
         fixed = _DOUBLE_AMPERSAND_PATTERN.sub(" ; ", command)
-        return fixed, True
+        return CommandFixResult(fixed_command=fixed, was_modified=True)
 
-    def _extract_command_string(self, arguments: Any) -> tuple[str | None, str | None]:
+    def _extract_command_string(self, arguments: Any) -> CommandExtraction:
         """Extract a shell command string from tool arguments.
 
         Supports:
@@ -182,24 +199,23 @@ class WindowsDoubleAmpersandFixer:
             arguments: The tool arguments
 
         Returns:
-            Tuple of (command_string, key_used) where key_used is the dict key
-            that contained the command, or None for raw string arguments.
+            CommandExtraction containing command string and optional key path.
         """
         if arguments is None:
-            return None, None
+            return CommandExtraction(command=None, key_path=None)
 
         if isinstance(arguments, str):
             try:
                 parsed = json.loads(arguments)
                 arguments = parsed
             except json.JSONDecodeError:
-                return arguments, None
+                return CommandExtraction(command=arguments, key_path=None)
 
         if isinstance(arguments, dict):
             for key in ("command", "cmd", "script", "shell_command"):
                 cmd = arguments.get(key)
                 if isinstance(cmd, str) and cmd.strip():
-                    return cmd, key
+                    return CommandExtraction(command=cmd, key_path=key)
 
             for outer_key in ("input", "body", "data"):
                 inner = arguments.get(outer_key)
@@ -207,25 +223,25 @@ class WindowsDoubleAmpersandFixer:
                     for key in ("command", "cmd"):
                         sub = inner.get(key)
                         if isinstance(sub, str) and sub.strip():
-                            return sub, f"{outer_key}.{key}"
+                            return CommandExtraction(command=sub, key_path=f"{outer_key}.{key}")
 
-        return None, None
+        return CommandExtraction(command=None, key_path=None)
 
     def fix_tool_arguments(
         self,
         tool_arguments: Any,
         tool_name: str,
         client_os: str | None,
-    ) -> tuple[Any, bool]:
+    ) -> CommandFixResult:
         """Fix double-ampersands in tool arguments if applicable.
 
         Args:
             tool_arguments: The tool arguments (dict, str, or other)
-            tool_name: The name of the tool
+            tool_name: The name of tool
             client_os: The detected client OS
 
         Returns:
-            Tuple of (possibly_modified_arguments, was_modified)
+            CommandFixResult containing modified arguments and modification flag.
         """
         if not self.should_process(tool_name, client_os):
             if logger.isEnabledFor(logging.DEBUG):
@@ -238,7 +254,56 @@ class WindowsDoubleAmpersandFixer:
                     self.is_file_editing_tool(tool_name),
                     self.is_windows_client(client_os),
                 )
-            return tool_arguments, False
+            return CommandFixResult(fixed_command=tool_arguments, was_modified=False)
+
+        extraction = self._extract_command_string(tool_arguments)
+        if not extraction.command:
+            return CommandFixResult(fixed_command=tool_arguments, was_modified=False)
+
+        fix_result = self.fix_command_string(extraction.command)
+        if not fix_result.was_modified:
+            return CommandFixResult(fixed_command=tool_arguments, was_modified=False)
+
+        fixed_command = fix_result.fixed_command
+        if logger.isEnabledFor(logging.INFO):
+            orig_preview = (
+                extraction.command[:200] + "..."
+                if len(extraction.command) > 200
+                else extraction.command
+            )
+            fixed_preview = (
+                fixed_command[:200] + "..."
+                if len(fixed_command) > 200
+                else fixed_command
+            )
+            logger.info(
+                "Fixed double-ampersand in command for Windows client: "
+                "tool=%s, original='%s', fixed='%s'",
+                tool_name,
+                orig_preview,
+                fixed_preview,
+            )
+
+        if extraction.key_path is None:
+            return CommandFixResult(fixed_command=fixed_command, was_modified=True)
+
+        if isinstance(tool_arguments, str):
+            try:
+                parsed = json.loads(tool_arguments)
+                if isinstance(parsed, dict):
+                    self._set_nested_value(parsed, extraction.key_path, fixed_command)
+                    return CommandFixResult(
+                        fixed_command=json.dumps(parsed), was_modified=True
+                    )
+            except json.JSONDecodeError:
+                return CommandFixResult(fixed_command=fixed_command, was_modified=True)
+
+        if isinstance(tool_arguments, dict):
+            result = dict(tool_arguments)
+            self._set_nested_value(result, extraction.key_path, fixed_command)
+            return CommandFixResult(fixed_command=result, was_modified=True)
+
+        return CommandFixResult(fixed_command=tool_arguments, was_modified=False)
 
         command_str, key_path = self._extract_command_string(tool_arguments)
         if not command_str:
