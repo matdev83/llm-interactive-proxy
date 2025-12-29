@@ -34,6 +34,10 @@ class EditPrecisionFeature(IResponseFeature):
     _MAX_ARGUMENT_PARSE_CHARS = 12_000
     _MAX_TEXT_SCAN_CHARS = 16_000
 
+    _TOOL_NAME_PATTERN = re.compile(
+        r'["\']?(tool_name|name|tool)["\']?\s*[:=]\s*["\']?([A-Za-z0-9_\-]+)'
+    )
+
     _DEFAULT_PATTERNS = [
         re.compile(r"<diff_error>|diff_error", re.IGNORECASE | re.DOTALL),
         re.compile(r"hunk\s+failed\s+to\s+apply", re.IGNORECASE | re.DOTALL),
@@ -142,7 +146,7 @@ class EditPrecisionFeature(IResponseFeature):
                     if p.search(combined_text):
                         matched_pattern = getattr(p, "pattern", None) or str(p)
                         break
-                except Exception as e:
+                except Exception:
                     # Log pattern matching failures for debugging
                     if self._logger.isEnabledFor(logging.DEBUG):
                         self._logger.debug(
@@ -179,7 +183,7 @@ class EditPrecisionFeature(IResponseFeature):
                 pending_map = {}
             else:
                 pending_map = dict(pending_map)
-        except Exception as e:
+        except Exception:
             # Log failures when converting pending_map to dict
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
@@ -388,7 +392,6 @@ class EditPrecisionFeature(IResponseFeature):
                     setting_name,
                     exc_info=True,
                 )
-            pass
         return {}
 
     def _has_file_edit_failure(self, metadata: Any) -> bool:
@@ -489,10 +492,7 @@ class EditPrecisionFeature(IResponseFeature):
                 if candidate in lowered:
                     return candidate
 
-            match = re.search(
-                r'["\']?(tool_name|name|tool)["\']?\s*[:=]\s*["\']?([A-Za-z0-9_\-]+)',
-                arguments,
-            )
+            match = self._TOOL_NAME_PATTERN.search(arguments)
             if match:
                 return match.group(2)
 
@@ -637,6 +637,10 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
     _MAX_ARGUMENT_PARSE_CHARS = 12_000
     _MAX_TEXT_SCAN_CHARS = 16_000
 
+    _TOOL_NAME_PATTERN = re.compile(
+        r'["\']?(tool_name|name|tool)["\']?\s*[:=]\s*["\']?([A-Za-z0-9_\-]+)'
+    )
+
     @staticmethod
     def _extract_text_from_chunk(chunk: dict) -> str:
         """Extract text content from an OpenAI-format streaming chunk.
@@ -713,7 +717,6 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     "Failed to load edit precision patterns in EditPrecisionResponseMiddleware; using defaults only",
                     exc_info=True,
                 )
-            pass
 
     async def process(
         self,
@@ -762,7 +765,7 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     if p.search(combined_text):
                         matched_pattern = getattr(p, "pattern", None) or str(p)
                         break
-                except Exception as e:
+                except Exception:
                     # Log pattern matching failures for debugging
                     if self._logger.isEnabledFor(logging.DEBUG):
                         self._logger.debug(
@@ -983,7 +986,6 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     setting_name,
                     exc_info=True,
                 )
-            pass
         return {}
 
     def _has_file_edit_failure(self, metadata: Any) -> bool:
@@ -1082,10 +1084,7 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 if candidate in lowered:
                     return candidate
 
-            match = re.search(
-                r'["\']?(tool_name|name|tool)["\']?\s*[:=]\s*["\']?([A-Za-z0-9_\-]+)',
-                arguments,
-            )
+            match = self._TOOL_NAME_PATTERN.search(arguments)
             if match:
                 return match.group(2)
 

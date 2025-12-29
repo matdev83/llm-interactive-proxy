@@ -9,6 +9,7 @@ pluggable architecture to run multiple security checks in a single pass.
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import re
 import threading
@@ -278,6 +279,47 @@ class DangerousCommandCheck(ISecurityCheck):
 
         return SecurityCheckResult.allow()
 
+    @staticmethod
+    @functools.lru_cache(maxsize=16)
+    def _get_project_root_patterns(
+        target_pattern: str,
+    ) -> tuple[tuple[str, re.Pattern[str], str], ...]:
+        """Get cached patterns for project root integrity check."""
+        return (
+            (
+                "move_project_root",
+                re.compile(
+                    f"(?:^|\\s)(?:mv|move|rename|ren)\\s+(?:-[a-zA-Z-]+\\s+)*{target_pattern}\\s+",
+                    re.IGNORECASE,
+                ),
+                "Moving or renaming the project root directory is not allowed.",
+            ),
+            (
+                "rmdir_project_root",
+                re.compile(
+                    f"(?:^|\\s)(?:rmdir|rd)\\s+(?:/[a-zA-Z]+\\s+)*{target_pattern}(?:\\s|$)",
+                    re.IGNORECASE,
+                ),
+                "Deleting the project root directory is not allowed.",
+            ),
+            (
+                "git_rm_project_root",
+                re.compile(
+                    f"(?:^|\\s)git\\s+rm\\s+(?:-[a-zA-Z-]+\\s+)*{target_pattern}(?:\\s|$)",
+                    re.IGNORECASE,
+                ),
+                "Removing the project root from git is not allowed.",
+            ),
+            (
+                "powershell_remove_project_root",
+                re.compile(
+                    f"(?:^|\\s)Remove-Item\\s+.*{target_pattern}(?:\\s|$)",
+                    re.IGNORECASE,
+                ),
+                "Deleting the project root directory is not allowed.",
+            ),
+        )
+
     async def _check_project_root_integrity(
         self, context: ToolCallContext, command: str
     ) -> SecurityCheckResult:
@@ -339,42 +381,10 @@ class DangerousCommandCheck(ISecurityCheck):
         )
 
         # Dangerous operations on root
-        patterns = [
-            (
-                "move_project_root",
-                re.compile(
-                    f"(?:^|\\s)(?:mv|move|rename|ren)\\s+(?:-[a-zA-Z-]+\\s+)*{target_pattern}\\s+",
-                    re.IGNORECASE,
-                ),
-                "Moving or renaming the project root directory is not allowed.",
-            ),
-            (
-                "rmdir_project_root",
-                re.compile(
-                    f"(?:^|\\s)(?:rmdir|rd)\\s+(?:/[a-zA-Z]+\\s+)*{target_pattern}(?:\\s|$)",
-                    re.IGNORECASE,
-                ),
-                "Deleting the project root directory is not allowed.",
-            ),
-            (
-                "git_rm_project_root",
-                re.compile(
-                    f"(?:^|\\s)git\\s+rm\\s+(?:-[a-zA-Z-]+\\s+)*{target_pattern}(?:\\s|$)",
-                    re.IGNORECASE,
-                ),
-                "Removing the project root from git is not allowed.",
-            ),
-            (
-                "powershell_remove_project_root",
-                re.compile(
-                    f"(?:^|\\s)Remove-Item\\s+.*{target_pattern}(?:\\s|$)",
-                    re.IGNORECASE,
-                ),
-                "Deleting the project root directory is not allowed.",
-            ),
-        ]
+        patterns = self._get_project_root_patterns(target_pattern)
 
         for rule_name, pattern, description in patterns:
+
             if pattern.search(normalized_cmd):
                 logger.warning(
                     "Project root integrity violation: rule=%s, command='%s'",
@@ -484,7 +494,9 @@ class FileSandboxingCheck(ISecurityCheck):
             project_dir = session.state.project_dir
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Could not get session for sandboxing: %s", e, exc_info=True)
+                logger.debug(
+                    "Could not get session for sandboxing: %s", e, exc_info=True
+                )
             return SecurityCheckResult.allow()
 
         if not project_dir:

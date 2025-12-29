@@ -18,7 +18,6 @@ from src.core.domain.command_results import CommandResult
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session
-from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.agent_response_formatter_interface import (
     IAgentResponseFormatter,
 )
@@ -342,51 +341,36 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                     command_name, json.dumps({"result": message})
                 )
             else:
-                # Use Pydantic models for non-Cline case
-                from src.core.domain.chat import (
-                    ChatCompletionChoice,
-                    ChatCompletionChoiceMessage,
-                    ChatResponse,
+                # Use dict directly for performance
+                return _AwaitableDict(
+                    {
+                        "id": "proxy_cmd_processed",
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": "gpt-4",
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {
+                                    "role": "assistant",
+                                    "content": message,
+                                    "metadata": {"is_proxy_response": True},
+                                },
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "total_tokens": 0,
+                        },
+                    }
                 )
-
-                # Create the message
-                choice_message = ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content=message,
-                    metadata={"is_proxy_response": True},  # Mark as proxy response
-                )
-
-                # Create the choice
-                choice = ChatCompletionChoice(
-                    index=0, message=choice_message, finish_reason="stop"
-                )
-
-                # Create the response
-                response = ChatResponse(
-                    id="proxy_cmd_processed",
-                    object="chat.completion",
-                    created=int(time.time()),
-                    model="gpt-4",
-                    choices=[choice],
-                    usage=UsageSummary.from_dict(
-                        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                    ),
-                )
-
-                return _AwaitableDict(response.model_dump(exclude_none=True))
 
     def _create_tool_calls_response(
         self, command_name: str, arguments: str
     ) -> dict[str, Any]:
-        """Create a tool_calls response for Cline agents using Pydantic models."""
-        from src.core.domain.chat import (
-            ChatCompletionChoice,
-            ChatCompletionChoiceMessage,
-            ChatResponse,
-            FunctionCall,
-            ToolCall,
-        )
-
+        """Create a tool_calls response for Cline agents using dictionary for performance."""
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Creating tool calls response for command: %s, arguments: %s",
@@ -394,37 +378,33 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 arguments,
             )
 
-        # Create the function call
-        function_call = FunctionCall(name=command_name, arguments=arguments)
-
-        # Create the tool call
-        new_tool_call = ToolCall(
-            id=f"call_{uuid.uuid4().hex[:16]}", type="function", function=function_call
-        )
-
-        # Create the message
-        message = ChatCompletionChoiceMessage(
-            role="assistant", content=None, tool_calls=[new_tool_call]
-        )
-
-        # Create the choice
-        choice = ChatCompletionChoice(
-            index=0, message=message, finish_reason="tool_calls"
-        )
-
-        # Create the response
-        response = ChatResponse(
-            id="proxy_cmd_processed",
-            object="chat.completion",
-            created=int(time.time()),
-            model="gpt-4",  # Mock model
-            choices=[choice],
-            usage=UsageSummary.from_dict(
-                {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            ),
-        )
-
-        return response.model_dump()
+        return {
+            "id": "proxy_cmd_processed",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": "gpt-4",  # Mock model
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": f"call_{uuid.uuid4().hex[:16]}",
+                                "type": "function",
+                                "function": {
+                                    "name": command_name,
+                                    "arguments": arguments,
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
 
     def _apply_pytest_compression_sync(
         self, command_name: str, message: str, session: Session
