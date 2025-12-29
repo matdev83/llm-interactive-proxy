@@ -1603,8 +1603,12 @@ class QwenOAuthConnector(OpenAIConnector):
                             ):
                                 process.wait(timeout=5)
                 except Exception:
-                    # Suppress all exceptions during cleanup
-                    pass
+                    # Suppress all exceptions during cleanup, but log for debugging
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to cleanup CLI refresh process during shutdown",
+                            exc_info=True,
+                        )
                 finally:
                     # Clear reference to prevent leaks
                     self._cli_refresh_process = None
@@ -1637,8 +1641,16 @@ class QwenOAuthConnector(OpenAIConnector):
                                 process.wait(timeout=5)
                 except Exception:
                     # Suppress all exceptions during interpreter shutdown
-                    # The logging system may already be torn down
-                    pass
+                    # The logging system may already be torn down, so wrap logging in try-except
+                    try:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to cleanup CLI refresh process during __del__",
+                                exc_info=True,
+                            )
+                    except Exception:
+                        # Logging system unavailable - suppress silently
+                        pass
                 finally:
                     # Always clear the reference to prevent leaks
                     self._cli_refresh_process = None
