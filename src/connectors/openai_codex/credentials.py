@@ -544,7 +544,26 @@ class CredentialManager(ICredentialManager):
                 os.fsync(f.fileno())  # Ensure written to disk
             # Atomic replacement (cross-platform) with retry for Windows
             self._robust_replace(temp_path, str(auth_path))
-        except Exception:
+        except (OSError, PermissionError, TypeError, ValueError) as exc:
+            # Log file I/O and serialization errors with context before cleanup
+            logger.error(
+                "Failed to persist credentials to %s: %s",
+                auth_path,
+                exc,
+                exc_info=True,
+            )
+            # Clean up temp file on error
+            with contextlib.suppress(Exception):
+                os.unlink(temp_path)
+            raise
+        except Exception as exc:
+            # Catch-all for any other unexpected errors
+            logger.error(
+                "Unexpected error persisting credentials to %s: %s",
+                auth_path,
+                exc,
+                exc_info=True,
+            )
             # Clean up temp file on error
             with contextlib.suppress(Exception):
                 os.unlink(temp_path)
