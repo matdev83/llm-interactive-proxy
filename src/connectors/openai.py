@@ -1352,14 +1352,15 @@ class OpenAIConnector(LLMBackend):
             body = ""
             try:
                 # Read only first 1MB of error body to prevent DoS
-                body_bytes = b""
                 if hasattr(response, "aiter_bytes"):
+                    chunks: list[bytes] = []
+                    total_size = 0
                     async for chunk in response.aiter_bytes():
-                        body_bytes += chunk
-                        if (
-                            len(body_bytes) > 10 * 1024 * 1024
-                        ):  # 10MB limit (consistent with other middleware)
+                        chunks.append(chunk)
+                        total_size += len(chunk)
+                        if total_size > 10 * 1024 * 1024:
                             break
+                    body_bytes = b"".join(chunks)
                 elif hasattr(response, "aread"):
                     body_bytes = await response.aread()
                 else:
