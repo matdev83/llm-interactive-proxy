@@ -960,8 +960,19 @@ class GeminiCliAcpConnector(GeminiBackend):
                                         exc,
                                         exc_info=True,
                                     )
+                            except (
+                                AttributeError,
+                                RuntimeError,
+                                NameError,
+                                ImportError,
+                            ):
+                                # Logging system unavailable during interpreter shutdown
+                                # These exceptions occur when logging modules/attributes are torn down
+                                # Suppress silently to avoid masking the original cleanup error
+                                pass
                             except Exception:
-                                # Logging system unavailable - suppress silently
+                                # Defensive guard for truly unexpected logging errors
+                                # Still suppress to avoid masking the original cleanup error
                                 pass
 
                     # Clean up process pipes
@@ -982,8 +993,19 @@ class GeminiCliAcpConnector(GeminiBackend):
                                 exc,
                                 exc_info=True,
                             )
+                    except (
+                        AttributeError,
+                        RuntimeError,
+                        NameError,
+                        ImportError,
+                    ):
+                        # Logging system unavailable during interpreter shutdown
+                        # These exceptions occur when logging modules/attributes are torn down
+                        # Suppress silently to avoid masking the original cleanup error
+                        pass
                     except Exception:
-                        # Logging system unavailable - suppress silently
+                        # Defensive guard for truly unexpected logging errors
+                        # Still suppress to avoid masking the original cleanup error
                         pass
                 finally:
                     # Clear reference to prevent leaks
