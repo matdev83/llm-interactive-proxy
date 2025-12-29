@@ -259,14 +259,20 @@ class OpenAICodexConnector(OpenAIConnector):
             )
         )
 
+        # Get retry config from normalized settings
+        streaming_cfg = self._connector_settings.get("streaming", {})
+        max_retries = int(streaming_cfg.get("max_retries", 2))
+        backoff_seq = streaming_cfg.get("retry_backoff_seconds") or ()
+        retry_backoff_seconds = tuple(backoff_seq) if backoff_seq else (0.5, 1.5, 3.0)
+
         self._response_executor = (
             self._dependencies.response_executor
             if self._dependencies and self._dependencies.response_executor is not None
             else ResponseExecutor(
                 base_connector=self,
                 credential_manager=self._credential_manager,
-                max_retries=self._stream_retry_limit,
-                retry_backoff_seconds=self._stream_retry_backoff,
+                max_retries=max_retries,
+                retry_backoff_seconds=retry_backoff_seconds,
                 compatibility_layer=self._compatibility_layer,
             )
         )
@@ -358,9 +364,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 message_to_text_converter=self._message_to_text,
             )
 
-        if isinstance(self._response_executor, ResponseExecutor):
-            self._response_executor._max_retries = self._stream_retry_limit
-            self._response_executor._retry_backoff_seconds = self._stream_retry_backoff
+        # Executor configuration is set via constructor, no private field mutation needed
 
     @property
     def _auth_credentials(self) -> dict[str, Any] | None:
@@ -807,19 +811,17 @@ class OpenAICodexConnector(OpenAIConnector):
         headers["conversation_id"] = conversation_id
         headers["session_id"] = conversation_id
 
-    def _stream_retry_delay(self, attempt_index: int) -> float:
-        if attempt_index < 0:
-            return 0.0
-        if not self._stream_retry_backoff:
-            return 0.0
-        if attempt_index < len(self._stream_retry_backoff):
-            return float(self._stream_retry_backoff[attempt_index])
-        return float(self._stream_retry_backoff[-1])
-
     def _should_retry_stream_for_auth_error(
         self, chunk: ProcessedResponse | Any
     ) -> bool:
+        """Check if streaming chunk indicates auth error.
+
+        Delegates to executor's public interface if available.
+        This method is kept for backward compatibility with legacy _perform_request path.
+        """
         if isinstance(self._response_executor, ResponseExecutor):
+            # Use public method if executor exposes it, otherwise return False
+            # The executor handles retry logic internally, so this is only for legacy path
             return self._response_executor._should_retry_for_auth_error(chunk)
         return False
 
@@ -1087,7 +1089,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 payload_messages = context.processed_messages
             except Exception as exc:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Compatibility layer apply failed: %s", exc)
+                    logger.debug("Compatibility layer apply failed: %s", exc, exc_info=True)
 
         payload, conversation_id = self._build_codex_payload(
             request_data,
@@ -1183,10 +1185,9 @@ class OpenAICodexConnector(OpenAIConnector):
 
                 async def _rendered_iterator() -> AsyncIterator[ProcessedResponse]:
                     attempts_used = 0
-                    max_retries = max(0, self._stream_retry_limit)
-                    if isinstance(self._response_executor, ResponseExecutor):
-                        executor_limit = max(0, self._response_executor._max_retries)
-                        max_retries = min(max_retries, executor_limit)
+                    # Get retry config from settings (executor has its own config)
+                    streaming_cfg = self._connector_settings.get("streaming", {})
+                    max_retries = max(0, int(streaming_cfg.get("max_retries", 2)))
                     current_headers = dict(request_headers)
                     while True:
                         try:
@@ -1238,7 +1239,22 @@ class OpenAICodexConnector(OpenAIConnector):
                                             },
                                         },
                                     )
-                                delay = self._stream_retry_delay(attempts_used)
+                                # Get backoff delay from settings
+                                backoff_seq = self._connector_settings.get(
+                                    "streaming", {}
+                                ).get("retry_backoff_seconds") or (0.5, 1.5, 3.0)
+                                backoff_tuple = (
+                                    tuple(backoff_seq)
+                                    if isinstance(backoff_seq, (list, tuple))
+                                    else (0.5, 1.5, 3.0)
+                                )
+                                delay = 0.0
+                                if attempts_used >= 0 and attempts_used < len(
+                                    backoff_tuple
+                                ):
+                                    delay = float(backoff_tuple[attempts_used])
+                                elif backoff_tuple:
+                                    delay = float(backoff_tuple[-1])
                                 attempts_used += 1
                                 if delay > 0:
                                     await asyncio.sleep(delay)
@@ -1251,7 +1267,13 @@ class OpenAICodexConnector(OpenAIConnector):
                         headers_holder.clear()
                         try:
                             headers_holder.update(dict(stream_handle.headers or {}))
-                        except Exception:
+                        except Exception as exc:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Failed to update headers_holder from stream_handle.headers: %s",
+                                    exc,
+                                    exc_info=True,
+                                )
                             headers_holder.clear()
 
                         restart_stream = False
@@ -1300,6 +1322,7 @@ class OpenAICodexConnector(OpenAIConnector):
                                             logger.debug(
                                                 "Compatibility layer translation failed: %s",
                                                 exc,
+                                                exc_info=True,
                                             )
 
                                 # Ensure we yield ProcessedResponse
@@ -1361,7 +1384,22 @@ class OpenAICodexConnector(OpenAIConnector):
                                     },
                                 )
 
-                            delay = self._stream_retry_delay(attempts_used)
+                            # Get backoff delay from settings
+                            backoff_seq = self._connector_settings.get(
+                                "streaming", {}
+                            ).get("retry_backoff_seconds") or (0.5, 1.5, 3.0)
+                            backoff_tuple = (
+                                tuple(backoff_seq)
+                                if isinstance(backoff_seq, (list, tuple))
+                                else (0.5, 1.5, 3.0)
+                            )
+                            delay = 0.0
+                            if attempts_used >= 0 and attempts_used < len(
+                                backoff_tuple
+                            ):
+                                delay = float(backoff_tuple[attempts_used])
+                            elif backoff_tuple:
+                                delay = float(backoff_tuple[-1])
                             attempts_used += 1
                             if delay > 0:
                                 await asyncio.sleep(delay)

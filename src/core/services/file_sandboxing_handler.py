@@ -105,10 +105,13 @@ class FileSandboxingHandler(IToolCallHandler):
         self._allowed_count = 0
         self._validation_errors = 0
 
-        logger.info(
-            f"FileSandboxingHandler initialized with {len(self._tool_patterns)} tool patterns "
-            f"and {len(self._excluded_patterns)} exclusion patterns"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "FileSandboxingHandler initialized with %d tool patterns "
+                "and %d exclusion patterns",
+                len(self._tool_patterns),
+                len(self._excluded_patterns),
+            )
 
     @property
     def name(self) -> str:
@@ -294,9 +297,12 @@ class FileSandboxingHandler(IToolCallHandler):
                     )
 
                 if not paths:
-                    logger.warning(
-                        f"No file paths found in tool call '{context.tool_name}' with arguments: {list(context.tool_arguments.keys())}"
-                    )
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "No file paths found in tool call '%s' with arguments: %s",
+                            context.tool_name,
+                            list(context.tool_arguments.keys()),
+                        )
                     if self._config.strict_mode:
                         self._blocked_count += 1
                         return ToolCallReactionResult(
@@ -364,9 +370,11 @@ class FileSandboxingHandler(IToolCallHandler):
                         },
                     )
 
-            if invalid_path_errors:  # non-strict mode
+            if invalid_path_errors and logger.isEnabledFor(logging.WARNING):  # non-strict mode
                 logger.warning(
-                    f"Allowing tool call '{context.tool_name}' despite path validation errors (non-strict mode): {invalid_path_errors}"
+                    "Allowing tool call '%s' despite path validation errors (non-strict mode): %s",
+                    context.tool_name,
+                    invalid_path_errors,
                 )
 
             if logger.isEnabledFor(logging.DEBUG):
