@@ -543,10 +543,27 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             try:
                 task = loop.create_task(reload_task())
                 _assign_task(task)
-            except Exception:
+            except RuntimeError as exc:
+                # Event loop errors: loop closed, wrong thread, etc.
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to schedule credentials reload", exc_info=True
+                        "RuntimeError scheduling credentials reload: %s", exc, exc_info=True
+                    )
+                with self._reload_task_lock:
+                    self._reload_scheduling_in_progress = False
+            except AttributeError as exc:
+                # Missing attributes (e.g., loop is None)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "AttributeError scheduling credentials reload: %s", exc, exc_info=True
+                    )
+                with self._reload_task_lock:
+                    self._reload_scheduling_in_progress = False
+            except Exception:
+                # Unexpected errors
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error scheduling credentials reload", exc_info=True
                     )
                 with self._reload_task_lock:
                     self._reload_scheduling_in_progress = False
@@ -838,9 +855,22 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         try:
             await asyncio.to_thread(_save_sync)
-        except Exception:
+        except (OSError, PermissionError) as exc:
+            # File system errors: permission denied, disk full, etc.
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Error saving OAuth credentials", exc_info=True)
+                logger.error(
+                    "File system error saving OAuth credentials: %s", exc, exc_info=True
+                )
+        except (TypeError, ValueError) as exc:
+            # JSON serialization errors (TypeError for non-serializable objects, ValueError for edge cases)
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "JSON encoding error saving OAuth credentials: %s", exc, exc_info=True
+                )
+        except Exception:
+            # Unexpected errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("Unexpected error saving OAuth credentials", exc_info=True)
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""

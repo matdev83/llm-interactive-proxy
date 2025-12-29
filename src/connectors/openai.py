@@ -1012,8 +1012,15 @@ class OpenAIConnector(LLMBackend):
                     message=f"Streaming connection interrupted ({exc})"
                 ) from exc
             finally:
-                with contextlib.suppress(Exception):
+                try:
                     await response.aclose()
+                except Exception:
+                    # Log cleanup errors but don't let them mask the original error
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Error closing streaming response during cleanup",
+                            exc_info=True,
+                        )
             if pending_error:
                 raise pending_error
 
