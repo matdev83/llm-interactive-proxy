@@ -98,7 +98,7 @@ class ControllerStage(InitializationStage):
                 metrics_initializer = provider.get_service(
                     cast(type, ISessionMetricsInitializer)
                 )
-            except Exception:
+            except (AttributeError, KeyError, TypeError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to resolve ISessionMetricsInitializer for ChatController; proceeding without metrics initializer",
@@ -239,7 +239,7 @@ class ControllerStage(InitializationStage):
                 metrics_initializer = provider.get_service(
                     cast(type, ISessionMetricsInitializer)
                 )
-            except Exception:
+            except (AttributeError, KeyError, TypeError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to resolve ISessionMetricsInitializer for ResponsesController; proceeding without metrics initializer",
