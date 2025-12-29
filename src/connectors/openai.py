@@ -144,7 +144,7 @@ class OpenAIConnector(LLMBackend):
         if identity is not None:
             try:
                 identity_headers = identity.get_resolved_headers(None)
-            except Exception as e:
+            except (KeyError, TypeError, AttributeError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Failed to get identity headers, using empty headers: %s",
@@ -447,7 +447,7 @@ class OpenAIConnector(LLMBackend):
 
                     prompt_text = extract_prompt_text(processed_messages)
                     prompt_tokens = count_tokens(prompt_text, model=effective_model)
-                except Exception:
+                except (ImportError, AttributeError, TypeError, KeyError, ValueError):
                     logger.warning("Failed to calculate prompt tokens", exc_info=True)
 
                 # Integrate with streaming pipeline

@@ -171,11 +171,9 @@ class UsageTrackingService(IUsageTrackingService):
         try:
             # Add single record (using batch_insert for list of 1)
             await self._usage_repo.batch_insert([record])
-        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+        except (ValueError, TypeError, AttributeError, RuntimeError, KeyError) as e:
             logger.error(f"Failed to record request usage: {e}", exc_info=True)
             # We don't raise here to avoid blocking the main flow, but we log error
-        except Exception as e:
-            logger.error(f"Failed to record request usage: {e}", exc_info=True)
 
         return record_id
 
@@ -343,8 +341,6 @@ class UsageTrackingService(IUsageTrackingService):
 
         except (ValueError, TypeError, AttributeError, RuntimeError, KeyError) as e:
             logger.error(f"Failed to record response usage: {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"Failed to record response usage: {e}", exc_info=True)
 
     async def get_usage_stats(
         self,
@@ -441,9 +437,6 @@ class UsageTrackingService(IUsageTrackingService):
         ) as e:
             logger.error(f"Failed to get usage stats: {e}", exc_info=True)
             return AggregatedStats()
-        except Exception as e:
-            logger.error(f"Failed to get usage stats: {e}", exc_info=True)
-            return AggregatedStats()
 
     async def get_recent_usage(
         self,
@@ -453,9 +446,6 @@ class UsageTrackingService(IUsageTrackingService):
         """Get recent usage records."""
         try:
             return await self._usage_repo.query_with_filter(filters, limit=limit)
-        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
-            logger.error(f"Failed to get recent usage: {e}", exc_info=True)
-            return []
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError, RuntimeError, KeyError) as e:
             logger.error(f"Failed to get recent usage: {e}", exc_info=True)
             return []
