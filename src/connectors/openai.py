@@ -871,7 +871,12 @@ class OpenAIConnector(LLMBackend):
                             chunk_id = chunk_dict.get("id")
                         else:
                             chunk_id = None
-                    except Exception:
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to extract chunk ID from model_dump",
+                                exc_info=True,
+                            )
                         return None
                     if isinstance(chunk_id, str) and chunk_id:
                         return chunk_id

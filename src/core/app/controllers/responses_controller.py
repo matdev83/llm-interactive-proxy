@@ -260,10 +260,17 @@ class ResponsesController:
                                     f"Response converted from dict via TranslationService - request_id={request_id}"
                                 )
                             return converted_response
-                        except Exception:
+                        except ValidationError as e:
                             if logger.isEnabledFor(logging.WARNING):
                                 logger.warning(
-                                    f"Failed to convert dict to ChatResponse - request_id={request_id}",
+                                    f"Failed to convert dict to ChatResponse (validation error) - request_id={request_id}",
+                                    exc_info=True,
+                                )
+                            # If conversion fails, fall back to manual conversion
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    f"Failed to convert dict to ChatResponse (unexpected error) - request_id={request_id}",
                                     exc_info=True,
                                 )
                             # If conversion fails, fall back to manual conversion

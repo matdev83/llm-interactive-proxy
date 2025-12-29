@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationError, model_validator
 
 from src.core.common.logging_utils import get_logger, is_log_level_enabled
 from src.core.domain.model_utils import parse_model_backend
@@ -131,8 +131,17 @@ class FailoverService:
 
         try:
             route_config = FailoverRouteConfig.model_validate(route_data)
-        except Exception:
-            logger.warning("Invalid failover route configuration format", exc_info=True)
+        except ValidationError as e:
+            logger.warning(
+                "Invalid failover route configuration format (validation error)",
+                exc_info=True,
+            )
+            return []
+        except Exception as e:
+            logger.warning(
+                "Invalid failover route configuration format (unexpected error)",
+                exc_info=True,
+            )
             return []
 
         policy = route_config.policy
