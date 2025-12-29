@@ -103,6 +103,26 @@ def _resolve_stream_normalizer_via_di() -> IProcessingStreamNormalizer | None:
 # All normalizers must be provided via explicit DI wiring
 
 
+def _encode_chunk_to_bytes(chunk: Any) -> bytes:
+    """Encode a chunk to bytes efficiently.
+
+    Args:
+        chunk: The chunk to encode (str, bytes, or object)
+
+    Returns:
+        The chunk encoded as bytes
+    """
+    if isinstance(chunk, str):
+        return chunk.encode("utf-8")
+    elif isinstance(chunk, bytes):
+        return chunk
+    else:
+        try:
+            return json.dumps(chunk).encode("utf-8")
+        except (TypeError, ValueError):
+            return str(chunk).encode("utf-8")
+
+
 async def _ensure_async_iterator(it: Any) -> AsyncIterator[bytes]:
     """Ensure that a value is an async iterator of bytes.
 
@@ -115,59 +135,23 @@ async def _ensure_async_iterator(it: Any) -> AsyncIterator[bytes]:
     # Normalize different shapes into an async iterator of bytes
     if hasattr(it, "__aiter__"):
         async for chunk in it:  # type: ignore[misc]
-            # Ensure bytes output
-            if isinstance(chunk, str):
-                yield chunk.encode("utf-8")
-            elif isinstance(chunk, bytes):
-                yield chunk
-            else:
-                try:
-                    yield json.dumps(chunk).encode("utf-8")
-                except (TypeError, ValueError):
-                    yield str(chunk).encode("utf-8")
+            yield _encode_chunk_to_bytes(chunk)
         return
 
     if hasattr(it, "__iter__"):
         for chunk in it:  # type: ignore[misc]
-            # Ensure bytes output
-            if isinstance(chunk, str):
-                yield chunk.encode("utf-8")
-            elif isinstance(chunk, bytes):
-                yield chunk
-            else:
-                try:
-                    yield json.dumps(chunk).encode("utf-8")
-                except (TypeError, ValueError):
-                    yield str(chunk).encode("utf-8")
+            yield _encode_chunk_to_bytes(chunk)
         return
 
     if asyncio.iscoroutine(it):
         res = await it  # type: ignore[arg-type]
         if hasattr(res, "__aiter__"):
             async for chunk in res:  # type: ignore[misc]
-                # Ensure bytes output
-                if isinstance(chunk, str):
-                    yield chunk.encode("utf-8")
-                elif isinstance(chunk, bytes):
-                    yield chunk
-                else:
-                    try:
-                        yield json.dumps(chunk).encode("utf-8")
-                    except (TypeError, ValueError):
-                        yield str(chunk).encode("utf-8")
+                yield _encode_chunk_to_bytes(chunk)
             return
         if hasattr(res, "__iter__"):
             for chunk in res:  # type: ignore[misc]
-                # Ensure bytes output
-                if isinstance(chunk, str):
-                    yield chunk.encode("utf-8")
-                elif isinstance(chunk, bytes):
-                    yield chunk
-                else:
-                    try:
-                        yield json.dumps(chunk).encode("utf-8")
-                    except (TypeError, ValueError):
-                        yield str(chunk).encode("utf-8")
+                yield _encode_chunk_to_bytes(chunk)
             return
 
     # Fallback: empty
