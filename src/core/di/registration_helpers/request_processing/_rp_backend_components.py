@@ -171,9 +171,15 @@ def _register_backend_non_streaming_response_handler(
             cancellation_coordinator = provider.get_service(
                 cast(type, ISessionCancellationCoordinator)
             )
-        except Exception:
+        except Exception as exc:
             # Cancellation coordinator not available (optional dependency)
-            pass
+            # Log unexpected errors during service lookup to aid debugging
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get ISessionCancellationCoordinator during "
+                    "BackendNonStreamingResponseHandler registration (optional dependency)",
+                    exc_info=True,
+                )
 
         return BackendNonStreamingResponseHandler(
             response_processor=response_processor,

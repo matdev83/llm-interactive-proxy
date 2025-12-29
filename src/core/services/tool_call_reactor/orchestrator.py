@@ -254,8 +254,13 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                         clean_tool_calls.append(clean_tc)
                     response.metadata["tool_calls"] = clean_tool_calls
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to annotate tool calls in metadata", exc_info=True)
+            # Log unexpected errors during metadata annotation at WARNING level
+            # to ensure visibility even when DEBUG logging is disabled
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to annotate tool calls in metadata",
+                    exc_info=True,
+                )
 
         # Process each new tool call through the reactor
         for tool_call in new_tool_calls:
