@@ -93,10 +93,14 @@ class BackendPreparer(IBackendPreparer):
                 backend_type: str | None = None
                 try:
                     backend_type = self._app_state.get_backend_type()
-                except Exception:
+                except (AttributeError, RuntimeError, TypeError) as err:
+                    # AttributeError: app_state missing get_backend_type
+                    # RuntimeError: threading lock issues or state corruption
+                    # TypeError: app_state is None or wrong type
                     logger.debug(
-                        "Failed to get backend type from app_state",
-                        exc_info=True
+                        "Failed to get backend type from app_state: %s",
+                        type(err).__name__,
+                        exc_info=True,
                     )
                     backend_type = None
 

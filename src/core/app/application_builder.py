@@ -365,20 +365,27 @@ class ApplicationBuilder:
 
             try:
                 app.state.application_state_service = app_state_service
-            except Exception:
+            except (AttributeError, TypeError) as err:
+                # AttributeError: app.state is read-only or missing
+                # TypeError: type mismatch or assignment not supported
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to expose application_state_service on app.state",
+                        "Failed to expose application_state_service on app.state: %s",
+                        type(err).__name__,
                         exc_info=True,
                     )
 
             if hasattr(app_state_service, "set_state_provider"):
                 try:
                     app_state_service.set_state_provider(app.state)  # type: ignore[attr-defined]
-                except Exception:
+                except (AttributeError, TypeError, RuntimeError) as err:
+                    # AttributeError: method missing or wrong signature
+                    # TypeError: type mismatch in arguments
+                    # RuntimeError: state corruption or threading issues
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to set state provider on application state service",
+                            "Failed to set state provider on application state service: %s",
+                            type(err).__name__,
                             exc_info=True,
                         )
             for attribute_name in dir(app_state_service):
@@ -390,17 +397,24 @@ class ApplicationBuilder:
                 if callable(attribute_value):
                     try:
                         setattr(app.state, attribute_name, attribute_value)
-                    except Exception:
+                    except (AttributeError, TypeError) as err:
+                        # AttributeError: app.state attribute is read-only or missing
+                        # TypeError: type mismatch or assignment not supported
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                "Failed to expose application state attribute '%s' on app.state",
+                                "Failed to expose application state attribute '%s' on app.state: %s",
                                 attribute_name,
+                                type(err).__name__,
                                 exc_info=True,
                             )
-        except Exception:
+        except (AttributeError, TypeError, RuntimeError) as err:
+            # AttributeError: app.state or app_state_service missing expected attributes
+            # TypeError: type mismatches during attribute access/setting
+            # RuntimeError: state corruption or threading issues
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Unable to bind application state service methods to FastAPI state",
+                    "Unable to bind application state service methods to FastAPI state: %s",
+                    type(err).__name__,
                     exc_info=True,
                 )
 
@@ -409,9 +423,16 @@ class ApplicationBuilder:
             from src.core.di.services import set_service_provider
 
             set_service_provider(service_provider)
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError) as err:
+            # ImportError: module not available
+            # AttributeError: function missing or wrong signature
+            # RuntimeError: threading or state corruption issues
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Unable to set global service provider", exc_info=True)
+                logger.warning(
+                    "Unable to set global service provider: %s",
+                    type(err).__name__,
+                    exc_info=True,
+                )
 
 
         # Configure middleware
@@ -429,10 +450,16 @@ class ApplicationBuilder:
             install_api_key_redaction_filter(api_keys)
             if logger.isEnabledFor(logging.INFO):
                 logger.info("API key redaction filter installed.")
-        except Exception:
+        except (ImportError, AttributeError, ValueError, RuntimeError) as err:
+            # ImportError: logging_utils module not available
+            # AttributeError: functions missing or wrong signature
+            # ValueError: invalid API key format or config
+            # RuntimeError: logging system initialization issues
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to install API key redaction filter", exc_info=True
+                    "Failed to install API key redaction filter: %s",
+                    type(err).__name__,
+                    exc_info=True,
                 )
 
         # Register routes

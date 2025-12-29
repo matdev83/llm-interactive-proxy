@@ -771,10 +771,23 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     if not task.done():
                         task.cancel()
                 # Await cancelled tasks to ensure they complete
+                # Note: gather() with return_exceptions=True shouldn't raise,
+                # but RuntimeError can occur if event loop is closed
                 await asyncio.gather(*pending_tasks, return_exceptions=True)
-            except Exception:
+            except RuntimeError as err:
+                # RuntimeError: event loop closed or other infrastructure issues
                 logger.warning(
-                    "Error during cancellation task cleanup; suppressing to allow cleanup to continue",
+                    "Error during cancellation task cleanup (event loop issue): %s; suppressing to allow cleanup to continue",
+                    err,
+                    exc_info=True,
+                    extra={"pending_tasks_count": len(pending_tasks)},
+                )
+            except Exception as err:
+                # Defensive catch for any other unexpected errors during cleanup
+                logger.warning(
+                    "Unexpected error during cancellation task cleanup: %s (%s); suppressing to allow cleanup to continue",
+                    err,
+                    type(err).__name__,
                     exc_info=True,
                     extra={"pending_tasks_count": len(pending_tasks)},
                 )
