@@ -421,9 +421,14 @@ class BackendService(IBackendService):
             for name, value in mapping.items():
                 if value == api_key_value:
                     return name
-        except Exception:
+        except (ValueError, TypeError, AttributeError, KeyError, IndexError):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("_detect_key_name failed", exc_info=True)
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "_detect_key_name failed unexpectedly: %s", str(e), exc_info=True
+                )
         return backend_type
 
     async def _execute_complex_failover(

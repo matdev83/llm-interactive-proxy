@@ -271,8 +271,20 @@ async def get_activity() -> GlobalActivityInfo:
             total_bytes_rx=snapshot.total_bytes_rx,
             total_bytes_tx=snapshot.total_bytes_tx,
         )
-    except Exception:
-        logger.warning("Failed to get activity snapshot", exc_info=True)
+    except (AttributeError, RuntimeError) as e:
+        logger.warning(
+            "Failed to get activity snapshot: %s", str(e), exc_info=True
+        )
+        return GlobalActivityInfo(
+            enabled=True,  # Tracking is enabled but errored
+            total_active_connections=0,
+            total_bytes_rx=0,
+            total_bytes_tx=0,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to get activity snapshot unexpectedly: %s", str(e), exc_info=True
+        )
         return GlobalActivityInfo(
             enabled=True,  # Tracking is enabled but errored
             total_active_connections=0,

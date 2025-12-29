@@ -183,7 +183,25 @@ class ProjectDirectoryResolutionService:
                 if path_type in ("windows", "unc")
                 else PurePosixPath(path)
             )
-        except Exception:
+        except ValueError as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to normalize directory candidate path '%s' (type=%s): %s",
+                    path,
+                    path_type,
+                    str(e),
+                    exc_info=True,
+                )
+            return None
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Unexpected error normalizing directory candidate path '%s' (type=%s): %s",
+                    path,
+                    path_type,
+                    str(e),
+                    exc_info=True,
+                )
             return None
 
         # If the path points inside a dot-folder (e.g. `.git/...`, `.vscode/...`),
