@@ -53,7 +53,7 @@ class SSOMiddlewareAdapter(BaseHTTPMiddleware):
             return await call_next(request)  # type: ignore
 
         # Skip SSO check for health/docs endpoints
-        if request.url.path in ["/health", "/docs", "/openapi.json", "/redoc"]:
+        if request.url.path in ("/health", "/docs", "/openapi.json", "/redoc"):
             return await call_next(request)  # type: ignore
 
         # Convert FastAPI request to dict format expected by SSO middleware

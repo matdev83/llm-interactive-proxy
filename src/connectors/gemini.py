@@ -202,7 +202,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
             if isinstance(content, str):
                 # If this is a tool or function role, represent it as functionResponse for Gemini
-                if role in ["tool", "function"]:
+                if role in ("tool", "function"):
                     # Try to parse JSON payload; otherwise wrap string
                     try:
                         input_obj = json.loads(content)

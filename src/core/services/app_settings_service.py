@@ -70,7 +70,7 @@ class AppSettings(IAppSettings):
             if _get_strict_services_errors():
                 raise
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Error initializing settings from app_state: {e}")
+                logger.warning("Error initializing settings from app_state: %s", e)
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a setting by key.
@@ -118,7 +118,7 @@ class AppSettings(IAppSettings):
                 if _get_strict_services_errors():
                     raise
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error setting {key} in app_state: {e}")
+                    logger.warning("Error setting %s in app_state: %s", key, e)
 
     def has_setting(self, key: str) -> bool:
         """Check if a setting exists.
@@ -168,7 +168,7 @@ class AppSettings(IAppSettings):
                 if _get_strict_services_errors():
                     raise
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"Error getting all settings from app_state: {e}")
+                    logger.warning("Error getting all settings from app_state: %s", e)
 
         return all_settings
 

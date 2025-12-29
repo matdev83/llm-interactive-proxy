@@ -165,9 +165,16 @@ class ResponseFilter:
                 filtered_content = self.filter_content(chunk.content)
 
                 # Strip reasoning artifacts from metadata as well
-                cleaned_metadata = dict(chunk.metadata or {})
-                for key in ("reasoning", "reasoning_content", "reasoning_format"):
-                    cleaned_metadata.pop(key, None)
+                # Avoid dict copy if metadata is empty or has no keys to remove
+                if chunk.metadata and any(
+                    k in chunk.metadata
+                    for k in ("reasoning", "reasoning_content", "reasoning_format")
+                ):
+                    cleaned_metadata = dict(chunk.metadata)
+                    for key in ("reasoning", "reasoning_content", "reasoning_format"):
+                        cleaned_metadata.pop(key, None)
+                else:
+                    cleaned_metadata = chunk.metadata or {}
 
                 # Create new ProcessedResponse with filtered content
                 filtered_chunk = ProcessedResponse(
