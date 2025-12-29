@@ -159,7 +159,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
     # Validation methods (stale token handling pattern)
     # -----------------------------
     def _validate_credentials_file_exists(self) -> ValidationResult:
-        """Validate that credentials file exists and is readable."""
+        """Validate that credentials file exists and is readable (sync version)."""
         creds_path = self._discover_credentials_path()
         if creds_path is None:
             return ValidationResult.failure(
@@ -194,6 +194,10 @@ class AnthropicOAuthBackend(AnthropicBackend):
 
         return ValidationResult.success()
 
+    async def _validate_credentials_file_exists_async(self) -> ValidationResult:
+        """Validate that credentials file exists and is readable (async version)."""
+        return await asyncio.to_thread(self._validate_credentials_file_exists)
+
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
     ) -> ValidationResult:
@@ -225,7 +229,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
         if current_time - self._last_validation_time < 30:
             return True
 
-        res = self._validate_credentials_file_exists()
+        res = await self._validate_credentials_file_exists_async()
         if not res:
             self._credential_validation_errors = res.errors
             return False
@@ -529,7 +533,7 @@ class AnthropicOAuthBackend(AnthropicBackend):
         )
 
         # 1) File exists + readable + parseable
-        res_file = self._validate_credentials_file_exists()
+        res_file = await self._validate_credentials_file_exists_async()
         if not res_file:
             self._fail_init(res_file.errors)
             return

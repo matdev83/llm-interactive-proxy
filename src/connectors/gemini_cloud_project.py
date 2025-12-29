@@ -411,6 +411,14 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 f"Unexpected error reading credentials file: {e}"
             )
 
+    async def _validate_credentials_file_exists_async(self) -> ValidationResult:
+        """Async version of _validate_credentials_file_exists.
+
+        Returns:
+            ValidationResult object.
+        """
+        return await asyncio.to_thread(self._validate_credentials_file_exists)
+
     def _fail_init(self, errors: list[str]) -> None:
         """Mark initialization as failed with given errors."""
         with self._errors_lock:
@@ -588,7 +596,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 logger.info("Handling credentials file change...")
 
             # Validate file first
-            res = self._validate_credentials_file_exists()
+            res = await self._validate_credentials_file_exists_async()
             if not res:
                 self._degrade(res.errors)
                 if logger.isEnabledFor(logging.WARNING):
@@ -621,7 +629,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         if current_time - self._last_validation_time < 30:
             return True
 
-        res = self._validate_credentials_file_exists()
+        res = await self._validate_credentials_file_exists_async()
         if not res:
             with self._errors_lock:
                 self._credential_validation_errors = res.errors

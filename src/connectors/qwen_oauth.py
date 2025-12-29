@@ -428,6 +428,14 @@ class QwenOAuthConnector(OpenAIConnector):
             errors.append(f"Unexpected error reading credentials file: {e}")
             return False, errors
 
+    async def _validate_credentials_file_exists_async(self) -> tuple[bool, list[str]]:
+        """Async version of _validate_credentials_file_exists.
+
+        Returns:
+            Tuple of (is_valid, list_of_errors)
+        """
+        return await asyncio.to_thread(self._validate_credentials_file_exists)
+
     def get_validation_errors(self) -> list[str]:
         """Get the current list of credential validation errors.
 
@@ -456,7 +464,7 @@ class QwenOAuthConnector(OpenAIConnector):
             )
 
             # Validate the file first
-            is_valid, errors = self._validate_credentials_file_exists()
+            is_valid, errors = await self._validate_credentials_file_exists_async()
 
             if not is_valid:
                 logger.warning(
@@ -881,7 +889,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 )
                 logger.error(error_msg)
                 # Try to enrich error details from file validation (best-effort)
-                is_valid, errors = self._validate_credentials_file_exists()
+                is_valid, errors = await self._validate_credentials_file_exists_async()
                 self._credential_validation_errors = errors or [error_msg]
                 self._initialization_failed = True
                 self.is_functional = False
