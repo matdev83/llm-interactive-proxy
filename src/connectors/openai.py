@@ -871,7 +871,7 @@ class OpenAIConnector(LLMBackend):
                             chunk_id = chunk_dict.get("id")
                         else:
                             chunk_id = None
-                    except Exception as e:
+                    except Exception:
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 "Failed to extract chunk ID from model_dump",
@@ -951,7 +951,8 @@ class OpenAIConnector(LLMBackend):
                                 except Exception:
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
-                                            "Streaming chunk translation returned error but raw chunk not serializable"
+                                            "Streaming chunk translation returned error but raw chunk not serializable",
+                                            exc_info=True,
                                         )
                             yield domain_chunk
                     else:
@@ -975,7 +976,8 @@ class OpenAIConnector(LLMBackend):
                                 except Exception:
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
-                                            "Streaming chunk translation returned error but raw chunk not serializable"
+                                            "Streaming chunk translation returned error but raw chunk not serializable",
+                                            exc_info=True,
                                         )
                             yield domain_chunk
                 except httpx.RequestError as exc:
@@ -1006,6 +1008,11 @@ class OpenAIConnector(LLMBackend):
         try:
             response_headers = dict(response.headers)
         except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to convert response headers to dict, using empty dict",
+                    exc_info=True,
+                )
             response_headers = {}
 
         return StreamingResponseHandle(
@@ -1372,6 +1379,11 @@ class OpenAIConnector(LLMBackend):
                     body_bytes = b""
                 body = body_bytes.decode("utf-8")
             except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to read error response body, using fallback",
+                        exc_info=True,
+                    )
                 body = str(getattr(response, "text", ""))
             finally:
                 with contextlib.suppress(Exception):
