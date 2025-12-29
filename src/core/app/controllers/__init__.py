@@ -425,7 +425,21 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
         # Get endpoint registry for health states
         try:
             endpoint_registry = sp.get_service(EndpointRegistry)
+        except (ServiceResolutionError, AttributeError, ImportError):
+            # Log service resolution failures for debugging health check issues
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to resolve EndpointRegistry service in health check",
+                    exc_info=True,
+                )
+            endpoint_registry = None
         except Exception:
+            # Catch any other unexpected exceptions and log them
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error resolving EndpointRegistry service in health check",
+                    exc_info=True,
+                )
             endpoint_registry = None
 
         if endpoint_registry is None:
@@ -483,7 +497,21 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
         # Get backend instance health info from notifier
         try:
             backend_notifier = sp.get_service(BackendHealthNotifier)
+        except (ServiceResolutionError, AttributeError, ImportError):
+            # Log service resolution failures for debugging health check issues
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to resolve BackendHealthNotifier service in health check",
+                    exc_info=True,
+                )
+            backend_notifier = None
         except Exception:
+            # Catch any other unexpected exceptions and log them
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error resolving BackendHealthNotifier service in health check",
+                    exc_info=True,
+                )
             backend_notifier = None
 
         if backend_notifier:
