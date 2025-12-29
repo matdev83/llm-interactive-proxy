@@ -15,6 +15,7 @@ from typing import Any
 from src.core.domain.tool_results import UniversalToolResult
 from src.core.services.universal_mcp_client import (
     MCPToolResult,
+    OpenAIFunctionSchema,
     UniversalMCPClient,
 )
 
@@ -963,18 +964,16 @@ class UniversalToolExecutor:
             metadata=kwargs,
         )
 
-    def get_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_tool_schemas(self) -> list[OpenAIFunctionSchema]:
         """Get OpenAI-compatible schemas for all available tools.
 
         Returns:
             List of OpenAI function schemas for built-in and MCP tools
         """
-        schemas = []
+        schemas: list[OpenAIFunctionSchema] = []
 
-        # Add MCP tool schemas (convert from models to dicts for backward compatibility)
-        schemas.extend(
-            [schema.model_dump() for schema in self.mcp_client.get_tool_schemas()]
-        )
+        # Add MCP tool schemas (return models directly for strong typing)
+        schemas.extend(self.mcp_client.get_tool_schemas())
 
         # Note: Built-in tools don't need schemas as they're handled internally
         # The tool discovery should come from the actual backend/client capabilities

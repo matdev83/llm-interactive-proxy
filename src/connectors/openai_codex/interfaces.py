@@ -8,8 +8,9 @@ preconditions and postconditions.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from src.connectors._openai_codex_capabilities import CodexClientCapabilities
 from src.connectors.openai_codex.contracts import (
@@ -28,6 +29,7 @@ from src.connectors.openai_codex.contracts import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.services.universal_mcp_client import OpenAIFunctionSchema
 
 
 class ISettingsLoader(ABC):
@@ -389,11 +391,11 @@ class IToolExecutionService(ABC):
         ...
 
     @abstractmethod
-    def get_available_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_available_tool_schemas(self) -> list[OpenAIFunctionSchema]:
         """Get schemas for all available tools (proxy + MCP).
 
         Returns:
-            List of tool schema dictionaries
+            List of OpenAI function schemas
         """
         ...
 
@@ -409,5 +411,134 @@ class IToolExecutionService(ABC):
 
         Returns:
             True if connection successful, False otherwise
+        """
+        ...
+
+
+# Protocol definitions for compatibility layer collaborators
+# These define the public boundary for test substitution (Requirement 2.4, 9.3, 9.6)
+
+
+class ISessionDetectionResult(Protocol):
+    """Protocol for session detection result."""
+
+    is_kilocode: bool
+    detection_method: str
+    confidence: float
+
+
+class ISessionDetector(Protocol):
+    """Protocol for KiloCode session detector.
+
+    Public boundary for session detection used by compatibility layer.
+    """
+
+    async def detect(
+        self,
+        *,
+        request_data: object,
+        metadata: Mapping[str, object] | None,
+        session_id: str,
+        backend: str,
+    ) -> ISessionDetectionResult:
+        """Detect if request is from KiloCode client.
+
+        Args:
+            request_data: Request data object
+            metadata: Optional request metadata
+            session_id: Session identifier
+            backend: Backend type identifier
+
+        Returns:
+            Detection result with is_kilocode flag and metadata
+        """
+        ...
+
+
+class IDroidDetectionResult(Protocol):
+    """Protocol for Droid detection result."""
+
+    is_droid: bool
+    detection_method: str
+    confidence: float
+
+
+class IDroidDetector(Protocol):
+    """Protocol for Droid session detector.
+
+    Public boundary for Droid detection used by compatibility layer.
+    """
+
+    def detect(
+        self,
+        *,
+        headers: Mapping[str, str] | None,
+        messages: list[Mapping[str, object]] | None,
+        tools: list[Mapping[str, object]] | None,
+    ) -> IDroidDetectionResult:
+        """Detect if request is from Droid client.
+
+        Args:
+            headers: HTTP headers
+            messages: Request messages
+            tools: Request tools
+
+        Returns:
+            Detection result with is_droid flag and metadata
+        """
+        ...
+
+
+class IKiloTranslationResult(Protocol):
+    """Protocol for KiloCode tool translation result."""
+
+    tool_name: str
+    arguments: Mapping[str, object]
+
+
+class IKiloToolTranslator(Protocol):
+    """Protocol for KiloCode tool translator.
+
+    Public boundary for tool translation used by compatibility layer.
+    """
+
+    async def translate_tool_invocation(
+        self, xml_text: str, session_id: str | None = None
+    ) -> IKiloTranslationResult | None:
+        """Translate XML tool invocation to Codex format.
+
+        Args:
+            xml_text: XML text containing tool invocation
+            session_id: Optional session identifier
+
+        Returns:
+            Translation result with tool_name and arguments, or None if translation fails
+        """
+
+
+class IDroidReverseTranslationResult(Protocol):
+    """Protocol for Droid reverse translation result."""
+
+    droid_tool_name: str
+    droid_arguments: Mapping[str, object]
+
+
+class IDroidToolTranslator(Protocol):
+    """Protocol for Droid tool translator.
+
+    Public boundary for Droid translation used by compatibility layer.
+    """
+
+    def translate_codex_to_droid(
+        self, codex_tool_name: str, codex_arguments: Mapping[str, object]
+    ) -> IDroidReverseTranslationResult:
+        """Translate Codex tool name/arguments to Droid format.
+
+        Args:
+            codex_tool_name: Codex tool name
+            codex_arguments: Codex tool arguments
+
+        Returns:
+            Translation result with droid_tool_name and droid_arguments
         """
         ...

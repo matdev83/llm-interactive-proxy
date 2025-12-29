@@ -268,7 +268,7 @@ class ToolSchemaResolver(IToolSchemaResolver):
 
     @staticmethod
     def _dict_tools_to_schemas(
-        tools: Sequence[dict[str, Any] | CodexToolSchema],
+        tools: Sequence[dict[str, Any] | CodexToolSchema | BaseModel],
     ) -> list[CodexToolSchema]:
         """Convert tool schemas to CodexToolSchema instances.
 

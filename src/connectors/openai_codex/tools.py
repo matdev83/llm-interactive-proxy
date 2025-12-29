@@ -18,6 +18,7 @@ from src.connectors._openai_codex_compatibility_errors import (
 )
 from src.connectors.openai_codex.contracts import ToolArguments, ToolExecutionResult
 from src.connectors.openai_codex.interfaces import IToolExecutionService
+from src.core.services.universal_mcp_client import OpenAIFunctionSchema
 from src.core.services.universal_tool_executor import UniversalToolExecutor
 
 logger = logging.getLogger(__name__)
@@ -408,11 +409,11 @@ class ToolExecutionService(IToolExecutionService):
 
         return result
 
-    def get_available_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_available_tool_schemas(self) -> list[OpenAIFunctionSchema]:
         """Get schemas for all available tools (proxy + MCP).
 
         Returns:
-            List of tool schema dictionaries
+            List of OpenAI function schemas
         """
         executor = self._get_universal_executor()
         return executor.get_tool_schemas()
