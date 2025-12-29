@@ -76,10 +76,11 @@ class SubscriptionHandler:
         try:
             # Validate topics
             if not topics:
-                logger.warning(
-                    "Empty topics list for subscribe: session_id=%s",
-                    session.session_id,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Empty topics list for subscribe: session_id=%s",
+                        session.session_id,
+                    )
                 raise CodebuffError(
                     "No topics provided for subscription",
                     details={"session_id": session.session_id},
@@ -88,11 +89,12 @@ class SubscriptionHandler:
             # Add subscriptions through connection manager
             await self._connection_manager.subscribe(websocket, topics)
 
-            logger.info(
-                "Successfully subscribed session %s to %d topics",
-                session.session_id,
-                len(topics),
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Successfully subscribed session %s to %d topics",
+                    session.session_id,
+                    len(topics),
+                )
 
         except CodebuffSessionError:
             # Re-raise session errors
@@ -145,10 +147,11 @@ class SubscriptionHandler:
         try:
             # Validate topics
             if not topics:
-                logger.warning(
-                    "Empty topics list for unsubscribe: session_id=%s",
-                    session.session_id,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Empty topics list for unsubscribe: session_id=%s",
+                        session.session_id,
+                    )
                 raise CodebuffError(
                     "No topics provided for unsubscription",
                     details={"session_id": session.session_id},
@@ -157,11 +160,12 @@ class SubscriptionHandler:
             # Remove subscriptions through connection manager
             await self._connection_manager.unsubscribe(websocket, topics)
 
-            logger.info(
-                "Successfully unsubscribed session %s from %d topics",
-                session.session_id,
-                len(topics),
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Successfully unsubscribed session %s from %d topics",
+                    session.session_id,
+                    len(topics),
+                )
 
         except CodebuffSessionError:
             # Re-raise session errors
