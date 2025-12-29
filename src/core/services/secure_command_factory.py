@@ -74,18 +74,18 @@ class SecureCommandFactory:
             command: SecureCommandBase
             if issubclass(command_class, StatefulCommandBase):
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Creating stateful command: {command_name}")
+                    logger.debug("Creating stateful command: %s", command_name)
                 command = command_class(
                     state_reader=self._state_reader, state_modifier=self._state_modifier
                 )
             elif issubclass(command_class, StatelessCommandBase):
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Creating stateless command: {command_name}")
+                    logger.debug("Creating stateless command: %s", command_name)
                 command = command_class()
             else:
                 # Generic SecureCommandBase
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Creating generic secure command: {command_name}")
+                    logger.debug("Creating generic secure command: %s", command_name)
                 command = command_class(
                     state_reader=self._state_reader, state_modifier=self._state_modifier
                 )
@@ -103,7 +103,9 @@ class SecureCommandFactory:
             raise
         except TypeError as e:
             logger.error(
-                f"Type error creating command {command_name}: {e}. Check constructor signature.",
+                "Type error creating command %s: %s. Check constructor signature.",
+                command_name,
+                e,
                 exc_info=True,
             )
             raise StateAccessViolationError(
@@ -112,7 +114,9 @@ class SecureCommandFactory:
             ) from e
         except (AttributeError, ValueError, KeyError) as e:
             logger.error(
-                f"An unexpected error occurred while creating command {command_name}: {e}",
+                "An unexpected error occurred while creating command %s: %s",
+                command_name,
+                e,
                 exc_info=True,
             )
             raise CommandCreationError(
