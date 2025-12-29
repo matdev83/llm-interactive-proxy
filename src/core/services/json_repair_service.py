@@ -135,17 +135,13 @@ class JsonRepairService:
         Returns:
             JsonRepairResult describing whether repair succeeded and the content.
         """
-        repaired_json: str = json_string  # Initialize to avoid unbound variable
         try:
-            repaired_json = self.repair_json(json_string)
+            repaired_dict = self.repair_json(json_string)
             if schema is not None:
                 enforce_schema_size_limits(schema)
-                # Parse JSON string to dict for validation
-                import json
-
-                parsed_json = json.loads(repaired_json)
-                self.validate_json(parsed_json, schema)
-            return JsonRepairResult(success=True, content=repaired_json)
+                # repair_json already returns a dict, no need to parse again
+                self.validate_json(repaired_dict, schema)
+            return JsonRepairResult(success=True, content=repaired_dict)
         except JsonSchemaValidationError as e:
             if strict:
                 raise ValidationError(
@@ -161,7 +157,26 @@ class JsonRepairService:
                     },
                 ) from e
             logger.warning("JSON schema validation failed: %s", e)
-            return JsonRepairResult(success=False, content=repaired_json)
+            # repaired_dict may not be defined if exception occurred before assignment
+            try:
+                repaired_dict = self.repair_json(json_string)
+            except (JSONParsingError, json.JSONDecodeError) as repair_error:
+                # Expected exceptions from repair_json - log with context
+                logger.warning(
+                    "Failed to repair JSON after schema validation failure: %s",
+                    repair_error,
+                    exc_info=True,
+                )
+                repaired_dict = None
+            except Exception as unexpected_error:
+                # Unexpected exceptions during repair - log at warning level for visibility
+                logger.warning(
+                    "Unexpected error during JSON repair after schema validation failure: %s",
+                    unexpected_error,
+                    exc_info=True,
+                )
+                repaired_dict = None
+            return JsonRepairResult(success=False, content=repaired_dict)
         except (ValueError, TypeError) as e:
             if strict:
                 raise JSONParsingError(
