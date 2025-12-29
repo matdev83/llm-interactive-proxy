@@ -84,11 +84,22 @@ class ChatController:
         ) -> ITranslationService | None:
             try:
                 service = svc_provider.get_service(key)
-            except Exception as exc:  # pragma: no cover - diagnostic fallback
+            except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+                # Expected exceptions from service resolution (factory errors, type mismatches, etc.)
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL,
                         "Translation service lookup failed for %s: %s",
+                        getattr(key, "__name__", repr(key)),
+                        exc,
+                        exc_info=True,
+                    )
+                return None
+            except Exception as exc:  # pragma: no cover - defensive guard for unexpected errors
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Translation service lookup failed for %s (unexpected error): %s",
                         getattr(key, "__name__", repr(key)),
                         exc,
                         exc_info=True,
@@ -137,11 +148,21 @@ class ChatController:
             fallback_provider = services.build_service_provider()
             try:
                 set_service_provider(fallback_provider)
-            except Exception:  # pragma: no cover - diagnostic fallback
+            except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
+                # Expected exceptions from service provider operations
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL,
-                        "Failed to update global provider during translation resolution",
+                        "Failed to update global provider during translation resolution: %s",
+                        exc,
+                        exc_info=True,
+                    )
+            except Exception as exc:  # pragma: no cover - defensive guard for unexpected errors
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Failed to update global provider during translation resolution (unexpected error): %s",
+                        exc,
                         exc_info=True,
                     )
 
@@ -512,11 +533,20 @@ class ChatController:
                             exc,
                             exc_info=True,
                         )
-                except Exception:
+                except (ValueError, TypeError, AttributeError, RuntimeError) as exc:
+                    # Expected errors from wire capture (JSON serialization, attribute access, etc.)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Wire capture (inbound request) failed: %s",
+                            exc,
+                            exc_info=True,
+                        )
+                except Exception as exc:  # pragma: no cover - defensive guard for unexpected errors
                     # Unexpected errors during wire capture - log at DEBUG level for visibility
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            "Wire capture (inbound request) failed",
+                            "Wire capture (inbound request) failed (unexpected error): %s",
+                            exc,
                             exc_info=True,
                         )
 
