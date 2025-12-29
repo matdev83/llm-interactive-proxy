@@ -262,7 +262,8 @@ class JsonRepairService:
                         )
                 except Exception as repair_error:
                     logger.error(
-                        f"JSON repair failed for session {session_id}: {repair_error}"
+                        f"JSON repair failed for session {session_id}: {repair_error}",
+                        exc_info=True,
                     )
                     if strict:
                         raise JSONParsingError(
@@ -330,7 +331,8 @@ class JsonRepairService:
             raise
         except Exception as e:
             logger.error(
-                f"Unexpected error processing structured response for session {session_id}: {e}"
+                f"Unexpected error processing structured response for session {session_id}: {e}",
+                exc_info=True,
             )
             if strict:
                 raise JSONParsingError(
@@ -412,7 +414,7 @@ class JsonRepairService:
             # Re-raise our validation errors
             raise
         except Exception as e:
-            logger.error(f"Unexpected error validating schema: {e}")
+            logger.error(f"Unexpected error validating schema: {e}", exc_info=True)
             raise ValidationError(
                 message=f"Unexpected error validating schema: {e}",
                 details={
