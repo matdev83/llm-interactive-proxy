@@ -7,6 +7,7 @@ and returning configured block messages.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -44,10 +45,11 @@ class ToolAccessControlHandler(IToolCallHandler):
 
         # Track sessions that have seen their first blocked tool call
         # Use TTLCache to prevent unbounded memory growth when sessions never cleanup
-        # TTL: 1 hour, Max size: 10,000 sessions
+        # TTL:1 hour, Max size: 10,000 sessions
         self._sessions_with_blocked_tools: TTLCache[str, bool] = TTLCache(
             maxsize=10000, ttl=3600
         )
+        self._lock = asyncio.Lock()
 
     @property
     def name(self) -> str:
@@ -127,7 +129,8 @@ class ToolAccessControlHandler(IToolCallHandler):
             # Check if this is the first blocked tool call in this session
             is_first_block = context.session_id not in self._sessions_with_blocked_tools
             if is_first_block:
-                self._sessions_with_blocked_tools[context.session_id] = True
+                async with self._lock:
+                    self._sessions_with_blocked_tools[context.session_id] = True
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
                         f"First blocked tool call in session {context.session_id}: '{tool_name}' "
