@@ -178,7 +178,8 @@ class ReasoningStreamProcessor:
                             )
                         except Exception:
                             logger.debug(
-                                "Reasoning stream raw chunk could not be normalized (non-serializable)"
+                                "Reasoning stream raw chunk could not be normalized (non-serializable)",
+                                exc_info=True,
                             )
                     continue
 
@@ -197,6 +198,7 @@ class ReasoningStreamProcessor:
                         logger.log(
                             TRACE_LEVEL,
                             "Reasoning stream chunk parsed (non-serializable)",
+                            exc_info=True,
                         )
 
                 if (
@@ -211,7 +213,8 @@ class ReasoningStreamProcessor:
                         )
                     except Exception:
                         logger.debug(
-                            "Reasoning stream chunk missing 'choices' (non-serializable)"
+                            "Reasoning stream chunk missing 'choices' (non-serializable)",
+                            exc_info=True,
                         )
                     if not isinstance(raw_content, str):
                         try:
@@ -221,7 +224,8 @@ class ReasoningStreamProcessor:
                             )
                         except Exception:
                             logger.debug(
-                                "Original raw reasoning chunk not serializable"
+                                "Original raw reasoning chunk not serializable",
+                                exc_info=True,
                             )
 
                 if isinstance(chunk, dict) and chunk.get("error"):
@@ -238,7 +242,8 @@ class ReasoningStreamProcessor:
                             )
                         except Exception:
                             logger.warning(
-                                "Reasoning stream chunk reported error with non-serializable raw content"
+                                "Reasoning stream chunk reported error with non-serializable raw content",
+                                exc_info=True,
                             )
                     continue
 

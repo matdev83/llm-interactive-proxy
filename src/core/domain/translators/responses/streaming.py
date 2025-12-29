@@ -85,6 +85,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 TRACE_LEVEL,
                 "Responses event type=%s payload=<non-serializable>",
                 event_type or "<none>",
+                exc_info=True,
             )
 
     def _build_chunk(

@@ -22,7 +22,11 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
     if isinstance(chunk, bytes | bytearray):
         try:
             chunk = chunk.decode("utf-8")
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to decode bytes chunk in openai_to_domain_stream_chunk",
+                exc_info=True,
+            )
             return {"error": "Invalid chunk format: unable to decode bytes"}
 
     if isinstance(chunk, str):
