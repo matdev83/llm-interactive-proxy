@@ -11,7 +11,7 @@ import logging
 import re
 import time
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.core.domain.chat import (
     CanonicalChatResponse,
@@ -219,7 +219,7 @@ class XmlToolCallPostProcessor:
                         full_content += chunk_content
 
             # Check for XML tool calls
-            tool_calls: list[dict[str, Any]] = []
+            tool_calls: list[ToolCall] = []
             if "<Tool>" in full_content:
                 tool_calls = self._extract_tool_calls_dict_from_xml(full_content)
                 if tool_calls:
@@ -259,7 +259,7 @@ class XmlToolCallPostProcessor:
                         "choices": [
                             {
                                 "index": 0,
-                                "delta": {"tool_calls": tool_calls},
+                                "delta": {"tool_calls": [tc.model_dump() for tc in tool_calls]},
                                 "finish_reason": "tool_calls",
                             }
                         ],
@@ -313,42 +313,16 @@ class XmlToolCallPostProcessor:
 
         return tool_calls
 
-    def _extract_tool_calls_dict_from_xml(self, content: str) -> list[dict[str, Any]]:
-        """Extract tool calls as dictionaries from XML content.
+    def _extract_tool_calls_dict_from_xml(self, content: str) -> list[ToolCall]:
+        """Extract tool calls as ToolCall objects from XML content.
 
         Args:
             content: The content string potentially containing XML tool calls.
 
         Returns:
-            List of tool call dictionaries.
+            List of ToolCall objects.
         """
-        tool_calls: list[dict[str, Any]] = []
-        match = self.TOOL_PATTERN.search(content)
-
-        if not match:
-            return tool_calls
-
-        tool_json = match.group(1)
-        try:
-            tools_data = json.loads(tool_json)
-            if isinstance(tools_data, list):
-                for tool_data in tools_data:
-                    if tool_data.get("type") == "tool_use":
-                        tool_calls.append(
-                            {
-                                "id": tool_data.get("id", ""),
-                                "type": "function",
-                                "function": {
-                                    "name": tool_data.get("name", ""),
-                                    "arguments": json.dumps(tool_data.get("input", {})),
-                                },
-                            }
-                        )
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to parse XML tool call in stream: %s", e)
-
-        return tool_calls
+        return self._extract_tool_calls_from_xml(content)
 
 
 __all__ = [
