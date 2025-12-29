@@ -50,6 +50,32 @@ class CommandExtractionService:
     # Pattern to extract subshell contents
     _SUBSHELL_PATTERN = re.compile(r"\$\([^)]+\)")
 
+    # PERFORMANCE: Compiled patterns for path extraction
+    # Used in extract_paths_from_command to avoid repeated compilation
+    _PATH_EXTRACTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+        re.compile(r"\bcd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+        re.compile(r"\bpushd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+        re.compile(r"\brm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+        re.compile(r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-delete", re.IGNORECASE),
+        re.compile(
+            r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-exec\s+rm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)",
+            re.IGNORECASE,
+        ),
+        re.compile(r"\b(?:rmdir|rd)\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+        re.compile(r"\bdel\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+        re.compile(
+            r"\bRemove-Item\s+(?P<path>[^\s;&]+)[^\n;&]*-Recurse", re.IGNORECASE
+        ),
+    )
+
+    # Fallback pattern for absolute paths
+    # On Windows: match drive letters ONLY when followed by a separator (C:\... or C:/...)
+    # OR UNC paths (\\server\...). This avoids false positives like pytest nodeids
+    # `...properties.py::Test...` which contain `y:` as part of `.py::`.
+    _ABSOLUTE_PATH_PATTERN = re.compile(
+        r"(?P<path>(?:[A-Za-z]:(?:\\|/)|\\\\)[^\s'\";]+)"
+    )
+
     # Safe developer tools that should be exempted from dangerous command checks
     # These are QA tools, linters, formatters, and type checkers that may use
     # --fix flags but are not destructive in a dangerous way
@@ -276,44 +302,15 @@ class CommandExtractionService:
 
         path_candidates: set[str] = set()
 
-        # Patterns for destructive commands with paths
-        patterns = [
-            re.compile(r"\bcd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
-            re.compile(r"\bpushd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
-            re.compile(
-                r"\brm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)", re.IGNORECASE
-            ),
-            re.compile(r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-delete", re.IGNORECASE),
-            re.compile(
-                r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-exec\s+rm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)",
-                re.IGNORECASE,
-            ),
-            re.compile(r"\b(?:rmdir|rd)\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
-            re.compile(r"\bdel\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
-            re.compile(
-                r"\bRemove-Item\s+(?P<path>[^\s;&]+)[^\n;&]*-Recurse", re.IGNORECASE
-            ),
-        ]
-
-        # Fallback pattern for absolute paths
-        # On Windows: match drive letters ONLY when followed by a separator (C:\... or C:/...)
-        # OR UNC paths (\\server\...). This avoids false positives like pytest nodeids
-        # `...properties.py::Test...` which contain `y:` as part of `.py::`.
-        #
-        # We don't match Unix-style / paths on Windows since they may incorrectly catch
-        # relative paths like `./.venv/...` that get misinterpreted.
-        absolute_path_fallback = re.compile(
-            r"(?P<path>(?:[A-Za-z]:(?:\\|/)|\\\\)[^\s'\";]+)"
-        )
-
-        for pattern in patterns:
+        # Use pre-compiled patterns for performance
+        for pattern in self._PATH_EXTRACTION_PATTERNS:
             for match in pattern.finditer(command):
                 for group_name in ("path", "start"):
                     candidate = match.groupdict().get(group_name)
                     if candidate:
                         path_candidates.add(candidate)
 
-        for match in absolute_path_fallback.finditer(command):
+        for match in self._ABSOLUTE_PATH_PATTERN.finditer(command):
             candidate = match.group("path")
             if candidate:
                 path_candidates.add(candidate)

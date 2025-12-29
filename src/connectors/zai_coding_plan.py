@@ -202,9 +202,12 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
         if discovered_models:
             self._provider_models = {name for name in discovered_models if name}
+            # PERFORMANCE: Use set for O(1) membership check instead of O(n) list check
+            seen: set[str] = set()
             unique_models: list[str] = []
             for name in discovered_models:
-                if name and name not in unique_models:
+                if name and name not in seen:
+                    seen.add(name)
                     unique_models.append(name)
             self.available_models = unique_models
             if logger.isEnabledFor(logging.INFO):
