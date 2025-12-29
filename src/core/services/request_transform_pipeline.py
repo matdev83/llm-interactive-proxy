@@ -106,7 +106,8 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Tool definition filtering failed: {e}",
+                    "Tool definition filtering failed: %s",
+                    e,
                     exc_info=True,
                 )
 
@@ -266,7 +267,7 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
         # Debug logging before redaction (minimal for performance)
         if logger.isEnabledFor(logging.DEBUG) and request and request.messages:
-            logger.debug(f"Processing redaction for {len(request.messages)} messages")
+            logger.debug("Processing redaction for %d messages", len(request.messages))
 
         try:
             request = await redaction.process(request, redaction_context)
@@ -274,7 +275,7 @@ class RequestTransformPipeline(IRequestTransformPipeline):
             # Debug logging after redaction (minimal for performance)
             if logger.isEnabledFor(logging.DEBUG) and request and request.messages:
                 logger.debug(
-                    f"Redaction completed for {len(request.messages)} messages"
+                    "Redaction completed for %d messages", len(request.messages)
                 )
         except Exception as e:
             # Redaction is best-effort; log and continue with original request
@@ -516,7 +517,9 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                     meta["applied_hybrid_reasoning_probability"] = 0.0
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
-                            f"Suppressing hybrid reasoning for session {session_id} (was {hrp})",
+                            "Suppressing hybrid reasoning for session %s (was %s)",
+                            session_id,
+                            hrp,
                             extra={"session_id": session_id},
                         )
                 except (AttributeError, TypeError):
@@ -645,8 +648,11 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        f"Filtered {removed_count} tool definition(s) for model "
-                        f"{model_name} by policy '{policy_name}': {filtered_names}"
+                        "Filtered %d tool definition(s) for model %s by policy '%s': %s",
+                        removed_count,
+                        model_name,
+                        policy_name,
+                        filtered_names,
                     )
 
                 # Increment telemetry counter in reactor service (fail-open)
@@ -674,8 +680,11 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        f"Filtered {removed_count} tool definition(s) for model "
-                        f"{model_name} by policy '{policy_name}': {filtered_names}"
+                        "Filtered %d tool definition(s) for model %s by policy '%s': %s",
+                        removed_count,
+                        model_name,
+                        policy_name,
+                        filtered_names,
                     )
 
                 # Increment telemetry counter in reactor service (fail-open)
@@ -689,6 +698,6 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         except Exception as e:
             # Tool definition filtering is fail-open: log warning and proceed
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Tool definition filtering failed: {e}", exc_info=True)
+                logger.warning("Tool definition filtering failed: %s", e, exc_info=True)
 
         return request

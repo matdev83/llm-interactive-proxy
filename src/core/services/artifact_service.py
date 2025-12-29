@@ -119,8 +119,8 @@ class ArtifactService:
             raw_message.content = replacement  # type: ignore[attr-defined]
             return MessageNormalizationResult(message=raw_message, altered=True)
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
                     "Failed to assign content in-place for tool message normalization",
                     exc_info=True,
                 )
@@ -157,8 +157,8 @@ class ArtifactService:
             raw_message.content = summary  # type: ignore[attr-defined]
             return MessageNormalizationResult(message=raw_message, altered=True)
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
                     "Failed to assign content in-place for artifact preview compression",
                     exc_info=True,
                 )

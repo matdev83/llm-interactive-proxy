@@ -445,8 +445,8 @@ class ResponseProcessor(IResponseProcessor):
                         )
             except Exception:
                 # Be conservative: do not break normal flow on Angel errors
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Angel verification failed; continuing", exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Angel verification failed; continuing", exc_info=True)
 
             return processed_response
 

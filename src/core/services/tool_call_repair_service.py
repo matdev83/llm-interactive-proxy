@@ -539,8 +539,8 @@ class ToolCallRepairService(IToolCallRepairService):
             except Exception:
                 # Fallback to lenient parsing if XML parsing fails completely
                 # Log this as it might indicate malformed XML that we're patching up
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
                         "XML parsing failed, attempting lenient fallback", exc_info=True
                     )
                 fallback = self._parse_lenient_tool_call(xml_snippet)
