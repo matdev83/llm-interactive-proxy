@@ -470,7 +470,8 @@ class MockBackendStage(BaseTestBackendStage):
                 # If tests patched BackendService.call_completion, honor the patched implementation
                 try:
                     patched_call = _BackendService.call_completion
-                except Exception:
+                except AttributeError:
+                    # Attribute access failed (e.g., class was modified or Mock object)
                     patched_call = None
 
                 if (

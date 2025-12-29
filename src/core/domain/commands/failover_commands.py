@@ -390,7 +390,8 @@ class RouteAppendCommand(StatefulCommandBase):
             backend_types = None
             try:
                 backend_types = getattr(context.backend_factory, "_backend_types", None)
-            except Exception:
+            except AttributeError:
+                # Attribute access failed (e.g., Mock object without _backend_types)
                 backend_types = None
 
             if backend_types is not None:
@@ -403,7 +404,8 @@ class RouteAppendCommand(StatefulCommandBase):
                     else:
                         # Try to iterate over it
                         keys = list(backend_types)
-                except Exception:
+                except (AttributeError, TypeError):
+                    # Attribute access or iteration failed (e.g., Mock object without proper attributes)
                     keys = []
                 if keys and backend not in keys:
                     return CommandResult(

@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import sqlalchemy.exc
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -148,7 +149,18 @@ class DatabaseEngine:
             try:
                 yield session
                 await session.commit()
+            except sqlalchemy.exc.SQLAlchemyError as exc:
+                # Log SQLAlchemy-specific errors with full context for debugging
+                logger.error(
+                    "SQLAlchemy error in database session, rolling back: %s",
+                    exc,
+                    exc_info=True,
+                )
+                await session.rollback()
+                raise
             except Exception:
+                # Catch all other exceptions to ensure rollback, then re-raise
+                # This preserves transaction safety for non-SQLAlchemy errors
                 await session.rollback()
                 raise
 
