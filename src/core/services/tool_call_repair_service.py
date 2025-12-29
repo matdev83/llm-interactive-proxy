@@ -7,8 +7,6 @@ import xml.etree.ElementTree as ElementTree
 from typing import Any
 from uuid import uuid4
 
-
-
 from src.core.interfaces.tool_call_repair_service_interface import (
     IToolCallRepairService,
     ToolCallRepairResult,

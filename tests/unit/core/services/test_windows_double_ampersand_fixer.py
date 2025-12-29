@@ -9,8 +9,6 @@ import json
 import pytest
 from src.core.services.windows_double_ampersand_fixer import (
     WindowsDoubleAmpersandFixer,
-    CommandExtraction,
-    CommandFixResult,
 )
 
 

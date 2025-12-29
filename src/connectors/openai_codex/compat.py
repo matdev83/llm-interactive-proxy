@@ -100,7 +100,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                         detection_result.confidence,
                     )
             except Exception as e:
-                logger.debug("KiloCode detection failed: %s", str(e))
+                logger.debug("KiloCode detection failed: %s", str(e), exc_info=True)
 
         # Detect Droid client
         if self._droid_detector is None:
@@ -171,7 +171,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                         except ImportError:
                             logger.debug("Droid tool translator not available")
             except Exception as e:
-                logger.debug("Droid detection failed: %s", str(e))
+                logger.debug("Droid detection failed: %s", str(e), exc_info=True)
 
         # Translate KiloCode XML tools if detected
         codex_tools: list[CodexToolSchema] = []
@@ -351,7 +351,10 @@ class CompatibilityLayer(ICompatibilityLayer):
 
                     except Exception as e:
                         logger.debug(
-                            "Failed to translate tool %s: %s", original_name, e
+                            "Failed to translate tool %s: %s",
+                            original_name,
+                            e,
+                            exc_info=True,
                         )
 
                 # Buffer argument fragments
@@ -388,7 +391,10 @@ class CompatibilityLayer(ICompatibilityLayer):
                             )
                         except Exception as e:
                             logger.debug(
-                                "Failed to translate tool args for %s: %s", tc_id, e
+                                "Failed to translate tool args for %s: %s",
+                                tc_id,
+                                e,
+                                exc_info=True,
                             )
 
                     # Clean up buffers for this tool call
@@ -450,7 +456,9 @@ class CompatibilityLayer(ICompatibilityLayer):
             return chunk
 
         except Exception as e:
-            logger.debug("Droid stream chunk translation failed: %s", str(e))
+            logger.debug(
+                "Droid stream chunk translation failed: %s", str(e), exc_info=True
+            )
             return chunk
 
     async def cleanup_state(self, state: CompatibilityState) -> None:
@@ -565,7 +573,8 @@ class CompatibilityLayer(ICompatibilityLayer):
                             # Expected validation errors - fallback to cast
                             if logger.isEnabledFor(logging.DEBUG):
                                 logger.debug(
-                                    "ToolCall validation failed, using cast fallback: %s", e
+                                    "ToolCall validation failed, using cast fallback: %s",
+                                    e,
                                 )
                             tool_call_obj = cast(ToolCall, tool_call_entry)
                         except Exception as e:

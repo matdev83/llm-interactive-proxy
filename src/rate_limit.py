@@ -4,8 +4,8 @@ import json
 import logging
 import threading
 import time
-from collections.abc import Iterable
-from typing import Any, MutableMapping
+from collections.abc import Iterable, MutableMapping
+from typing import Any
 
 from cachetools import TTLCache
 
@@ -73,16 +73,16 @@ class RateLimitRegistry:
             else:
                 for backend, model, key_name in combos:
                     key = (backend, model or "", key_name)
-                    ts = self._until.get(key)
-                    if ts is None:
+                    retry_ts: float | None = self._until.get(key)
+                    if retry_ts is None:
                         continue
-                    if now >= ts:
+                    if now >= retry_ts:
                         try:
                             del self._until[key]
                         except KeyError:
                             pass
                         continue
-                    valid_times.append(ts)
+                    valid_times.append(retry_ts)
 
         if not valid_times:
             return None

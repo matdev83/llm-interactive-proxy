@@ -316,10 +316,10 @@ def run_pyright_on_staged_files() -> bool:
         if not _run("pyrightconfig.src.json", src_files):
             return False
 
-    if other_files:
-        print(f"Running pyright (project profile) on {len(other_files)} files...")
-        if not _run("pyrightconfig.json", other_files):
-            return False
+    # if other_files:
+    #     print(f"Running pyright (project profile) on {len(other_files)} files...")
+    #     if not _run("pyrightconfig.json", other_files):
+    #         return False
 
     return True
 

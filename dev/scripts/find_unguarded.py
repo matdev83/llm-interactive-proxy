@@ -1,6 +1,7 @@
 
 import os
 
+
 def find_unguarded(root_dir):
     for dirpath, _, filenames in os.walk(root_dir):
         if any(p.startswith(".") or p.startswith("_") for p in dirpath.split(os.sep)):
@@ -11,7 +12,7 @@ def find_unguarded(root_dir):
                 continue
                 
             filepath = os.path.join(dirpath, filename)
-            with open(filepath, "r", encoding="utf-8") as f:
+            with open(filepath, encoding="utf-8") as f:
                 lines = f.readlines()
                 
             for i, line in enumerate(lines):

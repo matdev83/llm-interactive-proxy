@@ -72,7 +72,7 @@ class CommandStage(InitializationStage):
             return True
         except ImportError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Command services validation failed: {e}")
+                logger.error("Command services validation failed: %s", e)
             return False
 
     def _register_command_settings_service(
@@ -101,7 +101,7 @@ class CommandStage(InitializationStage):
                 logger.debug("Registered command settings service")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register command settings service: {e}")
+                logger.warning("Could not register command settings service: %s", e)
 
     def _register_command_support_services(self, services: ServiceCollection) -> None:
         """Register policy, state, and pipeline helpers used by command execution."""
@@ -227,4 +227,4 @@ class CommandStage(InitializationStage):
                 )
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register command service or parser: {e}")
+                logger.warning("Could not register command service or parser: %s", e)

@@ -4,8 +4,10 @@ Tests that telemetry data structures are protected from concurrent mutations.
 """
 
 import threading
+
 import pytest
 from src.connectors._openai_codex_telemetry import get_telemetry, reset_telemetry
+
 
 def test_telemetry_instance_protection_exists():
     """Test that telemetry module structure is thread-safe.

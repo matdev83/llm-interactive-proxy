@@ -156,4 +156,3 @@ def get_codex_tool_schema(tool_name: str) -> CodexToolSchema | None:
         parameters=dict(parameters) if parameters else {},
         type=str(tool_type) if tool_type else "function",
     )
-

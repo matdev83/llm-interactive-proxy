@@ -16,7 +16,7 @@ import asyncio
 import statistics
 import time
 
-from src.core.domain.chat import ChatMessage, ToolCall, FunctionCall
+from src.core.domain.chat import ChatMessage, FunctionCall, ToolCall
 from src.core.domain.configuration.compaction_config import CompactionConfig
 from src.core.services.history_compaction_service import HistoryCompactionService
 
@@ -159,7 +159,7 @@ async def run_performance_validation() -> dict[str, dict[str, float]]:
             meets_nfr = stats['p95'] <= 10.0
             print(f"\n  NFR 1 Check (≤10ms p95 for ≤200 messages): {'✓ PASS' if meets_nfr else '✗ FAIL'}")
         else:
-            print(f"\n  Note: This scenario exceeds the 200-message NFR threshold")
+            print("\n  Note: This scenario exceeds the 200-message NFR threshold")
 
     return results
 

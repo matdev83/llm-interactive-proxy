@@ -399,7 +399,7 @@ class JSONResponseBuilder:
                 "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
                 "total_tokens": int(usage.get("total_tokens", 0) or 0),
             }
-        except (ValueError, TypeError, KeyError, AttributeError) as e:
+        except (ValueError, TypeError, KeyError, AttributeError):
             # Log at WARNING level since this is on a critical path for response formatting
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
@@ -486,7 +486,7 @@ class JSONResponseBuilder:
         if text_value:
             try:
                 return count_tokens(text_value, model=model_name)
-            except (ValueError, TypeError, AttributeError) as e:
+            except (ValueError, TypeError, AttributeError):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Failed to calculate completion tokens", exc_info=True)
         return None

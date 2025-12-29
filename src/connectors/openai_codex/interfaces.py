@@ -8,7 +8,7 @@ preconditions and postconditions.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 

@@ -591,8 +591,8 @@ async def test_tool_filtering_preserves_original_request(
     # Filter out one tool
     filtered_tools = [request_with_tools.tools[0]]
     from src.core.services.tool_access_policy_service import (
-        ToolFilterResult,
         ToolFilterMetadata,
+        ToolFilterResult,
     )
     mock_policy_service.filter_tool_definitions.return_value = ToolFilterResult(
         filtered_tools=filtered_tools,

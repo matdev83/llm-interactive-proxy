@@ -14,7 +14,6 @@ from src.core.memory.sqlite_repository import MemoryRepository
 from src.core.memory.summary_generator import (
     SummaryGenerator,
     SummaryValidator,
-    ValidationResult,
 )
 
 

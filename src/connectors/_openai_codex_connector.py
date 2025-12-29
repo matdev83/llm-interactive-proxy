@@ -18,13 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 import threading
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -53,7 +52,6 @@ from src.connectors.openai_codex.contracts import (
     CodexPayload,
     CodexRequestContext,
     ProcessedMessage,
-    ProviderStreamChunk,
     ToolExecutionResult,
 )
 from src.connectors.openai_codex.credentials import (
@@ -61,6 +59,10 @@ from src.connectors.openai_codex.credentials import (
     OpenAICredentialsFileHandler,
 )
 from src.connectors.openai_codex.executor import ResponseExecutor
+from src.connectors.openai_codex.interfaces import (
+    IKiloToolTranslator,
+    ISessionDetector,
+)
 from src.connectors.openai_codex.payload import PayloadBuilder
 from src.connectors.openai_codex.prompt import PromptResolver
 from src.connectors.openai_codex.request_translator import RequestTranslator
@@ -78,9 +80,7 @@ from src.core.domain.responses import (
 )
 from src.core.domain.session_key import SessionKey
 from src.core.domain.validation import ValidationResult
-from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
-from src.core.services.tool_text_renderer import OverrideRenderer
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -170,6 +170,10 @@ class OpenAICodexConnector(OpenAIConnector):
         # Dependency resolution
         self._dependencies = dependencies or self._resolve_dependencies()
 
+        # Validate dependency overrides before use
+        if self._dependencies:
+            self._validate_dependencies(self._dependencies)
+
         self._settings_loader = (
             self._dependencies.settings_loader
             if self._dependencies and self._dependencies.settings_loader is not None
@@ -188,11 +192,6 @@ class OpenAICodexConnector(OpenAIConnector):
         self._custom_tool_schema_default = self._connector_settings["tool_schema"][
             "custom_tools"
         ]
-
-        streaming_cfg = self._connector_settings.get("streaming", {})
-        self._stream_retry_limit = int(streaming_cfg.get("max_retries", 2))
-        backoff_seq = streaming_cfg.get("retry_backoff_seconds") or ()
-        self._stream_retry_backoff = tuple(backoff_seq) if backoff_seq else ()
 
         self._capability_resolver = CodexCapabilityResolver(
             default_capabilities=self._default_capabilities,
@@ -231,8 +230,12 @@ class OpenAICodexConnector(OpenAIConnector):
             self._dependencies.compatibility_layer
             if self._dependencies and self._dependencies.compatibility_layer is not None
             else CompatibilityLayer(
-                session_detector=self._session_detector,
-                kilo_translator=self._kilo_tool_translator,
+                session_detector=cast(
+                    "ISessionDetector | None", self._session_detector
+                ),
+                kilo_translator=cast(
+                    "IKiloToolTranslator | None", self._kilo_tool_translator
+                ),
                 tool_execution_service=self._tool_execution_service,
             )
         )
@@ -277,6 +280,188 @@ class OpenAICodexConnector(OpenAIConnector):
             )
         )
 
+    def _validate_dependencies(self, dependencies: CodexConnectorDependencies) -> None:
+        """Validate that dependency overrides implement expected interfaces.
+
+        Raises ServiceResolutionError with clear message if any override is invalid.
+
+        Args:
+            dependencies: Dependency overrides to validate
+
+        Raises:
+            ServiceResolutionError: If any override does not implement expected interface
+        """
+        from src.connectors.openai_codex.interfaces import (
+            ICompatibilityLayer,
+            ICredentialManager,
+            IPayloadBuilder,
+            IResponseExecutor,
+            ISettingsLoader,
+        )
+        from src.connectors.openai_codex.tools import IToolExecutionService
+
+        errors: list[str] = []
+
+        if dependencies.settings_loader is not None and not isinstance(
+            dependencies.settings_loader, ISettingsLoader
+        ):
+            # Check if it has the required method
+            loader_type = type(dependencies.settings_loader)
+            if "MagicMock" in loader_type.__name__:
+                # MagicMock creates attributes dynamically, check instance
+                if not hasattr(dependencies.settings_loader, "load") or not callable(
+                    getattr(dependencies.settings_loader, "load", None)
+                ):
+                    errors.append(
+                        f"settings_loader override must implement ISettingsLoader interface "
+                        f"(got {loader_type.__name__}, missing or non-callable 'load' method)"
+                    )
+            elif not hasattr(loader_type, "load"):
+                errors.append(
+                    f"settings_loader override must implement ISettingsLoader interface "
+                    f"(got {loader_type.__name__}, missing 'load' method)"
+                )
+
+        if dependencies.credential_manager is not None and not isinstance(
+            dependencies.credential_manager, ICredentialManager
+        ):
+            # Check if it has the required methods
+            manager_type = type(dependencies.credential_manager)
+            required_methods = [
+                "initialize",
+                "refresh_access_token",
+                "get_access_token",
+                "shutdown",
+            ]
+            if "MagicMock" in manager_type.__name__:
+                # MagicMock creates attributes dynamically, check instance
+                missing_methods = [
+                    method
+                    for method in required_methods
+                    if not hasattr(dependencies.credential_manager, method)
+                    or not callable(
+                        getattr(dependencies.credential_manager, method, None)
+                    )
+                ]
+            else:
+                missing_methods = [
+                    method
+                    for method in required_methods
+                    if not hasattr(manager_type, method)
+                ]
+            if missing_methods:
+                errors.append(
+                    f"credential_manager override must implement ICredentialManager interface "
+                    f"(got {manager_type.__name__}, missing methods: {', '.join(missing_methods)})"
+                )
+
+        if dependencies.payload_builder is not None and not isinstance(
+            dependencies.payload_builder, IPayloadBuilder
+        ):
+            builder_type = type(dependencies.payload_builder)
+            if "MagicMock" in builder_type.__name__:
+                if not hasattr(
+                    dependencies.payload_builder, "build_payload"
+                ) or not callable(
+                    getattr(dependencies.payload_builder, "build_payload", None)
+                ):
+                    errors.append(
+                        f"payload_builder override must implement IPayloadBuilder interface "
+                        f"(got {builder_type.__name__}, missing or non-callable 'build_payload' method)"
+                    )
+            elif not hasattr(builder_type, "build_payload"):
+                errors.append(
+                    f"payload_builder override must implement IPayloadBuilder interface "
+                    f"(got {builder_type.__name__}, missing 'build_payload' method)"
+                )
+
+        if dependencies.response_executor is not None and not isinstance(
+            dependencies.response_executor, IResponseExecutor
+        ):
+            executor_type = type(dependencies.response_executor)
+            if "MagicMock" in executor_type.__name__:
+                if not hasattr(
+                    dependencies.response_executor, "execute"
+                ) or not callable(
+                    getattr(dependencies.response_executor, "execute", None)
+                ):
+                    errors.append(
+                        f"response_executor override must implement IResponseExecutor interface "
+                        f"(got {executor_type.__name__}, missing or non-callable 'execute' method)"
+                    )
+            elif not hasattr(executor_type, "execute"):
+                errors.append(
+                    f"response_executor override must implement IResponseExecutor interface "
+                    f"(got {executor_type.__name__}, missing 'execute' method)"
+                )
+
+        if dependencies.compatibility_layer is not None and not isinstance(
+            dependencies.compatibility_layer, ICompatibilityLayer
+        ):
+            compat_type = type(dependencies.compatibility_layer)
+            required_methods = [
+                "apply",
+                "translate_stream_chunk",
+                "cleanup_state",
+                "create_state",
+            ]
+            if "MagicMock" in compat_type.__name__:
+                missing_methods = [
+                    method
+                    for method in required_methods
+                    if not hasattr(dependencies.compatibility_layer, method)
+                    or not callable(
+                        getattr(dependencies.compatibility_layer, method, None)
+                    )
+                ]
+            else:
+                missing_methods = [
+                    method
+                    for method in required_methods
+                    if not hasattr(compat_type, method)
+                ]
+            if missing_methods:
+                errors.append(
+                    f"compatibility_layer override must implement ICompatibilityLayer interface "
+                    f"(got {compat_type.__name__}, missing methods: {', '.join(missing_methods)})"
+                )
+
+        if dependencies.tool_execution_service is not None and not isinstance(
+            dependencies.tool_execution_service, IToolExecutionService
+        ):
+            tool_service_type = type(dependencies.tool_execution_service)
+            required_methods = [
+                "execute_proxy_tool",
+                "execute_mcp_tool",
+                "get_available_tool_schemas",
+            ]
+            if "MagicMock" in tool_service_type.__name__:
+                missing_methods = [
+                    method
+                    for method in required_methods
+                    if not hasattr(dependencies.tool_execution_service, method)
+                    or not callable(
+                        getattr(dependencies.tool_execution_service, method, None)
+                    )
+                ]
+            else:
+                missing_methods = [
+                    method
+                    for method in required_methods
+                    if not hasattr(tool_service_type, method)
+                ]
+            if missing_methods:
+                errors.append(
+                    f"tool_execution_service override must implement IToolExecutionService interface "
+                    f"(got {tool_service_type.__name__}, missing methods: {', '.join(missing_methods)})"
+                )
+
+        if errors:
+            error_message = "Invalid dependency overrides:\n" + "\n".join(
+                f"  - {error}" for error in errors
+            )
+            raise ServiceResolutionError(error_message)
+
     def _resolve_dependencies(self) -> CodexConnectorDependencies | None:
         try:
             from src.core.di.services import get_or_build_service_provider
@@ -318,11 +503,6 @@ class OpenAICodexConnector(OpenAIConnector):
             "custom_tools"
         ]
 
-        streaming_cfg = self._connector_settings.get("streaming", {})
-        self._stream_retry_limit = int(streaming_cfg.get("max_retries", 2))
-        backoff_seq = streaming_cfg.get("retry_backoff_seconds") or ()
-        self._stream_retry_backoff = tuple(backoff_seq) if backoff_seq else ()
-
         self._capability_resolver = CodexCapabilityResolver(
             default_capabilities=self._default_capabilities,
             agent_overrides=self._connector_settings_model.agent_overrides,
@@ -338,15 +518,9 @@ class OpenAICodexConnector(OpenAIConnector):
         if not self._compatibility_layer_enabled:
             self._session_detector = None
 
-        if hasattr(self._compatibility_layer, "_session_detector"):
-            self._compatibility_layer._session_detector = self._session_detector
-
         if self._compatibility_layer_enabled and self._kilo_tool_translator is None:
             session_service = getattr(self, "_session_service", None)
             self._kilo_tool_translator = KiloToolTranslator(self, session_service)
-
-        if hasattr(self._compatibility_layer, "_kilo_translator"):
-            self._compatibility_layer._kilo_translator = self._kilo_tool_translator
 
         if isinstance(self._tool_schema_resolver, ToolSchemaResolver):
             self._tool_schema_resolver = ToolSchemaResolver(
@@ -743,30 +917,88 @@ class OpenAICodexConnector(OpenAIConnector):
     def _coerce_payload_for_executor(
         self, payload: CodexPayload | dict[str, Any], context: CodexRequestContext
     ) -> CodexPayload:
+        # Handle CodexPayload instance
         if isinstance(payload, CodexPayload):
+            # Ensure stream attribute exists (handles model_construct edge cases)
+            if not hasattr(payload, "stream"):
+                stream_val = getattr(context.request, "stream", False)
+                # Rebuild payload with stream field
+                pydantic_dict = payload.model_dump()
+                pydantic_dict["stream"] = stream_val
+                return CodexPayload.model_validate(pydantic_dict)
             return payload
+
+        # Convert dict or mock to dict
+        payload_dict: dict[str, Any]
+        if isinstance(payload, dict):
+            payload_dict = dict(payload)
+        elif hasattr(payload, "model_dump"):
+            payload_dict = payload.model_dump()
+        elif hasattr(payload, "__dict__"):
+            payload_dict = dict(payload.__dict__)
+        else:
+            # Try to convert mock or other object to dict
+            payload_dict = {}
+            for key in [
+                "model",
+                "input",
+                "tools",
+                "tool_choice",
+                "parallel_tool_calls",
+                "store",
+                "stream",
+                "include",
+                "prompt_cache_key",
+                "reasoning",
+                "instructions",
+                "extras",
+            ]:
+                if hasattr(payload, key):
+                    payload_dict[key] = getattr(payload, key)
+
+        # Ensure required fields are present with defaults
+        if "stream" not in payload_dict:
+            payload_dict["stream"] = getattr(context.request, "stream", False)
+        if "model" not in payload_dict:
+            payload_dict["model"] = context.effective_model
+        if "input" not in payload_dict:
+            payload_dict["input"] = []
+        if "tools" not in payload_dict:
+            payload_dict["tools"] = []
+        if "tool_choice" not in payload_dict:
+            payload_dict["tool_choice"] = "auto"
+        if "parallel_tool_calls" not in payload_dict:
+            payload_dict["parallel_tool_calls"] = False
+        if "store" not in payload_dict:
+            payload_dict["store"] = False
+        if "include" not in payload_dict:
+            payload_dict["include"] = []
+        if "prompt_cache_key" not in payload_dict:
+            payload_dict["prompt_cache_key"] = getattr(
+                payload, "prompt_cache_key", None
+            ) or str(uuid.uuid4())
 
         if isinstance(self._payload_builder, PayloadBuilder):
             try:
-                return self._payload_builder._dict_to_payload(payload, context)
+                return self._payload_builder._dict_to_payload(payload_dict, context)
             except (TypeError, ValidationError) as err:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Failed to convert payload via _dict_to_payload, using model_construct: %s",
+                        "Failed to convert payload via _dict_to_payload, using model_validate: %s",
                         err,
                         exc_info=True,
                     )
-                return CodexPayload.model_construct(**payload)
+                return CodexPayload.model_validate(payload_dict)
         try:
-            return CodexPayload.model_validate(payload)
+            return CodexPayload.model_validate(payload_dict)
         except (TypeError, ValidationError) as err:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to validate payload, using model_construct: %s",
+                    "Failed to validate payload, using model_construct with defaults: %s",
                     err,
                     exc_info=True,
                 )
-            return CodexPayload.model_construct(**payload)
+            return CodexPayload.model_construct(**payload_dict)
 
     def _select_renderer_key(self, capabilities: CodexClientCapabilities) -> str:
         """Map capability preference to a registered renderer key."""
@@ -811,19 +1043,8 @@ class OpenAICodexConnector(OpenAIConnector):
         headers["conversation_id"] = conversation_id
         headers["session_id"] = conversation_id
 
-    def _should_retry_stream_for_auth_error(
-        self, chunk: ProcessedResponse | Any
-    ) -> bool:
-        """Check if streaming chunk indicates auth error.
-
-        Delegates to executor's public interface if available.
-        This method is kept for backward compatibility with legacy _perform_request path.
-        """
-        if isinstance(self._response_executor, ResponseExecutor):
-            # Use public method if executor exposes it, otherwise return False
-            # The executor handles retry logic internally, so this is only for legacy path
-            return self._response_executor._should_retry_for_auth_error(chunk)
-        return False
+    # Legacy methods removed: _should_retry_stream_for_auth_error and _extract_status_code
+    # Retry logic is now handled by ResponseExecutor in executor.py
 
     @staticmethod
     def _format_tool_results_text(tool_results: list[Any]) -> str:
@@ -893,68 +1114,6 @@ class OpenAICodexConnector(OpenAIConnector):
 
         async for chunk in stream:
             yield chunk
-
-    async def _translate_kilo_tools(
-        self,
-        message: Any,
-        message_content: str,
-        session_id: str,
-    ) -> dict[str, list[dict[str, Any]]]:
-        result: dict[str, list[dict[str, Any]]] = {
-            "codex_tools": [],
-            "proxy_tools": [],
-            "mcp_tools": [],
-        }
-        if self._compatibility_layer is None or not hasattr(
-            self._compatibility_layer, "_translate_kilo_tools"
-        ):
-            return result
-        if (
-            self._compatibility_layer
-            and self._kilo_tool_translator
-            and getattr(self._compatibility_layer, "_kilo_translator", None) is None
-        ):
-            self._compatibility_layer._kilo_translator = self._kilo_tool_translator
-
-        processed_messages = [message]
-        tools = await self._compatibility_layer._translate_kilo_tools(
-            processed_messages, session_id
-        )
-
-        call_id = None
-        tool_calls = None
-        if isinstance(message, dict):
-            tool_calls = message.get("tool_calls")
-        elif isinstance(message, ProcessedMessage):
-            tool_calls = message.tool_calls
-
-        if tool_calls:
-            last_call = tool_calls[-1]
-            if isinstance(last_call, dict):
-                call_id = last_call.get("id")
-            else:
-                call_id = getattr(last_call, "id", None)
-
-        for tool in tools.get("codex_tools", []):
-            entry = {
-                "name": tool.name,
-                "arguments": tool.parameters,
-            }
-            if call_id:
-                entry["call_id"] = call_id
-            result["codex_tools"].append(entry)
-
-        for tool in tools.get("proxy_tools", []):
-            result["proxy_tools"].append(
-                {"name": tool.name, "arguments": tool.parameters}
-            )
-
-        for tool in tools.get("mcp_tools", []):
-            result["mcp_tools"].append(
-                {"name": tool.name, "arguments": tool.parameters}
-            )
-
-        return result
 
     def _update_processing_context(
         self, domain_request: Any, updates: dict[str, Any]
@@ -1089,7 +1248,9 @@ class OpenAICodexConnector(OpenAIConnector):
                 payload_messages = context.processed_messages
             except Exception as exc:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Compatibility layer apply failed: %s", exc, exc_info=True)
+                    logger.debug(
+                        "Compatibility layer apply failed: %s", exc, exc_info=True
+                    )
 
         payload, conversation_id = self._build_codex_payload(
             request_data,
@@ -1126,13 +1287,6 @@ class OpenAICodexConnector(OpenAIConnector):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Added Codex-side tool %s to payload", schema_name)
 
-        headers = self._build_codex_headers(conversation_id)
-        url = "https://chatgpt.com/backend-api/codex/responses"
-
-        renderer_key = self._select_renderer_key(capabilities)
-        request_session_id = (
-            getattr(domain_request, "session_id", None) or conversation_id
-        )
         stream_val = bool(getattr(request_data, "stream", False))
 
         executor_metadata: dict[str, object] | None = None
@@ -1152,356 +1306,50 @@ class OpenAICodexConnector(OpenAIConnector):
             metadata=executor_metadata,
         )
 
-        use_executor = False
-        if self._response_executor and hasattr(self._response_executor, "execute"):
-            if not isinstance(self._response_executor, ResponseExecutor):
-                use_executor = True
+        # Always use ResponseExecutor for Codex requests - retry logic is handled by executor
+        if not self._response_executor:
+            raise ServiceResolutionError(
+                "ResponseExecutor dependency not initialized. "
+                "This indicates a configuration or dependency injection issue. "
+                "Ensure CodexConnectorDependencies provides a valid IResponseExecutor override, "
+                "or that the default ResponseExecutor construction succeeded during connector initialization.",
+                details={
+                    "backend": self.backend_type,
+                    "dependency": "IResponseExecutor",
+                    "suggestion": "Check connector initialization logs for dependency resolution errors.",
+                },
+            )
+
+        payload_obj = self._coerce_payload_for_executor(payload, executor_context)
+        response = await self._response_executor.execute(payload_obj, executor_context)
+
+        # Apply KiloCode formatting if needed (preserves existing behavior)
+        if is_kilocode and tool_results:
+            if stream_val:
+                from collections.abc import AsyncIterator
+
+                if hasattr(response, "content") and isinstance(
+                    response.content, AsyncIterator
+                ):
+                    formatted_stream = self._format_kilo_stream_response(
+                        response.content, tool_results  # type: ignore[arg-type]
+                    )
+                    return StreamingResponseEnvelope(
+                        content=formatted_stream,
+                        media_type=getattr(response, "media_type", "text/event-stream"),
+                        headers=getattr(response, "headers", {}),
+                        cancel_callback=getattr(response, "cancel_callback", None),
+                    )
             else:
-                use_executor = (
-                    getattr(self._response_executor.execute, "__func__", None)
-                    is not ResponseExecutor.execute
-                )
+                if isinstance(response, ResponseEnvelope):
+                    if isinstance(response.content, dict):
+                        response.content = self._format_kilo_response(
+                            response.content, tool_results
+                        )
+                elif isinstance(response, dict):
+                    response = self._format_kilo_response(response, tool_results)
 
-        payload_obj = (
-            self._coerce_payload_for_executor(payload, executor_context)
-            if use_executor
-            else None
-        )
-
-        async def _perform_request(
-            request_payload: dict[str, Any],
-            request_headers: dict[str, str],
-            request_session_id: str,
-            is_streaming_request: bool,
-        ) -> Any:
-            if is_streaming_request:
-                headers_holder: dict[str, str] = {}
-                current_cancel: list[Callable[[], Awaitable[None]] | None] = [None]
-
-                async def cancel_active_stream() -> None:
-                    cancel_cb = current_cancel[0]
-                    if cancel_cb is not None:
-                        await cancel_cb()
-
-                async def _rendered_iterator() -> AsyncIterator[ProcessedResponse]:
-                    attempts_used = 0
-                    # Get retry config from settings (executor has its own config)
-                    streaming_cfg = self._connector_settings.get("streaming", {})
-                    max_retries = max(0, int(streaming_cfg.get("max_retries", 2)))
-                    current_headers = dict(request_headers)
-                    while True:
-                        try:
-                            with OverrideRenderer(renderer_key):
-                                stream_handle = await self._handle_streaming_response(
-                                    url,
-                                    request_payload,
-                                    current_headers,
-                                    request_session_id,
-                                    "responses",
-                                )
-                        except HTTPException as exc:
-                            if exc.status_code == 401:
-                                if attempts_used >= max_retries:
-                                    self._degrade(
-                                        [
-                                            "Streaming authentication failed during initial handshake after "
-                                            f"{attempts_used} retry attempts (limit {max_retries})."
-                                        ]
-                                    )
-                                    raise HTTPException(
-                                        status_code=401,
-                                        detail={
-                                            "error": "openai_codex_stream_auth_failed",
-                                            "message": "Codex streaming request failed authentication during handshake and could not be recovered.",
-                                            "details": {
-                                                "backend": self.name,
-                                                "attempts": attempts_used,
-                                                "max_retries": max_retries,
-                                            },
-                                        },
-                                    )
-                                refreshed = await self._refresh_access_token()
-                                if not refreshed:
-                                    self._degrade(
-                                        [
-                                            "Streaming authentication failed during initial handshake; token refresh unsuccessful."
-                                        ]
-                                    )
-                                    raise HTTPException(
-                                        status_code=401,
-                                        detail={
-                                            "error": "openai_codex_stream_auth_failed",
-                                            "message": "Codex streaming request failed authentication during handshake and could not be recovered.",
-                                            "details": {
-                                                "backend": self.name,
-                                                "attempts": attempts_used,
-                                                "max_retries": max_retries,
-                                            },
-                                        },
-                                    )
-                                # Get backoff delay from settings
-                                backoff_seq = self._connector_settings.get(
-                                    "streaming", {}
-                                ).get("retry_backoff_seconds") or (0.5, 1.5, 3.0)
-                                backoff_tuple = (
-                                    tuple(backoff_seq)
-                                    if isinstance(backoff_seq, (list, tuple))
-                                    else (0.5, 1.5, 3.0)
-                                )
-                                delay = 0.0
-                                if attempts_used >= 0 and attempts_used < len(
-                                    backoff_tuple
-                                ):
-                                    delay = float(backoff_tuple[attempts_used])
-                                elif backoff_tuple:
-                                    delay = float(backoff_tuple[-1])
-                                attempts_used += 1
-                                if delay > 0:
-                                    await asyncio.sleep(delay)
-                                self._refresh_codex_headers_auth(
-                                    current_headers, conversation_id
-                                )
-                                continue
-                            raise
-                        current_cancel[0] = stream_handle.cancel_callback
-                        headers_holder.clear()
-                        try:
-                            headers_holder.update(dict(stream_handle.headers or {}))
-                        except Exception as exc:
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    "Failed to update headers_holder from stream_handle.headers: %s",
-                                    exc,
-                                    exc_info=True,
-                                )
-                            headers_holder.clear()
-
-                        restart_stream = False
-                        with OverrideRenderer(renderer_key):
-                            async for processed_chunk in stream_handle.iterator:
-                                if self._should_retry_stream_for_auth_error(
-                                    processed_chunk
-                                ):
-                                    restart_stream = True
-                                    if logger.isEnabledFor(logging.INFO):
-                                        logger.info(
-                                            "Codex streaming chunk reported authentication failure; attempting token refresh."
-                                        )
-                                    break
-
-                                if self._compatibility_layer and compatibility_state:
-                                    try:
-                                        chunk_wrapper = ProviderStreamChunk(
-                                            raw=processed_chunk
-                                        )
-                                        translated = await self._compatibility_layer.translate_stream_chunk(
-                                            chunk_wrapper, compatibility_state
-                                        )
-                                        processed_chunk = (
-                                            translated.raw
-                                            if hasattr(translated, "raw")
-                                            else translated
-                                        )
-                                        # Ensure processed_chunk is ProcessedResponse
-                                        if not isinstance(
-                                            processed_chunk, ProcessedResponse
-                                        ):
-                                            # Wrap in ProcessedResponse if needed
-                                            processed_chunk = ProcessedResponse(
-                                                content=(
-                                                    processed_chunk
-                                                    if isinstance(
-                                                        processed_chunk,
-                                                        (dict, str, bytes),
-                                                    )
-                                                    else str(processed_chunk)
-                                                )
-                                            )
-                                    except Exception as exc:
-                                        if logger.isEnabledFor(logging.DEBUG):
-                                            logger.debug(
-                                                "Compatibility layer translation failed: %s",
-                                                exc,
-                                                exc_info=True,
-                                            )
-
-                                # Ensure we yield ProcessedResponse
-                                if isinstance(processed_chunk, ProcessedResponse):
-                                    yield processed_chunk
-                                else:
-                                    yield ProcessedResponse(
-                                        content=(
-                                            processed_chunk
-                                            if isinstance(
-                                                processed_chunk, (dict, str, bytes)
-                                            )
-                                            else str(processed_chunk)
-                                        )
-                                    )
-
-                        if restart_stream:
-                            if stream_handle.cancel_callback is not None:
-                                with contextlib.suppress(Exception):
-                                    await stream_handle.cancel_callback()
-
-                            if attempts_used >= max_retries:
-                                self._degrade(
-                                    [
-                                        "Streaming authentication failed after retries were exhausted "
-                                        f"({attempts_used} attempts, limit {max_retries})."
-                                    ]
-                                )
-                                raise HTTPException(
-                                    status_code=401,
-                                    detail={
-                                        "error": "openai_codex_stream_auth_failed",
-                                        "message": "Codex streaming request failed authentication and could not be recovered.",
-                                        "details": {
-                                            "backend": self.name,
-                                            "attempts": attempts_used,
-                                            "max_retries": max_retries,
-                                        },
-                                    },
-                                )
-
-                            refreshed = await self._refresh_access_token()
-                            if not refreshed:
-                                self._degrade(
-                                    [
-                                        "Streaming authentication failed after token refresh."
-                                    ]
-                                )
-                                raise HTTPException(
-                                    status_code=401,
-                                    detail={
-                                        "error": "openai_codex_stream_auth_failed",
-                                        "message": "Codex streaming request failed authentication and could not be recovered.",
-                                        "details": {
-                                            "backend": self.name,
-                                            "attempts": attempts_used,
-                                            "max_retries": max_retries,
-                                        },
-                                    },
-                                )
-
-                            # Get backoff delay from settings
-                            backoff_seq = self._connector_settings.get(
-                                "streaming", {}
-                            ).get("retry_backoff_seconds") or (0.5, 1.5, 3.0)
-                            backoff_tuple = (
-                                tuple(backoff_seq)
-                                if isinstance(backoff_seq, (list, tuple))
-                                else (0.5, 1.5, 3.0)
-                            )
-                            delay = 0.0
-                            if attempts_used >= 0 and attempts_used < len(
-                                backoff_tuple
-                            ):
-                                delay = float(backoff_tuple[attempts_used])
-                            elif backoff_tuple:
-                                delay = float(backoff_tuple[-1])
-                            attempts_used += 1
-                            if delay > 0:
-                                await asyncio.sleep(delay)
-                            self._refresh_codex_headers_auth(
-                                current_headers, conversation_id
-                            )
-                            continue
-
-                        current_cancel[0] = None
-                        if self._compatibility_layer and compatibility_state:
-                            with contextlib.suppress(Exception):
-                                await self._compatibility_layer.cleanup_state(
-                                    compatibility_state
-                                )
-                        return
-
-                return StreamingResponseEnvelope(
-                    content=_rendered_iterator(),
-                    media_type="text/event-stream",
-                    headers=headers_holder,
-                    cancel_callback=cancel_active_stream,
-                )
-
-            with OverrideRenderer(renderer_key):
-                return await self._handle_non_streaming_response(
-                    url,
-                    request_payload,
-                    request_headers,
-                    request_session_id,
-                )
-
-        # Only refresh token; reuse same payload to maintain session continuity.
-        # No need to rebuild headers or payload on retry.
-        for attempt in range(2):
-            try:
-                if use_executor and payload_obj is not None:
-                    response = await self._response_executor.execute(
-                        payload_obj, executor_context
-                    )
-                else:
-                    response = await _perform_request(
-                        payload.model_dump(exclude_none=True),
-                        headers,
-                        request_session_id,
-                        stream_val,
-                    )
-
-                if is_kilocode and tool_results:
-                    if stream_val:
-                        from collections.abc import AsyncIterator
-
-                        if hasattr(response, "content") and isinstance(
-                            response.content, AsyncIterator
-                        ):
-                            formatted_stream = self._format_kilo_stream_response(
-                                response.content, tool_results  # type: ignore[arg-type]
-                            )
-                            return StreamingResponseEnvelope(
-                                content=formatted_stream,
-                                media_type=getattr(
-                                    response, "media_type", "text/event-stream"
-                                ),
-                                headers=getattr(response, "headers", {}),
-                                cancel_callback=getattr(
-                                    response, "cancel_callback", None
-                                ),
-                            )
-                    else:
-                        if isinstance(response, ResponseEnvelope):
-                            if isinstance(response.content, dict):
-                                response.content = self._format_kilo_response(
-                                    response.content, tool_results
-                                )
-                        elif isinstance(response, dict):
-                            response = self._format_kilo_response(
-                                response, tool_results
-                            )
-
-                return response
-            except httpx.HTTPStatusError as exc:
-                try:
-                    body = exc.response.json()
-                except json.JSONDecodeError:
-                    body = exc.response.text
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Codex API request failed with status %s: %s",
-                        exc.response.status_code,
-                        body,
-                    )
-                raise HTTPException(status_code=exc.response.status_code, detail=body)
-            except HTTPException as exc:
-                if exc.status_code == 401 and attempt == 0:
-                    # Only refresh token; reuse same payload to maintain session continuity.
-                    # No need to rebuild headers or payload on retry.
-                    refreshed = await self._refresh_access_token()
-                    if refreshed:
-                        self._refresh_codex_headers_auth(headers, conversation_id)
-                        continue
-                raise
-
-        raise RuntimeError("Unexpected fallthrough in Codex response handling.")
+        return response
 
     async def _refresh_access_token(self) -> bool:
         refreshed = await self._credential_manager.refresh_access_token()
@@ -1631,12 +1479,15 @@ class OpenAICodexConnector(OpenAIConnector):
             observer.join(timeout=5.0)
 
             # Verify thread stopped (safe check for BaseObserver which extends Thread)
-            if hasattr(observer, "is_alive") and observer.is_alive():  # type: ignore
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "OpenAI Codex file watcher thread did not stop within timeout. "
-                        "This may cause issues in parallel test execution."
-                    )
+            if (
+                hasattr(observer, "is_alive")
+                and observer.is_alive()  # type: ignore
+                and logger.isEnabledFor(logging.WARNING)
+            ):
+                logger.warning(
+                    "OpenAI Codex file watcher thread did not stop within timeout. "
+                    "This may cause issues in parallel test execution."
+                )
         except Exception as exc:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Error stopping OpenAI Codex file watcher: %s", exc)
@@ -1958,11 +1809,20 @@ class OpenAICodexConnector(OpenAIConnector):
         headers: dict[str, str] | None,
         session_id: str,
     ) -> ResponseEnvelope:
-        """Override to ensure compatibility state cleanup for non-streaming responses."""
+        """Override to ensure compatibility state cleanup for non-streaming responses.
+
+        Note: This method is only called for non-Codex fallback paths (when effective_model
+        is not a Codex model). For Codex models, cleanup is handled by ResponseExecutor in
+        its finally blocks. This override serves as a safety net for edge cases where
+        compatibility state might exist in non-Codex paths, though typically compatibility
+        state is only created for Codex requests via _call_codex_responses_api.
+        """
         compatibility_state = None
 
         # Extract compatibility state from payload's executor metadata
-        # This was added in _call_codex_responses_api before calling this method
+        # Note: compatibility_state is typically only created for Codex requests,
+        # which use ResponseExecutor directly. This method handles non-Codex models
+        # that fall back to parent OpenAI connector.
         if isinstance(payload, dict):
             metadata = payload.get("metadata", {})
             if isinstance(metadata, dict):

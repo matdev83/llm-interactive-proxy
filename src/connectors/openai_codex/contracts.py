@@ -86,7 +86,6 @@ class CodexToolSchema(BaseModel):
     format: dict[str, Any] | None = None
 
 
-
 class ToolArguments(BaseModel):
     """Tool arguments payload."""
 

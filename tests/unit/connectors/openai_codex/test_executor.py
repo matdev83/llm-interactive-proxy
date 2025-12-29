@@ -959,3 +959,596 @@ class TestResponseExecutor:
 
             # Should log debug message about empty choices
             mock_logger.debug.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_response_envelope_includes_usage_metadata(
+        self, executor, non_streaming_payload, sample_context
+    ):
+        """Test that ResponseEnvelope includes usage metadata from domain response (Task 4.3)."""
+        from src.core.domain.usage_summary import UsageSummary
+
+        # Mock successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {
+            "id": "test-id",
+            "object": "chat.completion",
+            "choices": [{"message": {"role": "assistant", "content": "Test"}}],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30,
+            },
+        }
+
+        executor._base_connector.client.post = AsyncMock(return_value=mock_response)
+
+        # Mock domain response with usage
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {"content": "Test"}
+        domain_response.usage = UsageSummary(
+            prompt_tokens=10, completion_tokens=20, total_tokens=30
+        )
+        executor._base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        result = await executor.execute(non_streaming_payload, sample_context)
+
+        assert isinstance(result, ResponseEnvelope)
+        assert result.usage is not None
+        assert result.usage.prompt_tokens == 10
+        assert result.usage.completion_tokens == 20
+        assert result.usage.total_tokens == 30
+
+    @pytest.mark.asyncio
+    async def test_response_envelope_includes_metadata_fields(
+        self, executor, non_streaming_payload, sample_context
+    ):
+        """Test that ResponseEnvelope includes metadata fields (backend, model, session_id) (Task 4.3)."""
+        # Mock successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {
+            "id": "test-id",
+            "object": "chat.completion",
+            "choices": [{"message": {"role": "assistant", "content": "Test"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        }
+
+        executor._base_connector.client.post = AsyncMock(return_value=mock_response)
+
+        # Mock domain response
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {"content": "Test"}
+        domain_response.usage = None
+        executor._base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        result = await executor.execute(non_streaming_payload, sample_context)
+
+        assert isinstance(result, ResponseEnvelope)
+        assert result.metadata is not None
+        assert result.metadata["backend"] == "openai-codex"
+        assert result.metadata["model"] == sample_context.effective_model
+        assert result.metadata["session_id"] == sample_context.session_id
+
+    @pytest.mark.asyncio
+    async def test_logging_includes_correlation_fields(
+        self, executor, non_streaming_payload, sample_context
+    ):
+        """Test that logging includes correlation fields (backend, session_id) (Task 4.3)."""
+        # Mock successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {
+            "id": "test-id",
+            "object": "chat.completion",
+            "choices": [{"message": {"role": "assistant", "content": "Test"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+        }
+
+        executor._base_connector.client.post = AsyncMock(return_value=mock_response)
+
+        # Mock domain response
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {"content": "Test"}
+        domain_response.usage = None
+        executor._base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        with patch("src.connectors.openai_codex.executor.logger") as mock_logger:
+            mock_logger.isEnabledFor.return_value = True
+            await executor.execute(non_streaming_payload, sample_context)
+
+            # Verify debug logging was called with correlation fields
+            debug_calls = [
+                call
+                for call in mock_logger.debug.call_args_list
+                if call
+                and len(call) > 1
+                and isinstance(call[1], dict)
+                and "extra" in call[1]
+            ]
+
+            # Should have at least one debug call with correlation fields
+            assert len(debug_calls) > 0
+
+            # Check that correlation fields are present in extra dict
+            for call in debug_calls:
+                if "extra" in call[1]:
+                    extra = call[1]["extra"]
+                    assert "backend" in extra
+                    assert extra["backend"] == "openai-codex"
+                    assert "session_id" in extra
+                    assert extra["session_id"] == sample_context.session_id
+                    # Verify model field is also present
+                    assert "model" in extra
+                    assert extra["model"] == sample_context.effective_model
+
+    @pytest.mark.asyncio
+    async def test_error_logging_includes_correlation_fields(
+        self, executor, non_streaming_payload, sample_context
+    ):
+        """Test that error logging includes correlation fields (Task 4.3)."""
+        # Mock network error
+        executor._base_connector.client.post = AsyncMock(
+            side_effect=httpx.RequestError("Connection failed")
+        )
+
+        with patch("src.connectors.openai_codex.executor.logger") as mock_logger:
+            mock_logger.isEnabledFor.return_value = True
+
+            with pytest.raises(ServiceUnavailableError):
+                await executor.execute(non_streaming_payload, sample_context)
+
+            # Verify error logging was called with correlation fields
+            error_calls = [
+                call
+                for call in mock_logger.error.call_args_list
+                if call
+                and len(call) > 1
+                and isinstance(call[1], dict)
+                and "extra" in call[1]
+            ]
+
+            assert len(error_calls) > 0
+
+            # Check that correlation fields are present
+            for call in error_calls:
+                if "extra" in call[1]:
+                    extra = call[1]["extra"]
+                    assert "backend" in extra
+                    assert extra["backend"] == "openai-codex"
+                    assert "session_id" in extra
+                    assert extra["session_id"] == sample_context.session_id
+                    # Verify model field is also present
+                    assert "model" in extra
+                    assert extra["model"] == sample_context.effective_model
+
+    @pytest.mark.asyncio
+    async def test_info_logging_includes_correlation_fields(
+        self, executor, streaming_payload, sample_context
+    ):
+        """Test that info-level logging includes correlation fields (Task 4.3, Req 8.4)."""
+        # Mock streaming response with auth error chunk
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {"Content-Type": "text/event-stream"}
+        mock_stream_handle.cancel_callback = AsyncMock()
+
+        async def auth_error_iterator():
+            # Return chunk that triggers auth retry
+            yield ProcessedResponse(
+                content={
+                    "error": "auth_failed",
+                    "details": {"status": 401},
+                }
+            )
+
+        mock_stream_handle.iterator = auth_error_iterator()
+
+        # Mock successful retry
+        mock_stream_handle_success = MagicMock()
+        mock_stream_handle_success.headers = {}
+        mock_stream_handle_success.cancel_callback = AsyncMock()
+
+        async def success_iterator():
+            yield ProcessedResponse(content=b"data: test\n\n", metadata={})
+
+        mock_stream_handle_success.iterator = success_iterator()
+
+        call_count = [0]
+
+        async def handle_streaming_side_effect(*args, **kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                return mock_stream_handle
+            return mock_stream_handle_success
+
+        executor._base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        with patch("src.connectors.openai_codex.executor.logger") as mock_logger:
+            mock_logger.isEnabledFor.return_value = True
+
+            result = await executor.execute(streaming_payload, sample_context)
+
+            # Consume stream to trigger auth error detection and info logging
+            async for _ in result.content:
+                break
+
+            # Verify info logging was called with correlation fields
+            info_calls = [
+                call
+                for call in mock_logger.info.call_args_list
+                if call
+                and len(call) > 1
+                and isinstance(call[1], dict)
+                and "extra" in call[1]
+            ]
+
+            # Should have at least one info call with correlation fields (auth retry)
+            assert len(info_calls) > 0
+
+            # Check that correlation fields are present in extra dict
+            for call in info_calls:
+                if "extra" in call[1]:
+                    extra = call[1]["extra"]
+                    assert "backend" in extra
+                    assert extra["backend"] == "openai-codex"
+                    assert "session_id" in extra
+                    assert extra["session_id"] == sample_context.session_id
+                    assert "model" in extra
+                    assert extra["model"] == sample_context.effective_model
+
+    def test_logging_secret_redaction(self):
+        """Test that secrets are redacted in logs (Task 4.3, Req 8.5)."""
+        import logging
+
+        from src.core.common.logging_utils import ApiKeyRedactionFilter
+
+        # Create a test API key that should be redacted
+        # Using clearly fake test values that don't match real API key patterns
+        test_api_key = "test-api-key-for-redaction-verification-12345"
+        test_token = "Bearer test-bearer-token-for-redaction-67890"
+
+        # Create a logger with redaction filter
+        test_logger = logging.getLogger("test_codex_redaction")
+        test_logger.setLevel(logging.DEBUG)
+
+        # Add handler to capture log records
+        handler = logging.StreamHandler()
+        handler.setLevel(logging.DEBUG)
+        test_logger.addHandler(handler)
+
+        # Install redaction filter (will use default patterns)
+        redaction_filter = ApiKeyRedactionFilter(api_keys=[test_api_key])
+        test_logger.addFilter(redaction_filter)
+
+        # Create a log record with secret in message string (not template)
+        log_message = f"API key is {test_api_key} and token is {test_token}"
+        record = logging.LogRecord(
+            name="test_codex_redaction",
+            level=logging.INFO,
+            pathname="test",
+            lineno=1,
+            msg=log_message,
+            args=None,
+            exc_info=None,
+        )
+
+        # Apply filter (modifies record in place)
+        filter_result = redaction_filter.filter(record)
+
+        # Verify filter allows the record
+        assert filter_result is True
+
+        # Verify secrets are redacted in message
+        assert test_api_key not in str(record.msg)
+        assert "***" in str(record.msg)
+
+        # Test with args tuple
+        record2 = logging.LogRecord(
+            name="test_codex_redaction",
+            level=logging.INFO,
+            pathname="test",
+            lineno=1,
+            msg="API key is %s and token is %s",
+            args=(test_api_key, test_token),
+            exc_info=None,
+        )
+
+        # Apply filter
+        redaction_filter.filter(record2)
+
+        # Verify secrets are redacted in args
+        assert record2.args is not None
+        if isinstance(record2.args, tuple):
+            for arg in record2.args:
+                if isinstance(arg, str):
+                    assert test_api_key not in arg
+                    # Bearer tokens get special handling
+                    if "Bearer" in arg:
+                        assert "***" in arg or "(API_KEY_HAS_BEEN_REDACTED)" in arg
+
+        # Cleanup
+        test_logger.removeFilter(redaction_filter)
+        test_logger.removeHandler(handler)
+
+    @pytest.mark.asyncio
+    async def test_streaming_envelope_includes_metadata_fields(
+        self, executor, streaming_payload, sample_context
+    ):
+        """Test that StreamingResponseEnvelope includes metadata fields (Task 4.3)."""
+        from src.core.domain.responses import StreamingResponseEnvelope
+
+        # Mock successful streaming response
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {"Content-Type": "text/event-stream"}
+        mock_stream_handle.cancel_callback = None
+
+        async def mock_iterator():
+            from src.core.interfaces.response_processor_interface import (
+                ProcessedResponse,
+            )
+
+            yield ProcessedResponse(content=b"data: test\n\n", metadata={})
+
+        mock_stream_handle.iterator = mock_iterator()
+
+        executor._base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.metadata is not None
+        assert result.metadata["backend"] == "openai-codex"
+        assert result.metadata["model"] == sample_context.effective_model
+        assert result.metadata["session_id"] == sample_context.session_id
+
+    @pytest.mark.asyncio
+    async def test_streaming_envelope_can_include_canonical_usage(
+        self, executor, streaming_payload, sample_context
+    ):
+        """Test that StreamingResponseEnvelope can include canonical_usage when available (Task 4.3)."""
+        from src.core.domain.responses import StreamingResponseEnvelope
+        from src.core.domain.usage_canonical_record import CanonicalUsageRecord
+
+        # Mock successful streaming response
+        mock_stream_handle = MagicMock()
+        mock_stream_handle.headers = {"Content-Type": "text/event-stream"}
+        mock_stream_handle.cancel_callback = None
+
+        async def mock_iterator():
+            from src.core.interfaces.response_processor_interface import (
+                ProcessedResponse,
+            )
+
+            yield ProcessedResponse(content=b"data: test\n\n", metadata={})
+
+        mock_stream_handle.iterator = mock_iterator()
+
+        executor._base_connector._handle_streaming_response = AsyncMock(
+            return_value=mock_stream_handle
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+
+        assert isinstance(result, StreamingResponseEnvelope)
+        # canonical_usage is optional and may be None for streaming responses
+        # (usage is typically calculated at end of stream)
+        # But if it's set, it should be a CanonicalUsageRecord
+        if result.canonical_usage is not None:
+            assert isinstance(result.canonical_usage, CanonicalUsageRecord)
+
+    @pytest.mark.asyncio
+    async def test_usage_format_compatibility_with_orchestrator(
+        self, executor, non_streaming_payload, sample_context
+    ):
+        """Test that usage metadata format matches UsageAccountingOrchestrator expectations (Task 4.3, Req 8.1)."""
+        from src.core.domain.usage_summary import UsageSummary
+
+        # Mock successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.headers = {}
+        mock_response.json.return_value = {
+            "id": "test-id",
+            "object": "chat.completion",
+            "choices": [{"message": {"role": "assistant", "content": "Test"}}],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30,
+            },
+        }
+
+        executor._base_connector.client.post = AsyncMock(return_value=mock_response)
+
+        # Mock domain response with usage
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {"content": "Test"}
+        domain_response.usage = UsageSummary(
+            prompt_tokens=10, completion_tokens=20, total_tokens=30
+        )
+        executor._base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        result = await executor.execute(non_streaming_payload, sample_context)
+
+        # Verify usage is directly accessible via getattr (as used by orchestrator)
+        usage = getattr(result, "usage", None)
+        assert usage is not None
+        assert isinstance(usage, UsageSummary)
+
+        # Verify usage can be converted to dict via to_dict() (as expected by orchestrator)
+        usage_dict = usage.to_dict()
+        assert isinstance(usage_dict, dict)
+        assert usage_dict["prompt_tokens"] == 10
+        assert usage_dict["completion_tokens"] == 20
+        assert usage_dict["total_tokens"] == 30
+
+        # Verify usage can also be accessed via metadata fallback pattern
+        # (orchestrator checks metadata.get("usage") if direct usage is None)
+        if result.usage is None and result.metadata:
+            metadata_usage = result.metadata.get("usage")
+            # If present in metadata, it should be convertible to dict
+            if metadata_usage is not None:
+                if hasattr(metadata_usage, "to_dict"):
+                    metadata_usage_dict = metadata_usage.to_dict()
+                    assert isinstance(metadata_usage_dict, dict)
+                elif isinstance(metadata_usage, dict):
+                    assert isinstance(metadata_usage, dict)
+
+    @pytest.mark.asyncio
+    async def test_conversation_id_derived_from_prompt_cache_key(
+        self, executor, mock_base_connector, sample_context, non_streaming_payload
+    ):
+        """Test that conversation_id header is derived from prompt_cache_key (Req 1.2, 6.1)."""
+        # Set prompt_cache_key in payload
+        non_streaming_payload.prompt_cache_key = "test-conversation-key-123"
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-123",
+            "choices": [{"message": {"content": "Response"}}],
+        }
+        mock_response.headers = {}
+        mock_base_connector.client.post = AsyncMock(return_value=mock_response)
+
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {}
+        domain_response.usage = None
+        mock_base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        # Capture headers passed to client.post
+        captured_headers = {}
+
+        async def capture_headers(*args, **kwargs):
+            if "headers" in kwargs:
+                captured_headers.update(kwargs["headers"])
+            return mock_response
+
+        mock_base_connector.client.post = AsyncMock(side_effect=capture_headers)
+
+        await executor.execute(non_streaming_payload, sample_context)
+
+        # Verify conversation_id header matches prompt_cache_key
+        assert "conversation_id" in captured_headers
+        assert captured_headers["conversation_id"] == "test-conversation-key-123"
+        # session_id should also be set (for logging/correlation)
+        assert "session_id" in captured_headers
+        assert captured_headers["session_id"] == sample_context.session_id
+
+    @pytest.mark.asyncio
+    async def test_conversation_id_fallback_to_session_id_when_prompt_cache_key_missing(
+        self, executor, mock_base_connector, sample_context, non_streaming_payload
+    ):
+        """Test that conversation_id falls back to session_id when prompt_cache_key is missing (Req 1.2, 6.1)."""
+        # Set prompt_cache_key to empty string
+        non_streaming_payload.prompt_cache_key = ""
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "chatcmpl-123",
+            "choices": [{"message": {"content": "Response"}}],
+        }
+        mock_response.headers = {}
+
+        # Capture headers passed to client.post
+        captured_headers = {}
+
+        async def capture_headers(*args, **kwargs):
+            if "headers" in kwargs:
+                captured_headers.update(kwargs["headers"])
+            return mock_response
+
+        mock_base_connector.client.post = AsyncMock(side_effect=capture_headers)
+
+        domain_response = MagicMock()
+        domain_response.model_dump.return_value = {}
+        domain_response.usage = None
+        mock_base_connector.translation_service.to_domain_response.return_value = (
+            domain_response
+        )
+
+        await executor.execute(non_streaming_payload, sample_context)
+
+        # Verify conversation_id falls back to session_id
+        assert "conversation_id" in captured_headers
+        assert captured_headers["conversation_id"] == sample_context.session_id
+        assert "session_id" in captured_headers
+        assert captured_headers["session_id"] == sample_context.session_id
+
+    @pytest.mark.asyncio
+    async def test_conversation_id_preserved_across_streaming_retries(
+        self,
+        executor,
+        mock_base_connector,
+        mock_credential_manager,
+        sample_context,
+        streaming_payload,
+    ):
+        """Test that conversation_id is preserved across streaming retries (Req 1.2, 6.1, 6.2)."""
+        # Set prompt_cache_key in payload
+        streaming_payload.prompt_cache_key = "retry-conversation-key-456"
+
+        # Track headers passed to _handle_streaming_response across retries
+        captured_headers_list = []
+
+        async def empty_iterator():
+            return
+            yield  # Make it an async generator
+
+        success_handle = MagicMock()
+        success_handle.headers = {}
+        success_handle.cancel_callback = AsyncMock()
+        success_handle.iterator = empty_iterator()
+
+        # First attempt fails with 401, second succeeds
+        call_count = [0]
+
+        async def handle_streaming_side_effect(
+            url, payload_dict, headers, session_id, *args, **kwargs
+        ):
+            # Capture headers from the call (public interface - headers passed to HTTP transport)
+            if headers:
+                captured_headers_list.append(headers.copy())
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise HTTPException(status_code=401, detail="Unauthorized")
+            return success_handle
+
+        mock_base_connector._handle_streaming_response = AsyncMock(
+            side_effect=handle_streaming_side_effect
+        )
+
+        result = await executor.execute(streaming_payload, sample_context)
+
+        # Consume stream to trigger retry logic
+        async for _ in result.content:
+            pass
+
+        # Verify conversation_id was consistent across retries
+        # Headers are captured from _handle_streaming_response calls (public transport interface)
+        assert (
+            len(captured_headers_list) >= 2
+        ), f"Expected at least 2 header captures (initial + retry), got {len(captured_headers_list)}"
+        conversation_ids = [h.get("conversation_id") for h in captured_headers_list]
+        # All conversation_ids should match prompt_cache_key
+        assert all(
+            cid == "retry-conversation-key-456" for cid in conversation_ids
+        ), f"Expected all conversation_ids to be 'retry-conversation-key-456', got {conversation_ids}"

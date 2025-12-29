@@ -1,397 +1,922 @@
 {
-  "version": "1.1.407",
-  "time": "1766964605893",
-  "generalDiagnostics": [
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\auth\\sso\\__init__.py",
-      "severity": "warning",
-      "message": "\"create_sso_router\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 76,
-          "character": 4
+    "version": "1.1.407",
+    "time": "1767028655458",
+    "generalDiagnostics": [
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_stream_retry_limit\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_stream_retry_limit\" is unknown",
+            "range": {
+                "start": {
+                    "line": 139,
+                    "character": 58
+                },
+                "end": {
+                    "line": 139,
+                    "character": 77
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 76,
-          "character": 23
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\auth\\sso\\__init__.py",
-      "severity": "warning",
-      "message": "\"TokenService\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 85,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 191,
+                    "character": 59
+                },
+                "end": {
+                    "line": 191,
+                    "character": 80
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 85,
-          "character": 18
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\__init__.py",
-      "severity": "warning",
-      "message": "\"handlers\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 6,
-          "character": 11
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 204,
+                    "character": 53
+                },
+                "end": {
+                    "line": 204,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 6,
-          "character": 21
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"base_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 7,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_stream_retry_limit\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_stream_retry_limit\" is unknown",
+            "range": {
+                "start": {
+                    "line": 400,
+                    "character": 62
+                },
+                "end": {
+                    "line": 400,
+                    "character": 81
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 7,
-          "character": 18
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 8,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 433,
+                    "character": 57
+                },
+                "end": {
+                    "line": 433,
+                    "character": 65
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 8,
-          "character": 21
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"failover_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 9,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 453,
+                    "character": 63
+                },
+                "end": {
+                    "line": 453,
+                    "character": 84
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 9,
-          "character": 30
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"hello_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 10,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 567,
+                    "character": 53
+                },
+                "end": {
+                    "line": 567,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 10,
-          "character": 27
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"help_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 11,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 588,
+                    "character": 59
+                },
+                "end": {
+                    "line": 588,
+                    "character": 80
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 11,
-          "character": 26
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"loop_detection_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 12,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 601,
+                    "character": 53
+                },
+                "end": {
+                    "line": 601,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 12,
-          "character": 36
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"loop_detection_handlers\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 13,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_stream_retry_limit\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_stream_retry_limit\" is unknown",
+            "range": {
+                "start": {
+                    "line": 139,
+                    "character": 58
+                },
+                "end": {
+                    "line": 139,
+                    "character": 77
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 13,
-          "character": 29
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"model_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 14,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 191,
+                    "character": 59
+                },
+                "end": {
+                    "line": 191,
+                    "character": 80
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 14,
-          "character": 27
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"project_dir_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 15,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 204,
+                    "character": 53
+                },
+                "end": {
+                    "line": 204,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 15,
-          "character": 25
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"reasoning_aliases\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 16,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_stream_retry_limit\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_stream_retry_limit\" is unknown",
+            "range": {
+                "start": {
+                    "line": 396,
+                    "character": 62
+                },
+                "end": {
+                    "line": 396,
+                    "character": 81
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 16,
-          "character": 23
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"reasoning_handlers\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 17,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 429,
+                    "character": 57
+                },
+                "end": {
+                    "line": 429,
+                    "character": 65
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 17,
-          "character": 24
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"set_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 18,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 449,
+                    "character": 63
+                },
+                "end": {
+                    "line": 449,
+                    "character": 84
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 18,
-          "character": 25
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"tool_loop_max_repeats_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 19,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 563,
+                    "character": 53
+                },
+                "end": {
+                    "line": 563,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 19,
-          "character": 43
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"tool_loop_mode_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 20,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 584,
+                    "character": 59
+                },
+                "end": {
+                    "line": 584,
+                    "character": 80
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 20,
-          "character": 36
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"tool_loop_ttl_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 21,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_new.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 597,
+                    "character": 53
+                },
+                "end": {
+                    "line": 597,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 21,
-          "character": 35
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
-      "severity": "warning",
-      "message": "\"unset_command_handler\" is specified in __all__ but is not present in module",
-      "range": {
-        "start": {
-          "line": 22,
-          "character": 4
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_stream_retry_limit\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_stream_retry_limit\" is unknown",
+            "range": {
+                "start": {
+                    "line": 139,
+                    "character": 58
+                },
+                "end": {
+                    "line": 139,
+                    "character": 77
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 22,
-          "character": 27
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\domain\\commands\\loop_detection_commands\\__init__.py",
-      "severity": "warning",
-      "message": "Operation on \"__all__\" is not supported, so exported symbol list may be incorrect",
-      "range": {
-        "start": {
-          "line": 20,
-          "character": 0
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 188,
+                    "character": 59
+                },
+                "end": {
+                    "line": 188,
+                    "character": 80
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 20,
-          "character": 40
-        }
-      },
-      "rule": "reportUnsupportedDunderAll"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\interfaces\\event_bus_interface.py",
-      "severity": "warning",
-      "message": "TypeVar \"T\" appears only once in generic function signature\n┬á┬áUse \"object\" instead",
-      "range": {
-        "start": {
-          "line": 68,
-          "character": 35
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 201,
+                    "character": 53
+                },
+                "end": {
+                    "line": 201,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
         },
-        "end": {
-          "line": 68,
-          "character": 36
-        }
-      },
-      "rule": "reportInvalidTypeVarUse"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\interfaces\\event_bus_interface.py",
-      "severity": "warning",
-      "message": "TypeVar \"T\" appears only once in generic function signature\n┬á┬áUse \"object\" instead",
-      "range": {
-        "start": {
-          "line": 82,
-          "character": 42
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Expected expression",
+            "range": {
+                "start": {
+                    "line": 252,
+                    "character": 12
+                },
+                "end": {
+                    "line": 252,
+                    "character": 18
+                }
+            }
         },
-        "end": {
-          "line": 82,
-          "character": 43
-        }
-      },
-      "rule": "reportInvalidTypeVarUse"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\services\\event_bus.py",
-      "severity": "warning",
-      "message": "TypeVar \"T\" appears only once in generic function signature\n┬á┬áUse \"object\" instead",
-      "range": {
-        "start": {
-          "line": 198,
-          "character": 35
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Unexpected indentation",
+            "range": {
+                "start": {
+                    "line": 253,
+                    "character": 0
+                },
+                "end": {
+                    "line": 253,
+                    "character": 16
+                }
+            }
         },
-        "end": {
-          "line": 198,
-          "character": 36
-        }
-      },
-      "rule": "reportInvalidTypeVarUse"
-    },
-    {
-      "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\services\\event_bus.py",
-      "severity": "warning",
-      "message": "TypeVar \"T\" appears only once in generic function signature\n┬á┬áUse \"object\" instead",
-      "range": {
-        "start": {
-          "line": 239,
-          "character": 42
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Expected expression",
+            "range": {
+                "start": {
+                    "line": 254,
+                    "character": 12
+                },
+                "end": {
+                    "line": 254,
+                    "character": 18
+                }
+            }
         },
-        "end": {
-          "line": 239,
-          "character": 43
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Unexpected indentation",
+            "range": {
+                "start": {
+                    "line": 255,
+                    "character": 0
+                },
+                "end": {
+                    "line": 255,
+                    "character": 16
+                }
+            }
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_stream_retry_limit\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_stream_retry_limit\" is unknown",
+            "range": {
+                "start": {
+                    "line": 391,
+                    "character": 62
+                },
+                "end": {
+                    "line": 391,
+                    "character": 81
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 424,
+                    "character": 57
+                },
+                "end": {
+                    "line": 424,
+                    "character": 65
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 444,
+                    "character": 63
+                },
+                "end": {
+                    "line": 444,
+                    "character": 84
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 558,
+                    "character": 53
+                },
+                "end": {
+                    "line": 558,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_refresh_access_token\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_refresh_access_token\" is unknown",
+            "range": {
+                "start": {
+                    "line": 579,
+                    "character": 59
+                },
+                "end": {
+                    "line": 579,
+                    "character": 80
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\openai_codex\\executor_old.py",
+            "severity": "error",
+            "message": "Cannot access attribute \"_degrade\" for class \"OpenAIConnector\"\n┬á┬áAttribute \"_degrade\" is unknown",
+            "range": {
+                "start": {
+                    "line": 592,
+                    "character": 53
+                },
+                "end": {
+                    "line": 592,
+                    "character": 61
+                }
+            },
+            "rule": "reportAttributeAccessIssue"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\auth\\sso\\__init__.py",
+            "severity": "warning",
+            "message": "\"create_sso_router\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 76,
+                    "character": 4
+                },
+                "end": {
+                    "line": 76,
+                    "character": 23
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\auth\\sso\\__init__.py",
+            "severity": "warning",
+            "message": "\"TokenService\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 85,
+                    "character": 4
+                },
+                "end": {
+                    "line": 85,
+                    "character": 18
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\__init__.py",
+            "severity": "warning",
+            "message": "\"handlers\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 6,
+                    "character": 11
+                },
+                "end": {
+                    "line": 6,
+                    "character": 21
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"base_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 7,
+                    "character": 4
+                },
+                "end": {
+                    "line": 7,
+                    "character": 18
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 8,
+                    "character": 4
+                },
+                "end": {
+                    "line": 8,
+                    "character": 21
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"failover_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 9,
+                    "character": 4
+                },
+                "end": {
+                    "line": 9,
+                    "character": 30
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"hello_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 10,
+                    "character": 4
+                },
+                "end": {
+                    "line": 10,
+                    "character": 27
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"help_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 11,
+                    "character": 4
+                },
+                "end": {
+                    "line": 11,
+                    "character": 26
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"loop_detection_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 12,
+                    "character": 4
+                },
+                "end": {
+                    "line": 12,
+                    "character": 36
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"loop_detection_handlers\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 13,
+                    "character": 4
+                },
+                "end": {
+                    "line": 13,
+                    "character": 29
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"model_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 14,
+                    "character": 4
+                },
+                "end": {
+                    "line": 14,
+                    "character": 27
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"project_dir_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 15,
+                    "character": 4
+                },
+                "end": {
+                    "line": 15,
+                    "character": 25
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"reasoning_aliases\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 16,
+                    "character": 4
+                },
+                "end": {
+                    "line": 16,
+                    "character": 23
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"reasoning_handlers\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 17,
+                    "character": 4
+                },
+                "end": {
+                    "line": 17,
+                    "character": 24
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"set_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 18,
+                    "character": 4
+                },
+                "end": {
+                    "line": 18,
+                    "character": 25
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"tool_loop_max_repeats_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 19,
+                    "character": 4
+                },
+                "end": {
+                    "line": 19,
+                    "character": 43
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"tool_loop_mode_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 20,
+                    "character": 4
+                },
+                "end": {
+                    "line": 20,
+                    "character": 36
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"tool_loop_ttl_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 21,
+                    "character": 4
+                },
+                "end": {
+                    "line": 21,
+                    "character": 35
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\commands\\handlers\\__init__.py",
+            "severity": "warning",
+            "message": "\"unset_command_handler\" is specified in __all__ but is not present in module",
+            "range": {
+                "start": {
+                    "line": 22,
+                    "character": 4
+                },
+                "end": {
+                    "line": 22,
+                    "character": 27
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\common\\logging_utils.py",
+            "severity": "error",
+            "message": "Argument of type \"tuple[type[TypeError], type[ValueError], type[AttributeError], type[error]]\" cannot be assigned to parameter \"exceptions\" of type \"type[BaseException]\" in function \"__init__\"\n┬á┬áType \"tuple[type[TypeError], type[ValueError], type[AttributeError], type[error]]\" is not assignable to type \"type[BaseException]\"",
+            "range": {
+                "start": {
+                    "line": 449,
+                    "character": 24
+                },
+                "end": {
+                    "line": 449,
+                    "character": 73
+                }
+            },
+            "rule": "reportArgumentType"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\domain\\commands\\loop_detection_commands\\__init__.py",
+            "severity": "warning",
+            "message": "Operation on \"__all__\" is not supported, so exported symbol list may be incorrect",
+            "range": {
+                "start": {
+                    "line": 20,
+                    "character": 0
+                },
+                "end": {
+                    "line": 20,
+                    "character": 40
+                }
+            },
+            "rule": "reportUnsupportedDunderAll"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\interfaces\\event_bus_interface.py",
+            "severity": "warning",
+            "message": "TypeVar \"T\" appears only once in generic function signature\n┬á┬áUse \"object\" instead",
+            "range": {
+                "start": {
+                    "line": 68,
+                    "character": 35
+                },
+                "end": {
+                    "line": 68,
+                    "character": 36
+                }
+            },
+            "rule": "reportInvalidTypeVarUse"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\interfaces\\event_bus_interface.py",
+            "severity": "warning",
+            "message": "TypeVar \"T\" appears only once in generic function signature\n┬á┬áUse \"object\" instead",
+            "range": {
+                "start": {
+                    "line": 82,
+                    "character": 42
+                },
+                "end": {
+                    "line": 82,
+                    "character": 43
+                }
+            },
+            "rule": "reportInvalidTypeVarUse"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\services\\event_bus.py",
+            "severity": "warning",
+            "message": "TypeVar \"T\" appears only once in generic function signature\n┬á┬áUse \"object\" instead",
+            "range": {
+                "start": {
+                    "line": 170,
+                    "character": 35
+                },
+                "end": {
+                    "line": 170,
+                    "character": 36
+                }
+            },
+            "rule": "reportInvalidTypeVarUse"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\services\\event_bus.py",
+            "severity": "warning",
+            "message": "TypeVar \"T\" appears only once in generic function signature\n┬á┬áUse \"object\" instead",
+            "range": {
+                "start": {
+                    "line": 211,
+                    "character": 42
+                },
+                "end": {
+                    "line": 211,
+                    "character": 43
+                }
+            },
+            "rule": "reportInvalidTypeVarUse"
+        },
+        {
+            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\core\\services\\windows_double_ampersand_fixer.py",
+            "severity": "error",
+            "message": "Argument of type \"dict[Unknown, Unknown]\" cannot be assigned to parameter \"fixed_command\" of type \"str\" in function \"__init__\"\n┬á┬á\"dict[Unknown, Unknown]\" is not assignable to \"str\"",
+            "range": {
+                "start": {
+                    "line": 303,
+                    "character": 50
+                },
+                "end": {
+                    "line": 303,
+                    "character": 56
+                }
+            },
+            "rule": "reportArgumentType"
         }
-      },
-      "rule": "reportInvalidTypeVarUse"
+    ],
+    "summary": {
+        "filesAnalyzed": 1013,
+        "errorCount": 33,
+        "warningCount": 24,
+        "informationCount": 0,
+        "timeInSec": 27.301
     }
-  ],
-  "summary": {
-    "filesAnalyzed": 1011,
-    "errorCount": 273,
-    "warningCount": 24,
-    "informationCount": 0,
-    "timeInSec": 16.995
-  }
 }
+

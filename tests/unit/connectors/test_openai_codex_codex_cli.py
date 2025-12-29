@@ -998,13 +998,43 @@ async def test_codex_retries_after_token_refresh(
         ),
     )
 
-    mocker.patch.object(connector, "_build_codex_headers", return_value={"Authorization": "Bearer test"})  # type: ignore[arg-type]
-    first_error = HTTPException(status_code=401, detail={"message": "unauthorized"})
-    second_response = ResponseEnvelope(content={"ok": True})
+    # Set api_key so get_headers() returns Authorization header
+    connector.api_key = "test_token"
+
+    # Mock client.post to return 401 first, then 200 with success response
+    first_response = httpx.Response(
+        401,
+        request=httpx.Request(
+            "POST", "https://chatgpt.com/backend-api/codex/responses"
+        ),
+        json={"detail": {"message": "unauthorized"}},
+    )
+    second_response_data = {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "created": 1234567890,
+        "model": "gpt-5.1-codex",
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": "ok"},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+    }
+    second_response = httpx.Response(
+        200,
+        request=httpx.Request(
+            "POST", "https://chatgpt.com/backend-api/codex/responses"
+        ),
+        json=second_response_data,
+    )
+
     mocker.patch.object(
-        connector,
-        "_handle_non_streaming_response",
-        AsyncMock(side_effect=[first_error, second_response]),
+        connector._response_executor._base_connector.client,
+        "post",
+        AsyncMock(side_effect=[first_response, second_response]),
     )
     refresh_mock = mocker.patch.object(
         connector,
@@ -1019,9 +1049,11 @@ async def test_codex_retries_after_token_refresh(
         chat_request,
     )
 
-    assert result is second_response
-    connector._handle_non_streaming_response.assert_awaited()  # type: ignore[attr-defined]
-    assert connector._handle_non_streaming_response.await_count == 2  # type: ignore[attr-defined]
+    # Verify result is a ResponseEnvelope with the expected content
+    assert isinstance(result, ResponseEnvelope)
+    assert result.content.get("ok") is not None or "ok" in str(result.content)
+    # Verify client.post was called twice (initial + retry)
+    assert connector._response_executor._base_connector.client.post.await_count == 2  # type: ignore[attr-defined]
     refresh_mock.assert_awaited_once()
 
 
@@ -1146,12 +1178,22 @@ async def test_codex_refresh_failure_propagates(
         ),
     )
 
-    mocker.patch.object(connector, "_build_codex_headers", return_value={"Authorization": "Bearer test"})  # type: ignore[arg-type]
-    first_error = HTTPException(status_code=401, detail={"message": "unauthorized"})
+    # Set api_key so get_headers() returns Authorization header
+    connector.api_key = "test_token"
+
+    # Mock client.post to return 401 error
+    first_response = httpx.Response(
+        401,
+        request=httpx.Request(
+            "POST", "https://chatgpt.com/backend-api/codex/responses"
+        ),
+        json={"detail": {"message": "unauthorized"}},
+    )
+
     mocker.patch.object(
-        connector,
-        "_handle_non_streaming_response",
-        AsyncMock(side_effect=[first_error]),
+        connector._response_executor._base_connector.client,
+        "post",
+        AsyncMock(side_effect=[first_response]),
     )
     refresh_mock = mocker.patch.object(
         connector,
@@ -1159,7 +1201,7 @@ async def test_codex_refresh_failure_propagates(
         AsyncMock(return_value=False),
     )
 
-    with pytest.raises(HTTPException):
+    with pytest.raises(HTTPException) as exc_info:
         await connector._call_codex_responses_api(
             chat_request,
             chat_request.messages,
@@ -1167,6 +1209,8 @@ async def test_codex_refresh_failure_propagates(
             chat_request,
         )
 
+    # Verify the exception is the expected auth failure
+    assert exc_info.value.status_code == 401
     refresh_mock.assert_awaited_once()
 
 
