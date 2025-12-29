@@ -41,7 +41,8 @@ class InitHandler:
             connection_manager: Manager for WebSocket connections
         """
         self._connection_manager = connection_manager
-        logger.info("InitHandler initialized")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("InitHandler initialized")
 
     async def handle_init(
         self,
@@ -69,11 +70,12 @@ class InitHandler:
                 details={"error": "Connection not registered"},
             )
 
-        logger.info(
-            "Handling init: session_id=%s, fingerprint_id=%s",
-            session.session_id,
-            action.fingerprintId,
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Handling init: session_id=%s, fingerprint_id=%s",
+                session.session_id,
+                action.fingerprintId,
+            )
 
         try:
             # Store fingerprint ID
@@ -86,11 +88,12 @@ class InitHandler:
             # Store file context
             session.file_context = action.fileContext
 
-            logger.info(
-                "Stored file context for session %s: %d files",
-                session.session_id,
-                len(action.fileContext) if action.fileContext else 0,
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Stored file context for session %s: %d files",
+                    session.session_id,
+                    len(action.fileContext) if action.fileContext else 0,
+                )
 
             # Create init response with dummy usage values
             response = self._create_init_response(
@@ -99,7 +102,8 @@ class InitHandler:
                 remaining_balance=float("inf"),
             )
 
-            logger.info("Session initialized: session_id=%s", session.session_id)
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Session initialized: session_id=%s", session.session_id)
             return response
 
         except Exception as e:
