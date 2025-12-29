@@ -968,7 +968,7 @@ class ChatController:
             raise HTTPException(
                 status_code=500,
                 detail={"error": {"message": str(e), "type": "server_error"}},
-            )
+            ) from e
 
 
 def get_chat_controller(service_provider: IServiceProvider) -> ChatController:

@@ -123,7 +123,6 @@ class AnthropicController:
             headers=headers,
         )
 
-
     async def handle_anthropic_messages(  # noqa: C901
         self, request: Request, request_data: AnthropicMessagesRequest | dict[str, Any]
     ) -> Response:
@@ -576,7 +575,7 @@ class AnthropicController:
             raise HTTPException(
                 status_code=500,
                 detail={"error": {"message": str(e), "type": "server_error"}},
-            )
+            ) from e
 
 
 def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicController:
