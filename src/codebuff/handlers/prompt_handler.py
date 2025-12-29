@@ -59,7 +59,8 @@ class PromptHandler:
         self._connection_manager = connection_manager
         self._active_requests: dict[str, asyncio.Task] = {}
         self._lock = asyncio.Lock()
-        logger.info("PromptHandler initialized")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("PromptHandler initialized")
 
     async def handle_prompt(
         self,
@@ -103,12 +104,13 @@ class PromptHandler:
             await websocket.send_json(error_msg.model_dump(by_alias=True))
             return
 
-        logger.info(
-            "Handling prompt: session_id=%s, prompt_id=%s, model=%s",
-            _safe(session.session_id),
-            _safe(action.promptId),
-            _safe(action.model),
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Handling prompt: session_id=%s, prompt_id=%s, model=%s",
+                _safe(session.session_id),
+                _safe(action.promptId),
+                _safe(action.model),
+            )
 
         # Store fingerprint ID if provided
         if action.fingerprintId:
@@ -187,17 +189,19 @@ class PromptHandler:
                 messages.extend(session_messages)
 
         if not messages:
-            logger.warning("No messages found in prompt action")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("No messages found in prompt action")
             raise CodebuffError(
                 "No messages found in prompt action",
                 details={"prompt_id": action.promptId},
             )
 
-        logger.debug(
-            "Extracted %d messages from prompt action %s",
-            len(messages),
-            action.promptId,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Extracted %d messages from prompt action %s",
+                len(messages),
+                action.promptId,
+            )
         return messages
 
     async def _stream_response_with_tracking(
@@ -253,11 +257,12 @@ class PromptHandler:
                     oldest_id = next(iter(self._active_requests))
                     oldest_task = self._active_requests.get(oldest_id)
                     if oldest_task:
-                        logger.warning(
-                            "Max active requests (%d) reached, cancelling oldest request %s",
-                            _MAX_ACTIVE_REQUESTS,
-                            oldest_id,
-                        )
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Max active requests (%d) reached, cancelling oldest request %s",
+                                _MAX_ACTIVE_REQUESTS,
+                                oldest_id,
+                            )
                         oldest_task.cancel()
                         # Don't delete here - let the task's finally block handle cleanup
                         # This ensures consistent cleanup path
@@ -413,7 +418,8 @@ class PromptHandler:
             )
             await websocket.send_json(final_msg.model_dump(by_alias=True))
 
-            logger.info("Completed streaming response for prompt %s", prompt_id)
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Completed streaming response for prompt %s", prompt_id)
 
         except Exception as e:
             logger.error(
@@ -445,7 +451,8 @@ class PromptHandler:
         # This is a simplified mapping - in production, this would be more sophisticated
         backend_type = self._determine_backend_type(model)
 
-        logger.debug("Routing model %s to backend %s", model, backend_type)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Routing model %s to backend %s", model, backend_type)
 
         try:
             # Get backend configuration from app config
@@ -505,10 +512,11 @@ class PromptHandler:
             return "gemini"
 
         # Default to OpenAI
-        logger.warning(
-            "Unknown model %s, defaulting to OpenAI backend",
-            model,
-        )
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Unknown model %s, defaulting to OpenAI backend",
+                model,
+            )
         return "openai"
 
     async def cancel_request(self, prompt_id: str) -> None:
@@ -520,13 +528,15 @@ class PromptHandler:
         async with self._lock:
             task = self._active_requests.get(prompt_id)
             if task:
-                logger.info("Cancelling request for prompt %s", prompt_id)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Cancelling request for prompt %s", prompt_id)
                 task.cancel()
                 # Remove immediately on cancellation
                 # The task's finally block will handle cleanup gracefully (no-op if already removed)
                 self._active_requests.pop(prompt_id, None)
             else:
-                logger.warning("Attempted to cancel unknown request: %s", prompt_id)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Attempted to cancel unknown request: %s", prompt_id)
 
     async def _cleanup_completed_requests_locked(self) -> None:
         """Remove completed tasks from active requests to prevent memory leaks.
