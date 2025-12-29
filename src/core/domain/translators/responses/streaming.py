@@ -207,6 +207,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 logger.log(
                     TRACE_LEVEL,
                     "Responses output_item.done item=<non-serializable>",
+                    exc_info=True,
                 )
 
         if item_type == "message":

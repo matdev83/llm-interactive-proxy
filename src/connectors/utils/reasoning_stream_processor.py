@@ -455,6 +455,11 @@ class ReasoningStreamProcessor:
         try:
             streaming_chunk = StreamingContent.from_raw(chunk)
         except Exception:  # pragma: no cover - defensive guard
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to create StreamingContent from chunk in _extract_content_from_chunk",
+                    exc_info=True,
+                )
             streaming_chunk = None
 
         if streaming_chunk is not None:
@@ -538,6 +543,11 @@ class ReasoningStreamProcessor:
             try:
                 text = content.decode("utf-8", errors="ignore")
             except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to decode bytes content in _normalize_chunk",
+                        exc_info=True,
+                    )
                 return None
             if text.strip().upper() == "DATA: [DONE]":
                 return None
