@@ -204,6 +204,11 @@ class EditPrecisionFeature(IResponseFeature):
             try:
                 response_type = str((context or {}).get("response_type") or "")
             except Exception:
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Failed to extract response_type from context in edit precision handler",
+                        exc_info=True,
+                    )
                 response_type = ""
 
             stream_id = ""
@@ -216,6 +221,11 @@ class EditPrecisionFeature(IResponseFeature):
                         or ""
                     )
                 except Exception:
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Failed to extract stream_id from metadata/context in edit precision handler",
+                            exc_info=True,
+                        )
                     stream_id = ""
                 last_stream_id = self._last_stream_ids.get(key)
                 if stream_id and last_stream_id == stream_id:
@@ -242,6 +252,11 @@ class EditPrecisionFeature(IResponseFeature):
                 else:
                     hybrid_reasoning_disabled_map = dict(hybrid_reasoning_disabled_map)
             except Exception:
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Failed to convert hybrid_reasoning_disabled_map to dict in edit precision handler",
+                        exc_info=True,
+                    )
                 hybrid_reasoning_disabled_map = {}
 
             hybrid_reasoning_disabled_map[key] = True
@@ -302,6 +317,11 @@ class EditPrecisionFeature(IResponseFeature):
         try:
             response_type = str((context or {}).get("response_type") or "")
         except Exception:
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Failed to extract response_type from context in stream tracking",
+                    exc_info=True,
+                )
             response_type = ""
 
         stream_id = ""
@@ -312,6 +332,11 @@ class EditPrecisionFeature(IResponseFeature):
                     metadata.get("stream_id") or (context or {}).get("stream_id") or ""
                 )
             except Exception:
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Failed to extract stream_id from metadata/context in stream tracking",
+                        exc_info=True,
+                    )
                 stream_id = ""
             if stream_id:
                 self._last_stream_ids[session_id] = stream_id
@@ -357,6 +382,12 @@ class EditPrecisionFeature(IResponseFeature):
             if isinstance(stored, list):
                 return {str(item): {"legacy": True} for item in stored}
         except Exception:
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Failed to load session flag map from app state: %s",
+                    setting_name,
+                    exc_info=True,
+                )
             pass
         return {}
 
@@ -677,6 +708,11 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     )
         except Exception:
             # Use only default patterns if config loading fails
+            if self._logger.isEnabledFor(logging.WARNING):
+                self._logger.warning(
+                    "Failed to load edit precision patterns in EditPrecisionResponseMiddleware; using defaults only",
+                    exc_info=True,
+                )
             pass
 
     async def process(
@@ -753,6 +789,11 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 else:
                     pending_map = dict(pending_map)
             except Exception:
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Failed to convert pending_map to dict in EditPrecisionResponseMiddleware.process",
+                        exc_info=True,
+                    )
                 pending_map = {}
 
             key = session_id or ""
@@ -771,6 +812,11 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 try:
                     response_type = str((context or {}).get("response_type") or "")
                 except Exception:
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Failed to extract response_type from context in EditPrecisionResponseMiddleware.process",
+                            exc_info=True,
+                        )
                     response_type = ""
 
                 stream_id = ""
@@ -783,6 +829,11 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                             or ""
                         )
                     except Exception:
+                        if self._logger.isEnabledFor(logging.DEBUG):
+                            self._logger.debug(
+                                "Failed to extract stream_id from metadata/context in EditPrecisionResponseMiddleware.process",
+                                exc_info=True,
+                            )
                         stream_id = ""
                     last_stream_id = self._last_stream_ids.get(key)
                     if stream_id and last_stream_id == stream_id:
@@ -813,6 +864,11 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                             hybrid_reasoning_disabled_map
                         )
                 except Exception:
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Failed to convert hybrid_reasoning_disabled_map to dict in EditPrecisionResponseMiddleware.process",
+                            exc_info=True,
+                        )
                     hybrid_reasoning_disabled_map = {}
 
                 # Mark that hybrid reasoning should be disabled for next request
@@ -855,6 +911,11 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
         try:
             response_type = str((context or {}).get("response_type") or "")
         except Exception:
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Failed to extract response_type from context in EditPrecisionResponseMiddleware._update_stream_tracking",
+                    exc_info=True,
+                )
             response_type = ""
 
         stream_id = ""
@@ -865,6 +926,11 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     metadata.get("stream_id") or (context or {}).get("stream_id") or ""
                 )
             except Exception:
+                if self._logger.isEnabledFor(logging.DEBUG):
+                    self._logger.debug(
+                        "Failed to extract stream_id from metadata/context in EditPrecisionResponseMiddleware._update_stream_tracking",
+                        exc_info=True,
+                    )
                 stream_id = ""
             if stream_id:
                 self._last_stream_ids[session_id] = stream_id
@@ -911,6 +977,12 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 # Support legacy list storage by converting to dict with True values
                 return {str(item): {"legacy": True} for item in stored}
         except Exception:
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Failed to load session flag map from app state in EditPrecisionResponseMiddleware: %s",
+                    setting_name,
+                    exc_info=True,
+                )
             pass
         return {}
 
