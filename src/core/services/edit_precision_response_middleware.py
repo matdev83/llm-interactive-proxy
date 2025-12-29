@@ -248,7 +248,10 @@ class EditPrecisionFeature(IResponseFeature):
                         or (context or {}).get("stream_id")
                         or ""
                     )
-                except Exception:
+                except (TypeError, AttributeError, KeyError):
+                    # TypeError: if metadata/context is not dict-like or str() conversion fails
+                    # AttributeError: if getattr() fails or metadata/context doesn't have .get() method
+                    # KeyError: if dict access fails unexpectedly (shouldn't happen with .get(), but defensive)
                     if self._logger.isEnabledFor(logging.DEBUG):
                         self._logger.debug(
                             "Failed to extract stream_id from metadata/context in edit precision handler",
@@ -346,7 +349,9 @@ class EditPrecisionFeature(IResponseFeature):
         response_type = ""
         try:
             response_type = str((context or {}).get("response_type") or "")
-        except Exception:
+        except (TypeError, AttributeError):
+            # TypeError: if context is not dict-like (e.g., None, int, etc.)
+            # AttributeError: if context doesn't have get method (custom object without dict interface)
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
                     "Failed to extract response_type from context in stream tracking",
@@ -361,7 +366,10 @@ class EditPrecisionFeature(IResponseFeature):
                 stream_id = str(
                     metadata.get("stream_id") or (context or {}).get("stream_id") or ""
                 )
-            except Exception:
+            except (TypeError, AttributeError, KeyError):
+                # TypeError: if metadata/context is not dict-like or str() conversion fails
+                # AttributeError: if getattr() fails or metadata/context doesn't have .get() method
+                # KeyError: if dict access fails unexpectedly (shouldn't happen with .get(), but defensive)
                 if self._logger.isEnabledFor(logging.DEBUG):
                     self._logger.debug(
                         "Failed to extract stream_id from metadata/context in stream tracking",
@@ -411,7 +419,9 @@ class EditPrecisionFeature(IResponseFeature):
                 return dict(stored)
             if isinstance(stored, list):
                 return {str(item): {"legacy": True} for item in stored}
-        except Exception:
+        except (TypeError, AttributeError):
+            # TypeError: if isinstance() fails or dict()/list conversion fails
+            # AttributeError: if get_setting() raises AttributeError from internal getattr()
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
                     "Failed to load session flag map from app state: %s",
@@ -837,7 +847,9 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     pending_map = {}
                 else:
                     pending_map = dict(pending_map)
-            except Exception:
+            except (TypeError, ValueError):
+                # TypeError: if pending_map is not iterable or doesn't support dict conversion
+                # ValueError: if dict conversion fails (less common, but possible)
                 if self._logger.isEnabledFor(logging.DEBUG):
                     self._logger.debug(
                         "Failed to convert pending_map to dict in EditPrecisionResponseMiddleware.process",
@@ -860,7 +872,9 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 response_type = ""
                 try:
                     response_type = str((context or {}).get("response_type") or "")
-                except Exception:
+                except (TypeError, AttributeError):
+                    # TypeError: if context is not dict-like (e.g., None, int, etc.)
+                    # AttributeError: if context doesn't have get method (custom object without dict interface)
                     if self._logger.isEnabledFor(logging.DEBUG):
                         self._logger.debug(
                             "Failed to extract response_type from context in EditPrecisionResponseMiddleware.process",
@@ -877,7 +891,10 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                             or (context or {}).get("stream_id")
                             or ""
                         )
-                    except Exception:
+                    except (TypeError, AttributeError, KeyError):
+                        # TypeError: if metadata/context is not dict-like or str() conversion fails
+                        # AttributeError: if getattr() fails or metadata/context doesn't have .get() method
+                        # KeyError: if dict access fails unexpectedly (shouldn't happen with .get(), but defensive)
                         if self._logger.isEnabledFor(logging.DEBUG):
                             self._logger.debug(
                                 "Failed to extract stream_id from metadata/context in EditPrecisionResponseMiddleware.process",
@@ -912,7 +929,9 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                         hybrid_reasoning_disabled_map = dict(
                             hybrid_reasoning_disabled_map
                         )
-                except Exception:
+                except (TypeError, ValueError):
+                    # TypeError: if hybrid_reasoning_disabled_map is not iterable or doesn't support dict conversion
+                    # ValueError: if dict conversion fails (less common, but possible)
                     if self._logger.isEnabledFor(logging.DEBUG):
                         self._logger.debug(
                             "Failed to convert hybrid_reasoning_disabled_map to dict in EditPrecisionResponseMiddleware.process",
@@ -959,7 +978,9 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
         response_type = ""
         try:
             response_type = str((context or {}).get("response_type") or "")
-        except Exception:
+        except (TypeError, AttributeError):
+            # TypeError: if context is not dict-like (e.g., None, int, etc.)
+            # AttributeError: if context doesn't have get method (custom object without dict interface)
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
                     "Failed to extract response_type from context in EditPrecisionResponseMiddleware._update_stream_tracking",
@@ -974,7 +995,10 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                 stream_id = str(
                     metadata.get("stream_id") or (context or {}).get("stream_id") or ""
                 )
-            except Exception:
+            except (TypeError, AttributeError, KeyError):
+                # TypeError: if metadata/context is not dict-like or str() conversion fails
+                # AttributeError: if getattr() fails or metadata/context doesn't have .get() method
+                # KeyError: if dict access fails unexpectedly (shouldn't happen with .get(), but defensive)
                 if self._logger.isEnabledFor(logging.DEBUG):
                     self._logger.debug(
                         "Failed to extract stream_id from metadata/context in EditPrecisionResponseMiddleware._update_stream_tracking",
@@ -1025,7 +1049,9 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
             if isinstance(stored, list):
                 # Support legacy list storage by converting to dict with True values
                 return {str(item): {"legacy": True} for item in stored}
-        except Exception:
+        except (TypeError, AttributeError):
+            # TypeError: if isinstance() fails or dict()/list conversion fails
+            # AttributeError: if get_setting() raises AttributeError from internal getattr()
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
                     "Failed to load session flag map from app state in EditPrecisionResponseMiddleware: %s",
