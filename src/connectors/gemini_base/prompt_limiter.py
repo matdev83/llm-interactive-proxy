@@ -36,6 +36,12 @@ def serialize_part(part: Any) -> str | None:
         try:
             return json.dumps(part, ensure_ascii=False, default=str)
         except Exception:
+            # Fallback to repr if JSON serialization fails
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to serialize content part to JSON, using repr",
+                    exc_info=True,
+                )
             return repr(part)
     if isinstance(part, str | bytes):
         return part.decode("utf-8", "ignore") if isinstance(part, bytes) else part
@@ -81,6 +87,12 @@ def estimate_prompt_tokens(
                     json.dumps(generation_config, ensure_ascii=False)
                 )
             except Exception:
+                # Fallback to repr if JSON serialization fails
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to serialize generation_config to JSON, using repr",
+                        exc_info=True,
+                    )
                 prompt_text_parts.append(repr(generation_config))
 
         for extra_key in ("tools", "toolConfig", "safetySettings"):
@@ -91,6 +103,13 @@ def estimate_prompt_tokens(
                         json.dumps(extra_value, ensure_ascii=False)
                     )
                 except Exception:
+                    # Fallback to repr if JSON serialization fails
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to serialize %s to JSON, using repr",
+                            extra_key,
+                            exc_info=True,
+                        )
                     prompt_text_parts.append(repr(extra_value))
 
         if not prompt_text_parts:

@@ -46,6 +46,12 @@ class ReasoningConfigApplicator(IReasoningConfigApplicator):
                         extra_body_attr.get("_edit_precision_mode")
                     )
                 except Exception:
+                    # Fallback to False if parsing fails
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to parse _edit_precision_mode from extra_body, defaulting to False",
+                            exc_info=True,
+                        )
                     edit_precision_active = False
             else:
                 edit_precision_active = False

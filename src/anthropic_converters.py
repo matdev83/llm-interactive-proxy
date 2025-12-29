@@ -229,9 +229,10 @@ def anthropic_to_openai_request(
                 elif btype == "document":
                     # Documents are converted to text representation for now
                     # We flush text first to keep order
-                    doc_text = f"[Document: {block.get('title', 'untitled')}]"
+                    doc_text_parts = [f"[Document: {block.get('title', 'untitled')}]"]
                     if block.get("context"):
-                        doc_text += f"\nContext: {block['context']}"
+                        doc_text_parts.append(f"\nContext: {block['context']}")
+                    doc_text = "".join(doc_text_parts)
                     # If document has cache_control, we can't easily attach it to the text
                     # unless we make it a separate block.
                     if "cache_control" in block:

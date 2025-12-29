@@ -329,16 +329,18 @@ class SSESerializer:
         # Non-virtual: Inject tool_calls from typed metadata into the delta if present
         tool_calls = chunk.metadata.tool_calls
         if tool_calls:
-            # Convert ToolCall objects to dicts and sanitize internal markers
+            # PERFORMANCE: Convert ToolCall objects to dicts and sanitize internal markers
+            # Cache model_dump() result to avoid repeated calls
             sanitized_calls = []
             for tc in tool_calls:
+                # Convert to dict once
                 if hasattr(tc, "model_dump"):
                     tc_dict = tc.model_dump(exclude_none=True)
                 elif isinstance(tc, dict):
                     tc_dict = tc
                 else:
                     continue
-                # Sanitize internal markers
+                # Sanitize inline to avoid second iteration
                 sanitized_dict = {
                     k: v
                     for k, v in tc_dict.items()
@@ -455,15 +457,12 @@ class SSESerializer:
             tool_calls_to_inject = chunk.metadata.tool_calls
             if tool_calls_to_inject:
                 # Convert ToolCall objects to dicts efficiently
-                # Use list comprehension to avoid redundant hasattr/isinstance checks
-                tool_calls_dicts = [
-                    (
-                        tc.model_dump(exclude_none=True)
-                        if hasattr(tc, "model_dump")
-                        else tc
-                    )
-                    for tc in tool_calls_to_inject
-                ]
+                tool_calls_dicts: list[dict[str, Any]] = []
+                for tc in tool_calls_to_inject:
+                    if hasattr(tc, "model_dump"):
+                        tool_calls_dicts.append(tc.model_dump(exclude_none=True))
+                    elif isinstance(tc, dict):
+                        tool_calls_dicts.append(tc)
                 if tool_calls_dicts:
                     content_copy = self._inject_tool_calls_into_chunk(
                         content_copy, tool_calls_dicts
@@ -498,17 +497,27 @@ class SSESerializer:
         is_virtual = content.metadata.get("_virtual_tool_calls", False)
         tool_calls = chunk.metadata.tool_calls
         if tool_calls and not is_virtual:
-            # Convert ToolCall objects to dicts and sanitize
-            tool_calls_dicts = []
+            # PERFORMANCE: Convert ToolCall objects to dicts and sanitize in single pass
+            # to avoid double-iteration (model_dump + sanitize)
+            sanitized_calls = []
             for tc in tool_calls:
+                # Convert to dict
                 if hasattr(tc, "model_dump"):
-                    tool_calls_dicts.append(tc.model_dump(exclude_none=True))
+                    tc_dict = tc.model_dump(exclude_none=True)
                 elif isinstance(tc, dict):
-                    tool_calls_dicts.append(tc)
-            if tool_calls_dicts:
-                sanitized_calls = self._sanitize_tool_calls(tool_calls_dicts)
-                if sanitized_calls:
-                    delta["tool_calls"] = sanitized_calls
+                    tc_dict = tc
+                else:
+                    continue
+                # Sanitize inline
+                sanitized_dict = {
+                    k: v
+                    for k, v in tc_dict.items()
+                    if not k.startswith("_") and k != "extra_content"
+                }
+                if sanitized_dict:
+                    sanitized_calls.append(sanitized_dict)
+            if sanitized_calls:
+                delta["tool_calls"] = sanitized_calls
 
         # Add reasoning content if present (from typed contract)
         reasoning_value = chunk.metadata.reasoning_content
@@ -595,6 +604,12 @@ class SSESerializer:
                     try:
                         delta["content"] = binary_data.decode("latin-1")
                     except Exception:
+                        # Fallback to string representation if all decode attempts fail
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to decode binary content after UTF-8 and latin-1 attempts, using string representation",
+                                exc_info=True,
+                            )
                         delta["content"] = str(binary_data)
                 else:
                     delta["content"] = ""
