@@ -51,6 +51,8 @@ class UniversalToolExecutor:
         self._custom_tool_handlers: dict[
             str, Callable[[dict[str, Any]], Awaitable[UniversalToolResult]]
         ] = {}
+        # Cache for compiled regex patterns to avoid repeated compilation
+        self._regex_cache: dict[tuple[str, int], re.Pattern[str]] = {}
         self._register_built_in_handlers()
 
     def _register_built_in_handlers(self) -> None:
@@ -629,18 +631,24 @@ class UniversalToolExecutor:
         try:
             resolved_path = self._validate_path(search_path, check_exists=True)
 
-            # Compile regex pattern
+            # Compile regex pattern (use cache to avoid repeated compilation)
             flags = 0 if case_sensitive else re.IGNORECASE
-            try:
-                regex = re.compile(pattern, flags)
-            except re.error as e:
-                error_msg = f"Error: Invalid regex pattern: {e}"
-                return self._format_result(
-                    output=error_msg,
-                    exit_code=1,
-                    error=f"Invalid regex: {e}",
-                    tool_name="grep_files",
-                )
+            cache_key = (pattern, flags)
+            regex = self._regex_cache.get(cache_key)
+            if regex is None:
+                try:
+                    regex = re.compile(pattern, flags)
+                    # Cache compiled pattern (bounded to prevent unbounded growth)
+                    if len(self._regex_cache) < 100:  # Limit cache size
+                        self._regex_cache[cache_key] = regex
+                except re.error as e:
+                    error_msg = f"Error: Invalid regex pattern: {e}"
+                    return self._format_result(
+                        output=error_msg,
+                        exit_code=1,
+                        error=f"Invalid regex: {e}",
+                        tool_name="grep_files",
+                    )
 
             matches = []
 
@@ -943,7 +951,9 @@ class UniversalToolExecutor:
         schemas = []
 
         # Add MCP tool schemas (convert from models to dicts for backward compatibility)
-        schemas.extend([schema.model_dump() for schema in self.mcp_client.get_tool_schemas()])
+        schemas.extend(
+            [schema.model_dump() for schema in self.mcp_client.get_tool_schemas()]
+        )
 
         # Note: Built-in tools don't need schemas as they're handled internally
         # The tool discovery should come from the actual backend/client capabilities

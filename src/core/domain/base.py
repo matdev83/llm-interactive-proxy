@@ -40,7 +40,10 @@ class ValueObject(DomainModel, IValueObject, ABC):
         if not isinstance(other, self.__class__):
             return False
 
-        return self.model_dump() == other.model_dump()
+        # Avoid double model_dump() call by calling each once and comparing
+        self_dict = self.model_dump()
+        other_dict = other.model_dump()
+        return self_dict == other_dict
 
     def to_dict(self) -> dict[str, Any]:
         """Convert this value object to a dictionary."""
