@@ -438,6 +438,11 @@ class StructuredWireCapture(IWireCapture):
                     payload_str = _safe_json_dump(payload)
                     byte_count = len(payload_str.encode("utf-8"))
             except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to calculate byte count for wire capture entry",
+                        exc_info=True,
+                    )
                 byte_count = -1
 
         # Create entry using Pydantic models
@@ -542,7 +547,12 @@ class StructuredWireCapture(IWireCapture):
                     json.dumps({"fallback_entry": str(entry)}, ensure_ascii=False)
                     + "\n"
                 )
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to serialize fallback entry for structured wire capture",
+                        exc_info=True,
+                    )
                 return
 
         incoming_size = len(json_str.encode("utf-8"))

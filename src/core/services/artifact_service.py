@@ -31,6 +31,7 @@ class MessageNormalizationResult:
     message: Any
     altered: bool
 
+
 # Artifact preview constants
 _TRUNCATED_ARTIFACT_PREFIX = "<system-reminder> CRITICAL: This output was truncated."
 _TRUNCATED_ARTIFACT_PATH_RE = re.compile(r"saved to ([A-Za-z]:\\[^\s]+)", re.IGNORECASE)
@@ -118,9 +119,16 @@ class ArtifactService:
             raw_message.content = replacement  # type: ignore[attr-defined]
             return MessageNormalizationResult(message=raw_message, altered=True)
         except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to assign content in-place for tool message normalization",
+                    exc_info=True,
+                )
             return MessageNormalizationResult(message=raw_message, altered=False)
 
-    def _compress_existing_artifact_preview(self, raw_message: Any) -> MessageNormalizationResult:
+    def _compress_existing_artifact_preview(
+        self, raw_message: Any
+    ) -> MessageNormalizationResult:
         """Trim previously expanded artifact previews to keep history compact."""
         role_content = self._get_message_role_and_content(raw_message)
         if role_content.role != "tool" or not isinstance(role_content.content, str):
@@ -149,6 +157,11 @@ class ArtifactService:
             raw_message.content = summary  # type: ignore[attr-defined]
             return MessageNormalizationResult(message=raw_message, altered=True)
         except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to assign content in-place for artifact preview compression",
+                    exc_info=True,
+                )
             return MessageNormalizationResult(message=raw_message, altered=False)
 
     def _get_message_role_and_content(self, raw_message: Any) -> MessageRoleAndContent:
