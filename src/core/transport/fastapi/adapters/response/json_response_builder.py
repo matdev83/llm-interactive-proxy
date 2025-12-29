@@ -494,7 +494,22 @@ class JSONResponseBuilder:
 
         try:
             return token_diff / existing_tokens > 0.05
-        except Exception:
+        except ZeroDivisionError:
+            # existing_tokens is 0 (shouldn't happen due to early return, but defensive)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Division by zero in _should_replace_completion (existing_tokens=0)",
+                    exc_info=True,
+                )
+            return False
+        except Exception as exc:
+            # Log unexpected errors during token comparison
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Unexpected error in _should_replace_completion: %s",
+                    exc,
+                    exc_info=True,
+                )
             return False
 
     def _sanitize_status_code(self, status_code: Any) -> int:
