@@ -125,34 +125,6 @@ class EventBus(IEventBus):
                             event_type.__name__,
                             topic_str,
                         )
-            return
-
-        # Check total handler count before adding
-        total_handlers = self._count_total_handlers()
-        if total_handlers >= self._max_total_handlers:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Cannot subscribe handler: max_total_handlers (%d) reached. "
-                    "Handler accumulation detected - consider unsubscribing unused handlers.",
-                    self._max_total_handlers,
-                )
-            return
-
-        topic_handlers = self._handlers[event_type][topic]
-        if handler not in topic_handlers:
-            topic_handlers.append(handler)
-            if logger.isEnabledFor(logging.DEBUG):
-                handler_name = (
-                    handler.__name__ if hasattr(handler, "__name__") else handler
-                )
-                topic_str = f"topic={topic}" if topic else "broadcast"
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Subscribed handler %s to event type %s (%s)",
-                        handler_name,
-                        event_type.__name__,
-                        topic_str,
-                    )
 
     def unsubscribe(
         self,
@@ -284,22 +256,27 @@ class EventBus(IEventBus):
 
         Returns:
             List of handlers that should receive the event.
+
+        Thread-safety: Acquires lock to read _handlers while preventing
+        concurrent modifications by subscribe/unsubscribe. Returns a copy
+        of the handlers list to avoid holding lock during handler invocation.
         """
-        handlers: list[EventHandler[Any]] = []
+        with self._lock:
+            handlers: list[EventHandler[Any]] = []
 
-        # Get handlers for the exact type and all parent types
-        for registered_type, topic_map in self._handlers.items():
-            if issubclass(event_type, registered_type):
-                if topic is not None:
-                    # Specific topic: get topic handlers + broadcast handlers
-                    handlers.extend(topic_map.get(topic, []))
-                    handlers.extend(topic_map.get(_BROADCAST_TOPIC, []))
-                else:
-                    # No topic (broadcast publish): get ALL handlers
-                    for topic_handlers in topic_map.values():
-                        handlers.extend(topic_handlers)
+            # Get handlers for exact type and all parent types
+            for registered_type, topic_map in self._handlers.items():
+                if issubclass(event_type, registered_type):
+                    if topic is not None:
+                        # Specific topic: get topic handlers + broadcast handlers
+                        handlers.extend(topic_map.get(topic, []))
+                        handlers.extend(topic_map.get(_BROADCAST_TOPIC, []))
+                    else:
+                        # No topic (broadcast publish): get ALL handlers
+                        for topic_handlers in topic_map.values():
+                            handlers.extend(topic_handlers)
 
-        return handlers
+            return handlers[:]  # Return a copy to avoid concurrent modification
 
     async def _invoke_handler(
         self,

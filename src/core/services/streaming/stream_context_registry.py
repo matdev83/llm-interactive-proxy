@@ -44,22 +44,27 @@ class StreamBufferState:
     completed: bool = False
     has_sent_content: bool = False
     last_accessed: float = field(default_factory=time.time)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def append_reasoning_chunk(self, chunk: str) -> None:
         """Append a reasoning chunk with size limit enforcement.
 
         Args:
             chunk: Reasoning chunk text to append
+
+        Thread-safety: Acquires lock to prevent concurrent deque mutations
+        from multiple async tasks or threads.
         """
-        self.reasoning_chunks.append(chunk)
-        # Enforce size limit to prevent unbounded memory growth
-        while len(self.reasoning_chunks) > _MAX_REASONING_CHUNKS:
-            self.reasoning_chunks.popleft()
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Evicted oldest reasoning chunk (max_chunks=%d reached)",
-                    _MAX_REASONING_CHUNKS,
-                )
+        with self._lock:
+            self.reasoning_chunks.append(chunk)
+            # Enforce size limit to prevent unbounded memory growth
+            while len(self.reasoning_chunks) > _MAX_REASONING_CHUNKS:
+                self.reasoning_chunks.popleft()
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Evicted oldest reasoning chunk (max_chunks=%d reached)",
+                        _MAX_REASONING_CHUNKS,
+                    )
 
     def append_content_chunk(
         self, chunk_text: str, encoded_chunk: bytes, content_length: int
@@ -73,26 +78,30 @@ class StreamBufferState:
             chunk_text: The text content chunk
             encoded_chunk: The encoded bytes chunk
             content_length: The length of the encoded chunk
-        """
-        self.chunks.append(chunk_text)
-        self.encoded_chunks.append(encoded_chunk)
-        self.chunk_lengths.append(content_length)
-        self.byte_length += content_length
 
-        # Enforce size limit to prevent unbounded memory growth
-        # Remove oldest chunks when limit is exceeded
-        while len(self.chunks) > _MAX_CONTENT_CHUNKS:
-            self.chunks.popleft()
-            self.encoded_chunks.popleft()
-            old_length = self.chunk_lengths.popleft()
-            self.byte_length -= old_length
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Evicted oldest content chunk (max_chunks=%d reached, "
-                    "removed %d bytes)",
-                    _MAX_CONTENT_CHUNKS,
-                    old_length,
-                )
+        Thread-safety: Acquires lock to prevent concurrent deque mutations
+        from multiple async tasks or threads.
+        """
+        with self._lock:
+            self.chunks.append(chunk_text)
+            self.encoded_chunks.append(encoded_chunk)
+            self.chunk_lengths.append(content_length)
+            self.byte_length += content_length
+
+            # Enforce size limit to prevent unbounded memory growth
+            # Remove oldest chunks when limit is exceeded
+            while len(self.chunks) > _MAX_CONTENT_CHUNKS:
+                self.chunks.popleft()
+                self.encoded_chunks.popleft()
+                old_length = self.chunk_lengths.popleft()
+                self.byte_length -= old_length
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Evicted oldest content chunk (max_chunks=%d reached, "
+                        "removed %d bytes)",
+                        _MAX_CONTENT_CHUNKS,
+                        old_length,
+                    )
 
 
 @dataclass
@@ -111,22 +120,27 @@ class ToolCallBufferState:
     # Flag to track if a tool call has been detected in this stream
     # Used to prevent immediate stop without content issues
     tool_call_detected: bool = False
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def append_detected_call(self, tool_call: dict[str, Any]) -> None:
         """Append a detected tool call with size limit enforcement.
 
         Args:
             tool_call: Tool call dictionary to append
+
+        Thread-safety: Acquires lock to prevent concurrent list mutations
+        from multiple async tasks or threads.
         """
-        self.detected_calls.append(tool_call)
-        # Enforce size limit to prevent unbounded memory growth
-        while len(self.detected_calls) > _MAX_DETECTED_TOOL_CALLS:
-            self.detected_calls.pop(0)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Evicted oldest detected tool call (max_calls=%d reached)",
-                    _MAX_DETECTED_TOOL_CALLS,
-                )
+        with self._lock:
+            self.detected_calls.append(tool_call)
+            # Enforce size limit to prevent unbounded memory growth
+            while len(self.detected_calls) > _MAX_DETECTED_TOOL_CALLS:
+                self.detected_calls.pop(0)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Evicted oldest detected tool call (max_calls=%d reached)",
+                        _MAX_DETECTED_TOOL_CALLS,
+                    )
 
 
 @dataclass
@@ -154,22 +168,27 @@ class VTCBufferState:
     allowed_tools: list[str] | None = None
     vtc_enabled: bool = False
     last_accessed: float = field(default_factory=time.time)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def append_extracted_call(self, tool_call: dict[str, Any]) -> None:
         """Append an extracted tool call with size limit enforcement.
 
         Args:
             tool_call: Tool call dictionary to append
+
+        Thread-safety: Acquires lock to prevent concurrent list mutations
+        from multiple async tasks or threads.
         """
-        self.extracted_tool_calls.append(tool_call)
-        # Enforce size limit to prevent unbounded memory growth
-        while len(self.extracted_tool_calls) > _MAX_EXTRACTED_TOOL_CALLS:
-            self.extracted_tool_calls.pop(0)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Evicted oldest extracted tool call (max_calls=%d reached)",
-                    _MAX_EXTRACTED_TOOL_CALLS,
-                )
+        with self._lock:
+            self.extracted_tool_calls.append(tool_call)
+            # Enforce size limit to prevent unbounded memory growth
+            while len(self.extracted_tool_calls) > _MAX_EXTRACTED_TOOL_CALLS:
+                self.extracted_tool_calls.pop(0)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Evicted oldest extracted tool call (max_calls=%d reached)",
+                        _MAX_EXTRACTED_TOOL_CALLS,
+                    )
 
 
 @dataclass
