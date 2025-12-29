@@ -525,6 +525,13 @@ class UniversalToolExecutor:
             )
         except Exception as e:
             error_msg = f"Error reading file {file_path}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error reading file: %s",
+                    e,
+                    exc_info=True,
+                    extra={"file_path": file_path},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
@@ -601,6 +608,13 @@ class UniversalToolExecutor:
             )
         except Exception as e:
             error_msg = f"Error listing directory {dir_path}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error listing directory: %s",
+                    e,
+                    exc_info=True,
+                    extra={"dir_path": dir_path},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
@@ -694,6 +708,13 @@ class UniversalToolExecutor:
 
         except Exception as e:
             error_msg = f"Error searching for pattern {pattern}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error searching for pattern: %s",
+                    e,
+                    exc_info=True,
+                    extra={"pattern": pattern, "search_path": search_path},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
