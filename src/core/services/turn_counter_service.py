@@ -107,16 +107,17 @@ class TurnCounterService(ITurnCounterService):
 
         # Check if disabled for this session
         if state.disabled_for_session or self.config.is_session_disabled(session_id):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Assessment disabled for session {session_id}")
+            logger.debug("Assessment disabled for session %s", session_id)
             return False
 
         # Check if we've reached the turn threshold
         if state.turn_count < self.config.turn_threshold:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Session {session_id} turn count {state.turn_count} below threshold {self.config.turn_threshold}"
-                )
+            logger.debug(
+                "Session %s turn count %d below threshold %d",
+                session_id,
+                state.turn_count,
+                self.config.turn_threshold,
+            )
             return False
 
         # Check if enough turns have passed since last assessment
@@ -124,14 +125,15 @@ class TurnCounterService(ITurnCounterService):
         if state.last_check_turn > 0:
             turns_since_last_check = state.turn_count - state.last_check_turn
             if turns_since_last_check < state.current_check_interval:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Session {session_id} turns since last check {turns_since_last_check} below interval {state.current_check_interval}"
-                    )
+                logger.debug(
+                    "Session %s turns since last check %d below interval %d",
+                    session_id,
+                    turns_since_last_check,
+                    state.current_check_interval,
+                )
                 return False
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Assessment should be triggered for session {session_id}")
+        logger.debug("Assessment should be triggered for session %s", session_id)
         return True
 
     def mark_assessment_performed(self, session_id: str):
