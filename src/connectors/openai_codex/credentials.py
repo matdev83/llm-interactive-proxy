@@ -381,7 +381,8 @@ class CredentialManager(ICredentialManager):
             log_msg = "Successfully loaded OpenAI Codex credentials"
             if force_reload:
                 log_msg += " (force reload)"
-            logger.info(log_msg + ".")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("%s.", log_msg)
             return True
         except json.JSONDecodeError as e:
             logger.error("Malformed auth.json for OpenAI Codex: %s", e, exc_info=True)
