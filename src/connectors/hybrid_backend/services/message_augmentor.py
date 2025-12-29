@@ -153,7 +153,8 @@ class MessageAugmentor:
         """
         # Handle edge case: empty messages
         if not messages:
-            logger.warning("Empty message list provided for augmentation")
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Empty message list provided for augmentation")
             return messages
 
         # Check if execution backend supports system messages
