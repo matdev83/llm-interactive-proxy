@@ -89,7 +89,11 @@ class PytestCompressionService:
             if isinstance(args, list) and args:
                 try:
                     return " ".join(str(a) for a in args)
-                except Exception:
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to join args list to string: %s", e, exc_info=True
+                        )
                     return None
             return None
 
@@ -97,7 +101,11 @@ class PytestCompressionService:
         if isinstance(arguments, list):
             try:
                 return " ".join(str(a) for a in arguments)
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to join arguments list to string: %s", e, exc_info=True
+                    )
                 return None
         return None
 

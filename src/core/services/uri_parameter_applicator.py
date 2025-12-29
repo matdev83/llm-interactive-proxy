@@ -318,6 +318,7 @@ class URIParameterApplicator(IURIParameterApplicator):
                     "Failed to resolve parameters for %s: %s. Continuing without URI parameters.",
                     backend_type,
                     exc,
+                    exc_info=True,
                 )
             return None
 
@@ -353,5 +354,6 @@ class URIParameterApplicator(IURIParameterApplicator):
                     "Failed to apply resolved parameters for %s: %s. Continuing with original request.",
                     backend_type,
                     exc,
+                    exc_info=True,
                 )
             return request

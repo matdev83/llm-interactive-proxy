@@ -262,7 +262,11 @@ class StreamingContentConverter:
         if isinstance(payload, bytes | bytearray):
             try:
                 return payload.decode("utf-8")
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to decode payload as UTF-8: %s", e, exc_info=True
+                    )
                 return payload.decode("utf-8", errors="ignore")
         if isinstance(payload, str):
             return payload
@@ -287,7 +291,13 @@ class StreamingContentConverter:
             if isinstance(outbound_tokens, int | float):
                 try:
                     return int(outbound_tokens)
-                except Exception:
+                except Exception as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to convert outbound_tokens to int: %s",
+                            e,
+                            exc_info=True,
+                        )
                     continue
         return 0
 
@@ -502,7 +512,13 @@ class StreamingContentConverter:
                             force_usage_recalc = (
                                 request_context.requires_usage_recalculation()
                             )
-                        except Exception:
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Failed to check if usage recalculation is required: %s",
+                                    e,
+                                    exc_info=True,
+                                )
                             force_usage_recalc = False
 
                     if accumulated_content is None:
@@ -584,13 +600,21 @@ class StreamingContentConverter:
                         if isinstance(best_usage, dict) and isinstance(enriched, dict):
                             try:
                                 enriched["usage"] = best_usage
-                            except Exception:
+                            except Exception as e:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Failed to apply usage to enriched payload (dict): %s",
+                                        e,
+                                        exc_info=True,
+                                    )
                                 enriched = dict(enriched)
                                 enriched["usage"] = best_usage
-                    except Exception:
+                    except Exception as e:
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
-                                "Failed to merge streaming usage", exc_info=True
+                                "Failed to merge streaming usage: %s",
+                                e,
+                                exc_info=True,
                             )
 
                 # Create StreamingContent
