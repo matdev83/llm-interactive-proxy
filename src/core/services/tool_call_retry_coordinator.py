@@ -227,7 +227,14 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
                 if arguments is not None:
                     try:
                         arg_summary = json.dumps(arguments, ensure_ascii=False)
-                    except Exception:
+                    except (TypeError, ValueError) as exc:
+                        # JSON serialization failed (e.g., non-serializable types)
+                        # Fall back to string representation
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to JSON serialize tool call arguments for summary",
+                                exc_info=True,
+                            )
                         arg_summary = str(arguments)
                 descriptions.append(f"name={name} arguments={arg_summary}".strip())
             if descriptions:

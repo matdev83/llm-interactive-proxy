@@ -11,10 +11,13 @@ produces that dictionary only at the boundary from these typed internal contract
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Literal
 
 from json_repair import repair_json
 from pydantic import BaseModel, Field, RootModel
+
+logger = logging.getLogger(__name__)
 
 
 class NormalizedToolArguments(RootModel[dict[str, Any]]):
@@ -127,8 +130,13 @@ def normalize_tool_arguments(
                             outcome = "recovered"
                         except (json.JSONDecodeError, TypeError, ValueError):
                             pass
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # Log repair failures for debugging
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "JSON repair failed during tool arguments normalization",
+                            exc_info=True,
+                        )
 
         # If we have a parsed value, normalize it
         if parsed_value is not None:
