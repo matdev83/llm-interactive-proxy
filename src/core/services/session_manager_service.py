@@ -125,10 +125,11 @@ class SessionManager(ISessionManager):
                 last = session.history[-1] if session.history else None
                 last_prompt = getattr(last, "prompt", None) if last else None
             except (IndexError, AttributeError) as e:
-                logger.warning(
-                    f"Could not retrieve last prompt from session history: {e}",
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Could not retrieve last prompt from session history: {e}",
+                        exc_info=True,
+                    )
                 last_prompt = None
 
             if logger.isEnabledFor(logging.DEBUG):
