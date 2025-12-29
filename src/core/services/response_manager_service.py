@@ -11,6 +11,7 @@ import logging
 import re
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from src.core.domain.command_results import CommandResult
@@ -24,6 +25,19 @@ from src.core.interfaces.agent_response_formatter_interface import (
 from src.core.interfaces.response_manager_interface import IResponseManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PytestCompressionResult:
+    """Result of pytest output compression with metrics.
+
+    Attributes:
+        output: The compressed pytest output
+        token_count: Final token count of the compressed output
+    """
+
+    output: str
+    token_count: int
 
 
 class _AwaitableDict(dict):
@@ -353,7 +367,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
                 return _AwaitableDict(response.model_dump(exclude_none=True))
 
-    def _create_tool_calls_response(self, command_name: str, arguments: str) -> dict:
+    def _create_tool_calls_response(
+        self, command_name: str, arguments: str
+    ) -> dict[str, Any]:
         """Create a tool_calls response for Cline agents using Pydantic models."""
         from src.core.domain.chat import (
             ChatCompletionChoice,
@@ -540,10 +556,8 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 exc_info=True,
             )
 
-        filtered_message, _token_count = self._filter_pytest_output_with_metrics(
-            message
-        )
-        return filtered_message
+        compression_result = self._filter_pytest_output_with_metrics(message)
+        return compression_result.output
 
     async def _apply_pytest_compression(
         self, command_name: str, message: str, session: Session
@@ -719,7 +733,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         return filtered_output
 
-    def _filter_pytest_output_with_metrics(self, output: str) -> tuple[str, int]:
+    def _filter_pytest_output_with_metrics(
+        self, output: str
+    ) -> PytestCompressionResult:
         """Filter pytest output with detailed metrics tracking.
 
         Provides comprehensive logging about the compression process including:
@@ -732,10 +748,10 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             output: The original pytest output
 
         Returns:
-            Tuple of (compressed pytest output, final token count)
+            PytestCompressionResult containing compressed output and token count
         """
         if not output:
-            return output, 0
+            return PytestCompressionResult(output=output, token_count=0)
 
         # Calculate original metrics
         from src.core.utils.token_count import count_tokens
@@ -750,7 +766,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
 
         lines = output.strip().split("\n")
         if not lines:
-            return output, original_tokens
+            return PytestCompressionResult(output=output, token_count=original_tokens)
 
         # Always preserve the last line (summary/final output)
         last_line = lines[-1] if lines else ""
@@ -803,4 +819,4 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 f"  Lines dropped: {lines_dropped}"
             )
 
-        return filtered_output, final_tokens
+        return PytestCompressionResult(output=filtered_output, token_count=final_tokens)

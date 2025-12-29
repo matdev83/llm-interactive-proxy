@@ -7,7 +7,7 @@ for better error handling and categorization.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from src.core.domain.client_termination import ClientTerminationReason
@@ -40,8 +40,8 @@ class LLMProxyError(Exception):
         for key, value in (kwargs or {}).items():
             setattr(self, key, value)
 
-    def to_dict(self) -> dict:
-        error_dict = {
+    def to_dict(self) -> dict[str, Any]:
+        error_dict: dict[str, Any] = {
             "message": self.message,
             "type": self.__class__.__name__,
             "details": self.details,
