@@ -94,11 +94,12 @@ class DefaultSessionResolver(ISessionResolver):
                         if isinstance(eb_sid, str) and eb_sid:
                             session_id = eb_sid
                 except (AttributeError, TypeError) as e:
-                    logger.debug(
-                        "Could not extract session_id from domain_request.extra_body: %s",
-                        e,
-                        exc_info=True,
-                    )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Could not extract session_id from domain_request.extra_body: %s",
+                            e,
+                            exc_info=True,
+                        )
                     session_id = None
 
         if not session_id:
