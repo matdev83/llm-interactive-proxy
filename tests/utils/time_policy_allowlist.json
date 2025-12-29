@@ -110,6 +110,16 @@
             "target_type": "glob",
             "target": "tests/integration/memory/test_memory_pipeline.py",
             "reason": "Test helper function uses datetime.now() for creating test data timestamps. Timestamps are metadata and don't affect test logic, so real time is acceptable for test data generation."
+          },
+          {
+            "target_type": "glob",
+            "target": "tests/property/memory/test_context_relevance_threshold_properties.py",
+            "reason": "Test helper function uses datetime.now() for creating test data timestamps. Timestamps are metadata and don't affect test logic, so real time is acceptable for test data generation."
+          },
+          {
+            "target_type": "glob",
+            "target": "tests/unit/test_pyright_validation.py",
+            "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks. Cache expiration is a real-world concern that should expire after actual wall-clock time, not test-controlled time."
           }
   ]
 }

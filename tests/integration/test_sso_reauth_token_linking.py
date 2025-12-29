@@ -141,7 +141,9 @@ class TestReauthenticationTokenLinking:
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0)
             # Create an expired token
-            plaintext_token, token_hash = token_service.generate_token()
+            token_result = token_service.generate_token()
+            plaintext_token = token_result.plaintext
+            token_hash = token_result.hash
             expired_time = fixed_time - timedelta(hours=1)
 
             token_record = TokenRecord(
@@ -252,7 +254,9 @@ class TestReauthenticationTokenLinking:
         with freeze_time("2024-01-01 12:00:00"):
             fixed_time = datetime(2024, 1, 1, 12, 0, 0)
             # Create existing token (user already authenticated before)
-            plaintext_token, token_hash = token_service.generate_token()
+            token_result = token_service.generate_token()
+            plaintext_token = token_result.plaintext
+            token_hash = token_result.hash
             existing_token = TokenRecord(
                 id="existing-token-id",
                 token_hash=token_hash,
@@ -325,7 +329,9 @@ class TestReauthenticationTokenLinking:
         # Simulate successful OAuth callback and authorization
         # The web interface should create a NEW token
 
-        plaintext_token, token_hash = token_service.generate_token()
+        token_result = token_service.generate_token()
+        plaintext_token = token_result.plaintext
+        token_hash = token_result.hash
         fixed_time = datetime(2024, 1, 1, 12, 0, 0)
         new_token = TokenRecord(
             id=secrets.token_hex(16),
@@ -495,7 +501,9 @@ class TestReauthenticationTokenLinking:
         Requirements: 5.2, 9.3
         """
         # Create initial token
-        plaintext_token, token_hash = token_service.generate_token()
+        token_result = token_service.generate_token()
+        plaintext_token = token_result.plaintext
+        token_hash = token_result.hash
         fixed_time = datetime(2024, 1, 1, 12, 0, 0)
         token_record = TokenRecord(
             id="persistent-token",

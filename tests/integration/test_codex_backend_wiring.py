@@ -1038,29 +1038,30 @@ async def test_usage_service_failure_does_not_affect_response(auth_dir: Path):
     assert envelope.usage is not None
 
     # Wrap response for usage (should not raise exception even if usage tracking fails)
-    import time
+    from tests.utils.fake_clock import FakeClockContext
 
-    start_time = time.time()
-    try:
-        wrapped = await orchestrator.wrap_response_for_usage(
-            result=envelope,
-            outbound_tokens=10,
-            ctp_record_id="test-ctp-id",
-            ptb_record_id="test-ptb-id",
-            start_time=start_time,
-            context=None,
-            backend_type="openai-codex",
-            effective_model="gpt-5.1-codex",
-        )
-    except Exception as e:
-        pytest.fail(f"Usage tracking failure should not propagate: {e}")
+    async with FakeClockContext() as clock:
+        start_time = clock.time()
+        try:
+            wrapped = await orchestrator.wrap_response_for_usage(
+                result=envelope,
+                outbound_tokens=10,
+                ctp_record_id="test-ctp-id",
+                ptb_record_id="test-ptb-id",
+                start_time=start_time,
+                context=None,
+                backend_type="openai-codex",
+                effective_model="gpt-5.1-codex",
+            )
+        except Exception as e:
+            pytest.fail(f"Usage tracking failure should not propagate: {e}")
 
-    # Verify envelope is still valid after usage recording attempt
-    assert wrapped is envelope
-    assert wrapped.content is not None
-    assert wrapped.status_code == 200
-    assert wrapped.usage is not None
-    assert wrapped.metadata is not None
+        # Verify envelope is still valid after usage recording attempt
+        assert wrapped is envelope
+        assert wrapped.content is not None
+        assert wrapped.status_code == 200
+        assert wrapped.usage is not None
+        assert wrapped.metadata is not None
 
     # Verify usage tracking service was attempted (but failed silently)
     assert usage_tracking_service.record_response.called
