@@ -83,7 +83,13 @@ def _extract_command(arguments: Any) -> str | None:
         if isinstance(args, list) and args:
             try:
                 return " ".join(str(a) for a in args)
-            except Exception:
+            except (TypeError, ValueError, MemoryError):
+                # Log unexpected errors during string conversion
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to convert args list to command string",
+                        exc_info=True,
+                    )
                 return None
         if isinstance(args, str) and args.strip():
             return args
@@ -93,7 +99,13 @@ def _extract_command(arguments: Any) -> str | None:
     if isinstance(arguments, list | tuple):
         try:
             return " ".join(str(a) for a in arguments)
-        except Exception:
+        except (TypeError, ValueError, MemoryError):
+            # Log unexpected errors during string conversion
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to convert arguments list/tuple to command string",
+                    exc_info=True,
+                )
             return None
     return None
 

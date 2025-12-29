@@ -218,9 +218,20 @@ class RateLimitErrorHandler(BaseErrorHandler):
                             parsed = self._parse_duration_string(reset_delay)
                             if parsed is not None:
                                 return parsed
+        except (TypeError, AttributeError, KeyError, IndexError):
+            # Expected errors when parsing complex structures - log at debug level
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to parse Google-style nested error details for quota reset delay",
+                    exc_info=True,
+                )
         except Exception:
-            # Be defensive parsing complex structures
-            pass
+            # Log unexpected errors during error structure parsing
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error while parsing error details for quota reset delay",
+                    exc_info=True,
+                )
 
         # Check for retry_after directly on error
         retry_after_direct = getattr(error, "retry_after", None)
