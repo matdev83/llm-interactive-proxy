@@ -788,19 +788,20 @@ async def test_usage_accounting_can_extract_usage_from_envelope(auth_dir: Path):
     assert usage_dict["total_tokens"] == 30
 
     # Verify orchestrator can extract and process usage
-    import time
+    from tests.utils.fake_clock import FakeClockContext
 
-    start_time = time.time()
-    wrapped = await orchestrator.wrap_response_for_usage(
-        result=envelope,
-        outbound_tokens=10,
-        ctp_record_id="test-ctp-id",
-        ptb_record_id="test-ptb-id",
-        start_time=start_time,
-        context=None,
-        backend_type="openai-codex",
-        effective_model="gpt-5.1-codex",
-    )
+    async with FakeClockContext() as clock:
+        start_time = clock.time()
+        wrapped = await orchestrator.wrap_response_for_usage(
+            result=envelope,
+            outbound_tokens=10,
+            ctp_record_id="test-ctp-id",
+            ptb_record_id="test-ptb-id",
+            start_time=start_time,
+            context=None,
+            backend_type="openai-codex",
+            effective_model="gpt-5.1-codex",
+        )
 
     # Verify envelope is still valid
     assert wrapped is envelope

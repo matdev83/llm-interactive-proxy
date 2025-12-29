@@ -243,6 +243,7 @@ class TestReauthenticationTokenLinking:
         """
         # Setup
         db_manager = DatabaseManager(sso_database)
+        await db_manager.initialize_schema()  # Ensure schema is initialized
         token_repo = TokenRepository(sso_database)
         RateLimitService(db_manager)
 
@@ -306,6 +307,8 @@ class TestReauthenticationTokenLinking:
         Requirements: 3.1, 3.3
         """
         # Setup
+        db_manager = DatabaseManager(sso_database)
+        await db_manager.initialize_schema()  # Ensure schema is initialized
         token_repo = TokenRepository(sso_database)
 
         # User requests a login token (no agent_token_id - new user)
@@ -356,6 +359,8 @@ class TestReauthenticationTokenLinking:
         Requirements: 4.1, 5.1
         """
         # Setup
+        db_manager = DatabaseManager(sso_database)
+        await db_manager.initialize_schema()  # Ensure schema is initialized
         token_repo = TokenRepository(sso_database)
 
         # Create token for User A

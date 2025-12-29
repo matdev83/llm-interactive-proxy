@@ -16,11 +16,15 @@ from src.core.memory.sqlite_repository import MemoryRepository
 from src.core.memory.summary_generator import SummaryGenerator
 
 
-def _create_interaction(content: str, role: str) -> CapturedInteraction:
+def _create_interaction(
+    content: str, role: str, timestamp: datetime | None = None
+) -> CapturedInteraction:
+    if timestamp is None:
+        timestamp = datetime.now(timezone.utc)
     return CapturedInteraction(
         role=role,
         content=content,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=timestamp,
     )
 
 
@@ -94,74 +98,78 @@ async def test_memory_end_to_end_pipeline() -> None:
 
 @pytest.mark.asyncio
 async def test_memory_pipeline_deterministic_tool_events() -> None:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = str(Path(tmpdir) / "memory.sqlite3")
-        config = MemoryConfiguration(
-            available=True,
-            database_path=db_path,
-            summarization_delay_seconds=0,
-            require_project_discovery=False,
-        )
-        repo = MemoryRepository(config)
-        memory_service = MemoryService(config=config, repository=repo)
+    from freezegun import freeze_time
 
-        async def llm_caller(prompt: str, *, max_tokens: int | None = None) -> str:
-            return _summary_xml("Tool Events Session")
+    with freeze_time("2024-01-01 12:00:00"):
+        fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = str(Path(tmpdir) / "memory.sqlite3")
+            config = MemoryConfiguration(
+                available=True,
+                database_path=db_path,
+                summarization_delay_seconds=0,
+                require_project_discovery=False,
+            )
+            repo = MemoryRepository(config)
+            memory_service = MemoryService(config=config, repository=repo)
 
-        generator = SummaryGenerator(
-            config=config, repository=repo, llm_caller=llm_caller
-        )
-        worker = AnalysisWorker(
-            memory_service=memory_service,
-            summary_generator=generator,
-            config=config,
-        )
+            async def llm_caller(prompt: str, *, max_tokens: int | None = None) -> str:
+                return _summary_xml("Tool Events Session")
 
-        await memory_service.enable_for_session(
-            "sess-2", "user-1", project_root="/proj"
-        )
-        await memory_service.capture_interaction(
-            "sess-2", _create_interaction("Edit file", "user")
-        )
+            generator = SummaryGenerator(
+                config=config, repository=repo, llm_caller=llm_caller
+            )
+            worker = AnalysisWorker(
+                memory_service=memory_service,
+                summary_generator=generator,
+                config=config,
+            )
 
-        now = datetime.now(timezone.utc)
-        await memory_service.record_tool_event(
-            "sess-2",
-            FileEditEvent(
-                path="src/app.py",
-                action="modified",
-                tool="apply_patch",
-                timestamp=now,
-            ),
-        )
-        await memory_service.record_tool_event(
-            "sess-2",
-            GitCommitEvent(
-                commit_hash="abc123def456",
-                message="Update app",
-                branch="main",
-                timestamp=now,
-            ),
-        )
+            await memory_service.enable_for_session(
+                "sess-2", "user-1", project_root="/proj"
+            )
+            await memory_service.capture_interaction(
+                "sess-2", _create_interaction("Edit file", "user", timestamp=fixed_time)
+            )
 
-        await memory_service.mark_session_complete("sess-2")
-        session_id = await memory_service.get_pending_analysis_session()
-        assert session_id == "sess-2"
-        await worker._process_session(session_id)
+            now = fixed_time
+            await memory_service.record_tool_event(
+                "sess-2",
+                FileEditEvent(
+                    path="src/app.py",
+                    action="modified",
+                    tool="apply_patch",
+                    timestamp=now,
+                ),
+            )
+            await memory_service.record_tool_event(
+                "sess-2",
+                GitCommitEvent(
+                    commit_hash="abc123def456",
+                    message="Update app",
+                    branch="main",
+                    timestamp=now,
+                ),
+            )
 
-        summaries = await repo.get_recent_sessions("user-1", limit=5)
-        assert len(summaries) == 1
-        summary = summaries[0]
+            await memory_service.mark_session_complete("sess-2")
+            session_id = await memory_service.get_pending_analysis_session()
+            assert session_id == "sess-2"
+            await worker._process_session(session_id)
 
-        file_paths = {item.path for item in summary.modified_files}
-        assert "src/app.py" in file_paths
+            summaries = await repo.get_recent_sessions("user-1", limit=5)
+            assert len(summaries) == 1
+            summary = summaries[0]
 
-        commit_refs = {
-            item.ref for item in summary.git_operations if item.type == "commit"
-        }
-        assert "abc123def456" in commit_refs
+            file_paths = {item.path for item in summary.modified_files}
+            assert "src/app.py" in file_paths
 
-        await repo.close()
+            commit_refs = {
+                item.ref for item in summary.git_operations if item.type == "commit"
+            }
+            assert "abc123def456" in commit_refs
+
+            await repo.close()
 
 
 @pytest.mark.asyncio

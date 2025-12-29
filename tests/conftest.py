@@ -343,6 +343,8 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untype
     if _session_loop is not None:
         try:
             asyncio.set_event_loop(None)
+            if not _session_loop.is_closed() and not _session_loop.is_running():
+                _session_loop.close()
         finally:
             with contextlib.suppress(Exception):
                 asyncio.set_event_loop_policy(_ORIGINAL_EVENT_LOOP_POLICY)

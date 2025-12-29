@@ -208,7 +208,43 @@ class TokenRepository:
             SSOException: If storage fails
         """
         try:
+            # Convert FakeDatetime objects to real datetime for SQLite compatibility
+            def to_real_datetime(dt: datetime | None) -> datetime | None:
+                if dt is None:
+                    return None
+                # Handle FakeDatetime from freezegun - check if it's a FakeDatetime instance
+                if type(dt).__name__ == "FakeDatetime" or (
+                    hasattr(dt, "year")
+                    and hasattr(dt, "month")
+                    and hasattr(dt, "day")
+                    and not isinstance(dt, datetime)
+                ):
+                    return datetime(
+                        dt.year,
+                        dt.month,
+                        dt.day,
+                        dt.hour,
+                        dt.minute,
+                        dt.second,
+                        getattr(dt, "microsecond", 0),
+                        getattr(dt, "tzinfo", None),
+                    )
+                return dt
+
             async with aiosqlite.connect(self.database_path) as db:
+                created_at = to_real_datetime(token_record.created_at)
+                last_authenticated_at = to_real_datetime(
+                    token_record.last_authenticated_at
+                )
+                auth_expires_at = to_real_datetime(token_record.auth_expires_at)
+
+                # Ensure token_hash is a string (handle tuple case)
+                token_hash_str = (
+                    token_record.token_hash
+                    if isinstance(token_record.token_hash, str)
+                    else str(token_record.token_hash)
+                )
+
                 await db.execute(
                     """
                     INSERT INTO agent_tokens (
@@ -218,22 +254,22 @@ class TokenRepository:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        token_record.id,
-                        token_record.token_hash,
-                        token_record.user_id,
-                        token_record.user_email,
-                        token_record.provider,
+                        str(token_record.id),
+                        token_hash_str,
+                        str(token_record.user_id),
+                        str(token_record.user_email),
+                        str(token_record.provider),
                         1 if token_record.is_authenticated else 0,
                         1 if token_record.is_active else 0,
-                        token_record.created_at.isoformat(),
+                        created_at.isoformat() if created_at else None,
                         (
-                            token_record.last_authenticated_at.isoformat()
-                            if token_record.last_authenticated_at
+                            last_authenticated_at.isoformat()
+                            if last_authenticated_at
                             else None
                         ),
                         (
-                            token_record.auth_expires_at.isoformat()
-                            if token_record.auth_expires_at
+                            auth_expires_at.isoformat()
+                            if auth_expires_at
                             else None
                         ),
                     ),

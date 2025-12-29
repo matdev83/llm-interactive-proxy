@@ -5,7 +5,10 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock
 
-from src.core.services.steering_leak_protection import SteeringLeakProtector
+from src.core.services.steering_leak_protection import (
+    DictSanitizationResult,
+    SteeringLeakProtector,
+)
 from src.core.transport.fastapi.adapters.sanitization.json_sanitizer import (
     JSONSanitizer,
 )
@@ -93,7 +96,9 @@ class TestJSONSanitizer:
         """Test that steering leak detection logs security warnings."""
         mock_protector = MagicMock(spec=SteeringLeakProtector)
         mock_protector.enabled = True
-        mock_protector.sanitize_dict.return_value = ({"safe": "content"}, True)
+        mock_protector.sanitize_dict.return_value = DictSanitizationResult(
+            data={"safe": "content"}, had_leak=True
+        )
 
         sanitizer = JSONSanitizer(protector=mock_protector)
         content = {"steering_message": "leaked", "normal": "data"}
@@ -107,7 +112,9 @@ class TestJSONSanitizer:
         """Test that DI injection works via constructor."""
         mock_protector = MagicMock(spec=SteeringLeakProtector)
         mock_protector.enabled = True
-        mock_protector.sanitize_dict.return_value = ({"test": "data"}, False)
+        mock_protector.sanitize_dict.return_value = DictSanitizationResult(
+            data={"test": "data"}, had_leak=False
+        )
 
         sanitizer = JSONSanitizer(protector=mock_protector)
         result = sanitizer.sanitize({"test": "data"})

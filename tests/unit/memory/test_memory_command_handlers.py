@@ -13,7 +13,7 @@ from src.core.commands.handlers.memory_command_handlers import (
 )
 from src.core.commands.models import Command
 from src.core.domain.session import Session
-from src.core.memory.service import SessionMemoryState
+from src.core.memory.service import RequeueResult, SessionMemoryState
 
 
 def create_mock_session(
@@ -232,7 +232,7 @@ class TestMemoryRequeueCommandHandler:
     async def test_requeue_succeeds(self) -> None:
         memory_service = MagicMock()
         memory_service.requeue_session_summary = AsyncMock(
-            return_value=(True, "queued")
+            return_value=RequeueResult(success=True, message="queued")
         )
 
         handler = MemoryRequeueCommandHandler(memory_service=memory_service)

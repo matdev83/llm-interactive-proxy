@@ -20,7 +20,7 @@ class LintFinding:
     message: str
 
 
-_STALL_LINT_CACHE_VERSION = 6
+_STALL_LINT_CACHE_VERSION = 7
 
 _STALL_LINT_IGNORE_RE = re.compile(
     r"stall-lint:\s*ignore\s*=\s*([A-Za-z0-9_,*\s-]+)", re.IGNORECASE
@@ -218,6 +218,10 @@ def _scan_repo_for_stalls(
         )
         run_until_complete_visitor.visit(tree)
         file_findings.extend(run_until_complete_visitor.findings)
+
+        thread_join_visitor = _ThreadJoinTimeoutVisitor(file_path=file_path)
+        thread_join_visitor.visit(tree)
+        file_findings.extend(thread_join_visitor.findings)
 
         thread_lock_await_visitor = _ThreadLockAwaitVisitor(file_path=file_path)
         thread_lock_await_visitor.visit(tree)
@@ -596,6 +600,265 @@ class _WatchdogShutdownVisitor(ast.NodeVisitor):
             parts.append(func.id)
             return ".".join(reversed(parts))
         return None
+
+    def _add(self, node: ast.AST, *, rule: str, message: str) -> None:
+        line = getattr(node, "lineno", 1)
+        self.findings.append(
+            LintFinding(
+                file=str(self._file_path).replace("\\", "/"),
+                line=int(line),
+                rule=rule,
+                message=message,
+            )
+        )
+
+
+class _ThreadJoinTimeoutVisitor(ast.NodeVisitor):
+    """Detect Thread.join(timeout=...) without daemon or is_alive verification."""
+
+    def __init__(self, *, file_path: Path) -> None:
+        self._file_path = file_path
+        self.findings: list[LintFinding] = []
+        self._thread_daemon: dict[str, bool] = {}
+        self._list_daemon: dict[str, bool] = {}
+        self._join_calls: list[tuple[ast.Call, str, bool]] = []
+        self._is_alive_targets: set[str] = set()
+        self._loop_thread_daemon: list[dict[str, bool]] = []
+        self._thread_module_names: set[str] = {"threading"}
+        self._thread_class_names: set[str] = {"Thread"}
+
+    def visit_Module(self, node: ast.Module) -> None:  # noqa: N802
+        self.generic_visit(node)
+        for call, target_name, is_daemon in self._join_calls:
+            if is_daemon:
+                continue
+            if target_name in self._is_alive_targets:
+                continue
+            self._add(
+                call,
+                rule="STALL040",
+                message=(
+                    "Thread.join(timeout=...) used without daemon=True or "
+                    "is_alive() verification. This can leave background threads "
+                    "running and stall xdist shutdown."
+                ),
+            )
+
+    def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
+        for alias in node.names:
+            if alias.name == "threading":
+                self._thread_module_names.add(alias.asname or alias.name)
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:  # noqa: N802
+        if node.module == "threading":
+            for alias in node.names:
+                if alias.name == "Thread":
+                    self._thread_class_names.add(alias.asname or alias.name)
+        self.generic_visit(node)
+
+    def visit_For(self, node: ast.For) -> None:  # noqa: N802
+        loop_daemon: dict[str, bool] = {}
+        if isinstance(node.target, ast.Name) and isinstance(node.iter, ast.Name):
+            list_daemon = self._list_daemon.get(node.iter.id)
+            if list_daemon is not None:
+                loop_daemon[node.target.id] = list_daemon
+        if loop_daemon:
+            self._loop_thread_daemon.append(loop_daemon)
+        try:
+            self.generic_visit(node)
+        finally:
+            if loop_daemon:
+                self._loop_thread_daemon.pop()
+
+    def visit_AsyncFor(self, node: ast.AsyncFor) -> None:  # noqa: N802
+        loop_daemon: dict[str, bool] = {}
+        if isinstance(node.target, ast.Name) and isinstance(node.iter, ast.Name):
+            list_daemon = self._list_daemon.get(node.iter.id)
+            if list_daemon is not None:
+                loop_daemon[node.target.id] = list_daemon
+        if loop_daemon:
+            self._loop_thread_daemon.append(loop_daemon)
+        try:
+            self.generic_visit(node)
+        finally:
+            if loop_daemon:
+                self._loop_thread_daemon.pop()
+
+    def visit_Assign(self, node: ast.Assign) -> None:  # noqa: N802
+        thread_daemon = self._extract_thread_daemon(node.value)
+        if thread_daemon is not None:
+            for target in node.targets:
+                name = self._extract_name(target)
+                if name is not None:
+                    self._thread_daemon[name] = thread_daemon
+
+        list_daemon = self._extract_thread_list_daemon(node.value)
+        if list_daemon is not None:
+            for target in node.targets:
+                name = self._extract_name(target)
+                if name is not None:
+                    self._list_daemon[name] = list_daemon
+
+        for target in node.targets:
+            if (
+                isinstance(target, ast.Attribute)
+                and target.attr == "daemon"
+                and isinstance(target.value, ast.Name)
+            ):
+                daemon_value = self._extract_bool_constant(node.value)
+                if daemon_value is not None:
+                    self._thread_daemon[target.value.id] = daemon_value
+
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:  # noqa: N802
+        thread_daemon = self._extract_thread_daemon(node.value)
+        if thread_daemon is not None:
+            name = self._extract_name(node.target)
+            if name is not None:
+                self._thread_daemon[name] = thread_daemon
+
+        list_daemon = self._extract_thread_list_daemon(node.value)
+        if list_daemon is not None:
+            name = self._extract_name(node.target)
+            if name is not None:
+                self._list_daemon[name] = list_daemon
+
+        if (
+            isinstance(node.target, ast.Attribute)
+            and node.target.attr == "daemon"
+            and isinstance(node.target.value, ast.Name)
+        ):
+            daemon_value = self._extract_bool_constant(node.value)
+            if daemon_value is not None:
+                self._thread_daemon[node.target.value.id] = daemon_value
+
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+        if self._is_is_alive_call(node):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                target_name = self._extract_name(func.value)
+                if target_name is not None:
+                    self._is_alive_targets.add(target_name)
+
+        if self._is_set_daemon_call(node):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                target_name = self._extract_name(func.value)
+                daemon_value = self._extract_bool_constant(
+                    node.args[0] if node.args else None
+                )
+                if target_name is not None and daemon_value is not None:
+                    self._thread_daemon[target_name] = daemon_value
+
+        if self._is_list_append_call(node):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                list_name = self._extract_name(func.value)
+                if list_name is not None and node.args:
+                    daemon_value = self._extract_thread_daemon(node.args[0])
+                    if daemon_value is None and isinstance(node.args[0], ast.Name):
+                        daemon_value = self._thread_daemon.get(node.args[0].id)
+                    if daemon_value is not None:
+                        existing = self._list_daemon.get(list_name)
+                        self._list_daemon[list_name] = (
+                            daemon_value
+                            if existing is None
+                            else existing and daemon_value
+                        )
+
+        if self._is_join_call(node) and self._has_join_timeout(node):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                target_name = self._extract_name(func.value)
+                if target_name is not None:
+                    daemon_value = self._resolve_daemon(target_name)
+                    if daemon_value is not None:
+                        self._join_calls.append((node, target_name, daemon_value))
+
+        self.generic_visit(node)
+
+    def _is_thread_call(self, node: ast.AST) -> bool:
+        if not isinstance(node, ast.Call):
+            return False
+        func = node.func
+        if isinstance(func, ast.Attribute):
+            return (
+                isinstance(func.value, ast.Name)
+                and func.value.id in self._thread_module_names
+                and func.attr == "Thread"
+            )
+        return isinstance(func, ast.Name) and func.id in self._thread_class_names
+
+    def _extract_thread_daemon(self, node: ast.AST | None) -> bool | None:
+        if not isinstance(node, ast.Call) or not self._is_thread_call(node):
+            return None
+        for kw in node.keywords:
+            if kw.arg == "daemon":
+                daemon_value = self._extract_bool_constant(kw.value)
+                return bool(daemon_value)
+        return False
+
+    def _extract_thread_list_daemon(self, node: ast.AST | None) -> bool | None:
+        if isinstance(node, ast.ListComp):
+            return self._extract_thread_daemon(node.elt)
+        if isinstance(node, ast.List):
+            if not node.elts:
+                return None
+            daemons: list[bool] = []
+            for elt in node.elts:
+                daemon_value = self._extract_thread_daemon(elt)
+                if daemon_value is None:
+                    return None
+                daemons.append(daemon_value)
+            return all(daemons)
+        return None
+
+    def _extract_bool_constant(self, node: ast.AST | None) -> bool | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+            return node.value
+        return None
+
+    def _extract_name(self, node: ast.AST) -> str | None:
+        if isinstance(node, ast.Name):
+            return node.id
+        return None
+
+    def _resolve_daemon(self, name: str) -> bool | None:
+        for mapping in reversed(self._loop_thread_daemon):
+            if name in mapping:
+                return mapping[name]
+        return self._thread_daemon.get(name)
+
+    def _is_join_call(self, node: ast.Call) -> bool:
+        return isinstance(node.func, ast.Attribute) and node.func.attr == "join"
+
+    def _has_join_timeout(self, node: ast.Call) -> bool:
+        for kw in node.keywords:
+            if kw.arg == "timeout":
+                return not (
+                    isinstance(kw.value, ast.Constant) and kw.value.value is None
+                )
+        if node.args:
+            return not (
+                isinstance(node.args[0], ast.Constant) and node.args[0].value is None
+            )
+        return False
+
+    def _is_is_alive_call(self, node: ast.Call) -> bool:
+        return isinstance(node.func, ast.Attribute) and node.func.attr in {
+            "is_alive",
+            "isAlive",
+        }
+
+    def _is_set_daemon_call(self, node: ast.Call) -> bool:
+        return isinstance(node.func, ast.Attribute) and node.func.attr == "setDaemon"
+
+    def _is_list_append_call(self, node: ast.Call) -> bool:
+        return isinstance(node.func, ast.Attribute) and node.func.attr == "append"
 
     def _add(self, node: ast.AST, *, rule: str, message: str) -> None:
         line = getattr(node, "lineno", 1)
@@ -1088,6 +1351,64 @@ class SomethingWatcher:
     visitor = _WatchdogShutdownVisitor(file_path=file_path)
     visitor.visit(tree)
     assert "STALL010" in {finding.rule for finding in visitor.findings}
+
+
+def test_stall_linter_detects_thread_join_timeout_without_check(
+    tmp_path: Path,
+) -> None:
+    sample = """\
+import threading
+
+
+def test_example():
+    thread = threading.Thread(target=lambda: None)
+    thread.start()
+    thread.join(timeout=1.0)
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _ThreadJoinTimeoutVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert "STALL040" in {finding.rule for finding in visitor.findings}
+
+
+def test_stall_linter_allows_thread_join_timeout_with_is_alive_check(
+    tmp_path: Path,
+) -> None:
+    sample = """\
+import threading
+
+
+def test_example():
+    thread = threading.Thread(target=lambda: None)
+    thread.start()
+    thread.join(timeout=1.0)
+    assert not thread.is_alive()
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _ThreadJoinTimeoutVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert visitor.findings == []
+
+
+def test_stall_linter_allows_thread_join_timeout_with_daemon(
+    tmp_path: Path,
+) -> None:
+    sample = """\
+import threading
+
+
+def test_example():
+    thread = threading.Thread(target=lambda: None, daemon=True)
+    thread.start()
+    thread.join(timeout=1.0)
+"""
+    file_path = tmp_path / "sample.py"
+    tree = ast.parse(sample, filename=str(file_path))
+    visitor = _ThreadJoinTimeoutVisitor(file_path=file_path)
+    visitor.visit(tree)
+    assert visitor.findings == []
 
 
 def test_stall_linter_detects_shutdown_order_issue(tmp_path: Path) -> None:

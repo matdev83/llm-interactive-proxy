@@ -105,6 +105,11 @@
             "target_type": "glob",
             "target": "tests/streaming_regression/emulators/base_emulator.py",
             "reason": "Emulator infrastructure that records timestamps for replay. Recording actual timestamps is necessary for accurate replay timing simulation."
+          },
+          {
+            "target_type": "glob",
+            "target": "tests/integration/memory/test_memory_pipeline.py",
+            "reason": "Test helper function uses datetime.now() for creating test data timestamps. Timestamps are metadata and don't affect test logic, so real time is acceptable for test data generation."
           }
   ]
 }
