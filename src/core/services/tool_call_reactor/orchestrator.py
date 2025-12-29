@@ -259,7 +259,9 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
 
         # Process each new tool call through the reactor
         for tool_call in new_tool_calls:
-            signature = build_tool_call_signature(tool_call.model_dump())
+            # Cache model_dump() to avoid repeated calls per tool call (used for signature + write-back)
+            tool_call_dict = tool_call.model_dump()
+            signature = build_tool_call_signature(tool_call_dict)
 
             # Double-check if already processed (defensive)
             if await self._deduplicator.is_processed(stream_key, signature):
@@ -313,7 +315,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
             # Write back modified arguments if fixups were applied
             if envelope.was_modified_by_fixups:
                 self._write_back_modified_arguments(
-                    tool_call.model_dump(), envelope.normalized_arguments.root
+                    tool_call_dict, envelope.normalized_arguments.root
                 )
 
             # Build ToolCallContext (convert normalized args to dict at boundary)

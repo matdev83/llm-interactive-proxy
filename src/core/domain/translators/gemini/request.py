@@ -119,7 +119,11 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
         if has_tool_calls:
             try:
                 for tc in message.tool_calls or []:
-                    tc_dict = tc if isinstance(tc, dict) else tc.model_dump()
+                    # Cache model_dump() to avoid repeated calls per tool call
+                    if isinstance(tc, dict):
+                        tc_dict = tc
+                    else:
+                        tc_dict = tc.model_dump()
                     fn = (tc_dict.get("function") or {}).get("name", "")
                     args_raw = (tc_dict.get("function") or {}).get("arguments", "")
                     if "id" in tc_dict:

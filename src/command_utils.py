@@ -110,9 +110,12 @@ def get_text_for_command_check(content: Any) -> str:
     if isinstance(content, str):
         text_to_check = content
     elif isinstance(content, list):
+        # Build list first, then join (more efficient than repeated += concatenation)
+        text_parts = []
         for part in content:
             if isinstance(part, MessageContentPartText):
-                text_to_check += part.text + " "  # Add space to simulate separate words
+                text_parts.append(part.text)
+        text_to_check = " ".join(text_parts) + (" " if text_parts else "")
 
     # CRITICAL FIX: Handle tool call results with embedded feedback
     if is_tool_call_result(text_to_check):
