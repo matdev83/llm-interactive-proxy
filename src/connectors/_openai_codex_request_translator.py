@@ -28,6 +28,19 @@ class _PendingToolCallRecord:
     command_text: str
 
 
+@dataclass(frozen=True, slots=True)
+class _ToolCallNameAndArguments:
+    """Result of extracting tool call name and arguments.
+
+    Attributes:
+        name: The tool call name, or None if not found.
+        arguments: The tool call arguments as a JSON string.
+    """
+
+    name: str | None
+    arguments: str
+
+
 def _normalize_command_text(command_text: str | None) -> str:
     if not command_text:
         return ""
@@ -331,23 +344,27 @@ class CodexRequestTranslator:
             if function is None and isinstance(tool_call, dict):
                 function = tool_call.get("function")
 
-            name, arguments = self._extract_tool_call_name_and_arguments(function)
+            result = self._extract_tool_call_name_and_arguments(function)
             call_id = call_id or f"call_{uuid.uuid4().hex[:16]}"
             matcher.register(
-                call_id, name or "", _extract_command_text_from_arguments(arguments)
+                call_id,
+                result.name or "",
+                _extract_command_text_from_arguments(result.arguments),
             )
 
             input_items.append(
                 {
                     "type": "function_call",
                     "call_id": call_id,
-                    "name": name or "",
-                    "arguments": arguments,
+                    "name": result.name or "",
+                    "arguments": result.arguments,
                 }
             )
 
     @staticmethod
-    def _extract_tool_call_name_and_arguments(function: Any) -> tuple[str | None, str]:
+    def _extract_tool_call_name_and_arguments(
+        function: Any,
+    ) -> _ToolCallNameAndArguments:
         name = None
         arguments = None
         if function is not None:
@@ -359,7 +376,7 @@ class CodexRequestTranslator:
                 arguments = getattr(function, "arguments", None)
         if arguments is None:
             arguments = "{}"
-        return name, str(arguments)
+        return _ToolCallNameAndArguments(name=name, arguments=str(arguments))
 
     def _append_empty_tool_output_if_needed(
         self,
@@ -422,14 +439,14 @@ class CodexRequestTranslator:
                 if function is None and isinstance(tool_call, dict):
                     function = tool_call.get("function")
 
-                name, arguments = self._extract_tool_call_name_and_arguments(function)
+                result = self._extract_tool_call_name_and_arguments(function)
                 call_id = call_id or f"call_{uuid.uuid4().hex[:16]}"
                 input_items.append(
                     {
                         "type": "function_call",
                         "call_id": call_id,
-                        "name": name or "",
-                        "arguments": arguments,
+                        "name": result.name or "",
+                        "arguments": result.arguments,
                     }
                 )
 

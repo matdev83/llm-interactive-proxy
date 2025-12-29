@@ -11,6 +11,7 @@ Requirements satisfied:
 import json
 import time
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -23,6 +24,19 @@ from src.connectors.hybrid_backend.protocols import (
 )
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningTexts:
+    """Result of preparing reasoning texts for different formats.
+
+    Attributes:
+        tagged: The reasoning text with backend-specific tags/markup.
+        plain: The plain text representation without tags/markup.
+    """
+
+    tagged: str
+    plain: str
 
 
 class ResponseBuilder:
@@ -42,18 +56,18 @@ class ResponseBuilder:
 
     def _prepare_reasoning_texts(
         self, reasoning_output: str, backend: str
-    ) -> tuple[str, str]:
+    ) -> ReasoningTexts:
         """Return backend-tagged reasoning and plain text representations."""
         if not reasoning_output:
-            return "", ""
+            return ReasoningTexts(tagged="", plain="")
 
         tagged = self._markup_processor.format_for_model(reasoning_output, backend)
         plain = self._markup_processor.extract_plain_text(tagged) if tagged else ""
 
         if not plain:
-            return "", ""
+            return ReasoningTexts(tagged="", plain="")
 
-        return tagged, plain
+        return ReasoningTexts(tagged=tagged, plain=plain)
 
     def build_reasoning_chunk(
         self,
@@ -71,11 +85,11 @@ class ResponseBuilder:
         Returns:
             ProcessedResponse chunk or None if no reasoning content
         """
-        formatted, plain_reasoning = self._prepare_reasoning_texts(
+        reasoning_texts = self._prepare_reasoning_texts(
             reasoning_output, reasoning_backend
         )
 
-        if not plain_reasoning:
+        if not reasoning_texts.plain:
             return None
 
         reasoning_metadata: dict[str, Any] = {
@@ -86,8 +100,8 @@ class ResponseBuilder:
 
         delta_payload: dict[str, Any] = {
             "role": "assistant",
-            "reasoning": formatted,
-            "reasoning_content": plain_reasoning,
+            "reasoning": reasoning_texts.tagged,
+            "reasoning_content": reasoning_texts.plain,
             "content": "",
         }
 

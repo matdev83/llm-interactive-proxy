@@ -4,11 +4,12 @@ This service extracts tag processing logic from HybridConnector to provide
 focused, testable components for reasoning markup normalization, formatting, and extraction.
 
 Requirements satisfied:
-- Req 2.4: ReasoningMarkupProcessor extraction
+- Req2.4: ReasoningMarkupProcessor extraction
 - Req 3: Protocol-first design
 """
 
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,6 +17,19 @@ if TYPE_CHECKING:
 
 from src.connectors.hybrid_backend.models.reasoning_text import ReasoningText
 from src.connectors.utils.model_capabilities import get_reasoning_tags
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningTexts:
+    """Result of preparing reasoning texts for different formats.
+
+    Attributes:
+        tagged: The reasoning text with backend-specific tags/markup.
+        plain: The plain text representation without tags/markup.
+    """
+
+    tagged: str
+    plain: str
 
 
 class ReasoningMarkupProcessor:
@@ -96,10 +110,10 @@ class ReasoningMarkupProcessor:
 
     def _prepare_reasoning_texts(
         self, reasoning_output: str, backend: str
-    ) -> tuple[str, str]:
+    ) -> ReasoningTexts:
         """Return backend-tagged reasoning and plain text representations."""
         if not reasoning_output:
-            return "", ""
+            return ReasoningTexts(tagged="", plain="")
 
         tags = get_reasoning_tags(backend)
         tagged = self._apply_reasoning_tag_wrapping(
@@ -108,9 +122,9 @@ class ReasoningMarkupProcessor:
 
         plain = self._extract_reasoning_inner_text(tagged)
         if not plain:
-            return "", ""
+            return ReasoningTexts(tagged="", plain="")
 
-        return tagged, plain
+        return ReasoningTexts(tagged=tagged, plain=plain)
 
     def normalize(self, reasoning_output: str, backend: str) -> ReasoningText:
         """Normalize reasoning markup to canonical format.
@@ -122,8 +136,12 @@ class ReasoningMarkupProcessor:
         Returns:
             ReasoningText containing tagged and plain text representations
         """
-        tagged, plain = self._prepare_reasoning_texts(reasoning_output, backend)
-        return ReasoningText(tagged=tagged, plain=plain, backend=backend)
+        reasoning_texts = self._prepare_reasoning_texts(reasoning_output, backend)
+        return ReasoningText(
+            tagged=reasoning_texts.tagged,
+            plain=reasoning_texts.plain,
+            backend=backend,
+        )
 
     def format_for_model(self, reasoning_output: str, backend: str) -> str:
         """Format reasoning with backend-specific tags.
@@ -135,8 +153,8 @@ class ReasoningMarkupProcessor:
         Returns:
             Formatted reasoning with appropriate tags
         """
-        tagged, plain = self._prepare_reasoning_texts(reasoning_output, backend)
-        return tagged if plain else ""
+        reasoning_texts = self._prepare_reasoning_texts(reasoning_output, backend)
+        return reasoning_texts.tagged if reasoning_texts.plain else ""
 
     def extract_plain_text(self, reasoning_output: str) -> str:
         """Strip all tags and return plain text.
