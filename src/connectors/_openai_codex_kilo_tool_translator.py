@@ -91,7 +91,7 @@ class KiloToolTranslator:
         )
 
         # Log warning if session service not provided
-        if session_service is None:
+        if session_service is None and logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "KiloToolTranslator initialized without session_service. "
                 "Session state updates will be skipped."
@@ -276,7 +276,10 @@ class KiloToolTranslator:
         if "end_line" in parsed.arguments:
             arguments["end_line"] = parsed.arguments["end_line"]
 
-        logger.debug("Translated <read_file> to Codex read_file tool: %s", arguments)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <read_file> to Codex read_file tool: %s", arguments
+            )
 
         return KiloTranslationResult("read_file", arguments)
 
@@ -306,7 +309,10 @@ class KiloToolTranslator:
         elif "depth" in parsed.arguments:
             arguments["depth"] = parsed.arguments["depth"]
 
-        logger.debug("Translated <list_files> to Codex list_dir tool: %s", arguments)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <list_files> to Codex list_dir tool: %s", arguments
+            )
 
         return KiloTranslationResult("list_dir", arguments)
 
@@ -366,7 +372,10 @@ class KiloToolTranslator:
         if "timeout" in parsed.arguments:
             arguments["timeout"] = parsed.arguments["timeout"]
 
-        logger.debug("Translated <execute_command> to Codex shell tool: %s", arguments)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <execute_command> to Codex shell tool: %s", arguments
+            )
 
         return KiloTranslationResult("shell", arguments)
 
@@ -414,11 +423,12 @@ class KiloToolTranslator:
         # Optional: case_sensitive flag (defaults to True)
         arguments["case_sensitive"] = parsed.arguments.get("case_sensitive", True)
 
-        logger.debug(
-            "Translated <%s> to Codex grep_files tool: %s",
-            parsed.canonical_name,
-            arguments,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <%s> to Codex grep_files tool: %s",
+                parsed.canonical_name,
+                arguments,
+            )
 
         return KiloTranslationResult("grep_files", arguments)
 
@@ -441,9 +451,10 @@ class KiloToolTranslator:
         # Extract result message (can be empty)
         arguments["result"] = parsed.arguments.get("result", "")
 
-        logger.debug(
-            "Translated <attempt_completion> for proxy-side handling: %s", arguments
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <attempt_completion> for proxy-side handling: %s", arguments
+            )
 
         # Return a special marker to indicate this should be handled proxy-side
         return KiloTranslationResult("__proxy_attempt_completion", arguments)
@@ -475,9 +486,11 @@ class KiloToolTranslator:
 
         arguments["question"] = parsed.arguments["question"]
 
-        logger.debug(
-            "Translated <ask_followup_question> for proxy-side handling: %s", arguments
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <ask_followup_question> for proxy-side handling: %s",
+                arguments,
+            )
 
         # Return a special marker to indicate this should be handled proxy-side
         return KiloTranslationResult("__proxy_ask_followup_question", arguments)
@@ -499,13 +512,14 @@ class KiloToolTranslator:
         """
         if tool_name == "__proxy_attempt_completion":
             result_msg = arguments.get("result", "")
-            logger.info(
-                "Handling attempt_completion proxy-side",
-                extra={
-                    "session_id": session_id,
-                    "result_length": len(result_msg),
-                },
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Handling attempt_completion proxy-side",
+                    extra={
+                        "session_id": session_id,
+                        "result_length": len(result_msg),
+                    },
+                )
 
             # Update session state
             await self._update_session_completion(session_id, arguments)
@@ -515,13 +529,14 @@ class KiloToolTranslator:
 
         elif tool_name == "__proxy_ask_followup_question":
             question = arguments.get("question", "")
-            logger.info(
-                "Handling ask_followup_question proxy-side",
-                extra={
-                    "session_id": session_id,
-                    "question": question,
-                },
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Handling ask_followup_question proxy-side",
+                    extra={
+                        "session_id": session_id,
+                        "question": question,
+                    },
+                )
 
             # Update session state
             await self._update_session_followup(session_id, arguments)
@@ -575,9 +590,10 @@ class KiloToolTranslator:
                 # Try to use Codex apply_patch tool
                 # For now, forward to MCP server as fallback
                 # In a full implementation, we would parse the diff and convert to Codex format
-                logger.debug(
-                    "Forwarding patch_file to MCP server (Codex apply_patch conversion not yet implemented)"
-                )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Forwarding patch_file to MCP server (Codex apply_patch conversion not yet implemented)"
+                    )
 
                 # Return marker for MCP tool execution
                 arguments["tool_name"] = tool_name
@@ -596,9 +612,11 @@ class KiloToolTranslator:
         arguments["tool_name"] = tool_name
         arguments["tool_arguments"] = tool_arguments
 
-        logger.debug(
-            "Translated <use_mcp_tool> for MCP server forwarding: tool=%s", tool_name
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <use_mcp_tool> for MCP server forwarding: tool=%s",
+                tool_name,
+            )
 
         return KiloTranslationResult("__proxy_use_mcp_tool", arguments)
 
@@ -629,10 +647,11 @@ class KiloToolTranslator:
         # KiloCode uses 'uri', Codex might use 'resource_uri' or similar
         arguments["uri"] = uri
 
-        logger.debug(
-            "Translated <access_mcp_resource> to Codex read_mcp_resource tool: uri=%s",
-            uri,
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <access_mcp_resource> to Codex read_mcp_resource tool: uri=%s",
+                uri,
+            )
 
         # Return marker for MCP resource access
         return KiloTranslationResult("__proxy_access_mcp_resource", arguments)
@@ -733,9 +752,10 @@ class KiloToolTranslator:
             if "content" in parsed.arguments:
                 arguments["content"] = parsed.arguments["content"]
 
-        logger.debug(
-            "Translated <%s> for proxy-side execution: %s", tool_name, arguments
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated <%s> for proxy-side execution: %s", tool_name, arguments
+            )
 
         # Return marker for proxy-side execution
         return KiloTranslationResult(f"__proxy_{tool_name}", arguments)
@@ -844,11 +864,12 @@ class KiloToolTranslator:
             if param_name not in translated and "default" in param_schema:
                 translated[param_name] = param_schema["default"]
 
-        logger.debug(
-            "Translated MCP parameters: %d input params -> %d output params",
-            len(kilo_params),
-            len(translated),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Translated MCP parameters: %d input params -> %d output params",
+                len(kilo_params),
+                len(translated),
+            )
 
         return translated
 
@@ -925,11 +946,12 @@ class KiloToolTranslator:
 
         formatted_result = "\n".join(formatted_parts)
 
-        logger.debug(
-            "Formatted result for tool '%s' (length: %d bytes)",
-            tool_name,
-            len(formatted_result),
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Formatted result for tool '%s' (length: %d bytes)",
+                tool_name,
+                len(formatted_result),
+            )
 
         return formatted_result
 
@@ -943,14 +965,16 @@ class KiloToolTranslator:
             arguments: Tool arguments containing completion result
         """
         if not session_id:
-            logger.debug("No session_id provided, skipping session state update")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("No session_id provided, skipping session state update")
             return
 
         if not self._session_service:
-            logger.debug(
-                "Session service not available, skipping session state update for session %s",
-                session_id,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Session service not available, skipping session state update for session %s",
+                    session_id,
+                )
             return
 
         try:
@@ -965,11 +989,12 @@ class KiloToolTranslator:
                 completed_at=time.time(),
             )
 
-            logger.info(
-                "Session %s marked as completed (result length: %d)",
-                session_id,
-                len(completion_result),
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Session %s marked as completed (result length: %d)",
+                    session_id,
+                    len(completion_result),
+                )
 
         except Exception as e:
             # Log error but don't fail the request
@@ -1002,14 +1027,16 @@ class KiloToolTranslator:
             arguments: Tool arguments containing follow-up question
         """
         if not session_id:
-            logger.debug("No session_id provided, skipping session state update")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("No session_id provided, skipping session state update")
             return
 
         if not self._session_service:
-            logger.debug(
-                "Session service not available, skipping session state update for session %s",
-                session_id,
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Session service not available, skipping session state update for session %s",
+                    session_id,
+                )
             return
 
         try:
@@ -1035,11 +1062,12 @@ class KiloToolTranslator:
                 last_followup_at=time.time(),
             )
 
-            logger.info(
-                "Session %s updated with follow-up question (total questions: %d)",
-                session_id,
-                len(updated_questions),
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Session %s updated with follow-up question (total questions: %d)",
+                    session_id,
+                    len(updated_questions),
+                )
 
         except Exception as e:
             # Log error but don't fail the request
