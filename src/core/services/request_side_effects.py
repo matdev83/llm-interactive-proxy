@@ -110,9 +110,10 @@ class RequestSideEffects(IRequestSideEffects):
                     session_id, request
                 )
             except Exception as e:
-                logger.warning(
-                    "Context injection failed for session %s: %s", session_id, e
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Context injection failed for session %s: %s", session_id, e
+                    )
 
         # Capture user request interactions (before processing)
         if self._memory_capture:
@@ -124,8 +125,9 @@ class RequestSideEffects(IRequestSideEffects):
                 # awaiting is safer, but capture_request just buffers.
                 await self._memory_capture.capture_request(session_id, request)
             except Exception as e:
-                logger.warning(
-                    "Memory capture failed for session %s: %s", session_id, e
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Memory capture failed for session %s: %s", session_id, e
+                    )
 
         return request
