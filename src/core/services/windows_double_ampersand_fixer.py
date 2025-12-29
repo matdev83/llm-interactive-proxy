@@ -33,7 +33,7 @@ class CommandExtraction:
 class CommandFixResult:
     """Result of fixing a command string."""
 
-    fixed_command: str
+    fixed_command: str | dict[str, Any]
     was_modified: bool
 
 
@@ -223,7 +223,9 @@ class WindowsDoubleAmpersandFixer:
                     for key in ("command", "cmd"):
                         sub = inner.get(key)
                         if isinstance(sub, str) and sub.strip():
-                            return CommandExtraction(command=sub, key_path=f"{outer_key}.{key}")
+                            return CommandExtraction(
+                                command=sub, key_path=f"{outer_key}.{key}"
+                            )
 
         return CommandExtraction(command=None, key_path=None)
 
@@ -271,11 +273,19 @@ class WindowsDoubleAmpersandFixer:
                 if len(extraction.command) > 200
                 else extraction.command
             )
-            fixed_preview = (
-                fixed_command[:200] + "..."
-                if len(fixed_command) > 200
-                else fixed_command
-            )
+            # fixed_command can be str or dict[str, Any]
+            if isinstance(fixed_command, str):
+                fixed_preview = (
+                    fixed_command[:200] + "..."
+                    if len(fixed_command) > 200
+                    else fixed_command
+                )
+            else:
+                # For dict, convert to JSON string for preview
+                fixed_str = json.dumps(fixed_command)
+                fixed_preview = (
+                    fixed_str[:200] + "..." if len(fixed_str) > 200 else fixed_str
+                )
             logger.info(
                 "Fixed double-ampersand in command for Windows client: "
                 "tool=%s, original='%s', fixed='%s'",
@@ -303,7 +313,13 @@ class WindowsDoubleAmpersandFixer:
             self._set_nested_value(result, extraction.key_path, fixed_command)
             return CommandFixResult(fixed_command=result, was_modified=True)
 
-        return CommandFixResult(fixed_command=tool_arguments, was_modified=False)
+        # Convert to string for non-string, non-dict types
+        fixed_cmd_str = (
+            tool_arguments
+            if isinstance(tool_arguments, str)
+            else json.dumps(tool_arguments)
+        )
+        return CommandFixResult(fixed_command=fixed_cmd_str, was_modified=False)
 
         command_str, key_path = self._extract_command_string(tool_arguments)
         if not command_str:

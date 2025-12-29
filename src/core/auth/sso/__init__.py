@@ -58,6 +58,8 @@ from src.core.auth.sso.startup_validation import (
     validate_startup_configuration,
 )
 from src.core.auth.sso.state_store import StateStore
+from src.core.auth.sso.token_service import TokenService
+from src.core.auth.sso.web_interface import create_sso_router
 
 __all__ = [
     # Config

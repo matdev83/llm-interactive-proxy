@@ -168,7 +168,7 @@ class EventBus(IEventBus):
                             topic_str,
                         )
 
-    async def publish(self, event: T, topic: str | None = None) -> None:
+    async def publish(self, event: object, topic: str | None = None) -> None:
         """Publish an event to all subscribed handlers.
 
         Handlers are invoked concurrently. Errors in individual handlers
@@ -209,7 +209,7 @@ class EventBus(IEventBus):
             # Wait for all handlers to complete
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def publish_nowait(self, event: T, topic: str | None = None) -> None:
+    async def publish_nowait(self, event: object, topic: str | None = None) -> None:
         """Publish an event without waiting for handlers to complete.
 
         This method schedules handlers to run but returns immediately.

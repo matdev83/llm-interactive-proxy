@@ -447,7 +447,7 @@ class ApiKeyRedactionFilter(logging.Filter):
                 val = getattr(record, attr, None)
                 if isinstance(val, str):
                     with contextlib.suppress(
-                        (TypeError, ValueError, AttributeError, re.error)
+                        TypeError, ValueError, AttributeError, re.error
                     ):
                         setattr(record, attr, self._sanitize(val))
         except (TypeError, ValueError, AttributeError, re.error, RecursionError) as e:

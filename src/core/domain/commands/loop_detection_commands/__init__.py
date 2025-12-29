@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# pyright: reportUnsupportedDunderAll=false
 from typing import Any
 
 from .loop_detection_command import LoopDetectionCommand

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# pyright: reportUnsupportedDunderAll=false
 import importlib
 from types import ModuleType
 from typing import Any
