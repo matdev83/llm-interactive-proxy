@@ -108,10 +108,7 @@ class CoreServicesStage(InitializationStage):
                 implementation_factory=itool_call_repair_factory,
             )
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Could not register IToolCallRepairService interface: {e}"
-                )
+            logger.warning("Could not register IToolCallRepairService interface: %s", e)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -179,8 +176,7 @@ class CoreServicesStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered session repository services")
         except ImportError as e:  # type: ignore[misc]
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register session repository: {e}")
+            logger.warning("Could not register session repository: %s", e)
 
     def _register_session_service(self, services: ServiceCollection) -> None:
         """Register session service with dependency injection."""
@@ -214,8 +210,7 @@ class CoreServicesStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered session service with factory")
         except ImportError as e:  # type: ignore[misc]
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register session service: {e}")
+            logger.warning("Could not register session service: %s", e)
 
     def _register_session_resolver(
         self,
@@ -312,10 +307,11 @@ class CoreServicesStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered streaming and tooling services via registrars")
         except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Could not register streaming/tooling services: {e}", exc_info=True
-                )
+            logger.warning(
+                "Could not register streaming/tooling services: %s",
+                e,
+                exc_info=True,
+            )
 
         # Register connection activity tracker (if enabled)
         self._register_activity_tracker(services, config)
@@ -411,14 +407,12 @@ class CoreServicesStage(InitializationStage):
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("Connection tracker cleanup scheduler registered")
             except ImportError as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Could not register connection tracker cleanup scheduler: {e}"
-                    )
+                logger.warning(
+                    "Could not register connection tracker cleanup scheduler: %s", e
+                )
 
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register activity tracker service: {e}")
+            logger.warning("Could not register activity tracker service: %s", e)
 
     def _register_wire_capture_service(self, services: ServiceCollection) -> None:
         """Register wire capture service.
@@ -454,8 +448,7 @@ class CoreServicesStage(InitializationStage):
                         if logging_cfg
                         else None
                     )
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(f"Using CBOR wire capture: {cbor_capture_dir}")
+                    logger.info("Using CBOR wire capture: %s", cbor_capture_dir)
                     return CborWireCaptureService(
                         config=config,
                         capture_dir=cbor_capture_dir,
@@ -510,8 +503,7 @@ class CoreServicesStage(InitializationStage):
                         "WireCaptureEosSubscriber not available, skipping registration"
                     )
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register wire capture service: {e}")
+            logger.warning("Could not register wire capture service: %s", e)
 
     def _register_usage_tracking_services(
         self, services: ServiceCollection, config: AppConfig
@@ -643,8 +635,7 @@ class CoreServicesStage(InitializationStage):
                         "UsageTrackingEosSubscriber not available, skipping registration"
                     )
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register usage tracking services: {e}")
+            logger.warning("Could not register usage tracking services: %s", e)
 
     def _register_usage_normalization_service(
         self, services: ServiceCollection
@@ -703,11 +694,11 @@ class CoreServicesStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered usage normalization service")
         except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Could not register usage normalization service: {e}",
-                    exc_info=True,
-                )
+            logger.warning(
+                "Could not register usage normalization service: %s",
+                e,
+                exc_info=True,
+            )
 
     def _register_event_bus(self, services: ServiceCollection) -> None:
         """Register the event bus."""
@@ -741,6 +732,5 @@ class CoreServicesStage(InitializationStage):
 
             return True
         except ImportError as e:  # type: ignore[misc]
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Core services validation failed: {e}")
+            logger.error("Core services validation failed: %s", e)
             return False
