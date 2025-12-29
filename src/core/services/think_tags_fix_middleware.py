@@ -694,9 +694,10 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
 
         # Prevent buffer overflow
         if len(new_buffer) > buffer_size:
-            self._logger.warning(
-                f"Streaming buffer overflow for session {session_id}, processing as-is"
-            )
+            if self._logger.isEnabledFor(logging.WARNING):
+                self._logger.warning(
+                    f"Streaming buffer overflow for session {session_id}, processing as-is"
+                )
             # Process what we have and reset
             processed_content = self._process_buffer_content(new_buffer, session_id)
             self._cleanup_session_state(session_id)
@@ -785,10 +786,11 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             reasoning_metadata["_created_at"] = time.time()
             self._reasoning_extracted[session_id] = reasoning_metadata
 
-            self._logger.info(
-                f"Extracted reasoning from streaming buffer for session {session_id}: "
-                f"{len(result.reasoning_content)} chars reasoning, {len(result.response_content)} chars content"
-            )
+            if self._logger.isEnabledFor(logging.INFO):
+                self._logger.info(
+                    f"Extracted reasoning from streaming buffer for session {session_id}: "
+                    f"{len(result.reasoning_content)} chars reasoning, {len(result.response_content)} chars content"
+                )
 
             return result.response_content, reasoning_metadata
 
