@@ -278,7 +278,8 @@ class ApplicationBuilder:
 
             try:
                 await stage.execute(self._services, config)
-                logger.debug("Stage '%s' completed successfully", stage_name)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Stage '%s' completed successfully", stage_name)
             except Exception as e:  # type: ignore[misc]
                 logger.error(f"Stage '{stage_name}' failed: {e}")
                 # Ensure ServiceCollection cleanup tasks are awaited on failure
@@ -435,7 +436,6 @@ class ApplicationBuilder:
                     exc_info=True,
                 )
 
-
         # Configure middleware
         self._configure_middleware(app, config)
 
@@ -542,12 +542,16 @@ class ApplicationBuilder:
                     await backend_lifecycle_manager.shutdown_all()
             except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
                 # Best-effort shutdown - log specific shutdown errors
-                logger.warning(
-                    "Failed to shut down backends: %s", type(exc).__name__, exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to shut down backends: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
             except Exception:
                 # Best-effort shutdown - catch-all for other errors
-                logger.warning("Failed to shut down backends", exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to shut down backends", exc_info=True)
 
             # Dispose of ServiceCollection to await pending cleanup tasks
 
@@ -557,14 +561,16 @@ class ApplicationBuilder:
                 await self._services.dispose()
             except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
                 # Best-effort disposal - log specific disposal errors
-                logger.warning(
-                    "Failed to dispose ServiceCollection: %s",
-                    type(exc).__name__,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to dispose ServiceCollection: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
             except Exception:
                 # Best-effort disposal; ignore errors to avoid masking real failures
-                logger.warning("Failed to dispose ServiceCollection", exc_info=True)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to dispose ServiceCollection", exc_info=True)
             # Clean up resources
             try:
                 import httpx
@@ -592,16 +598,18 @@ class ApplicationBuilder:
                         logger.info("Wire capture service shut down successfully.")
             except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
                 # Best-effort shutdown - log specific shutdown errors
-                logger.warning(
-                    "Failed to shut down wire capture service: %s",
-                    type(exc).__name__,
-                    exc_info=True,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to shut down wire capture service: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
             except Exception:
                 # Best-effort shutdown; ignore errors to avoid masking real failures
-                logger.warning(
-                    "Failed to shut down wire capture service", exc_info=True
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to shut down wire capture service", exc_info=True
+                    )
 
         # Set lifespan handler
         app.router.lifespan_context = lifespan
