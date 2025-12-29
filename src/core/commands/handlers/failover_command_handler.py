@@ -53,9 +53,10 @@ class SessionStateApplicationStateAdapter(
         prefix = None
         try:
             prefix = getattr(self._session.state, "command_prefix_override", None)
-        except Exception:
+        except (AttributeError, TypeError) as e:
             logger.warning(
-                "Failed to get command prefix from session state",
+                "Failed to get command prefix from session state: %s",
+                e,
                 exc_info=True,
             )
             prefix = None
@@ -186,10 +187,11 @@ class SessionStateApplicationStateAdapter(
             return None
         try:
             return cast(_T_co | None, getter(service_type))
-        except Exception:
+        except (AttributeError, TypeError, ValueError) as e:
             logger.warning(
-                "Failed to get service %s from provider",
+                "Failed to get service %s from provider: %s",
                 getattr(service_type, "__name__", repr(service_type)),
+                e,
                 exc_info=True,
             )
             return None

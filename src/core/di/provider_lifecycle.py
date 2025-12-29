@@ -49,9 +49,11 @@ def get_or_build_service_provider() -> IServiceProvider:
                 _service_provider = None
             else:
                 _service_provider = cast(IServiceProvider, legacy_provider)
-    except Exception:
+    except (ImportError, AttributeError) as e:
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Failed to sync with legacy _service_provider", exc_info=True)
+            logger.debug(
+                "Failed to sync with legacy _service_provider: %s", e, exc_info=True
+            )
     if _service_provider is None:
         # Import here to avoid circular import
         from src.core.di.services import get_service_collection
@@ -71,10 +73,12 @@ def get_or_build_service_provider() -> IServiceProvider:
             from src.core.di import services as di_services
 
             di_services._service_provider = _service_provider  # type: ignore[attr-defined]
-        except Exception:
+        except (ImportError, AttributeError) as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to sync legacy _service_provider after build", exc_info=True
+                    "Failed to sync legacy _service_provider after build: %s",
+                    e,
+                    exc_info=True,
                 )
     return _service_provider
 
@@ -91,10 +95,11 @@ def set_service_provider(provider: IServiceProvider | None) -> None:
         from src.core.di import services as di_services
 
         di_services._service_provider = provider  # type: ignore[attr-defined]
-    except Exception:
+    except (ImportError, AttributeError) as e:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "Failed to sync legacy _service_provider in set_service_provider",
+                "Failed to sync legacy _service_provider in set_service_provider: %s",
+                e,
                 exc_info=True,
             )
 
@@ -166,10 +171,12 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
             loop_detector = provider.get_service(cast(type, ILoopDetector))
             if loop_detector is not None:
                 registry.register_feature(LoopDetectionFeature(loop_detector))
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError) as e:
             # Log at WARNING level since this is on a critical path for DI initialization
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to register LoopDetectionFeature", exc_info=True)
+                logger.warning(
+                    "Failed to register LoopDetectionFeature: %s", e, exc_info=True
+                )
 
         # Register middleware instances from the middleware manager
         try:
@@ -193,11 +200,13 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
                         declared_capability=FeatureCapability.BOTH,
                         name=mw_name,
                     )
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError) as e:
             # Log at WARNING level since this is on a critical path for DI initialization
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to register middleware in parity registry", exc_info=True
+                    "Failed to register middleware in parity registry: %s",
+                    e,
+                    exc_info=True,
                 )
 
         parity_logger = logging.getLogger("llm.feature_parity")

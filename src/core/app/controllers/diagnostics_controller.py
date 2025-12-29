@@ -147,9 +147,11 @@ async def get_diagnostics(
     if activity_tracker is not None:
         try:
             global_snapshot = activity_tracker.get_global_snapshot()
-        except Exception:
+        except (AttributeError, RuntimeError) as e:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to get activity tracker snapshot", exc_info=True)
+                logger.debug(
+                    "Failed to get activity tracker snapshot: %s", e, exc_info=True
+                )
 
     for name, backend in active_backends.items():
         # Derive connector type from instance name (e.g., "openai.1" -> "openai")
@@ -201,10 +203,13 @@ async def get_diagnostics(
                     total_bytes_rx=backend_activity.total_bytes_rx,
                     total_bytes_tx=backend_activity.total_bytes_tx,
                 )
-            except Exception:
+            except (AttributeError, RuntimeError, KeyError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Failed to get activity for backend %s", name, exc_info=True
+                        "Failed to get activity for backend %s: %s",
+                        name,
+                        e,
+                        exc_info=True,
                     )
 
         instances.append(
@@ -272,9 +277,7 @@ async def get_activity() -> GlobalActivityInfo:
             total_bytes_tx=snapshot.total_bytes_tx,
         )
     except (AttributeError, RuntimeError) as e:
-        logger.warning(
-            "Failed to get activity snapshot: %s", str(e), exc_info=True
-        )
+        logger.warning("Failed to get activity snapshot: %s", str(e), exc_info=True)
         return GlobalActivityInfo(
             enabled=True,  # Tracking is enabled but errored
             total_active_connections=0,
