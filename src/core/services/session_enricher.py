@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, cast
 
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
@@ -22,6 +23,14 @@ from src.core.interfaces.request_processor_internal import ISessionEnricher
 from src.core.interfaces.session_manager_interface import ISessionManager
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class MessageRoleAndContent:
+    """Extracted role and content from a message."""
+
+    role: Any
+    content: Any
 
 
 class SessionEnricher(ISessionEnricher):
@@ -176,7 +185,8 @@ class SessionEnricher(ISessionEnricher):
 
         for message in request.messages:
             # Check user messages for system info
-            role, content = self._get_message_role_and_content(message)
+            extracted = self._get_message_role_and_content(message)
+            role, content = extracted.role, extracted.content
 
             # Normalize content to string if it's a list of text blocks (multimodal)
             if isinstance(content, list):
@@ -221,7 +231,7 @@ class SessionEnricher(ISessionEnricher):
 
         return None
 
-    def _get_message_role_and_content(self, raw_message: Any) -> tuple[Any, Any]:
+    def _get_message_role_and_content(self, raw_message: Any) -> MessageRoleAndContent:
         """
         Extract role and content from dicts or objects uniformly.
 
@@ -229,8 +239,13 @@ class SessionEnricher(ISessionEnricher):
             raw_message: Message as dict or object
 
         Returns:
-            tuple[role, content]: Extracted role and content
+            MessageRoleAndContent with extracted role and content
         """
         if isinstance(raw_message, dict):
-            return raw_message.get("role"), raw_message.get("content")
-        return getattr(raw_message, "role", None), getattr(raw_message, "content", None)
+            return MessageRoleAndContent(
+                role=raw_message.get("role"), content=raw_message.get("content")
+            )
+        return MessageRoleAndContent(
+            role=getattr(raw_message, "role", None),
+            content=getattr(raw_message, "content", None),
+        )

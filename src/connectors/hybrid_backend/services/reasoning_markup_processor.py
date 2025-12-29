@@ -101,9 +101,9 @@ class ReasoningMarkupProcessor:
         if not reasoning_output:
             return "", ""
 
-        opening_tag, closing_tag = get_reasoning_tags(backend)
+        tags = get_reasoning_tags(backend)
         tagged = self._apply_reasoning_tag_wrapping(
-            reasoning_output, opening_tag, closing_tag
+            reasoning_output, tags.opening_tag, tags.closing_tag
         ).strip()
 
         plain = self._extract_reasoning_inner_text(tagged)

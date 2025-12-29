@@ -5,10 +5,19 @@ reasoning parameters for different LLM backends. It supports the hybrid
 backend's adaptive placement strategy and reasoning parameter management.
 """
 
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic.types import JsonValue
+
+
+@dataclass(frozen=True)
+class ReasoningTags:
+    """Opening and closing tags for reasoning markup."""
+
+    opening_tag: str
+    closing_tag: str
 
 
 class BackendParameters(BaseModel):
@@ -211,17 +220,20 @@ def supports_system_messages(backend: str) -> bool:
     return SYSTEM_MESSAGE_SUPPORT.get(backend, True)
 
 
-def get_reasoning_tags(backend: str) -> tuple[str, str]:
+def get_reasoning_tags(backend: str) -> ReasoningTags:
     """Get reasoning tags for backend.
 
     Args:
         backend: Backend name (e.g., "openai", "deepseek")
 
     Returns:
-        Tuple of (opening_tag, closing_tag) for reasoning output.
+        ReasoningTags with opening_tag and closing_tag for reasoning output.
         Returns default tags for unknown backends.
     """
-    return REASONING_TAG_FORMAT.get(backend, REASONING_TAG_FORMAT["_default"])
+    opening_tag, closing_tag = REASONING_TAG_FORMAT.get(
+        backend, REASONING_TAG_FORMAT["_default"]
+    )
+    return ReasoningTags(opening_tag=opening_tag, closing_tag=closing_tag)
 
 
 def get_reasoning_params(backend: str) -> BackendParameters:

@@ -17,6 +17,7 @@ import logging
 import re
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
@@ -24,6 +25,14 @@ from pydantic import BaseModel
 from src.core.domain.chat import FunctionCall, ToolCall
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SimpleToolExtractionResult:
+    """Result of extracting a simple tool from content."""
+
+    tool_calls: list[ToolCall]
+    cleaned_content: str
 
 
 class ParsedParameters(BaseModel):
@@ -177,8 +186,9 @@ def _extract_simple_format(
     if allowed_tools is not None:
         # Whitelist mode: only extract specified tools
         for tool_name in allowed_tools:
-            extracted, cleaned = _extract_simple_tool(cleaned, tool_name)
-            tool_calls.extend(extracted)
+            result = _extract_simple_tool(cleaned, tool_name)
+            tool_calls.extend(result.tool_calls)
+            cleaned = result.cleaned_content
     else:
         # Structural detection mode: find XML blocks that look like tool calls
         # Pattern: <snake_case_name>...<child>...</child>...</snake_case_name>
@@ -246,7 +256,9 @@ def _extract_simple_format(
     return tool_calls, cleaned
 
 
-def _extract_simple_tool(content: str, tool_name: str) -> tuple[list[ToolCall], str]:
+def _extract_simple_tool(
+    content: str, tool_name: str
+) -> SimpleToolExtractionResult:
     """
     Extract a specific tool from content in simple format.
 
@@ -255,7 +267,7 @@ def _extract_simple_tool(content: str, tool_name: str) -> tuple[list[ToolCall], 
         tool_name: The tool name to extract.
 
     Returns:
-        Tuple of (tool_calls, cleaned_content).
+        SimpleToolExtractionResult with tool_calls and cleaned_content.
     """
     tool_calls: list[ToolCall] = []
     cleaned = content
@@ -278,12 +290,14 @@ def _extract_simple_tool(content: str, tool_name: str) -> tuple[list[ToolCall], 
             tool_call = _create_tool_call(tool_name, params)
             tool_calls.append(tool_call)
 
-            # Remove the matched block from content
+            # Remove matched block from content
             cleaned = cleaned.replace(full_match, " ", 1)
 
             logger.debug("Extracted simple-format tool call: %s", tool_name)
 
-    return tool_calls, cleaned
+    return SimpleToolExtractionResult(
+        tool_calls=tool_calls, cleaned_content=cleaned
+    )
 
 
 def _parse_parameters(params_xml: str) -> ParsedParameters:
