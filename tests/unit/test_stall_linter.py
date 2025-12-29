@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 
 @dataclass(frozen=True)
 class LintFinding:
@@ -85,7 +87,44 @@ def _iter_stall_lint_files(repo_root: Path) -> list[Path]:
     return sorted(files)
 
 
-def _compute_stall_lint_fingerprint(repo_root: Path) -> tuple[str, int]:
+def _iter_stall_lint_files_for_targets(
+    repo_root: Path, targets: list[str]
+) -> list[Path]:
+    files: list[Path] = []
+    for raw in targets:
+        if not raw:
+            continue
+        candidate = Path(raw)
+        if not candidate.is_absolute():
+            candidate = repo_root / candidate
+        try:
+            candidate = candidate.resolve()
+        except OSError:
+            continue
+
+        try:
+            candidate.relative_to(repo_root)
+        except ValueError:
+            continue
+
+        if candidate.suffix.lower() != ".py":
+            continue
+
+        tests_root = (repo_root / "tests").resolve()
+        try:
+            candidate.relative_to(tests_root)
+        except ValueError:
+            continue
+
+        if candidate.exists():
+            files.append(candidate)
+
+    return sorted(set(files))
+
+
+def _compute_stall_lint_fingerprint(
+    repo_root: Path, *, files: list[Path] | None = None
+) -> tuple[str, int]:
     """
     Compute a cheap fingerprint of the linted Python tree.
 
@@ -95,7 +134,7 @@ def _compute_stall_lint_fingerprint(repo_root: Path) -> tuple[str, int]:
 
     hasher = hashlib.blake2b(digest_size=16)
     count = 0
-    for file_path in _iter_stall_lint_files(repo_root):
+    for file_path in files or _iter_stall_lint_files(repo_root):
         try:
             stat = file_path.stat()
         except OSError:
@@ -140,9 +179,11 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     tmp_path.replace(path)
 
 
-def _scan_repo_for_stalls(repo_root: Path) -> list[LintFinding]:
+def _scan_repo_for_stalls(
+    repo_root: Path, *, files: list[Path] | None = None
+) -> list[LintFinding]:
     findings: list[LintFinding] = []
-    for file_path in _iter_stall_lint_files(repo_root):
+    for file_path in files or _iter_stall_lint_files(repo_root):
         try:
             source = file_path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
@@ -197,8 +238,10 @@ def _scan_repo_for_stalls(repo_root: Path) -> list[LintFinding]:
     return findings
 
 
-def _get_findings_with_cache(repo_root: Path, cache_path: Path) -> list[LintFinding]:
-    fingerprint, file_count = _compute_stall_lint_fingerprint(repo_root)
+def _get_findings_with_cache(
+    repo_root: Path, cache_path: Path, *, files: list[Path] | None = None
+) -> list[LintFinding]:
+    fingerprint, file_count = _compute_stall_lint_fingerprint(repo_root, files=files)
     cached = _load_stall_lint_cache(cache_path)
     if cached and cached.get("fingerprint") == fingerprint:
         cached_findings = cached.get("findings")
@@ -215,7 +258,7 @@ def _get_findings_with_cache(repo_root: Path, cache_path: Path) -> list[LintFind
             ]
         return []
 
-    findings = _scan_repo_for_stalls(repo_root)
+    findings = _scan_repo_for_stalls(repo_root, files=files)
     _atomic_write_json(
         cache_path,
         {
@@ -234,6 +277,19 @@ def _get_findings_with_cache(repo_root: Path, cache_path: Path) -> list[LintFind
         },
     )
     return findings
+
+
+@pytest.fixture(scope="session")
+def stall_lint_target_files(request: pytest.FixtureRequest) -> list[Path]:
+    repo_root = Path(__file__).resolve().parents[2]
+    raw_targets = request.config.getoption("stall_lint_files")
+    if not isinstance(raw_targets, list):
+        return []
+
+    targets = [entry for entry in raw_targets if isinstance(entry, str)]
+    if not targets:
+        return []
+    return _iter_stall_lint_files_for_targets(repo_root, targets)
 
 
 class _PatchRecursionVisitor(ast.NodeVisitor):
@@ -941,7 +997,7 @@ class _ThreadLockAwaitVisitor(ast.NodeVisitor):
         )
 
 
-def test_stall_linter_recursion_patches() -> None:
+def test_stall_linter_recursion_patches(stall_lint_target_files: list[Path]) -> None:
     """
     Prevent test-suite stalls caused by recursive monkeypatching of time/sleep.
 
@@ -950,8 +1006,14 @@ def test_stall_linter_recursion_patches() -> None:
       - patch("asyncio.sleep", side_effect=lambda ...: asyncio.sleep(0))
     """
     repo_root = Path(__file__).resolve().parents[2]
-    cache_path = repo_root / ".pytest_cache" / "stall_lint_cache.json"
-    findings = _get_findings_with_cache(repo_root, cache_path)
+    if stall_lint_target_files:
+        cache_path = repo_root / ".pytest_cache" / "stall_lint_cache.targets.json"
+        findings = _get_findings_with_cache(
+            repo_root, cache_path, files=stall_lint_target_files
+        )
+    else:
+        cache_path = repo_root / ".pytest_cache" / "stall_lint_cache.json"
+        findings = _get_findings_with_cache(repo_root, cache_path)
 
     assert not findings, "\n".join(
         f"{f.file}:{f.line} {f.rule} {f.message}" for f in findings

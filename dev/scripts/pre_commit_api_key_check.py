@@ -14,40 +14,69 @@ from src.core.common.logging_utils import (
 )
 
 
-def get_staged_files_content():
-    """Returns a dictionary of staged file paths and their content."""
+def _get_staged_file_paths() -> list[str]:
+    """Get paths of files staged for commit (excluding deletions)."""
     try:
-        # Get names of staged files
         result = subprocess.run(
-            ["git", "diff", "--cached", "--name-only"],
+            ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
             capture_output=True,
             text=True,
             check=True,
+            cwd=project_root,
         )
-        staged_files = result.stdout.strip().split("\n")
-        if not staged_files or staged_files == [
-            ""
-        ]:  # Handle case where no files are staged
-            return {}
-
-        file_contents = {}
-        for file_path in staged_files:
-            if file_path:
-                full_path = project_root / file_path
-                if full_path.is_file():
-                    try:
-                        with open(full_path, encoding="utf-8") as f:
-                            file_contents[file_path] = f.read()
-                    except Exception as e:
-                        print(
-                            f"Warning: Could not read file {file_path}: {e}",
-                            file=sys.stderr,
-                        )
-        return file_contents
     except subprocess.CalledProcessError as e:
         print(f"Error getting staged files: {e}", file=sys.stderr)
-        print(e.stderr, file=sys.stderr)
+        if e.stderr:
+            print(e.stderr, file=sys.stderr)
+        return []
+
+    return [p for p in result.stdout.splitlines() if p.strip()]
+
+
+def _read_staged_file_text(file_path: str) -> str | None:
+    """Read file content from the git index (staged content), as UTF-8 text.
+
+    Returns None if the file cannot be read from the index or appears to be binary.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "show", f":{file_path}"],
+            capture_output=True,
+            check=True,
+            cwd=project_root,
+        )
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode("utf-8", errors="replace") if e.stderr else ""
+        print(
+            f"Warning: Could not read staged content for {file_path}: {stderr}".strip(),
+            file=sys.stderr,
+        )
+        return None
+
+    data = result.stdout
+    if b"\x00" in data:
+        print(
+            f"Skipping binary staged file during secret scan: {file_path}",
+            file=sys.stderr,
+        )
+        return None
+
+    return data.decode("utf-8", errors="replace")
+
+
+def get_staged_files_content():
+    """Returns a dictionary of staged file paths and their content."""
+    staged_files = _get_staged_file_paths()
+    if not staged_files:
         return {}
+
+    file_contents: dict[str, str] = {}
+    for file_path in staged_files:
+        content = _read_staged_file_text(file_path)
+        if content is not None:
+            file_contents[file_path] = content
+
+    return file_contents
 
 
 def _scan_content_for_patterns(file_path: str, content: str) -> list[str]:

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: N999
 """
 Install Git hooks for the project.
 
@@ -8,6 +9,7 @@ This script installs Git hooks for the project to help enforce code quality.
 import os
 import shutil
 import stat
+import subprocess
 from pathlib import Path
 
 
@@ -67,8 +69,24 @@ fi
 
 def main() -> None:
     """Main entry point."""
-    # Get repository root
-    repo_root = Path(__file__).resolve().parents[1]
+    # Resolve repository root via git to avoid path assumptions
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError:
+        print("Error: Unable to determine repository root (git rev-parse failed).")
+        return
+
+    repo_root_str = result.stdout.strip()
+    if not repo_root_str:
+        print("Error: Unable to determine repository root.")
+        return
+
+    repo_root = Path(repo_root_str)
 
     # Check if .git directory exists
     git_dir = repo_root / ".git"
@@ -84,7 +102,7 @@ def main() -> None:
         print(f"Created hooks directory: {hooks_dir}")
 
     # Install pre-commit hook as mandatory
-    pre_commit_source = repo_root / "tools" / "pre-commit-hook.py"
+    pre_commit_source = repo_root / "dev" / "scripts" / "pre-commit-hook.py"
     install_hook("pre-commit", pre_commit_source, hooks_dir, mandatory=True)
 
     print("\nGit hooks installation complete.")

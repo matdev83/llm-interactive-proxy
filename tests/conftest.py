@@ -40,7 +40,7 @@ def _module_is_available(name: str) -> bool:
 
 HAS_PYTEST_ASYNCIO = _module_is_available("pytest_asyncio")
 HAS_PYTEST_HTTPX = _module_is_available("pytest_httpx")
-_SESSION_LOOP: asyncio.AbstractEventLoop | None = None
+_session_loop: asyncio.AbstractEventLoop | None = None
 _TEST_CLIENTS: weakref.WeakSet[TestClient] = weakref.WeakSet()
 _ORIGINAL_EVENT_LOOP_POLICY = asyncio.get_event_loop_policy()
 
@@ -128,6 +128,7 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
     need_deselection = False
     run_slow = False
     run_codex = False
+    codex_path_marker = "/tests/codex/"
     deselected: list[pytest.Item] = []
     selected: list[pytest.Item] = []
 
@@ -135,7 +136,6 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
         run_slow = config.getoption("run_slow")
         run_codex = config.getoption("run_codex")
         need_deselection = True
-        codex_path_marker = "/tests/codex/"
 
     # Single loop through all items
     for item in items:
@@ -239,6 +239,16 @@ def pytest_addoption(parser) -> None:  # type: ignore[no-untyped-def]
         dest="run_black",
         help="Include black formatting tests (excluded by default when ruff passes).",
     )
+    group.addoption(
+        "--stall-lint-file",
+        action="append",
+        default=[],
+        dest="stall_lint_files",
+        help=(
+            "Restrict the stall-linter scan to specific file(s). "
+            "May be provided multiple times. Paths are repo-relative."
+        ),
+    )
 
 
 # Provide env fixtures used by config tests
@@ -317,26 +327,26 @@ def pytest_sessionstart(session) -> None:  # type: ignore[no-untyped-def]
     _install_global_warning_filters()
     _install_test_client_tracker()
     _ensure_windows_selector_event_loop_policy()
-    global _SESSION_LOOP
+    global _session_loop
     try:
-        _SESSION_LOOP = asyncio.get_event_loop()
+        _session_loop = asyncio.get_event_loop()
     except RuntimeError:
-        _SESSION_LOOP = asyncio.new_event_loop()
-        asyncio.set_event_loop(_SESSION_LOOP)
+        _session_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_session_loop)
 
 
 def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untyped-def]
     """Cleanup potential artifacts after the test session finishes."""
     _cleanup_root_artifacts()
     _close_tracked_test_clients()
-    global _SESSION_LOOP
-    if _SESSION_LOOP is not None:
+    global _session_loop
+    if _session_loop is not None:
         try:
             asyncio.set_event_loop(None)
         finally:
             with contextlib.suppress(Exception):
                 asyncio.set_event_loop_policy(_ORIGINAL_EVENT_LOOP_POLICY)
-        _SESSION_LOOP = None
+        _session_loop = None
 
 
 # Apply a global, message-targeted filter for Windows ProactorEventLoop noise
@@ -469,8 +479,8 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
         asyncio.set_event_loop(None)
         loop.close()
         asyncio.set_event_loop_policy(policy_type())
-        if _SESSION_LOOP is not None and not _SESSION_LOOP.is_closed():
-            asyncio.set_event_loop(_SESSION_LOOP)
+        if _session_loop is not None and not _session_loop.is_closed():
+            asyncio.set_event_loop(_session_loop)
 
     return True
 
