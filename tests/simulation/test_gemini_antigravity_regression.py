@@ -14,28 +14,29 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
+from src.core.domain.cbor_capture import (
+    CaptureDirection,
+)
 from src.core.simulation import (
     CaptureReader,
 )
-from src.core.domain.cbor_capture import (
-    CaptureDirection,
-    CaptureSession,
-)
 
 
-def test_backend_entries_have_valid_directions(capture_reader: CaptureReader) -> None:
-    """Test that backend entries from a capture have valid directions."""
-    # TODO: Add capture file path when available
-    # For now, this test structure is in place
-    # Example usage:
-    # capture_path = Path("var/wire_captures_cbor/antigravity_session.cbor")
-    # session = capture_reader.load(capture_path)
-    # backend_entries = session.get_backend_entries()
-    # for e in backend_entries:
-    #     assert e.direction in (
-    #         CaptureDirection.PROXY_TO_BACKEND,
-    #         CaptureDirection.BACKEND_TO_PROXY,
-    #     )
-    pass
+def test_backend_entries_have_valid_directions(
+    capture_reader: CaptureReader, simple_capture_file: Path
+) -> None:
+    """Test that backend entries from a capture have valid directions.
+
+    This test verifies that all backend entries in a capture file have
+    valid directions (PROXY_TO_BACKEND or BACKEND_TO_PROXY).
+    """
+    session = capture_reader.load(simple_capture_file)
+    backend_entries = session.get_backend_entries()
+
+    assert len(backend_entries) > 0, "Capture should contain backend entries"
+
+    for e in backend_entries:
+        assert e.direction in (
+            CaptureDirection.PROXY_TO_BACKEND,
+            CaptureDirection.BACKEND_TO_PROXY,
+        ), f"Backend entry has invalid direction: {e.direction}"

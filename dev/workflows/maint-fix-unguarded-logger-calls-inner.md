@@ -1,0 +1,80 @@
+Task: Code maintenance - fix unguarded logger calls (single-file sweep)
+
+Goal
+- Improve performance by guarding log calls that eagerly evaluate expensive strings/work (especially f-strings and `.format(...)`) when the log level is disabled.
+- Keep runtime behavior identical (same logs at enabled levels; no message content changes).
+
+Non-goals (avoid churn)
+- Do NOT introduce new functionality or change external behavior.
+- Do NOT add new dependencies or change packaging/config.
+- Do NOT refactor large control flow just to "clean up" logging.
+- Do NOT touch files listed in "already fixed files".
+
+Scope and limits
+- Choose EXACTLY ONE (1) Python file under `src/` (and its subfolders) that is not in "already fixed files" and contains at least one unguarded logger call.
+- Fix ALL instances of unguarded logger calls in that file.
+- Do NOT create new files, scripts, or do mass edits across the repo.
+- Scan only ./src/ and its subfolders.
+- Use `rg` for all searches.
+- Avoid scanning dot/underscore directories (folders starting with `.` or `_`) to skip caches and generated content.
+
+What counts as "unguarded logger calls"
+Prioritize logger calls that eagerly compute work when disabled, such as:
+1) f-strings: `logger.debug(f\"...\")`, `logger.info(f\"...\")`, `logger.warning(f\"...\")`
+2) `.format(...)` or string building in arguments: `logger.info(\"...\".format(...))`, `logger.info(\"\".join(...))`, `logger.info(json.dumps(...))`
+3) expensive computations inside the logger call args that run even when the level is off
+
+Guarding rule (required)
+- Only add guards where the message computation is eager/expensive, typically:
+  - `if logger.isEnabledFor(logging.DEBUG): logger.debug(...)`
+  - `if logger.isEnabledFor(logging.INFO): logger.info(...)`
+  - `if logger.isEnabledFor(logging.WARNING): logger.warning(...)`
+- Do NOT guard `logger.error(...)` / `logger.exception(...)` unless you have a strong reason (they are typically important and not disabled in prod).
+- Prefer converting to lazy logging style (e.g., `logger.debug(\"x=%s\", x)`) when it preserves the message meaning and is clearly safe.
+
+Refactor approach (required)
+1) Pick one file with at least one unguarded call (not already fixed).
+2) Replace ALL unguarded calls in that file with guarded calls and/or lazy logging formatting.
+3) Keep indentation and control flow minimal.
+4) After each file edit you will be provided with LSP server diagnostic/linting output. Fix all of such issues reported even if you think they are not related to your changes.
+5) Run per-file QA (Windows):
+   - `./.venv/Scripts/python.exe -m ruff check --fix <changed_file>`
+   - `./.venv/Scripts/python.exe -m black <changed_file>`
+   - `./.venv/Scripts/python.exe -m mypy <changed_file>`
+
+Search rules (must follow)
+- Use `rg` for searches. Limit to ./src/.
+- Exclude directories starting with `.` or `_`.
+- Example patterns (adapt as needed):
+  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'logger\\.(debug|info|warning)\\(f\"|logger\\.(debug|info|warning)\\(.*\\.format\\('`
+  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'logger\\.(debug|info|warning)\\(.*(json\\.dumps|model_dump|join\\(|re\\.)'`
+  - Optional helper script (if helpful): `./.venv/Scripts/python.exe dev/scripts/find_unguarded_logger_calls.py`
+
+Completion gates (must be satisfied before reporting success)
+- Progress tracking: Use a TODO/Task List tool to track: scan -> pick file -> baseline tests -> implement -> run tests -> commit -> final report.
+- Git state (do not block on dirty): Record `git status --porcelain` before editing for context. If it is not empty, continue anyway; do NOT try to "clean" the tree (no stash/reset/checkout), and do NOT stage/commit unrelated changes.
+- Branch/remote safety (required): Do NOT create branches, switch branches, detach HEAD, or do any operations on remotes.
+  - Confirm you are on a normal branch (not detached): `git rev-parse --abbrev-ref HEAD` must NOT return `HEAD`.
+  - Forbidden examples: `git checkout -b`, `git switch -c`, `git checkout <branch>`, `git switch <branch>`, `git pull`, `git push`, `git fetch`, `git remote ...`, `git submodule ...`, `git tag ...`.
+- Tests (required): Identify ALL test files directly related to the file you plan to change, then run them at baseline (pre-change) and again after your changes.
+  - Find related tests by searching `tests/` for imports/references to the changed module(s) and key symbols.
+  - Post-change: re-run the same tests after your changes; if any fail, keep fixing and re-run until all pass.
+  - Run with: `./.venv/Scripts/python.exe -m pytest <test_file1> <test_file2> ...`
+  - Abort protocol: if you cannot get the post-change tests green after 3 fix->test cycles, undo ONLY your session's changes by unstaging/restoring the explicit paths you touched (no globs), then report.
+    - If needed: `git restore --staged -- <file>` then `git restore --source=HEAD -- <file>`
+- Git safety (required): Do NOT use git operations that can discard/rewrite/hide other agents' work (examples: `git reset --hard`, `git reset`, `git checkout .`, `git restore .`, `git clean -fd`, `git stash`, `git commit --amend`, `git rebase`, `git merge`).
+  - If you must undo a broken change or abort the session, only restore files YOU modified, one-by-one with explicit paths: `git restore --source=HEAD -- <file>` (or `git checkout -- <file>`). No globs and never `.`.
+- Commit (required if you changed any files): Create exactly ONE commit for this session at the end, after baseline + post-change related tests are green; commit ONLY the file you changed for this session.
+  - Do NOT create multiple commits. Do NOT commit early.
+  - Forbidden: `git add .`, `git add -A`, `git add --all`, `git add -u`, `git commit -am`, `git commit -a`, `git stash`.
+  - Stage explicitly: `git add <file>`, then verify: `git diff --cached --name-only`.
+  - End state: overall `git status --porcelain` may be non-empty (other agents), but none of the files you touched should remain modified or staged after your commit.
+
+Deliverables / reporting (in your final response)
+1) File changed and what guarding pattern was applied.
+2) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
+3) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
+4) Post-commit `git status --porcelain` output (may be non-empty if other agents are working); confirm none of the files you touched remain uncommitted.
+
+Already fixed files (do not modify):
+[]

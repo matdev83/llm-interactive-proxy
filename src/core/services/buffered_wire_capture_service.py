@@ -942,6 +942,9 @@ class BufferedWireCapture(IWireCapture):
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
 
+        # Check for rotation after writing
+        await self._check_rotation()
+
     def _write_entries_sync(self, entries: list[WireCaptureEntry]) -> None:
         """Synchronously write entries to file."""
         if not self._file_path:
@@ -958,8 +961,7 @@ class BufferedWireCapture(IWireCapture):
                         len(json_line) + 1
                     )  # json_line is already a string
 
-            # Check for rotation after writing
-            self._check_rotation()
+            # Rotation check happens in the async caller method
 
         except OSError as e:
             logger.warning(
@@ -996,7 +998,7 @@ class BufferedWireCapture(IWireCapture):
                 exc_info=True,
             )
 
-    def _check_rotation(self) -> None:
+    async def _check_rotation(self) -> None:
         """Check if file rotation is needed."""
         if not self._file_path or not self._max_bytes:
             return
@@ -1005,7 +1007,7 @@ class BufferedWireCapture(IWireCapture):
             if os.path.exists(self._file_path):
                 current_size = os.path.getsize(self._file_path)
                 if current_size > self._max_bytes:
-                    self._perform_rotation()
+                    await self._perform_rotation()
         except OSError as e:
             logger.warning(
                 "Wire capture rotation check failed (continuing): %s",
@@ -1019,7 +1021,7 @@ class BufferedWireCapture(IWireCapture):
                 exc_info=True,
             )
 
-    def _robust_replace(
+    async def _robust_replace(
         self, src: str, dst: str, retries: int = 5, delay: float = 0.1
     ) -> None:
         """Attempt to replace a file with retries to handle Windows file locking."""
@@ -1029,11 +1031,11 @@ class BufferedWireCapture(IWireCapture):
                 return
             except PermissionError:
                 if i < retries - 1:
-                    time.sleep(delay)
+                    await asyncio.sleep(delay)
                 else:
                     raise
 
-    def _perform_rotation(self) -> None:
+    async def _perform_rotation(self) -> None:
         """Perform file rotation."""
         if not self._file_path or self._max_files <= 0:
             return
@@ -1052,11 +1054,11 @@ class BufferedWireCapture(IWireCapture):
                 src = f"{self._file_path}.{i}"
                 dst = f"{self._file_path}.{i + 1}"
                 if os.path.exists(src):
-                    self._robust_replace(src, dst)
+                    await self._robust_replace(src, dst)
 
             # 3. Rotate the current log to .1
             if os.path.exists(self._file_path):
-                self._robust_replace(self._file_path, f"{self._file_path}.1")
+                await self._robust_replace(self._file_path, f"{self._file_path}.1")
 
             # 4. Ensure a fresh file exists for subsequent writes
             with open(self._file_path, "a", encoding="utf-8"):

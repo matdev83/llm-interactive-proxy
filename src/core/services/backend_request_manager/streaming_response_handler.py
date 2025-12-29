@@ -22,6 +22,7 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any, cast
 
 from pydantic.types import JsonValue
+from dataclasses import dataclass
 
 from src.core.common.exceptions import BackendError
 from src.core.domain.backend_request_manager.context_models import (
@@ -59,6 +60,14 @@ logger = logging.getLogger(__name__)
 # Constants matching BackendRequestManager
 _STREAM_RECOVERY_PROMPT = "The previous response was empty, please try again."
 _MAX_EMPTY_STREAM_RETRIES = 1
+
+
+@dataclass
+class RetryState:
+    """Retry state extracted from request."""
+
+    current_retry_count: int
+    reactor_retry_active: bool
 
 
 class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
@@ -187,11 +196,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             },
         )
 
-    def _extract_retry_state(self, request: ChatRequest) -> tuple[int, bool]:
+    def _extract_retry_state(self, request: ChatRequest) -> RetryState:
         """Extract retry count and active flag from request.
 
         Returns:
-            Tuple of (current_retry_count, reactor_retry_active)
+            RetryState with current_retry_count and reactor_retry_active fields.
         """
         extra_body = getattr(request, "extra_body", None)
         current_retry_count = 0
@@ -204,7 +213,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         reactor_retry_active = bool(
             isinstance(extra_body, dict) and extra_body.get("_tool_call_reactor_retry")
         )
-        return current_retry_count, reactor_retry_active
+        return RetryState(
+            current_retry_count=current_retry_count,
+            reactor_retry_active=reactor_retry_active,
+        )
 
     def _extract_angel_config(self, context: RequestContext) -> tuple[str | None, int]:
         """Extract Angel configuration from context.
@@ -337,20 +349,20 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             AsyncIterator of retried chunks if retry occurred, None otherwise
         """
         metadata = getattr(chunk, "metadata", {}) or {}
-        current_retry_count, reactor_retry_active = self._extract_retry_state(request)
+        retry_state = self._extract_retry_state(request)
 
         # Skip retry if marker is present and limit not exceeded (prevents infinite loops)
-        if reactor_retry_active and current_retry_count < 3:
+        if retry_state.reactor_retry_active and retry_state.current_retry_count < 3:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Streaming: Skipping tool-call retry (marker present, count=%d) for session %s",
-                    current_retry_count,
+                    retry_state.current_retry_count,
                     processing_context.session_id,
                 )
             return None
 
         # Check if limit exceeded
-        if reactor_retry_active and current_retry_count >= 3:
+        if retry_state.reactor_retry_active and retry_state.current_retry_count >= 3:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Streaming: Tool call retry limit exceeded for session %s",
@@ -359,8 +371,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 )
             terminal_metadata: dict[str, JsonValue] = {
                 "dangerous_command_limit_exceeded": True,
-                "dangerous_command_retry_count": current_retry_count + 1,
-                "tool_call_reactor_retry_count": current_retry_count + 1,
+                "dangerous_command_retry_count": retry_state.current_retry_count + 1,
+                "tool_call_reactor_retry_count": retry_state.current_retry_count + 1,
                 "session_terminated": True,
                 "is_done": True,
                 "finish_reason": "security_limit",
@@ -390,8 +402,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 metadata=metadata,
             )
 
-            retry_state = ToolCallRetryState(
-                retry_count=current_retry_count,
+            tool_call_retry_state = ToolCallRetryState(
+                retry_count=retry_state.current_retry_count,
                 max_retries=3,
                 steering_message=None,
                 is_streaming=True,
@@ -401,7 +413,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 request=request,
                 response=response_envelope,
                 context=context,
-                retry_state=retry_state,
+                retry_state=tool_call_retry_state,
             )
 
             if retry_result is not None and retry_result.content is not None:
@@ -502,34 +514,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     and not swallowed_detected
                 ):
                     swallowed_detected = True
-                    # Get retry state from request
-                    extra_body = getattr(request, "extra_body", None)
-                    current_retry_count = 0
-                    if isinstance(extra_body, dict):
-                        current_retry_count = extra_body.get(
-                            "_tool_call_reactor_retry_count", 0
-                        )
-                        legacy_count = extra_body.get(
-                            "_dangerous_command_retry_count", 0
-                        )
-                        if (
-                            isinstance(legacy_count, int)
-                            and legacy_count > current_retry_count
-                        ):
-                            current_retry_count = legacy_count
-
-                    reactor_retry_active = bool(
-                        isinstance(extra_body, dict)
-                        and extra_body.get("_tool_call_reactor_retry")
-                    )
+                    # Get retry state from request using the helper method
+                    retry_state = self._extract_retry_state(request)
 
                     # Skip retry if marker is present and limit not exceeded (prevents infinite loops)
-                    if reactor_retry_active and current_retry_count < 3:
+                    if (
+                        retry_state.reactor_retry_active
+                        and retry_state.current_retry_count < 3
+                    ):
                         # Retry marker present but below limit - skip retry to prevent loops
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 "Streaming: Skipping tool-call retry (marker present, count=%d) for session %s",
-                                current_retry_count,
+                                retry_state.current_retry_count,
                                 processing_context.session_id,
                             )
                         # Continue with original chunk (no retry)
@@ -538,7 +535,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
 
                     # Check if limit exceeded before delegating
                     if (
-                        reactor_retry_active and current_retry_count >= 3
+                        retry_state.reactor_retry_active
+                        and retry_state.current_retry_count >= 3
                     ):  # MAX_DANGEROUS_COMMAND_RETRIES
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
@@ -549,8 +547,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         # Yield terminal error chunk
                         terminal_metadata: dict[str, JsonValue] = {
                             "dangerous_command_limit_exceeded": True,
-                            "dangerous_command_retry_count": current_retry_count + 1,
-                            "tool_call_reactor_retry_count": current_retry_count + 1,
+                            "dangerous_command_retry_count": retry_state.current_retry_count
+                            + 1,
+                            "tool_call_reactor_retry_count": retry_state.current_retry_count
+                            + 1,
                             "session_terminated": True,
                             "is_done": True,
                             "finish_reason": "security_limit",
@@ -578,8 +578,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                             metadata=metadata,
                         )
 
-                        retry_state = ToolCallRetryState(
-                            retry_count=current_retry_count,
+                        tool_call_retry_state = ToolCallRetryState(
+                            retry_count=retry_state.current_retry_count,
                             max_retries=3,
                             steering_message=None,
                             is_streaming=True,
@@ -590,7 +590,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                                 request=request,
                                 response=response_envelope,
                                 context=context,
-                                retry_state=retry_state,
+                                retry_state=tool_call_retry_state,
                             )
                         )
 
