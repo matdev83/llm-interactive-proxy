@@ -10,6 +10,33 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from pydantic import BaseModel
+
+
+class NormalizedToolCall(BaseModel):
+    """Normalized representation of a tool call.
+
+    This model represents canonical shape of a normalized tool call.
+    It is used as return type for normalizers to provide strong typing
+    while maintaining flexibility through extra fields allowance.
+
+    The shape corresponds to OpenAI tool call format with:
+    - id: Unique identifier for tool call
+    - type: Type of tool (typically "function")
+    - function: Nested object with name and arguments
+
+    Extra fields are allowed to accommodate provider-specific metadata.
+    """
+
+    model_config = {"extra": "allow"}
+
+    id: str | None = None
+    type: str | None = None
+    function: dict[str, Any] | None = None
+
+
+NormalizedToolCallDict = dict[str, Any]
+
 
 class IToolCallNormalizer(ABC):
     """Interface for normalizing tool-call objects to dictionary format.
@@ -23,10 +50,13 @@ class IToolCallNormalizer(ABC):
 
     The normalizer follows a fail-open strategy: un-normalizable objects are
     skipped (returns None) without crashing the request.
+
+    The returned dictionary should match the shape defined by NormalizedToolCall,
+    though the return type remains dict[str, Any] for compatibility.
     """
 
     @abstractmethod
-    def normalize(self, tool_call: Any) -> dict[str, Any] | None:
+    def normalize(self, tool_call: Any) -> NormalizedToolCallDict | None:
         """Normalize a tool-call object into a dictionary.
 
         This method attempts to normalize a tool-call object into a consistent

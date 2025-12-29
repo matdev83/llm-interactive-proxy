@@ -2,9 +2,31 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel
+
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses_api import ResponsesRequest
 from src.core.domain.translation_utils.content_utils import _safe_string
+
+
+class NormalizedResponsesContentPart(BaseModel):
+    """Normalized representation of a Responses API content part.
+
+    Content parts represent structured content within a message, such as
+    text blocks or images. The normalized format ensures compatibility
+    with chat completion message structures.
+    """
+
+    model_config = {"extra": "allow"}
+
+    type: str
+    text: str | None = None
+    image_url: dict[str, Any] | None = None
+
+
+NormalizedResponsesMessage = dict[str, Any]
+NormalizedResponsesMessageList = list[NormalizedResponsesMessage]
+NormalizedResponsesContentPartList = list[dict[str, Any]]
 
 
 def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -225,8 +247,17 @@ def _filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in extra_body.items() if key in allowed_keys}
 
 
-def _normalize_responses_input_to_messages(input_payload: Any) -> list[dict[str, Any]]:
-    """Coerce OpenAI Responses API input payloads into chat messages."""
+def _normalize_responses_input_to_messages(
+    input_payload: Any,
+) -> NormalizedResponsesMessageList:
+    """Coerce OpenAI Responses API input payloads into chat messages.
+
+    Returns a list of normalized message dictionaries. Each message follows
+    the shape defined by Responses API messages with role, content and
+    optional fields like name, tool_calls, tool_call_id.
+
+    The message structure is documented in NormalizedResponsesMessage.
+    """
 
     def _normalize_message_entry(entry: Any) -> dict[str, Any] | None:
         if entry is None:
@@ -343,8 +374,18 @@ def _normalize_responses_content(content: Any) -> Any:
     return str(content)
 
 
-def _normalize_responses_content_part(part: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize a single Responses API content part."""
+def _normalize_responses_content_part(
+    part: dict[str, Any],
+) -> NormalizedResponsesContentPartList:
+    """Normalize a single Responses API content part.
+
+    Returns a list of normalized content part dictionaries. Each part can be:
+    - Text content: {"type": "text", "text": str}
+    - Image content: {"type": "image_url", "image_url": dict}
+    - Other content types: passed through as-is
+
+    The normalized structure is documented in NormalizedResponsesContentPart.
+    """
 
     part_type = str(part.get("type") or "").lower()
     normalized_parts: list[dict[str, Any]] = []

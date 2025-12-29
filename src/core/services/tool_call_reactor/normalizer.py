@@ -11,7 +11,10 @@ import logging
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
-from src.core.interfaces.tool_call_normalizer_interface import IToolCallNormalizer
+from src.core.interfaces.tool_call_normalizer_interface import (
+    IToolCallNormalizer,
+    NormalizedToolCallDict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +32,14 @@ class ToolCallNormalizer(IToolCallNormalizer):
     skipped (returns None) without crashing the request.
     """
 
-    def normalize(self, tool_call: Any) -> dict[str, Any] | None:
+    def normalize(self, tool_call: Any) -> NormalizedToolCallDict | None:
         """Normalize a tool-call object into a dictionary.
 
         This method attempts to normalize a tool-call object into a consistent
         dictionary format. It supports dictionaries, Pydantic models, and dataclasses.
+
+        The expected output shape matches NormalizedToolCall, which defines the
+        canonical structure with id, type, and function fields.
 
         Args:
             tool_call: The tool-call object to normalize. Can be a dict,
