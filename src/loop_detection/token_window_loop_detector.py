@@ -198,7 +198,10 @@ class TokenWindowLoopDetector(ILoopDetector):
             return True
 
         # Special case for tables with pipe characters
-        return stripped.startswith("|") and stripped.count("|") >= 2
+        # Optimized: Check startswith first, then check if there's at least one more pipe
+        if stripped.startswith("|"):
+            return "|" in stripped[1:]  # True if at least 2 pipes total
+        return False
 
     def _truncate_and_update(self) -> None:
         """
@@ -321,7 +324,7 @@ class TokenWindowLoopDetector(ILoopDetector):
             return False
 
         # Analyze the most recent occurrences to see if they're clustered closely together
-        recent_indices = existing_indices[-threshold :]
+        recent_indices = existing_indices[-threshold:]
         total_distance = recent_indices[-1] - recent_indices[0]
         average_distance = total_distance / (threshold - 1)
         max_allowed_distance = self.content_chunk_size * 1.5
@@ -430,7 +433,8 @@ class TokenWindowLoopDetector(ILoopDetector):
             tracked_chunks=len(self.content_stats),
             config=LoopDetectorConfig(
                 content_chunk_size=self.content_chunk_size,
-                content_loop_threshold=self.content_loop_threshold or CONTENT_LOOP_THRESHOLD,
+                content_loop_threshold=self.content_loop_threshold
+                or CONTENT_LOOP_THRESHOLD,
                 max_history_length=self.max_history_length or MAX_HISTORY_LENGTH,
             ),
         )
@@ -463,17 +467,29 @@ class TokenWindowLoopDetector(ILoopDetector):
 
         if hasattr(new_config, "content_loop_threshold"):
             threshold = getattr(new_config, "content_loop_threshold", None)  # type: ignore[attr-defined]
-            self.content_loop_threshold = threshold if threshold is not None else CONTENT_LOOP_THRESHOLD
+            self.content_loop_threshold = (
+                threshold if threshold is not None else CONTENT_LOOP_THRESHOLD
+            )
         elif isinstance(new_config, dict) and "content_loop_threshold" in new_config:
             threshold = new_config["content_loop_threshold"]
-            self.content_loop_threshold = threshold if isinstance(threshold, int) and threshold is not None else CONTENT_LOOP_THRESHOLD
+            self.content_loop_threshold = (
+                threshold
+                if isinstance(threshold, int) and threshold is not None
+                else CONTENT_LOOP_THRESHOLD
+            )
 
         if hasattr(new_config, "max_history_length"):
             max_len = getattr(new_config, "max_history_length", None)  # type: ignore[attr-defined]
-            self.max_history_length = max_len if max_len is not None else MAX_HISTORY_LENGTH
+            self.max_history_length = (
+                max_len if max_len is not None else MAX_HISTORY_LENGTH
+            )
         elif isinstance(new_config, dict) and "max_history_length" in new_config:
             max_len = new_config["max_history_length"]
-            self.max_history_length = max_len if isinstance(max_len, int) and max_len is not None else MAX_HISTORY_LENGTH
+            self.max_history_length = (
+                max_len
+                if isinstance(max_len, int) and max_len is not None
+                else MAX_HISTORY_LENGTH
+            )
 
         # Reset state after configuration change
         self.reset()

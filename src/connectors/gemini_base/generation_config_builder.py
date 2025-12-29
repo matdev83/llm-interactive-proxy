@@ -110,7 +110,6 @@ class GenerationConfigBuilder:
         )
 
 
-
 def build_code_assist_request_format(
     processed_messages: list[Any],
     model: str,
@@ -158,12 +157,14 @@ def build_code_assist_request_format(
             prefix = "Assistant" if role == "assistant" else "User"
             conversation_context.append(f"{prefix}: {normalized}")
 
-    # Combine system prompt with conversation context
-    full_prompt = system_prompt
+    # Combine system prompt with conversation context (optimized with join)
     if conversation_context:
-        if full_prompt:
-            full_prompt += "\n\n"
-        full_prompt += "\n".join(conversation_context)
+        context_str = "\n".join(conversation_context)
+        full_prompt = (
+            f"{system_prompt}\n\n{context_str}" if system_prompt else context_str
+        )
+    else:
+        full_prompt = system_prompt
 
     return {
         "model": model,

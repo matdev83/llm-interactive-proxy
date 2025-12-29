@@ -468,10 +468,11 @@ class SSESerializer:
                         content_copy, tool_calls_dicts
                     )
 
-        result = f"data: {json.dumps(content_copy)}\n\n"
+        # Optimized: Avoid string concatenation, use join
+        parts = [f"data: {json.dumps(content_copy)}\n\n"]
         if chunk.is_done:
-            result += "data: [DONE]\n\n"
-        return result.encode()
+            parts.append("data: [DONE]\n\n")
+        return "".join(parts).encode()
 
     def _build_delta_metadata(
         self, chunk: StreamingChunk, content: StreamingContent, delta: dict[str, Any]
@@ -647,10 +648,11 @@ class SSESerializer:
             to_dict = getattr(content.usage, "to_legacy_dict", None)
             response_data["usage"] = to_dict() if callable(to_dict) else content.usage
 
-        result = f"data: {json.dumps(response_data)}\n\n"
+        # Optimized: Avoid string concatenation, use join
+        parts = [f"data: {json.dumps(response_data)}\n\n"]
         if chunk.is_done:
-            result += "data: [DONE]\n\n"
-        return result.encode()
+            parts.append("data: [DONE]\n\n")
+        return "".join(parts).encode()
 
 
 __all__ = ["SSESerializer"]
