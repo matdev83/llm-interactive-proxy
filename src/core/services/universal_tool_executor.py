@@ -401,6 +401,56 @@ class UniversalToolExecutor:
 
             return self._format_result_from_dict(tool_name, result)
 
+        except ConnectionError as e:
+            # Network/connection errors when communicating with MCP server
+            error_msg = (
+                f"Error: Failed to connect to MCP server for tool '{tool_name}': {e!s}"
+            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "MCP tool connection error: %s",
+                    e,
+                    exc_info=True,
+                    extra={"tool_name": tool_name, "arguments": translated_arguments},
+                )
+            return self._format_result(
+                output=error_msg,
+                exit_code=1,
+                error=str(e),
+                tool_name="use_mcp_tool",
+            )
+        except TimeoutError as e:
+            # Timeout errors when waiting for MCP server response
+            error_msg = f"Error: MCP tool '{tool_name}' execution timed out: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "MCP tool timeout error: %s",
+                    e,
+                    exc_info=True,
+                    extra={"tool_name": tool_name, "arguments": translated_arguments},
+                )
+            return self._format_result(
+                output=error_msg,
+                exit_code=1,
+                error=str(e),
+                tool_name="use_mcp_tool",
+            )
+        except (ValueError, KeyError, TypeError) as e:
+            # Argument validation errors or protocol/data structure errors
+            error_msg = f"Error: Invalid arguments or data format for MCP tool '{tool_name}': {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "MCP tool argument/data error: %s",
+                    e,
+                    exc_info=True,
+                    extra={"tool_name": tool_name, "arguments": translated_arguments},
+                )
+            return self._format_result(
+                output=error_msg,
+                exit_code=1,
+                error=str(e),
+                tool_name="use_mcp_tool",
+            )
         except Exception as e:
             error_msg = f"Error executing MCP tool '{tool_name}': {e!s}"
             if logger.isEnabledFor(logging.ERROR):
@@ -516,12 +566,52 @@ class UniversalToolExecutor:
                 error="File appears to be binary or has encoding issues",
                 tool_name="read_file",
             )
+        except FileNotFoundError:
+            error_msg = f"Error: File not found: {file_path}"
+            return self._format_result(
+                output=error_msg,
+                exit_code=1,
+                error="File not found",
+                tool_name="read_file",
+            )
         except PermissionError:
             error_msg = f"Error: Permission denied reading file: {file_path}"
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
                 error="Permission denied",
+                tool_name="read_file",
+            )
+        except OSError as e:
+            # OSError includes FileNotFoundError, PermissionError, and other OS-level errors
+            error_msg = f"Error reading file {file_path}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "OS error reading file: %s",
+                    e,
+                    exc_info=True,
+                    extra={"file_path": file_path},
+                )
+            return self._format_result(
+                output=error_msg,
+                exit_code=1,
+                error=str(e),
+                tool_name="read_file",
+            )
+        except ValueError as e:
+            # ValueError can occur during path validation or line range processing
+            error_msg = f"Error reading file {file_path}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Value error reading file: %s",
+                    e,
+                    exc_info=True,
+                    extra={"file_path": file_path},
+                )
+            return self._format_result(
+                output=error_msg,
+                exit_code=1,
+                error=str(e),
                 tool_name="read_file",
             )
         except Exception as e:
@@ -908,6 +998,26 @@ class UniversalToolExecutor:
                 error=f"Command execution timed out after {timeout}s",
                 tool_name="shell",
             )
+        except subprocess.CalledProcessError as e:
+            # CalledProcessError occurs when a subprocess returns a non-zero exit code
+            # Note: subprocess.run() doesn't raise this by default, but it's good to catch
+            # in case the implementation changes or for other subprocess calls
+            error_msg = (
+                f"Error: Command failed with exit code {e.returncode}: {command}"
+            )
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Subprocess command failed: %s",
+                    e,
+                    exc_info=True,
+                    extra={"command": command, "exit_code": e.returncode},
+                )
+            return self._format_result(
+                output=error_msg,
+                exit_code=e.returncode if e.returncode else 1,
+                error=str(e),
+                tool_name="shell",
+            )
         except FileNotFoundError as e:
             error_msg = f"Error: Command not found: {command}"
             return self._format_result(
@@ -922,6 +1032,23 @@ class UniversalToolExecutor:
                 output=error_msg,
                 exit_code=126,  # Standard "permission denied" exit code
                 error="Permission denied",
+                tool_name="shell",
+            )
+        except OSError as e:
+            # OSError includes PermissionError, FileNotFoundError, and other OS-level errors
+            # This catches any OSError not already handled above
+            error_msg = f"Error executing command: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "OS error executing shell command: %s",
+                    e,
+                    exc_info=True,
+                    extra={"command": command},
+                )
+            return self._format_result(
+                output=error_msg,
+                exit_code=1,
+                error=str(e),
                 tool_name="shell",
             )
         except Exception as e:
