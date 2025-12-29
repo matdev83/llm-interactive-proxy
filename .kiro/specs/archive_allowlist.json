@@ -1,4 +1,9 @@
 {
   "version": 1,
-  "entries": []
+  "entries": [
+    {
+      "spec": "codex-connector-refactoring-follow-up",
+      "reason": "Follow-up refactoring spec kept active for reference"
+    }
+  ]
 }

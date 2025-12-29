@@ -671,7 +671,7 @@ class ResponsesController:
             },
         )
 
-    def _stream_response_envelope(  # noqa: C901
+    def _stream_response_envelope(
         self,
         request: Request,
         domain_request: Any,
@@ -679,7 +679,7 @@ class ResponsesController:
         request_id: str,
         context: Any | None = None,
     ) -> AsyncIterator[str]:
-        async def _generator() -> AsyncIterator[str]:  # noqa: C901
+        async def _generator() -> AsyncIterator[str]:
             import json
             import time
             from datetime import datetime, timezone

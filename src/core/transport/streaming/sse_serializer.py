@@ -12,7 +12,6 @@ import json
 import logging
 from typing import Any, cast
 
-from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.streaming.contracts import StreamingChunk
 from src.core.domain.streaming.sentinels import SentinelManager
 from src.core.domain.streaming.stop_chunk_with_usage import (
@@ -25,61 +24,38 @@ logger = logging.getLogger(__name__)
 
 
 class SSESerializer:
-    """Serializer for converting StreamingContent to SSE bytes.
-
-    This serializer handles:
-    - SSE framing (data: {payload}\\n\\n)
-    - Done markers (data: [DONE]\\n\\n)
-    - Tool-call sanitization (removing internal markers)
-    - StopChunkWithUsage special handling
-    - Error and cancellation handling
-    """
+    """Serializer for converting StreamingContent to SSE bytes."""
 
     def _serialize_stop_chunk_with_usage(self, content: StreamingContent) -> bytes:
         """Serialize StopChunkWithUsage to SSE bytes with usage at top level."""
-        # Convert to plain dict to avoid triggering __str__ protection
         assert isinstance(content.content, StopChunkWithUsage)
         plain_dict = dict(content.content)
-        logger.debug(
-            "[STREAMING] StreamingContent.to_bytes: Emitting StopChunkWithUsage "
-            "as top-level SSE with usage, chunk_id=%s, usage=%s",
-            plain_dict.get("id", "unknown"),
-            plain_dict.get("usage"),
-        )
         return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
 
     def _serialize_error_chunk(
         self, chunk: StreamingChunk, content: StreamingContent
     ) -> bytes | None:
         """Serialize error chunk to SSE bytes. Returns None if not an error chunk."""
-        # Check for error metadata first
         if chunk.metadata.finish_reason == "error" and (
             chunk.metadata.error is not None or "error" in content.metadata
         ):
-            # Get error dict - prefer typed contract, fallback to original metadata
-            if chunk.metadata.error is not None:
-                error_dict = chunk.metadata.error.model_dump(exclude_none=True)
-            else:
-                # Fallback: use original error dict if typed conversion failed
-                error_dict = content.metadata.get("error", {})
-                if not isinstance(error_dict, dict):
-                    error_dict = {}
-
-            error_data = {
+            error_dict = (
+                chunk.metadata.error.model_dump(exclude_none=True)
+                if chunk.metadata.error is not None
+                else content.metadata.get("error", {})
+            )
+            if not isinstance(error_dict, dict):
+                error_dict = {}
+            error_data: dict[str, Any] = {
                 "choices": [{"delta": {}, "finish_reason": "error"}],
                 "error": error_dict,
             }
-
-            # Extract additional metadata fields (use original for non-typed fields)
             for key in ("id", "model", "created"):
                 if key in content.metadata:
                     error_data[key] = content.metadata[key]
             return f"data: {json.dumps(error_data)}\n\ndata: [DONE]\n\n".encode()
-
-        # If content already carries error payload, preserve it
         if isinstance(content.content, dict) and content.content.get("error"):
             return f"data: {json.dumps(content.content)}\n\ndata: [DONE]\n\n".encode()
-
         return None
 
     def _serialize_cancellation_chunk(
@@ -87,48 +63,32 @@ class SSESerializer:
     ) -> bytes | None:
         """Serialize cancellation chunk to SSE bytes. Returns None if not cancellation."""
         if chunk.is_cancellation and chunk.payload.kind != "empty":
-            data = {
+            data: dict[str, Any] = {
                 "choices": [{"delta": {"content": str(content.content)}}],
                 "finish_reason": "cancelled",
             }
-            # Extract additional metadata fields (use original for non-typed fields)
             for key in ("id", "model", "created"):
                 if key in content.metadata:
                     data[key] = content.metadata[key]
             return f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode()
-
         return None
 
     def _serialize_done_chunk(
         self, chunk: StreamingChunk, content: StreamingContent
     ) -> bytes:
         """Serialize done chunk to SSE bytes (may include content or just [DONE])."""
-        if content._is_empty_completion_payload():
+        if content._is_empty_completion_payload():  # type: ignore[attr-defined]
             return b"data: [DONE]\n\n"
-
-        # Check if content is just "[DONE]" marker (treat as pure done marker)
         content_is_done_marker = (
             content.content == "[DONE]"
             or content.content == SentinelManager.DONE_MARKER
             or content.content == b"[DONE]"
         )
-
-        if (
-            content.content is not None
-            and content.content != ""
-            and not content_is_done_marker
-        ):
-            # If content is already an OpenAI-formatted chunk, emit it then [DONE]
+        if content.content and content.content != "" and not content_is_done_marker:
             if isinstance(content.content, dict) and "choices" in content.content:
                 return self._serialize_openai_chunk_with_done(chunk, content)
-
-            # Otherwise, fall through to normal content handling below
         else:
-            # No meaningful content or content is just "[DONE]", emit [DONE]
             return b"data: [DONE]\n\n"
-
-        # If we get here, there's content but it's not OpenAI-formatted
-        # Fall back to normal chunk serialization (shouldn't happen for done chunks)
         return self._serialize_normal_chunk(chunk, content)
 
     def serialize(self, content: StreamingContent) -> bytes:
@@ -143,99 +103,54 @@ class SSESerializer:
         Raises:
             UsageChunkLeakError: If StopChunkWithUsage is incorrectly handled
         """
-        # Log SSE serialization at TRACE level for diagnostic tracking
-        if logger.isEnabledFor(TRACE_LEVEL):
-            content_type = type(content.content).__name__
-            has_usage = (
-                isinstance(content.content, dict) and "usage" in content.content
-            ) or content.usage is not None
-            logger.log(
-                TRACE_LEVEL,
-                "[STREAMING] StreamingContent.to_bytes: Serializing chunk to SSE, "
-                "content_type=%s, is_done=%s, has_usage=%s, is_stop_chunk_with_usage=%s",
-                content_type,
-                content.is_done,
-                has_usage,
-                isinstance(content.content, StopChunkWithUsage),
-            )
-
-        # CRITICAL: Handle StopChunkWithUsage at the very start to ensure
-        # usage data is serialized correctly at the top level, not in delta.content.
-        # This prevents the usage data leak bug where JSON chunks appear in
-        # conversation history.
         if isinstance(content.content, StopChunkWithUsage):
             return self._serialize_stop_chunk_with_usage(content)
-
-        # Convert to typed contract for internal processing
         chunk = content.to_typed_chunk()
-
         if chunk.is_done:
-            # Handle error chunks
             error_bytes = self._serialize_error_chunk(chunk, content)
             if error_bytes is not None:
                 return error_bytes
-
-            # Handle cancellation chunks
             cancellation_bytes = self._serialize_cancellation_chunk(chunk, content)
             if cancellation_bytes is not None:
                 return cancellation_bytes
-
-            # Handle done markers
             return self._serialize_done_chunk(chunk, content)
-
-        # Build delta object for non-done chunks
         return self._serialize_normal_chunk(chunk, content)
 
     def _normalize_openai_chat_completion_to_stream_chunk(
         self, payload: dict[str, Any]
     ) -> dict[str, Any]:
-        """Normalize `choices[].message` payloads into `choices[].delta` for SSE.
-
-        Some internal proxy paths may generate a non-streaming OpenAI chat payload
-        (`object: chat.completion` with `choices[].message`) but still deliver it
-        over SSE. Streaming clients expect `choices[].delta` to exist on every
-        chunk; emitting `message` inside a stream can crash strict parsers.
-        """
+        """Normalize `choices[].message` payloads into `choices[].delta` for SSE."""
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             return payload
-
-        payload_object = payload.get("object")
         normalized_choices: list[Any] = []
         converted_any = False
-
         for choice in choices:
             if not isinstance(choice, dict):
                 normalized_choices.append(choice)
                 continue
-
             if "delta" in choice:
                 normalized_choices.append(choice)
                 continue
-
             message = choice.get("message")
             if isinstance(message, dict):
-                new_choice = dict(choice)
-                new_choice.pop("message", None)
+                new_choice = {k: v for k, v in choice.items() if k != "message"}
                 delta = dict(message)
                 if delta.get("content") is None:
                     delta["content"] = ""
                 new_choice["delta"] = delta
                 normalized_choices.append(new_choice)
                 converted_any = True
-                continue
-
-            new_choice = dict(choice)
-            new_choice.setdefault("delta", {})
-            normalized_choices.append(new_choice)
-            converted_any = True
-
-        if not converted_any and payload_object != "chat.completion":
+            else:
+                new_choice = dict(choice)
+                new_choice.setdefault("delta", {})
+                normalized_choices.append(new_choice)
+                converted_any = True
+        if not converted_any and payload.get("object") != "chat.completion":
             return payload
-
         normalized = dict(payload)
         normalized["choices"] = normalized_choices
-        if payload_object == "chat.completion":
+        if payload.get("object") == "chat.completion":
             normalized["object"] = "chat.completion.chunk"
         return normalized
 
@@ -373,37 +288,41 @@ class SSESerializer:
                 if not k.startswith("_") and k != "extra_content"
             }
             for tc in tool_calls
-            if isinstance(tc, dict)
+            if isinstance(tc, dict)  # type: ignore[misc]
         ]
 
     def _sanitize_chunk_tool_calls_in_place(self, content_copy: dict[str, Any]) -> None:
         """Sanitize tool_calls in choices[].delta/message in place."""
-        for choice_item in content_copy.get("choices", []):
+        choices = content_copy.get("choices", [])
+        if not isinstance(choices, list):
+            return
+        for choice_item in choices:
             if not isinstance(choice_item, dict):
                 continue
             for container_key in ("delta", "message"):
                 container = choice_item.get(container_key)
-                if not isinstance(container, dict):
-                    continue
-                tc_list = container.get("tool_calls")
-                if isinstance(tc_list, list) and tc_list:
-                    container["tool_calls"] = self._sanitize_tool_calls(tc_list)
+                if isinstance(container, dict):
+                    tc_list = container.get("tool_calls")
+                    if isinstance(tc_list, list) and tc_list:
+                        container["tool_calls"] = self._sanitize_tool_calls(tc_list)
 
     def _handle_virtual_tool_calls(
         self, content_copy: dict[str, Any]
     ) -> dict[str, Any]:
         """Strip virtual tool_calls from delta."""
         choices = content_copy.get("choices", [])
-        if not (choices and isinstance(choices[0], dict)):
-            return content_copy
-
-        inner_delta = choices[0].get("delta", {})
-        if isinstance(inner_delta, dict) and "tool_calls" in inner_delta:
-            inner_delta = dict(inner_delta)
-            del inner_delta["tool_calls"]
-            choices[0] = dict(choices[0])
-            choices[0]["delta"] = inner_delta
-            content_copy["choices"] = choices
+        if (
+            choices
+            and isinstance(choices, list)
+            and choices
+            and isinstance(choices[0], dict)
+        ):
+            inner_delta = choices[0].get("delta", {})
+            if isinstance(inner_delta, dict) and "tool_calls" in inner_delta:
+                choices[0]["delta"] = {
+                    k: v for k, v in inner_delta.items() if k != "tool_calls"
+                }
+                content_copy["choices"] = choices
         return content_copy
 
     def _inject_tool_calls_into_chunk(
@@ -411,18 +330,19 @@ class SSESerializer:
     ) -> dict[str, Any]:
         """Inject tool_calls into chunk delta."""
         sanitized_calls = self._sanitize_tool_calls(tool_calls)
-        if not sanitized_calls:
-            return content_copy
-
-        choices = content_copy.get("choices", [])
-        if not (choices and isinstance(choices[0], dict)):
-            return content_copy
-
-        inner_delta = choices[0].get("delta", {})
-        if isinstance(inner_delta, dict):
-            inner_delta["tool_calls"] = sanitized_calls
-            choices[0]["delta"] = inner_delta
-            content_copy["choices"] = choices
+        if sanitized_calls:
+            choices = content_copy.get("choices", [])
+            if (
+                choices
+                and isinstance(choices, list)
+                and choices
+                and isinstance(choices[0], dict)
+            ):
+                inner_delta = choices[0].get("delta", {})
+                if isinstance(inner_delta, dict):
+                    inner_delta["tool_calls"] = sanitized_calls
+                    choices[0]["delta"] = inner_delta
+                    content_copy["choices"] = choices
         return content_copy
 
     def _serialize_openai_formatted_dict(
@@ -548,7 +468,7 @@ class SSESerializer:
             chunk.payload.kind == "opaque_json_dict" and chunk.payload.opaque_json_dict
         ):
             parsed_content = chunk.payload.opaque_json_dict
-            if isinstance(parsed_content, dict):
+            if isinstance(parsed_content, dict):  # type: ignore[misc]
                 # Check if OpenAI-formatted chunk
                 if "choices" in parsed_content or "usage" in parsed_content:
                     return self._serialize_openai_formatted_dict(
@@ -557,13 +477,7 @@ class SSESerializer:
 
                 # Check for StopChunkWithUsage misuse
                 if isinstance(content.content, StopChunkWithUsage):
-                    raise UsageChunkLeakError(
-                        chunk_id=(
-                            parsed_content.get("id")
-                            if isinstance(parsed_content, dict)
-                            else None
-                        )
-                    )
+                    raise UsageChunkLeakError(chunk_id=parsed_content.get("id"))
 
                 delta["content"] = json.dumps(parsed_content)
             else:
@@ -592,11 +506,7 @@ class SSESerializer:
                         # Check for StopChunkWithUsage misuse
                         if is_leak_check_needed:
                             raise UsageChunkLeakError(
-                                chunk_id=(
-                                    parsed_content.get("id")
-                                    if isinstance(parsed_content, dict)
-                                    else None
-                                )
+                                chunk_id=parsed_content.get("id") if isinstance(parsed_content, dict) else None  # type: ignore[misc]
                             )
 
                         delta["content"] = json.dumps(parsed_content)

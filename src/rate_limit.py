@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import threading
@@ -45,10 +46,8 @@ class RateLimitRegistry:
                 # and TTL when an item is accessed after its TTL.
                 # Direct time-based check provides an additional layer of certainty for
                 # correctness, even if the item is still in cache.
-                try:
+                with contextlib.suppress(KeyError):
                     del self._until[key]
-                except KeyError:
-                    pass
                 return None
             return ts
 
@@ -64,10 +63,8 @@ class RateLimitRegistry:
                 # Iterate over all items in the cache
                 for key, ts in list(self._until.items()):  # Use list() to iterate over a copy
                     if now >= ts:
-                        try:
+                        with contextlib.suppress(KeyError):
                             del self._until[key]
-                        except KeyError:
-                            pass
                         continue
                     valid_times.append(ts)
             else:
@@ -77,10 +74,8 @@ class RateLimitRegistry:
                     if retry_ts is None:
                         continue
                     if now >= retry_ts:
-                        try:
+                        with contextlib.suppress(KeyError):
                             del self._until[key]
-                        except KeyError:
-                            pass
                         continue
                     valid_times.append(retry_ts)
 

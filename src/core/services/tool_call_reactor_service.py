@@ -381,7 +381,7 @@ class ToolCallReactorService(IToolCallReactor):
                 }
         except (TypeError, ValueError, RecursionError) as e:
             # JSON serialization failed, could be due to non-serializable objects or recursion
-            if isinstance(e, (TypeError, ValueError)):
+            if isinstance(e, TypeError | ValueError):
                 serialization_failed_due_to_type = True
 
         # If the structure is already too deep, avoid deepcopy to prevent stack overflow

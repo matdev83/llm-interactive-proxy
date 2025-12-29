@@ -54,7 +54,7 @@ async def test_tracker_async_methods():
         )
     )
 
-    result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+    result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
     assert hasattr(result, "should_block")
     assert result.should_block is False
@@ -81,7 +81,7 @@ async def test_tracker_concurrent_async_safety():
 
     async def make_tool_call(index: int):
         nonlocal successful_calls, blocked_calls
-        result = tracker.track_tool_call("test_tool", f'{{"arg": "{index}"}}')
+        result = await tracker.track_tool_call("test_tool", f'{{"arg": "{index}"}}')
         if result.should_block:
             blocked_calls += 1
         else:

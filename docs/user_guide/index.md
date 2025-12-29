@@ -60,6 +60,7 @@ Advanced features that enhance the proxy's capabilities:
 - **[Inline Python Steering](features/inline-python-steering.md)** - Control Python code execution within responses
 - **[Test Execution Reminder](features/test-execution-reminder.md)** - Remind agents to run tests before completing tasks
 - **[Session Management](features/session-management.md)** - Intelligent session handling and state management
+- **[Context Compaction](features/context-compaction.md)** - Intelligent context compaction to reduce prompt size
 - **[Context Window Enforcement](features/context-window-enforcement.md)** - Enforce context window limits and prevent overruns
 - **[Windows Double-Ampersand Fixer](features/windows-double-ampersand-fixer.md)** - Automatically fix `&&` command separators for Windows clients
 - **[Unified Steering Telemetry Migration](features/unified-steering-telemetry-migration.md)** - Migration guide for the unified steering framework telemetry changes

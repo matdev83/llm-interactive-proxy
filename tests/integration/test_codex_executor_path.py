@@ -6,6 +6,7 @@ executor path and that no bypass paths exist.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -229,15 +230,12 @@ async def test_non_codex_models_bypass_executor(auth_dir: Path):
             # Patch the parent class method
             with patch.object(
                 connector.__class__.__bases__[0], "chat_completions", tracked_chat_completions
-            ):
-                try:
-                    await connector.chat_completions(
-                        request_data=request,
-                        processed_messages=[],
-                        effective_model="gpt-4",
-                    )
-                except Exception:
-                    pass  # May fail due to mocking, but we're just checking call paths
+            ), contextlib.suppress(Exception):  # May fail due to mocking, but we're just checking call paths
+                await connector.chat_completions(
+                    request_data=request,
+                    processed_messages=[],
+                    effective_model="gpt-4",
+                )
 
             # Executor should NOT be called for non-Codex models
             # Non-Codex models should use the OpenAI connector path (super().chat_completions)

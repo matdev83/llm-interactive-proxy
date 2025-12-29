@@ -1175,11 +1175,6 @@ class StreamingExecutor:
                 error_type=code,  # e.g., "invalid_request_error"
             )
             # Handle both Pydantic models and dicts (for test compatibility)
-            chunk_content = (
-                error_chunk.model_dump()
-                if hasattr(error_chunk, "model_dump")
-                else error_chunk
-            )
             yield ProcessedResponse(
                 content=self._get_error_chunk_content(error_chunk),
                 metadata=self._build_error_metadata(error_chunk),

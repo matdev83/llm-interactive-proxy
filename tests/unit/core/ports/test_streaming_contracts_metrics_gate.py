@@ -273,7 +273,7 @@ class TestRealCodebaseValidation:
 
     def test_streaming_contracts_refactor_scope_meets_thresholds(self):
         """Verify that all files in streaming-contracts refactor scope meet thresholds.
-        
+
         Note: This test scans and analyzes the codebase, which is inherently slow.
         Optimizing further would compromise the test's purpose of validating the entire refactor scope.
         """
@@ -319,11 +319,13 @@ class TestRealCodebaseValidation:
                         for v in violation["violations"]:
                             error_lines.append(f"     - {v}")
 
-            error_lines.append(
-                f"\n{'=' * 80}",
-                "Run 'python dev/scripts/analyze_complexity.py --validate-refactor-scope' "
-                "for detailed violation report.",
-                f"{'=' * 80}",
+            error_lines.extend(
+                [
+                    f"\n{'=' * 80}",
+                    "Run 'python dev/scripts/analyze_complexity.py --validate-refactor-scope' "
+                    "for detailed violation report.",
+                    f"{'=' * 80}",
+                ]
             )
 
             pytest.fail("\n".join(error_lines))

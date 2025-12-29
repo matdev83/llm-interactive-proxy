@@ -463,7 +463,7 @@ Look for tool result messages with `[COMPACTED]` prefix.
 
    If compaction fails, it fails-open and continues with original messages.
 
-## Examples
+## Usage Examples
 
 ### Example 1: Basic Setup
 
@@ -588,6 +588,74 @@ compaction:
 - Uses custom stub template with formatted output
 - Shows resource identifier and byte size
 - Explains that a newer result exists
+
+## Use Cases
+
+### Long-Running Agent Conversations
+
+When agents work on complex tasks over multiple turns, they often read the same files repeatedly. Context compaction automatically removes older file reads, keeping only the most recent version:
+
+```yaml
+compaction:
+  enabled: true
+  token_threshold: 100000
+```
+
+**Benefits:**
+- Reduces token usage by 20-40% in long conversations
+- Prevents context window overflow
+- Maintains conversation continuity
+
+### Code Editing Workflows
+
+During code editing sessions, agents frequently view the same files across iterations. Compaction ensures only the latest file state is sent:
+
+```yaml
+compaction:
+  enabled: true
+  token_threshold: 80000
+  allowed_tool_categories:
+    - file_read
+    - view_file
+```
+
+**Benefits:**
+- Keeps context focused on current file state
+- Reduces redundant file content
+- Improves agent decision-making with fresher data
+
+### Debugging Sessions
+
+Debugging often involves repeated command executions and file reads. Compaction preserves command outputs while removing duplicate file reads:
+
+```yaml
+compaction:
+  enabled: true
+  token_threshold: 100000
+  denied_tool_categories:
+    - command_execution  # Preserve all command outputs
+```
+
+**Benefits:**
+- Preserves command execution history
+- Removes duplicate file reads
+- Maintains debugging context
+
+### Large Codebase Exploration
+
+When exploring large codebases, agents read many files. Compaction helps manage context size:
+
+```yaml
+compaction:
+  enabled: true
+  token_threshold: 50000  # Start compacting earlier
+  max_tokens: 100000
+```
+
+**Benefits:**
+- Allows exploration of larger codebases
+- Prevents context overflow
+- Maintains exploration context
 
 ## Best Practices
 

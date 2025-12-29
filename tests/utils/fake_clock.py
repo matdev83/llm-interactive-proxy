@@ -38,6 +38,14 @@ class FakeClock:
         """
         return self._current_time
 
+    def time(self) -> float:
+        """Get the current time (alias for now()).
+
+        Returns:
+            The current time value
+        """
+        return self.now()
+
     def advance(self, delta: float) -> None:
         """Advance the clock by a given amount.
 

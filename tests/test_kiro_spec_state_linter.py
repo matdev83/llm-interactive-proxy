@@ -116,6 +116,9 @@ def _approvals_include_any(spec_data: dict[str, Any]) -> bool:
 
 def _validate_spec_state(specs_root: Path) -> list[str]:
     errors: list[str] = []
+    allowlist_path = specs_root / ARCHIVE_ALLOWLIST_FILENAME
+    allowlist = _load_archive_allowlist(allowlist_path)
+    
     for spec_dir in sorted(specs_root.iterdir()):
         if not spec_dir.is_dir() or spec_dir.name == "archive":
             continue
@@ -144,7 +147,7 @@ def _validate_spec_state(specs_root: Path) -> list[str]:
         is_complete = _is_complete(spec_data)
         is_ready = _is_ready_for_implementation(spec_data)
 
-        if is_complete:
+        if is_complete and not _is_archive_exempt(spec_dir.name, allowlist):
             errors.append(
                 f"{spec_dir.name}: marked complete but not archived (move to .kiro/specs/archive)"
             )
@@ -230,6 +233,9 @@ def _validate_spec_state(specs_root: Path) -> list[str]:
 
 def _find_completed_unarchived_specs(specs_root: Path) -> list[str]:
     errors: list[str] = []
+    allowlist_path = specs_root / ARCHIVE_ALLOWLIST_FILENAME
+    allowlist = _load_archive_allowlist(allowlist_path)
+    
     for spec_dir in sorted(specs_root.iterdir()):
         if not spec_dir.is_dir() or spec_dir.name == "archive":
             continue
@@ -249,7 +255,11 @@ def _find_completed_unarchived_specs(specs_root: Path) -> list[str]:
         if total_tasks == 0:
             continue
 
-        if completed_tasks == total_tasks and _is_complete(spec_data):
+        if (
+            completed_tasks == total_tasks
+            and _is_complete(spec_data)
+            and not _is_archive_exempt(spec_dir.name, allowlist)
+        ):
             errors.append(
                 f"{spec_dir.name}: appears complete but not archived (move to .kiro/specs/archive)"
             )

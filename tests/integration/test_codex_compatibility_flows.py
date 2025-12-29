@@ -6,6 +6,7 @@ clients and tool execution results.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1108,10 +1109,8 @@ async def test_cleanup_after_non_streaming_error(
         )
 
         # Should raise exception, but cleanup should still happen
-        try:
+        with contextlib.suppress(Exception):  # Expected
             await codex_connector._response_executor.execute(payload, context)
-        except Exception:
-            pass  # Expected
 
         # Verify cleanup was called even on error
         if codex_connector._compatibility_layer:

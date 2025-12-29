@@ -593,7 +593,7 @@ class HybridOrchestrator:
                 response.metadata.setdefault("reasoning_backend", reasoning_backend)
                 response.metadata.setdefault("reasoning_model", reasoning_model)
             # Convert filtered_content to proper type for ResponseEnvelope.content
-            if isinstance(filtered_content, (dict, str, bytes)) or filtered_content is None:
+            if isinstance(filtered_content, dict | str | bytes) or filtered_content is None:
                 response.content = filtered_content
             elif hasattr(filtered_content, "model_dump"):
                 response.content = filtered_content.model_dump()  # type: ignore[attr-defined]

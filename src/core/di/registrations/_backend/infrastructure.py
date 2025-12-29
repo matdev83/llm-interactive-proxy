@@ -41,7 +41,28 @@ def register_http_client(services: ServiceCollection) -> None:
                     ),
                     trust_env=False,
                 )
-            except (ValueError, RuntimeError, OSError, ImportError, httpx.UnsupportedProtocol) as e:
+            except ImportError as e:
+                # Fallback to HTTP/1.1 when optional HTTP/2 deps are missing.
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "HTTP/2 client creation failed, falling back to HTTP/1.1: %s",
+                        e,
+                    )
+                return httpx.AsyncClient(
+                    http2=False,
+                    timeout=httpx.Timeout(
+                        connect=10.0,
+                        read=60.0,
+                        write=60.0,
+                        pool=60.0,
+                    ),
+                    limits=httpx.Limits(
+                        max_connections=100,
+                        max_keepalive_connections=20,
+                    ),
+                    trust_env=False,
+                )
+            except (ValueError, RuntimeError, OSError, httpx.UnsupportedProtocol) as e:
                 # Fallback to HTTP/1.1 if HTTP/2 setup fails
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(

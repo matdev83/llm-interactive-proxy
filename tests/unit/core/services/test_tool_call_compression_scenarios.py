@@ -269,9 +269,9 @@ FAILED test_example.py::test_failure - AssertionError: assert False
                 tool_call_result, session_with_compression_enabled
             )
 
-            # Verify command detection was logged
+            # Verify command detection was logged with proper format string
             mock_logger.info.assert_any_call(
-                "Detected pytest command execution: pytest (tool: shell)"
+                "Detected pytest command execution: %s (tool: %s)", "pytest", "shell"
             )
 
     def test_non_cline_agent_behavior(self, formatter, sample_pytest_output):
