@@ -128,11 +128,12 @@ class SessionEnricher(ISessionEnricher):
                     if detect_vtc_client(agent_for_vtc, vtc_patterns):
                         new_state = session.state.with_vtc_enabled(True)
                         session.update_state(new_state)
-                        logger.info(
-                            "VTC mode enabled for session %s (agent: %s)",
-                            session_id,
-                            agent_for_vtc,
-                        )
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "VTC mode enabled for session %s (agent: %s)",
+                                session_id,
+                                agent_for_vtc,
+                            )
 
         # Propagate VTC flag to request for downstream processors
         if session.state.vtc_enabled:
