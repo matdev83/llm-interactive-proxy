@@ -469,7 +469,7 @@ class FileSandboxingCheck(ISecurityCheck):
             project_dir = session.state.project_dir
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Could not get session for sandboxing: %s", e)
+                logger.debug("Could not get session for sandboxing: %s", e, exc_info=True)
             return SecurityCheckResult.allow()
 
         if not project_dir:

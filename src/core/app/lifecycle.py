@@ -166,7 +166,7 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error starting ProxyMem services: %s", e)
+                logger.warning("Error starting ProxyMem services: %s", e, exc_info=True)
 
     async def _start_eos_subscribers(self) -> None:
         """Start End-of-Session event subscribers.
@@ -493,7 +493,7 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error stopping ProxyMem services: %s", e)
+                logger.warning("Error stopping ProxyMem services: %s", e, exc_info=True)
 
     async def _start_usage_tracking_services(self) -> None:
         """Start usage tracking services (async write queue).
