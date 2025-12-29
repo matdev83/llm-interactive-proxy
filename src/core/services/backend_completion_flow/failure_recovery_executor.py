@@ -294,11 +294,13 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                     # Use configured keepalive interval or default
                     ka_interval = 8.0
                     if hasattr(self._config, "failure_handling"):
-                        ka_interval = getattr(
-                            self._config.failure_handling,
-                            "keepalive_interval",
-                            8.0,
-                        )
+                        failure_handling = getattr(self._config, "failure_handling", None)  # type: ignore[attr-defined]
+                        if failure_handling is not None:
+                            ka_interval = getattr(
+                                failure_handling,
+                                "keepalive_interval",
+                                8.0,
+                            )
 
                     async for chunk in KeepAliveGenerator(
                         wait_seconds=wait_seconds,
@@ -357,7 +359,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                     )
 
             return StreamingResponseEnvelope(
-                content=_wait_and_retry_stream(),
+                content=_wait_and_retry_stream(),  # type: ignore[arg-type]
                 media_type="text/event-stream",
                 headers={
                     "Cache-Control": "no-cache",

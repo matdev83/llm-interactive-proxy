@@ -45,7 +45,7 @@ class PayloadBuilder(IPayloadBuilder):
 
     def __init__(
         self,
-        connector: "OpenAICodexConnector",
+        connector: OpenAICodexConnector,  # type: ignore[invalid-type-form]
         request_translator: IRequestTranslator,
         prompt_resolver: IPromptResolver,
         tool_schema_resolver: IToolSchemaResolver,

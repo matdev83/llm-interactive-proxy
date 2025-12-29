@@ -127,9 +127,8 @@ class BackendExecutor(IBackendExecutor):
             # Best-effort fingerprint update (Req 1.6)
             if hasattr(self._session_manager, "update_session_fingerprint"):
                 try:
-                    await self._session_manager.update_session_fingerprint(
-                        session_id, list(request.messages)
-                    )
+                    update_method = self._session_manager.update_session_fingerprint  # type: ignore[attr-defined]
+                    await update_method(session_id, list(request.messages))
                 except Exception as e:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(

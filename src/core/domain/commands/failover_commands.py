@@ -399,7 +399,7 @@ class RouteAppendCommand(StatefulCommandBase):
                     if isinstance(backend_types, dict) or (
                         hasattr(backend_types, "keys") and callable(backend_types.keys)
                     ):
-                        keys = list(backend_types.keys())
+                        keys = list(backend_types.keys())  # type: ignore[arg-type]
                     else:
                         # Try to iterate over it
                         keys = list(backend_types)

@@ -144,7 +144,7 @@ class ThinkTagsFixFeature(IResponseFeature):
 
         metadata = None
         if hasattr(response, "metadata"):
-            raw_metadata = response.metadata
+            raw_metadata = getattr(response, "metadata", None)  # type: ignore[attr-defined]
             if isinstance(raw_metadata, dict):
                 metadata = raw_metadata
         elif isinstance(response, dict):

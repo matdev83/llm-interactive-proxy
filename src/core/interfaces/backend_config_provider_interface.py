@@ -20,12 +20,15 @@ class IBackendConfigProvider(Protocol):
 
     def iter_backend_names(self) -> Iterable[str]:
         """Iterate over known backend names."""
+        ...
 
     def get_default_backend(self) -> str:
         """Return the configured default backend name."""
+        ...
 
     def get_functional_backends(self) -> set[str]:
         """Return a set of backend names that are considered functional (e.g. have API keys)."""
+        ...
 
     def apply_backend_config(
         self, request: ChatRequest, backend_type: str, config: AppConfig
@@ -38,5 +41,6 @@ class IBackendConfigProvider(Protocol):
             config: The application configuration
 
         Returns:
-            The updated request with backend-specific configuration applied
+            The updated request with backend-specific configuration applied.
         """
+        ...

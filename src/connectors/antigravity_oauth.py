@@ -387,7 +387,8 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 )
 
                 # Update envelope content - convert CanonicalChatResponse to dict
-                response.content = canonical_response.model_dump()
+                content_dict = canonical_response.model_dump()
+                response.content = content_dict if isinstance(content_dict, dict) else str(canonical_response)  # type: ignore[assignment]
 
         # Handle streaming responses
         elif isinstance(response, ResponseEnvelope) and response.content is not None:
@@ -397,18 +398,18 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             if isinstance(response.content, AsyncIterator):
                 # We need to intercept the stream, buffer it, and check for XML tool calls
                 # This adds latency but is necessary for correctness with this model/backend combo
-                original_iterator = response.content
+                original_iterator: AsyncIterator[Any] = response.content  # type: ignore[assignment]
 
                 async def _intercept_stream():
                     # Stream processing with bounded memory usage
                     # We only need to buffer content for XML tool call detection
                     # and keep track of the first chunk type for reconstruction
                     content_buffer = ""
-                    first_chunk_type = None
-                    original_chunks = []
+                    first_chunk_type: type[Any] | None = None
+                    original_chunks: list[Any] = []
 
                     # Process stream in a single pass with bounded memory
-                    async for chunk in original_iterator:
+                    async for chunk in original_iterator:  # type: ignore[union-attr]
                         if first_chunk_type is None:
                             first_chunk_type = type(chunk)
 
@@ -464,7 +465,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                                                 "name", ""
                                                             ),
                                                             "arguments": json.dumps(
-                                                                tool_data.get("input", {})
+                                                                tool_data.get(
+                                                                    "input", {}
+                                                                )
                                                             ),
                                                         },
                                                     }
@@ -476,7 +479,8 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                 except Exception as e:
                                     if logger.isEnabledFor(logging.WARNING):
                                         logger.warning(
-                                            "Failed to parse XML tool call in stream: %s", e
+                                            "Failed to parse XML tool call in stream: %s",
+                                            e,
                                         )
 
                     if tool_calls and first_chunk_type is not None:
@@ -491,7 +495,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
                         # Yield content first if any
                         if content_buffer:
-                            yield first_chunk_type(
+                            yield first_chunk_type(  # type: ignore[misc]
                                 content={
                                     "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
                                     "object": "chat.completion.chunk",
@@ -511,7 +515,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                             )
 
                         # Yield tool calls
-                        yield first_chunk_type(
+                        yield first_chunk_type(  # type: ignore[misc]
                             content={
                                 "id": f"chatcmpl-{uuid.uuid4().hex[:16]}",
                                 "object": "chat.completion.chunk",
@@ -533,10 +537,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
                         # Continue yielding remaining chunks from original iterator
                         if original_iterator is not None:
-                            async for chunk in original_iterator:
+                            async for chunk in original_iterator:  # type: ignore[union-attr]
                                 yield chunk
 
-                response.content = _intercept_stream()
+                response.content = _intercept_stream()  # type: ignore[assignment]
 
         return response
 
@@ -566,7 +570,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         if not reasoning_effort:
             reasoning_obj = None
             if hasattr(request_data, "reasoning"):
-                reasoning_obj = getattr(request_data, "reasoning", None)
+                reasoning_obj = getattr(request_data, "reasoning", None)  # type: ignore[attr-defined]
             elif isinstance(request_data, dict):
                 reasoning_obj = request_data.get("reasoning")
 
@@ -577,7 +581,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         if not reasoning_effort:
             extra_body = None
             if hasattr(request_data, "extra_body"):
-                extra_body = getattr(request_data, "extra_body", None)
+                extra_body = getattr(request_data, "extra_body", None)  # type: ignore[attr-defined]
             elif isinstance(request_data, dict):
                 extra_body = request_data.get("extra_body")
 

@@ -162,8 +162,9 @@ class TestToolCallTracker:
         assert pruned == 0
         assert tracker.signatures == []
 
+    @pytest.mark.asyncio
     @freeze_time("2024-01-01 12:00:00")
-    def test_prune_expired_with_expired(self, config) -> None:
+    async def test_prune_expired_with_expired(self, config) -> None:
         """Test pruning with expired signatures."""
         tracker = ToolCallTracker(config)
 
@@ -188,12 +189,12 @@ class TestToolCallTracker:
         tracker.signatures.append(valid_sig)
         tracker.consecutive_repeats[valid_sig.get_full_signature()] = 1
 
-        pruned = tracker.prune_expired()
+        pruned = await tracker.prune_expired()
 
         assert pruned == 1
         assert len(tracker.signatures) == 1
         assert tracker.signatures[0] == valid_sig
-        # Check that the consecutive count for the expired signature is removed
+        # Check that the consecutive count for expired signature is removed
         assert expired_sig.get_full_signature() not in tracker.consecutive_repeats
         assert valid_sig.get_full_signature() in tracker.consecutive_repeats
 

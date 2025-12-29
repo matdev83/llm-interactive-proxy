@@ -132,9 +132,12 @@ class UsageCalculationService:
                 return str(content["text"])
 
         # Try Pydantic model
-        if hasattr(content, "model_dump"):
+        if hasattr(content, "model_dump") and not isinstance(content, dict):
             try:
-                return self._extract_completion_text(content.model_dump())
+                dumped = content.model_dump()  # type: ignore[attr-defined]
+                return self._extract_completion_text(
+                    dumped if isinstance(dumped, dict) else {}
+                )
             except (AttributeError, TypeError, ValueError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(

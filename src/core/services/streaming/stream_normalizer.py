@@ -107,7 +107,7 @@ class StreamNormalizer(IProcessingStreamNormalizer):
                     processor, "cancel_callback"
                 ):
                     try:
-                        processor.cancel_callback = cancel_callback
+                        processor.cancel_callback = cancel_callback  # type: ignore[attr-defined]
                     except Exception:  # pragma: no cover - defensive guard
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(

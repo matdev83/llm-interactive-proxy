@@ -119,7 +119,7 @@ class StructuredOutputFeature(IResponseFeature):
             return ProcessedResponse(
                 content=processed_content,
                 usage=None,
-                metadata=metadata,
+                metadata=metadata,  # type: ignore[arg-type]
             )
 
     def _validate_content(
@@ -216,10 +216,8 @@ class StructuredOutputFeature(IResponseFeature):
         }
 
         if (
-            hasattr(response, "metadata")
-            and response.metadata is not None
-            or isinstance(response, ProcessedResponse)
-        ):
+            hasattr(response, "metadata") and response.metadata is not None
+        ) or isinstance(response, ProcessedResponse):
             response.metadata.update(error_info)
 
     def _is_stream_end(self, context: dict[str, Any]) -> bool:
@@ -594,5 +592,5 @@ class StructuredOutputMiddleware(IResponseMiddleware):
             return ProcessedResponse(
                 content=processed_content,
                 usage=None,
-                metadata=metadata,
+                metadata=metadata,  # type: ignore[arg-type]
             )

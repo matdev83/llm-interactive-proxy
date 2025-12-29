@@ -30,18 +30,29 @@ class ReasoningConfig(ValueObject, IReasoningConfig):
 class LoopDetectionConfig(ValueObject, ILoopDetectionConfig):
     """Configuration for loop detection."""
 
-    loop_detection_enabled: bool = True
-    tool_loop_detection_enabled: bool = True
+    _loop_detection_enabled: bool = True
+    _tool_loop_detection_enabled: bool = True
+
+    @property
+    def loop_detection_enabled(self) -> bool:
+        """Get whether loop detection is enabled."""
+        return self._loop_detection_enabled
+
+    @property
+    def tool_loop_detection_enabled(self) -> bool:
+        """Get whether tool loop detection is enabled."""
+        return self._tool_loop_detection_enabled
+
     min_pattern_length: int = 100  # Based on memory ID 3368303
     max_pattern_length: int = 8000  # Based on memory ID 3368303
 
     def with_loop_detection_enabled(self, enabled: bool) -> ILoopDetectionConfig:
         """Create a new config with updated loop detection enabled flag."""
-        return self.model_copy(update={"loop_detection_enabled": enabled})
+        return self.model_copy(update={"_loop_detection_enabled": enabled})
 
     def with_tool_loop_detection_enabled(self, enabled: bool) -> ILoopDetectionConfig:
         """Create a new config with updated tool loop detection enabled flag."""
-        return self.model_copy(update={"tool_loop_detection_enabled": enabled})
+        return self.model_copy(update={"_tool_loop_detection_enabled": enabled})
 
     def with_pattern_length_range(
         self, min_length: int, max_length: int

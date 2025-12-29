@@ -122,7 +122,7 @@ class StructuredOutputEnforcer(IStructuredOutputEnforcer):
                 # Respect strict_schema_validation from context if available
                 strict_validation = True  # Default to strict
                 if hasattr(context, "strict_schema_validation"):
-                    strict_validation = context.strict_schema_validation
+                    strict_validation = getattr(context, "strict_schema_validation", True)  # type: ignore[attr-defined]
                 elif isinstance(context, dict):
                     strict_validation = context.get("strict_schema_validation", True)
 
@@ -173,7 +173,7 @@ class StructuredOutputEnforcer(IStructuredOutputEnforcer):
                 # Respect strict_schema_validation from context if available
                 strict_validation = True  # Default to strict
                 if hasattr(context, "strict_schema_validation"):
-                    strict_validation = context.strict_schema_validation
+                    strict_validation = getattr(context, "strict_schema_validation", True)  # type: ignore[attr-defined]
                 elif isinstance(context, dict):
                     strict_validation = context.get("strict_schema_validation", True)
 

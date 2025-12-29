@@ -12,9 +12,11 @@ class IFailoverCoordinator(Protocol):
         self, model: str, backend_type: str
     ) -> list[FailoverAttempt]:
         """Return ordered failover attempts for given model and backend."""
+        ...
 
     def register_route(self, model: str, route: dict) -> None:
         """Register or update a failover route."""
+        ...
 
 
 class IFailoverStrategy(Protocol):
@@ -25,3 +27,4 @@ class IFailoverStrategy(Protocol):
 
     def get_failover_plan(self, model: str, backend_type: str) -> list[tuple[str, str]]:
         """Return ordered (backend, model) pairs to attempt for a request."""
+        ...

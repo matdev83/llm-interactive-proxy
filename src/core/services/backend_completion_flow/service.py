@@ -103,7 +103,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         exception_normalizer: IExceptionNormalizer,
         stream_formatting_service: IStreamFormattingService,
         resilience_coordinator: IResilienceCoordinator | None = None,
-        eos_adapter: BackendCompletionFlowEosAdapter | None = None,
+        eos_adapter: BackendCompletionFlowEosAdapter | None = None,  # type: ignore[invalid-type-form]
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ) -> None:
         """Initialize the completion flow orchestrator."""
@@ -448,7 +448,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                             async for b in wrapped_stream:
                                 yield ProcessedResponse(content=b, metadata={})
 
-                        result.content = _to_processed_with_capture()
+                        result.content = _to_processed_with_capture()  # type: ignore[assignment]
 
                     streaming_result = (
                         await self._usage_accounting.handle_streaming_response(
@@ -488,8 +488,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 key_name = self._wire_capture_orchestrator.detect_key_name(backend_type)
                 # Serialize content for capture (best effort)
                 response_content: Any = result
-                if hasattr(result, "model_dump"):
-                    response_content = result.model_dump()
+                if hasattr(result, "model_dump") and not isinstance(result, dict):
+                    response_content = result.model_dump()  # type: ignore[attr-defined]
                 elif hasattr(result, "__dict__"):
                     response_content = result.__dict__
 

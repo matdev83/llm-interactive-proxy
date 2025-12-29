@@ -574,6 +574,7 @@ class ToolCallRepairService(IToolCallRepairService):
                 # Try to parse as JSON if arguments_raw is a string
                 if not isinstance(arguments_raw, dict):
                     if isinstance(arguments_raw, str) and arguments_raw.strip():
+                        parsed: Any = None
                         try:
                             # DoS protection: Check JSON size before parsing
                             arg_str = arguments_raw.strip()
@@ -588,10 +589,11 @@ class ToolCallRepairService(IToolCallRepairService):
                                 arguments_raw = {"content": arguments_raw}
                             else:
                                 parsed = json.loads(arg_str)
-                            if isinstance(parsed, dict):
-                                arguments_raw = parsed
-                            else:
-                                arguments_raw = {"content": parsed}
+                            if parsed is not None:
+                                if isinstance(parsed, dict):
+                                    arguments_raw = parsed
+                                else:
+                                    arguments_raw = {"content": parsed}
                         except json.JSONDecodeError:
                             arguments_raw = (
                                 {"content": arguments_raw} if arguments_raw else {}
@@ -602,7 +604,16 @@ class ToolCallRepairService(IToolCallRepairService):
                         )
 
                 # Unwrap double-nested content structures
-                arguments_raw = self._unwrap_nested_content(arguments_raw)
+                if isinstance(arguments_raw, dict):
+                    arguments_raw = self._unwrap_nested_content(arguments_raw)
+                # If not a dict, keep as is (will be handled by normalize_tool_arguments)
+
+                # Ensure arguments_raw is a dict for normalize_tool_arguments
+                # If it's a string, convert to dict format
+                if isinstance(arguments_raw, str):
+                    arguments_raw = {"content": arguments_raw}
+                elif not isinstance(arguments_raw, dict):
+                    arguments_raw = {}
 
                 arguments = self._normalize_tool_arguments(
                     tool_name_candidate,
@@ -887,6 +898,7 @@ class ToolCallRepairService(IToolCallRepairService):
         if args_match:
             args_content = args_match.group(1).strip()
             if args_content:
+                parsed: Any = None
                 try:
                     # DoS protection: Check JSON size before parsing
                     args_size = len(args_content.encode("utf-8"))
@@ -901,10 +913,11 @@ class ToolCallRepairService(IToolCallRepairService):
                     else:
                         # Try to parse as JSON first
                         parsed = json.loads(args_content)
-                    if isinstance(parsed, dict):
-                        arguments = parsed
-                    else:
-                        arguments = {"content": parsed}
+                    if parsed is not None:
+                        if isinstance(parsed, dict):
+                            arguments = parsed
+                        else:
+                            arguments = {"content": parsed}
                 except json.JSONDecodeError:
                     # Not valid JSON, use as raw content
                     arguments = {"content": args_content}
@@ -1078,6 +1091,7 @@ class ToolCallRepairService(IToolCallRepairService):
                 if key == "content" and isinstance(value, str):
                     stripped = value.strip()
                     if stripped.startswith("{") and stripped.endswith("}"):
+                        parsed: Any = None
                         try:
                             # DoS protection: Check JSON size before parsing
                             stripped_size = len(stripped.encode("utf-8"))
@@ -1090,7 +1104,11 @@ class ToolCallRepairService(IToolCallRepairService):
                                     )
                             else:
                                 parsed = json.loads(stripped)
-                            if isinstance(parsed, dict) and parsed:
+                            if (
+                                parsed is not None
+                                and isinstance(parsed, dict)
+                                and parsed
+                            ):
                                 # Unwrap the nested JSON and add its keys directly
                                 for inner_key, inner_value in parsed.items():
                                     if inner_key not in result:

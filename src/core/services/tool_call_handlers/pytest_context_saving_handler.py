@@ -244,11 +244,11 @@ class PytestContextSavingHandler(IToolCallHandler):
 
         if isinstance(arguments, str):
             updated = self._update_string_arguments(arguments, new_command)
-            context.tool_arguments = updated
+            context.tool_arguments = updated  # type: ignore[assignment]
             return
 
         if isinstance(arguments, list):
-            context.tool_arguments = new_command.split()
+            context.tool_arguments = new_command.split()  # type: ignore[assignment]
             return
 
         # Attempt to decode JSON-like payloads stored in unexpected structures

@@ -316,7 +316,7 @@ class BinaryFileEditPolicy(ISteeringPolicy):
             from pathlib import Path as PathObj
 
             try:
-                basename = PathObj(file_path).name
+                basename = PathObj(binary_path).name if binary_path else "<unknown>"
             except Exception:
                 basename = "<unknown>"
 
@@ -414,4 +414,4 @@ class BinaryFileEditPolicy(ISteeringPolicy):
         return extension.lower() in BINARY_EXTENSIONS
 
 
-__all__ = ["BinaryFileEditPolicy", "BINARY_EXTENSIONS", "PATH_PARAMETER_NAMES"]
+__all__ = ["BINARY_EXTENSIONS", "PATH_PARAMETER_NAMES", "BinaryFileEditPolicy"]

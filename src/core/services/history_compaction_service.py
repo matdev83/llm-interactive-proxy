@@ -366,8 +366,8 @@ class HistoryCompactionService(IHistoryCompactionService):
             for part in content:
                 if isinstance(part, dict) and part.get("type") == "text":
                     text_parts.append(part.get("text", ""))
-                elif hasattr(part, "type") and part.type == "text":
-                    text_parts.append(getattr(part, "text", ""))
+                elif hasattr(part, "type") and getattr(part, "type", None) == "text":  # type: ignore[attr-defined]
+                    text_parts.append(getattr(part, "text", ""))  # type: ignore[attr-defined]
             return "\n".join(text_parts)
 
         return str(content)

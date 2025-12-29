@@ -148,7 +148,7 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                 # Use injected config or default
                 compaction_config: CompactionConfig
                 if self._config and hasattr(self._config, "compaction"):
-                    compaction_config = self._config.compaction
+                    compaction_config = getattr(self._config, "compaction", None) or CompactionConfig.default()  # type: ignore[attr-defined]
                 else:
                     compaction_config = CompactionConfig.default()
 

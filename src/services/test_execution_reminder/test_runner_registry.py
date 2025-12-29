@@ -48,11 +48,11 @@ class TestRunnerMatch(BaseModel):
         default=None, description="The test framework or None"
     )
 
-    def __iter__(self):
+    def __iter__(self):  # type: ignore[override]
         """Allow unpacking for backward compatibility."""
-        yield self.is_match
-        yield self.language
-        yield self.framework
+        yield ("is_match", self.is_match)
+        yield ("language", self.language)
+        yield ("framework", self.framework)
 
 
 class TestRunnerRegistry:

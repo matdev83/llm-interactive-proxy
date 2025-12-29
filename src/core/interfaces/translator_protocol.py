@@ -24,18 +24,23 @@ class TranslatorProtocol(Protocol):
     @property
     def format_names(self) -> Collection[str]:
         """Supported format keys, including any aliases."""
+        ...
 
     def to_domain_request(self, request: Any) -> CanonicalChatRequest:
         """Convert API-specific request to canonical format."""
+        ...
 
     def from_domain_request(self, request: CanonicalChatRequest) -> dict[str, Any]:
         """Convert canonical request to API-specific format."""
+        ...
 
     def to_domain_response(self, response: Any) -> CanonicalChatResponse:
         """Convert API-specific response to canonical format."""
+        ...
 
     def from_domain_response(self, response: ChatResponse) -> dict[str, Any]:
         """Convert canonical response to API-specific format."""
+        ...
 
 
 @runtime_checkable
@@ -46,6 +51,8 @@ class StreamingTranslatorProtocol(Protocol):
         self, chunk: Any
     ) -> dict[str, Any] | CanonicalStreamChunk:
         """Convert API-specific stream chunk to canonical format."""
+        ...
 
     def from_domain_stream_chunk(self, chunk: Any) -> dict[str, Any]:
         """Convert canonical stream chunk to API-specific format."""
+        ...

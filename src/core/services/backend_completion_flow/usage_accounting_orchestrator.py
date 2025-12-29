@@ -135,7 +135,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         and hasattr(session, "state")
                         and hasattr(session.state, "proxy_user")
                     ):
-                        proxy_user = session.state.proxy_user
+                        proxy_user = getattr(session.state, "proxy_user", None)  # type: ignore[attr-defined]
 
                     sid = session_id_for_backend or "unknown"
 
@@ -218,16 +218,25 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
 
                 if usage:
                     # Convert UsageSummary to dict if needed
-                    if hasattr(usage, "to_dict"):
-                        usage_dict = usage.to_dict()
-                    elif hasattr(usage, "model_dump"):
-                        usage_dict = usage.model_dump()
+                    if hasattr(usage, "to_dict") and not isinstance(
+                        usage, dict | list | str | int | float | bool
+                    ):
+                        usage_dict = usage.to_dict()  # type: ignore[attr-defined]
+                    elif hasattr(usage, "model_dump") and not isinstance(
+                        usage, dict | list | str | int | float | bool
+                    ):
+                        usage_dict = usage.model_dump()  # type: ignore[attr-defined]
                     elif isinstance(usage, dict):
                         usage_dict = usage
                     else:
                         usage_dict = {}
 
-                    completion_tokens = usage_dict.get("completion_tokens", 0)
+                    completion_tokens_raw = usage_dict.get("completion_tokens", 0)
+                    completion_tokens = (
+                        int(completion_tokens_raw)
+                        if isinstance(completion_tokens_raw, int | float | str)
+                        else 0
+                    )
                     duration_ms = (time.time() - start_time) * 1000
 
                     if ptb_record_id:
@@ -506,7 +515,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         # Modify the original result envelope's content and return it
         # This ensures canonical_usage set in the finally block is on the returned envelope
         # Note: canonical_usage will be None initially but set asynchronously when stream completes
-        result.content = _inject_session_id_and_track_usage()
+        result.content = _inject_session_id_and_track_usage()  # type: ignore[assignment]
         return result
 
     async def handle_non_streaming_response(
@@ -551,9 +560,9 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             # Duck typing for transport exceptions or backend errors
             is_auth_error = True
             if hasattr(exc, "detail"):
-                auth_message = str(exc.detail)
+                auth_message = str(getattr(exc, "detail", ""))  # type: ignore[attr-defined]
             elif hasattr(exc, "message"):
-                auth_message = str(exc.message)
+                auth_message = str(getattr(exc, "message", ""))  # type: ignore[attr-defined]
             else:
                 auth_message = str(exc)
         elif isinstance(exc, BackendError) and getattr(exc, "status_code", None) == 401:
@@ -576,7 +585,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                 backend.mark_auth_invalid(auth_message)
 
             if hasattr(self._backend_factory, "unregister_backend"):
-                self._backend_factory.unregister_backend(backend_type)
+                self._backend_factory.unregister_backend(backend_type)  # type: ignore[attr-defined]
 
             self._backend_lifecycle_manager.discard(
                 backend_type, session_id_for_backend, reason=auth_message

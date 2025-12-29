@@ -101,7 +101,7 @@ class _TextToolCallMatcher:
 class CodexRequestTranslator:
     """Translates a canonical chat request into Codex-specific input items."""
 
-    def __init__(self, connector: "OpenAICodexConnector") -> None:
+    def __init__(self, connector: OpenAICodexConnector) -> None:  # type: ignore[invalid-type-form]
         self._connector = connector
 
     def build_input_items(

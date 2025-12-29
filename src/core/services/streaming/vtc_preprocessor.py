@@ -30,7 +30,9 @@ def _normalize_tool_calls(tool_calls: list[Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for tool_call in tool_calls:
         if hasattr(tool_call, "model_dump") and callable(tool_call.model_dump):
-            normalized.append(tool_call.model_dump(exclude_none=True))
+            dumped = tool_call.model_dump(exclude_none=True)  # type: ignore[attr-defined]
+            if isinstance(dumped, dict):
+                normalized.append(dumped)
         elif isinstance(tool_call, dict):
             normalized.append(tool_call)
     return normalized

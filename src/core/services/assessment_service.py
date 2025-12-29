@@ -288,12 +288,22 @@ class AssessmentService(IAssessmentService):
             return LLMAssessmentResponse(**response)
 
         if hasattr(response, "model_dump") and callable(response.model_dump):
-            return LLMAssessmentResponse(**response.model_dump())
+            dumped = response.model_dump()  # type: ignore[attr-defined]
+            if isinstance(dumped, dict):
+                reasoning = dumped.get("reasoning", "")
+                confidence = dumped.get("confidence", 0.0)
+                return LLMAssessmentResponse(
+                    reasoning=str(reasoning) if reasoning is not None else "",
+                    confidence=float(confidence) if confidence is not None else 0.0,
+                )
+            return LLMAssessmentResponse(reasoning="", confidence=0.0)
 
         if hasattr(response, "reasoning") and hasattr(response, "confidence"):
+            reasoning = getattr(response, "reasoning", None)
+            confidence = getattr(response, "confidence", None)
             return LLMAssessmentResponse(
-                reasoning=str(response.reasoning),
-                confidence=float(response.confidence),
+                reasoning=str(reasoning) if reasoning is not None else "",
+                confidence=float(confidence) if confidence is not None else 0.0,
             )
 
         raise AssessmentError(

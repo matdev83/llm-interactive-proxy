@@ -114,11 +114,12 @@ class TokenWindowLoopDetector(ILoopDetector):
         if self.loop_detected:
             import time
 
+            threshold = self.content_loop_threshold or CONTENT_LOOP_THRESHOLD
             event = LoopDetectionEvent(
                 pattern="Repetitive content pattern detected",
                 pattern_length=self.content_chunk_size,
-                repetition_count=self.content_loop_threshold,
-                total_length=self.content_chunk_size * self.content_loop_threshold,
+                repetition_count=threshold,
+                total_length=self.content_chunk_size * threshold,
                 confidence=1.0,
                 buffer_content=self.stream_content_history[-200:],  # Last 200 chars
                 timestamp=time.time(),
@@ -204,11 +205,12 @@ class TokenWindowLoopDetector(ILoopDetector):
         Truncates the content history to prevent unbounded memory growth.
         When truncating, adjusts all stored indices to maintain their relative positions.
         """
-        if len(self.stream_content_history) <= self.max_history_length:
+        max_len = self.max_history_length or MAX_HISTORY_LENGTH
+        if len(self.stream_content_history) <= max_len:
             return
 
         # Calculate how much content to remove from the beginning
-        truncation_amount = len(self.stream_content_history) - self.max_history_length
+        truncation_amount = len(self.stream_content_history) - max_len
         self.stream_content_history = self.stream_content_history[truncation_amount:]
         self.last_content_index = max(0, self.last_content_index - truncation_amount)
 
@@ -314,13 +316,14 @@ class TokenWindowLoopDetector(ILoopDetector):
 
         existing_indices.append(self.last_content_index)
 
-        if len(existing_indices) < self.content_loop_threshold:
+        threshold = self.content_loop_threshold or CONTENT_LOOP_THRESHOLD
+        if len(existing_indices) < threshold:
             return False
 
         # Analyze the most recent occurrences to see if they're clustered closely together
-        recent_indices = existing_indices[-self.content_loop_threshold :]
+        recent_indices = existing_indices[-threshold :]
         total_distance = recent_indices[-1] - recent_indices[0]
-        average_distance = total_distance / (self.content_loop_threshold - 1)
+        average_distance = total_distance / (threshold - 1)
         max_allowed_distance = self.content_chunk_size * 1.5
 
         return average_distance <= max_allowed_distance
@@ -427,8 +430,8 @@ class TokenWindowLoopDetector(ILoopDetector):
             tracked_chunks=len(self.content_stats),
             config=LoopDetectorConfig(
                 content_chunk_size=self.content_chunk_size,
-                content_loop_threshold=self.content_loop_threshold,
-                max_history_length=self.max_history_length,
+                content_loop_threshold=self.content_loop_threshold or CONTENT_LOOP_THRESHOLD,
+                max_history_length=self.max_history_length or MAX_HISTORY_LENGTH,
             ),
         )
 
@@ -459,14 +462,18 @@ class TokenWindowLoopDetector(ILoopDetector):
             self.content_chunk_size = new_config["content_chunk_size"]
 
         if hasattr(new_config, "content_loop_threshold"):
-            self.content_loop_threshold = new_config.content_loop_threshold
+            threshold = getattr(new_config, "content_loop_threshold", None)  # type: ignore[attr-defined]
+            self.content_loop_threshold = threshold if threshold is not None else CONTENT_LOOP_THRESHOLD
         elif isinstance(new_config, dict) and "content_loop_threshold" in new_config:
-            self.content_loop_threshold = new_config["content_loop_threshold"]
+            threshold = new_config["content_loop_threshold"]
+            self.content_loop_threshold = threshold if isinstance(threshold, int) and threshold is not None else CONTENT_LOOP_THRESHOLD
 
         if hasattr(new_config, "max_history_length"):
-            self.max_history_length = new_config.max_history_length
+            max_len = getattr(new_config, "max_history_length", None)  # type: ignore[attr-defined]
+            self.max_history_length = max_len if max_len is not None else MAX_HISTORY_LENGTH
         elif isinstance(new_config, dict) and "max_history_length" in new_config:
-            self.max_history_length = new_config["max_history_length"]
+            max_len = new_config["max_history_length"]
+            self.max_history_length = max_len if isinstance(max_len, int) and max_len is not None else MAX_HISTORY_LENGTH
 
         # Reset state after configuration change
         self.reset()

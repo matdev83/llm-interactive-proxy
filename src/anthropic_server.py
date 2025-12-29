@@ -65,7 +65,7 @@ async def create_anthropic_app_async(
                         "Service provider is None, skipping Codebuff WebSocket server registration"
                     )
             else:
-                codebuff_server = create_codebuff_server(app_config, service_provider)
+                codebuff_server = create_codebuff_server(app_config, service_provider)  # type: ignore[arg-type]
                 codebuff_server.register_endpoint(app)
                 app.state.codebuff_server = codebuff_server
             if logger.isEnabledFor(logging.INFO):

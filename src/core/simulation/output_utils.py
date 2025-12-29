@@ -115,9 +115,9 @@ def configure_console_encoding() -> None:
     # Reconfigure stdout/stderr to use UTF-8 with error handling
     try:
         if hasattr(sys.stdout, "reconfigure"):
-            sys.stdout.reconfigure(errors="replace")
+            sys.stdout.reconfigure(errors="replace")  # type: ignore[attr-defined]
         if hasattr(sys.stderr, "reconfigure"):
-            sys.stderr.reconfigure(errors="replace")
+            sys.stderr.reconfigure(errors="replace")  # type: ignore[attr-defined]
     except (OSError, AttributeError, ValueError) as e:
         # Console reconfiguration is best-effort; log for visibility but don't fail
         if logger.isEnabledFor(logging.DEBUG):

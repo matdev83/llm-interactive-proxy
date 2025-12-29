@@ -190,8 +190,9 @@ class BackendCompletionFlowEosAdapter:
         # Check cause first (more specific)
         if hasattr(error, "__cause__") and error.__cause__ is not None:
             cause = error.__cause__
-            if hasattr(cause, "response") and hasattr(cause.response, "status_code"):
-                status_code = cause.response.status_code
+            cause_response = getattr(cause, "response", None)  # type: ignore[attr-defined]
+            if cause_response is not None and hasattr(cause_response, "status_code"):
+                status_code = getattr(cause_response, "status_code", None)  # type: ignore[attr-defined]
                 if isinstance(status_code, int):
                     return status_code
             if hasattr(cause, "status_code"):

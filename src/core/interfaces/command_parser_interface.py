@@ -16,3 +16,4 @@ class ICommandParser(Protocol):
         self, content: str, *, command_prefix: str | None = None
     ) -> Sequence[ParsedCommand]:
         """Return all commands found in *content*."""
+        ...

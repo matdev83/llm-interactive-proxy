@@ -222,7 +222,10 @@ def convert_openai_to_gemini_content(
                             import json
 
                             function_call["args"] = json.loads(function_call["args"])
-                        except (json.JSONDecodeError, TypeError):
+                        except (json.JSONDecodeError, TypeError):  # type: ignore[name-defined]
+                            pass
+                        except Exception:
+                            # json module might not be available in some contexts
                             pass
 
                     parts.append(GeminiPart(function_call=function_call))

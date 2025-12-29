@@ -116,7 +116,7 @@ class RawChunkParser:
             )
             is_stop_chunk = isinstance(raw_data, StopChunkWithUsage) or (
                 hasattr(raw_data, "content")
-                and isinstance(raw_data.content, StopChunkWithUsage)
+                and isinstance(getattr(raw_data, "content", None), StopChunkWithUsage)  # type: ignore[arg-type]
             )
             logger.log(
                 TRACE_LEVEL,

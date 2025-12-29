@@ -79,7 +79,7 @@ def resolve_session_key_from_request_context(
         try:
             # Check if domain_request has conversation_id attribute
             if hasattr(context.domain_request, "conversation_id"):
-                conv_id = context.domain_request.conversation_id
+                conv_id = getattr(context.domain_request, "conversation_id", None)  # type: ignore[attr-defined]
                 if conv_id and isinstance(conv_id, str):
                     group_id = conv_id.strip()
                     if not group_id:

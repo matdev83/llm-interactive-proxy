@@ -449,7 +449,7 @@ def _register_dangerous_command_service(
             dangerous_config = getattr(app_config, "dangerous_commands", None)  # type: ignore[attr-defined]
             dangerous_commands_enabled = getattr(dangerous_config, "enabled", False)
         elif hasattr(app_config, "unified_security"):
-            unified_config = app_config.unified_security
+            unified_config = getattr(app_config, "unified_security", None)  # type: ignore[attr-defined]
             if unified_config is not None:
                 dangerous_config = getattr(unified_config, "dangerous_commands", None)
                 if dangerous_config is not None:
@@ -473,9 +473,9 @@ def _register_dangerous_command_service(
             # Get dangerous command config
             dangerous_config = None
             if hasattr(config, "dangerous_commands"):
-                dangerous_config = config.dangerous_commands
+                dangerous_config = getattr(config, "dangerous_commands", None)  # type: ignore[attr-defined]
             elif hasattr(config, "unified_security"):
-                unified_config = config.unified_security
+                unified_config = getattr(config, "unified_security", None)  # type: ignore[attr-defined]
                 if unified_config is not None:
                     dangerous_config = getattr(
                         unified_config, "dangerous_commands", None

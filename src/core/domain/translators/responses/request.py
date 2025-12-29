@@ -97,8 +97,8 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
         extra_body["previous_response_id"] = responses_request.previous_response_id
     if responses_request.prompt is not None:
         prompt_val = responses_request.prompt
-        if hasattr(prompt_val, "model_dump"):
-            extra_body["prompt"] = prompt_val.model_dump()
+        if hasattr(prompt_val, "model_dump") and not isinstance(prompt_val, dict):
+            extra_body["prompt"] = prompt_val.model_dump()  # type: ignore[attr-defined]
         else:
             extra_body["prompt"] = prompt_val
     if responses_request.prompt_cache_key is not None:
@@ -109,14 +109,14 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
         extra_body["safety_identifier"] = responses_request.safety_identifier
     if responses_request.stream_options is not None:
         stream_opts = responses_request.stream_options
-        if hasattr(stream_opts, "model_dump"):
-            extra_body["stream_options"] = stream_opts.model_dump()
+        if hasattr(stream_opts, "model_dump") and not isinstance(stream_opts, dict):
+            extra_body["stream_options"] = stream_opts.model_dump()  # type: ignore[attr-defined]
         else:
             extra_body["stream_options"] = stream_opts
     if responses_request.text is not None:
         text_cfg = responses_request.text
-        if hasattr(text_cfg, "model_dump"):
-            extra_body["text"] = text_cfg.model_dump()
+        if hasattr(text_cfg, "model_dump") and not isinstance(text_cfg, dict):
+            extra_body["text"] = text_cfg.model_dump()  # type: ignore[attr-defined]
         else:
             extra_body["text"] = text_cfg
 

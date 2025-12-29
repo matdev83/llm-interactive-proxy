@@ -516,7 +516,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         )
 
     @property
-    def _oauth_credentials(self) -> dict[str, Any] | None:
+    def _oauth_credentials(self) -> dict[str, Any] | None:  # type: ignore[redeclaration]
         """Get current OAuth credentials - implements IConnectorContext.
 
         This property bridges the credential coordinator to the IConnectorContext interface.
@@ -532,7 +532,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return self.__dict__.get("_oauth_credentials")
 
     @_oauth_credentials.setter
-    def _oauth_credentials(self, value: dict[str, Any] | None) -> None:
+    def _oauth_credentials(self, value: dict[str, Any] | None) -> None:  # type: ignore[redeclaration]
         """Set OAuth credentials - for backward compatibility with CredentialLoader."""
         self.__dict__["_oauth_credentials"] = value
         # Note: Coordinator manages its own state, so we don't sync back to it here
@@ -980,7 +980,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self, force_reload: bool = False, silent: bool = False
     ) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
-        return await CredentialLoader.load_oauth_credentials(self, force_reload, silent)
+        return await CredentialLoader.load_oauth_credentials(self, force_reload, silent)  # type: ignore[arg-type]
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize backend with enhanced validation following the stale token handling pattern."""

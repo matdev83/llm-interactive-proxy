@@ -835,12 +835,12 @@ class OpenAIConnector(LLMBackend):
                         target_id = None
 
             if target_id:
-                    await self._send_openai_responses_cancel(
-                        base_url=cancel_base_url,
-                        headers=cancel_headers,
-                        response_id=target_id,
-                        session_id=session_id,
-                    )
+                await self._send_openai_responses_cancel(
+                    base_url=cancel_base_url,
+                    headers=cancel_headers,
+                    response_id=target_id,
+                    session_id=session_id,
+                )
 
             try:
                 await response.aclose()
@@ -864,9 +864,9 @@ class OpenAIConnector(LLMBackend):
                 if isinstance(chunk_id, str) and chunk_id:
                     return chunk_id
 
-                if hasattr(chunk, "model_dump"):
+                if hasattr(chunk, "model_dump") and not isinstance(chunk, dict):
                     try:
-                        chunk_dict = chunk.model_dump()
+                        chunk_dict = chunk.model_dump()  # type: ignore[attr-defined]
                         if isinstance(chunk_dict, dict):
                             chunk_id = chunk_dict.get("id")
                         else:

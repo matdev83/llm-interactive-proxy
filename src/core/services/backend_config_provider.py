@@ -45,7 +45,7 @@ class BackendConfigProvider(IBackendConfigProvider):
             cfg: BackendConfig | dict | None = None
             try:
                 if callable(lookup_method):
-                    cfg = lookup_method(lookup_name)
+                    cfg = lookup_method(lookup_name)  # type: ignore[assignment]
                 else:
                     cfg = self._app_config.backends.get(lookup_name, None)  # type: ignore[arg-type]
             except Exception:

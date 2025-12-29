@@ -6,11 +6,11 @@ and implement TTL-based pruning to prevent false positives from old tool calls.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import hashlib
 import json
 import logging
-import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from reprlib import repr as limited_repr
@@ -184,15 +184,15 @@ class ToolCallTracker:
         self.signature_counts: dict[str, int] = {}
         # Maximum number of signatures to store
         self.max_signatures = max_signatures
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
 
-    def prune_expired(self) -> int:
+    async def prune_expired(self) -> int:
         """Remove expired signatures based on TTL.
 
         Returns:
             Number of signatures pruned
         """
-        with self._lock:
+        async with self._lock:
             if not self.signatures:
                 return 0
 
@@ -257,7 +257,7 @@ class ToolCallTracker:
 
             return pruned_count
 
-    def track_tool_call(
+    async def track_tool_call(
         self, tool_name: str, arguments: str, force_block: bool = False
     ) -> ToolCallTrackingResult:
         """Track a tool call and check if it exceeds the repetition threshold.
@@ -282,7 +282,7 @@ class ToolCallTracker:
                 should_block=True, reason=reason, repeat_count=self.config.max_repeats
             )
 
-        with self._lock:
+        async with self._lock:
             # Prune expired signatures first
             if not self.signatures:
                 pass  # Nothing to prune

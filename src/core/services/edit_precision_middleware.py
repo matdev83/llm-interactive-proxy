@@ -205,7 +205,7 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
                 if isinstance(t, str):
                     texts.append(t)
             elif hasattr(p, "text") and isinstance(getattr(p, "text", None), str):
-                texts.append(p.text)
+                texts.append(getattr(p, "text", ""))  # type: ignore[attr-defined]
         return texts
 
     def _match_any(self, text: str) -> bool:

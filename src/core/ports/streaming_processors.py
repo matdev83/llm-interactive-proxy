@@ -237,23 +237,23 @@ class ToolCallRepairProcessor(IStreamProcessor):
             arguments = tool_call.get("function", {}).get("arguments", "{}")
 
             # Track the tool call
-            tracking_result = tracker.track_tool_call(tool_name, arguments)
+            tracking_result = await tracker.track_tool_call(tool_name, arguments)  # type: ignore[assignment]
 
-            if tracking_result.should_block:
+            if tracking_result.should_block:  # type: ignore[attr-defined]
                 if self._logger.isEnabledFor(logging.WARNING):
                     self._logger.warning(
                         f"Tool call loop detected in session {session_id}: "
-                        f"tool={tool_name}, repeats={tracking_result.repeat_count}/{tracker.config.max_repeats}, "
+                        f"tool={tool_name}, repeats={tracking_result.repeat_count}/{tracker.config.max_repeats}, "  # type: ignore[attr-defined]
                         f"window={tracker.config.ttl_seconds}s, "
                         f"mode={tracker.config.mode.value}"
                     )
 
                 # Raise an error to stop the response
                 raise ToolCallLoopError(
-                    message=f"Tool call loop detected: {tracking_result.reason}",
+                    message=f"Tool call loop detected: {tracking_result.reason}",  # type: ignore[attr-defined]
                     details={
                         "tool_name": tool_name,
-                        "repetitions": tracking_result.repeat_count,
+                        "repetitions": tracking_result.repeat_count,  # type: ignore[attr-defined]
                         "mode": tracker.config.mode.value,
                     },
                 )

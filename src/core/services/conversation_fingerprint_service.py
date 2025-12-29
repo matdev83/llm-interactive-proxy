@@ -187,7 +187,7 @@ class ConversationFingerprintService:
                         text_parts.append("[image]")
                 elif hasattr(part, "type"):
                     if part.type == "text" and hasattr(part, "text"):
-                        text_parts.append(part.text)
+                        text_parts.append(getattr(part, "text", ""))  # type: ignore[attr-defined]
                     elif part.type == "image_url":
                         text_parts.append("[image]")
 
@@ -331,7 +331,7 @@ class ConversationFingerprintService:
                         parts.append("[image]")
                 elif hasattr(part, "type"):
                     if part.type == "text" and hasattr(part, "text"):
-                        parts.append(str(part.text))
+                        parts.append(str(getattr(part, "text", "")))  # type: ignore[attr-defined]
                     elif part.type == "image_url":
                         parts.append("[image]")
             return " ".join(parts)

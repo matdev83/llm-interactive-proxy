@@ -537,13 +537,13 @@ class ConfigManager:
         self.app_state.app_config.failover_routes = {
             name: route
             for name, route in self.app_state.app_config.failover_routes.items()
-            if (route.elements if hasattr(route, "elements") else route.get("elements"))
+            if (
+                getattr(route, "elements", None) if hasattr(route, "elements") else route.get("elements")  # type: ignore[attr-defined]
+            )
             and all(
                 self.app_state.app_config.model_is_functional(element)
                 for element in (
-                    route.elements
-                    if hasattr(route, "elements")
-                    else route.get("elements", [])
+                    getattr(route, "elements", []) if hasattr(route, "elements") else route.get("elements", [])  # type: ignore[attr-defined]
                 )
             )
         }

@@ -221,7 +221,6 @@ class BackendSimulator:
         )
 
 
-
 class BackendSimulatorTransport:
     """HTTPX transport adapter for BackendSimulator.
 
@@ -249,8 +248,8 @@ class BackendSimulatorTransport:
 
         # Read request body
         request_data = request.content if hasattr(request, "content") else b""
-        if hasattr(request_data, "read"):
-            request_data = await request_data.read()
+        if hasattr(request_data, "read") and not isinstance(request_data, bytes):
+            request_data = await request_data.read()  # type: ignore[attr-defined]
 
         match = self._simulator.match_request(request_data)
         if not match.matched:

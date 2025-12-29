@@ -215,10 +215,12 @@ class StreamingContent:
         """
         # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict first
         working_content = self.content
-        if hasattr(working_content, "model_dump") and callable(
-            working_content.model_dump
+        if (
+            not isinstance(working_content, str | dict | bytes)
+            and hasattr(working_content, "model_dump")
+            and callable(working_content.model_dump)
         ):
-            working_content = working_content.model_dump()
+            working_content = working_content.model_dump()  # type: ignore[attr-defined]
 
         content_value: str | dict | None
         if isinstance(working_content, bytes):

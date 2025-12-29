@@ -388,7 +388,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                 UsageRecordTable.http_status_code,  # type: ignore[arg-type]
                 func.count().label("count"),
             ).where(  # type: ignore[attr-defined]
-                UsageRecordTable.http_status_code.isnot(None)
+                UsageRecordTable.http_status_code.isnot(None)  # type: ignore[attr-defined]
             )
 
             # Apply filters
@@ -545,7 +545,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             from sqlalchemy import delete
 
             statement = delete(UsageRecordTable).where(  # type: ignore[arg-type]
-                UsageRecordTable.timestamp < cutoff_date
+                UsageRecordTable.timestamp < cutoff_date  # type: ignore[operator]
             )
             result = await session.execute(statement)
             await session.commit()
@@ -586,7 +586,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
             statement = statement.where(UsageRecordTable.leg == filters.leg.value)
         if filters.user_agent:
             statement = statement.where(  # type: ignore[arg-type,attr-defined]
-                UsageRecordTable.user_agent.contains(filters.user_agent)
+                UsageRecordTable.user_agent.contains(filters.user_agent)  # type: ignore[attr-defined]
             )
         if filters.proxy_user:
             statement = statement.where(

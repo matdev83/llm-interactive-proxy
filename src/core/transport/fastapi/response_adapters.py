@@ -263,7 +263,19 @@ def _normalize_response_envelope(
     elif isinstance(domain_response, dict):
         return ResponseEnvelope(content=domain_response, headers=None, status_code=200)
     else:
-        return ResponseEnvelope(content=domain_response, headers=None, status_code=200)
+        # Handle StreamingResponseEnvelope or other types
+        if hasattr(domain_response, "model_dump"):
+            content_dict = domain_response.model_dump()  # type: ignore[attr-defined]
+            return ResponseEnvelope(
+                content=(
+                    content_dict
+                    if isinstance(content_dict, dict)
+                    else str(domain_response)
+                ),
+                headers=None,
+                status_code=200,
+            )
+        return ResponseEnvelope(content=str(domain_response), headers=None, status_code=200)  # type: ignore[arg-type]
 
 
 def _apply_content_converter(
@@ -539,7 +551,7 @@ def to_fastapi_streaming_response(
             # Client disconnected - clean up the SSE iterator
             if hasattr(sse_bytes_iter, "aclose"):
                 with contextlib.suppress(Exception):
-                    await sse_bytes_iter.aclose()
+                    await sse_bytes_iter.aclose()  # type: ignore[attr-defined]
             raise
 
     # Inject canonical usage headers if available (Requirement 5.5)

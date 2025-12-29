@@ -974,8 +974,11 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 data, source_format="gemini"
             )
 
+            content_dict = (
+                canonical_response.model_dump() if canonical_response else None
+            )
             return ResponseEnvelope(
-                content=canonical_response.model_dump() if canonical_response else None,
+                content=content_dict if isinstance(content_dict, dict | type(None)) else str(canonical_response),  # type: ignore[arg-type]
                 headers=dict(response.headers),
                 status_code=response.status_code,
                 usage=usage,

@@ -200,7 +200,7 @@ class SSELineProcessor:
             else {"raw": rate_limit_error.details}
         )
         if retry_delay is not None:
-            details["retry_after"] = retry_delay
+            details["retry_after"] = float(retry_delay)  # type: ignore[assignment]
 
         return BackendError(
             message=rate_limit_error.message,
@@ -435,8 +435,9 @@ class StreamingExecutor:
                     "Gateway timeout reaching Code Assist streaming endpoint.",
                     code=504,
                 )
+                error_dict = error_chunk.model_dump()
                 yield ProcessedResponse(
-                    content=error_chunk.model_dump(),
+                    content=error_dict if isinstance(error_dict, dict) else str(error_chunk),  # type: ignore[arg-type]
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -450,8 +451,9 @@ class StreamingExecutor:
                     "Connection error reaching Code Assist streaming endpoint.",
                     code=503,
                 )
+                error_dict = error_chunk.model_dump()
                 yield ProcessedResponse(
-                    content=error_chunk.model_dump(),
+                    content=error_dict if isinstance(error_dict, dict) else str(error_chunk),  # type: ignore[arg-type]
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -462,8 +464,9 @@ class StreamingExecutor:
                     exc_info=True,
                 )
                 error_chunk = self._build_auth_error_chunk(prepared.effective_model)
+                error_dict = error_chunk.model_dump()
                 yield ProcessedResponse(
-                    content=error_chunk.model_dump(),
+                    content=error_dict if isinstance(error_dict, dict) else str(error_chunk),  # type: ignore[arg-type]
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -696,7 +699,11 @@ class StreamingExecutor:
                                         finish_reason = (
                                             choices[0].get("delta", {}) or {}
                                         ).get("finish_reason")
-                            if finish_reason in ("stop", "stop_sequence"):
+
+                            if finish_reason is not None and finish_reason in (
+                                "stop",
+                                "stop_sequence",
+                            ):
                                 is_stop_chunk = True
 
                             # Defensive: capture stop chunks even if above branch misses
@@ -819,8 +826,9 @@ class StreamingExecutor:
                     code=503,  # Use 503 for quota errors as expected by tests
                     error_type="quota_exceeded",
                 )
+                error_dict = error_chunk.model_dump()
                 yield ProcessedResponse(
-                    content=error_chunk.model_dump(),
+                    content=error_dict if isinstance(error_dict, dict) else str(error_chunk),  # type: ignore[arg-type]
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return

@@ -55,8 +55,10 @@ class IntelligentSessionResolver(ISessionResolver):
         self._recent_session_window_seconds = 900
 
         if config and hasattr(config, "session"):
-            session_config = config.session
-            if hasattr(session_config, "session_continuity"):
+            session_config = getattr(config, "session", None)  # type: ignore[attr-defined]
+            if session_config is not None and hasattr(
+                session_config, "session_continuity"
+            ):
                 continuity = session_config.session_continuity
                 self._enabled = getattr(continuity, "enabled", True)
                 self._fuzzy_matching = getattr(continuity, "fuzzy_matching", True)

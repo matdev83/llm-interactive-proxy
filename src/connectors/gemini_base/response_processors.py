@@ -134,7 +134,8 @@ class XmlToolCallPostProcessor:
         )
 
         # Update envelope content - convert CanonicalChatResponse to dict
-        response.content = canonical_response.model_dump()
+        content_dict = canonical_response.model_dump()
+        response.content = content_dict if isinstance(content_dict, dict) else str(canonical_response)  # type: ignore[assignment]
         return response
 
     async def process_streaming(

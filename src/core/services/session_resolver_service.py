@@ -50,10 +50,11 @@ class DefaultSessionResolver(ISessionResolver):
         if config is not None:
             try:
                 if hasattr(config, "session") and hasattr(
-                    config.session, "default_session_id"
+                    getattr(config, "session", None), "default_session_id"  # type: ignore[attr-defined]
                 ):
+                    session_attr = getattr(config, "session", None)  # type: ignore[attr-defined]
                     configured_default = getattr(
-                        config.session, "default_session_id", None
+                        session_attr, "default_session_id", None  # type: ignore[attr-defined]
                     )
                     if isinstance(configured_default, str):
                         sanitized_default = configured_default.strip()

@@ -583,14 +583,18 @@ class SSESerializer:
                 delta["content"] = chunk.payload.opaque_json
         elif chunk.payload.kind == "binary" and chunk.payload.binary_b64:
             # Decode base64 binary content
+            binary_data: bytes | None = None
             try:
                 binary_data = base64.b64decode(chunk.payload.binary_b64)
                 delta["content"] = binary_data.decode("utf-8")
             except (UnicodeDecodeError, ValueError):
-                try:
-                    delta["content"] = binary_data.decode("latin-1")
-                except Exception:
-                    delta["content"] = str(binary_data)
+                if binary_data is not None:
+                    try:
+                        delta["content"] = binary_data.decode("latin-1")
+                    except Exception:
+                        delta["content"] = str(binary_data)
+                else:
+                    delta["content"] = ""
         else:
             delta["content"] = ""
 

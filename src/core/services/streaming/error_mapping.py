@@ -170,7 +170,8 @@ async def handle_streaming_error(
         status_code = mapped_error.status_code
 
     # For quota_exceeded errors, use 503 instead of 429
-    if hasattr(mapped_error, "code") and mapped_error.code == "quota_exceeded":
+    error_code_attr = getattr(mapped_error, "code", None)  # type: ignore[attr-defined]
+    if error_code_attr == "quota_exceeded":
         status_code = 503
         # Use status_code as string for code field (test expects integer 503 in content)
         error_code = str(status_code) if status_code is not None else error_code
@@ -199,11 +200,8 @@ async def handle_streaming_error(
     # Build error chunk content dict for quota_exceeded errors
     # Test expects content["error"]["code"] to be 503 (int), not string
     error_content: dict[str, Any] | str = ""
-    if (
-        hasattr(mapped_error, "code")
-        and mapped_error.code == "quota_exceeded"
-        and status_code is not None
-    ):
+    error_code_attr = getattr(mapped_error, "code", None)  # type: ignore[attr-defined]
+    if error_code_attr == "quota_exceeded" and status_code is not None:
         # Build OpenAI-style error chunk with integer code
         import time
 

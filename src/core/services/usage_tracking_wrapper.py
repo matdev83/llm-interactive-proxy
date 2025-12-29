@@ -124,7 +124,20 @@ class UsageTrackingWrapper(IUsageTrackingWrapper):
                 end_time = time.time()
             finally:
                 if accumulated_usage:
-                    completion_tokens = accumulated_usage.get("completion_tokens", 0)
+                    completion_tokens_raw = (
+                        accumulated_usage.get("completion_tokens", 0)
+                        if isinstance(accumulated_usage, dict)
+                        else (
+                            getattr(accumulated_usage, "completion_tokens", 0)
+                            if hasattr(accumulated_usage, "completion_tokens")
+                            else 0
+                        )
+                    )
+                    completion_tokens = (
+                        int(completion_tokens_raw)
+                        if isinstance(completion_tokens_raw, int | float | str)
+                        else 0
+                    )
                     ttft_ms = (
                         (first_token_time - start_time) * 1000
                         if first_token_time
@@ -141,17 +154,29 @@ class UsageTrackingWrapper(IUsageTrackingWrapper):
                     ):
                         stream_duration = end_time - first_token_time
                         if stream_duration > 0:
-                            stream_tps = completion_tokens / stream_duration
+                            stream_tps = float(completion_tokens) / stream_duration
 
                     # Calculate backend wait time (time until first token)
                     backend_wait_ms = ttft_ms  # Same as TTFT for streaming
+
+                    # Convert accumulated_usage to dict if needed
+                    usage_dict: dict[str, Any] | None = None
+                    if accumulated_usage is not None:
+                        if isinstance(accumulated_usage, dict):
+                            usage_dict = accumulated_usage
+                        elif hasattr(accumulated_usage, "model_dump"):
+                            usage_dict = accumulated_usage.model_dump()  # type: ignore[attr-defined]
+                        elif hasattr(accumulated_usage, "to_dict"):
+                            usage_dict = accumulated_usage.to_dict()  # type: ignore[attr-defined]
+                        else:
+                            usage_dict = {}
 
                     try:
                         if ptb_record_id:
                             await usage_service.record_response(
                                 record_id=ptb_record_id,
                                 completion_tokens=completion_tokens,
-                                backend_reported_usage=accumulated_usage,
+                                backend_reported_usage=usage_dict,
                                 http_status_code=200,
                                 ttft_ms=ttft_ms,
                                 stream_tps=stream_tps,
@@ -163,7 +188,7 @@ class UsageTrackingWrapper(IUsageTrackingWrapper):
                             await usage_service.record_response(
                                 record_id=ctp_record_id,
                                 completion_tokens=completion_tokens,
-                                backend_reported_usage=accumulated_usage,
+                                backend_reported_usage=usage_dict,
                                 http_status_code=200,
                                 ttft_ms=ttft_ms,
                                 stream_tps=stream_tps,

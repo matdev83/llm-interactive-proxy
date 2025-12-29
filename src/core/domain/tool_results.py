@@ -11,13 +11,14 @@ from src.core.domain.base import ValueObject
 
 class UniversalToolResult(ValueObject):
     """Result of a universal tool execution."""
+
     output: str
     exit_code: int
     error: str | None = None
-    
+
     # Additional metadata
     metadata: dict[str, JsonValue] = {}
-    
+
     def __getitem__(self, key: str) -> Any:
         """Allow dictionary-like access for backward compatibility."""
         if key == "output":
@@ -34,23 +35,23 @@ class UniversalToolResult(ValueObject):
             return self[key]
         except KeyError:
             return default
-        
+
     def __contains__(self, key: str) -> bool:
         """Allow 'in' operator for backward compatibility."""
         if key in ("output", "exit_code", "error"):
             return True
         return key in self.metadata
 
-    def __iter__(self):
+    def __iter__(self):  # type: ignore[override]
         """Allow iterating over keys for backward compatibility."""
-        yield "output"
-        yield "exit_code"
-        yield "error"
-        yield from self.metadata.keys()
+        yield ("output", self.output)
+        yield ("exit_code", self.exit_code)
+        yield ("error", self.error)
+        yield from self.metadata.items()
 
     def update(self, other: dict[str, Any]) -> None:
         """Allow update-like behavior for backward compatibility."""
-        # This is a bit of a hack since ValueObject is frozen, 
+        # This is a bit of a hack since ValueObject is frozen,
         # but in practice some code might try to update the dict.
         # Since it's frozen, we can't actually update it if it's an instance.
         # If code uses .update(), it will fail if it's a frozen Pydantic model.

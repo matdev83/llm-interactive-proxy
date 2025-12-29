@@ -135,11 +135,16 @@ class JsonRepairService:
         Returns:
             JsonRepairResult describing whether repair succeeded and the content.
         """
+        repaired_json: str = json_string  # Initialize to avoid unbound variable
         try:
             repaired_json = self.repair_json(json_string)
             if schema is not None:
                 enforce_schema_size_limits(schema)
-                self.validate_json(repaired_json, schema)
+                # Parse JSON string to dict for validation
+                import json
+
+                parsed_json = json.loads(repaired_json)
+                self.validate_json(parsed_json, schema)
             return JsonRepairResult(success=True, content=repaired_json)
         except JsonSchemaValidationError as e:
             if strict:

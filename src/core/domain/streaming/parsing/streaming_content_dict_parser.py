@@ -63,6 +63,13 @@ class StreamingContentDictParser(IParserStrategy):
         if usage is not None and not isinstance(usage, dict):
             usage = None
 
+        # Convert usage dict to UsageSummary if needed
+        usage_summary = None
+        if usage is not None and isinstance(usage, dict):
+            from src.core.domain.streaming.streaming_content import UsageSummary
+
+            usage_summary = UsageSummary(**usage)  # type: ignore[arg-type]
+
         return StreamingContent(
             content=normalized_content,
             metadata=dict(metadata_val),
@@ -70,7 +77,7 @@ class StreamingContentDictParser(IParserStrategy):
             is_empty=raw_data.get("is_empty"),
             stream_id=stream_id,
             is_cancellation=bool(raw_data.get("is_cancellation", False)),
-            usage=usage,
+            usage=usage_summary,
             raw_data=raw_data,
         )
 

@@ -76,7 +76,9 @@ def _normalize_tool_calls(tool_calls: list[Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for tool_call in tool_calls:
         if hasattr(tool_call, "model_dump") and callable(tool_call.model_dump):
-            normalized.append(tool_call.model_dump(exclude_none=True))
+            dumped = tool_call.model_dump(exclude_none=True)  # type: ignore[attr-defined]
+            if isinstance(dumped, dict):
+                normalized.append(dumped)
         elif isinstance(tool_call, dict):
             normalized.append(tool_call)
     return normalized
@@ -176,7 +178,7 @@ class VTCResponseStreamWrapper:
             # Consumer cancelled - clean up the source stream
             if hasattr(stream, "aclose"):
                 with contextlib.suppress(Exception):
-                    await stream.aclose()
+                    await stream.aclose()  # type: ignore[attr-defined]
             raise
 
     async def _process_chunk_async(
@@ -410,8 +412,13 @@ class VTCResponseStreamWrapper:
             for tool_call in tool_calls:
                 if hasattr(tool_call, "function"):
                     # Pydantic model
-                    tool_name = tool_call.function.name
-                    raw_tool_args = tool_call.function.arguments
+                    func_attr = getattr(tool_call, "function", None)  # type: ignore[attr-defined]
+                    if func_attr is not None:
+                        tool_name = getattr(func_attr, "name", None)  # type: ignore[attr-defined]
+                        raw_tool_args = getattr(func_attr, "arguments", None)  # type: ignore[attr-defined]
+                    else:
+                        tool_name = None
+                        raw_tool_args = None
                 else:
                     # Legacy dict
                     func_info = tool_call.get("function", {})
@@ -428,7 +435,7 @@ class VTCResponseStreamWrapper:
                     envelope = self._arguments_parser.parse(raw_tool_args)
                     # Apply fixups with context
                     fixup_context = FixupContext(
-                        tool_name=tool_name,
+                        tool_name=tool_name or "unknown",  # type: ignore[arg-type]
                         backend_name=self._context.get("backend_name"),
                         calling_agent=self._context.get("calling_agent"),
                         client_os=self._context.get("client_os"),
@@ -461,7 +468,7 @@ class VTCResponseStreamWrapper:
 
                 context = ToolCallContext(
                     session_id=self._session_id,
-                    tool_name=tool_name,
+                    tool_name=tool_name or "unknown",  # type: ignore[arg-type]
                     tool_arguments=tool_args,
                     backend_name=self._context.get("backend_name", "unknown"),
                     model_name=self._context.get("model_name", "unknown"),
@@ -606,6 +613,7 @@ class VTCResponseStreamWrapper:
         # But we will NOT modify the content - pass through as-is for VTC clients
         tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
 
+        normalized_tool_calls: list[dict[str, Any]] | None = None
         if tool_calls:
             normalized_tool_calls = _normalize_tool_calls(tool_calls)
             logger.info(
@@ -620,7 +628,7 @@ class VTCResponseStreamWrapper:
         # Return original content unchanged - VTC clients expect their original format
         # Tool calls are added to metadata for reactor processing
         return self._create_chunk_with_text(
-            buffer_content, tool_calls=normalized_tool_calls if tool_calls else None
+            buffer_content, tool_calls=normalized_tool_calls
         )
 
     async def _flush_buffer_async(self) -> ProcessedResponse | None:
@@ -716,6 +724,7 @@ class VTCResponseStreamWrapper:
         # Try to extract any tool calls for reactor processing
         tool_calls, _ = parse_vtc_xml(buffer_content, allowed_tools=None)
 
+        normalized_tool_calls: list[dict[str, Any]] | None = None
         if tool_calls:
             normalized_tool_calls = _normalize_tool_calls(tool_calls)
             logger.info(
@@ -727,7 +736,7 @@ class VTCResponseStreamWrapper:
         # Return original content unchanged - VTC clients expect their original format
         # Tool calls are added to metadata for reactor processing
         return self._create_chunk_with_text(
-            buffer_content, tool_calls=normalized_tool_calls if tool_calls else None
+            buffer_content, tool_calls=normalized_tool_calls
         )
 
     def _create_chunk_with_text(
@@ -864,5 +873,5 @@ async def wrap_processed_response_stream_with_vtc(
         # Consumer cancelled - close the wrapper's stream
         if hasattr(stream, "aclose"):
             with contextlib.suppress(Exception):
-                await stream.aclose()
+                await stream.aclose()  # type: ignore[attr-defined]
         raise

@@ -567,6 +567,7 @@ class ProjectDirectoryResolutionService:
             found_path = self._find_absolute_path_in_prompt(prompt_text)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Deterministic resolution result: {found_path}")
+            dot_status: bool | None = None  # Initialize to avoid unbound variable
             if found_path:
                 dot_status = self._dot_entries_status(found_path)
                 if dot_status is False:

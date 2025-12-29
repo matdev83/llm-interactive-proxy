@@ -89,7 +89,9 @@ class SessionManager(ISessionManager):
             if hasattr(msg_any, "model_dump") and callable(msg_any.model_dump):
                 try:
                     data = msg_any.model_dump()
-                    return data.get("role"), data.get("content")
+                    if isinstance(data, dict):
+                        return data.get("role"), data.get("content")
+                    return None, None
                 except (AttributeError, TypeError, KeyError) as exc:
                     logger.debug(
                         "Failed to extract role/content via model_dump from %s: %s",
