@@ -263,7 +263,9 @@ class ProjectDirectoryResolutionService:
         except Exception as e:
             # Unexpected exception during path parsing
             logger.warning(
-                "Unexpected error parsing path in _is_valid_project_path: %s", e, exc_info=True
+                "Unexpected error parsing path in _is_valid_project_path: %s",
+                e,
+                exc_info=True,
             )
             return False
 
@@ -296,7 +298,9 @@ class ProjectDirectoryResolutionService:
         except Exception as e:
             # Unexpected exception during path parsing
             logger.warning(
-                "Unexpected error parsing paths in _longest_common_directory: %s", e, exc_info=True
+                "Unexpected error parsing paths in _longest_common_directory: %s",
+                e,
+                exc_info=True,
             )
             return None
 
@@ -345,7 +349,9 @@ class ProjectDirectoryResolutionService:
         except Exception as e:
             # Unexpected exception during path parsing
             logger.warning(
-                "Unexpected error parsing path in _score_path_candidate: %s", e, exc_info=True
+                "Unexpected error parsing path in _score_path_candidate: %s",
+                e,
+                exc_info=True,
             )
             return 0
 
@@ -763,7 +769,8 @@ class ProjectDirectoryResolutionService:
                 exc,
                 exc_info=True,
             )
-        logger.info(message)
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(message)
 
     async def _call_resolution_model(self, prompt_text: str) -> ResponseEnvelope:
         request = ChatRequest(
