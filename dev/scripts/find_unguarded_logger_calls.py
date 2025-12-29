@@ -8,7 +8,7 @@ import sys
 
 def check_file(filepath: str) -> list[tuple[int, str]]:
     """Check a file for unguarded logger calls."""
-    with open(filepath, "r", encoding="utf-8") as f:
+    with open(filepath, encoding="utf-8") as f:
         lines = f.readlines()
 
     unguarded = []

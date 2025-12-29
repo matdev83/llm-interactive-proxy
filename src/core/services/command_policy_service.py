@@ -90,7 +90,7 @@ class CommandPolicyService(ICommandPolicyService):
         if session is not None:
             try:
                 override = getattr(session.state, "command_prefix_override", None)
-            except AttributeError as exc:
+            except AttributeError:
                 # Attribute access failed (e.g., session.state is None or doesn't have the attribute)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(

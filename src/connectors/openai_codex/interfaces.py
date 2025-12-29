@@ -29,6 +29,7 @@ from src.connectors.openai_codex.contracts import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.validation import ValidationResult
 from src.core.services.universal_mcp_client import OpenAIFunctionSchema
 
 
@@ -116,6 +117,36 @@ class ICredentialManager(ABC):
         """
         ...
 
+    @abstractmethod
+    async def reload_credentials(self, force: bool = False) -> bool:
+        """Reload credentials from file, optionally bypassing cache.
+
+        This method allows external components (e.g., file watchers) to trigger
+        credential reloads without accessing private implementation details.
+
+        Args:
+            force: If True, bypass cache and force reload from file even if
+                file modification time hasn't changed
+
+        Returns:
+            True if reload succeeded, False otherwise
+        """
+        ...
+
+    @abstractmethod
+    def validate_current_credentials(self) -> ValidationResult:
+        """Validate currently loaded credentials structure.
+
+        This method validates the credentials that are currently in memory,
+        without reloading from file. Useful for checking credentials after
+        a reload operation.
+
+        Returns:
+            ValidationResult with success/error status. If no credentials
+            are loaded, returns a failure result.
+        """
+        ...
+
 
 class IPayloadBuilder(ABC):
     """Interface for building Codex payloads.
@@ -137,6 +168,33 @@ class IPayloadBuilder(ABC):
 
         Returns:
             Codex API payload ready for submission
+        """
+        ...
+
+    @abstractmethod
+    def convert_dict_to_payload(
+        self, payload_dict: dict[str, Any], context: CodexRequestContext
+    ) -> CodexPayload:
+        """Convert dictionary payload to CodexPayload model.
+
+        This method handles passthrough format conversion, ensuring that
+        dictionary payloads (e.g., from passthrough requests) are properly
+        converted to CodexPayload instances with correct field types.
+
+        Preconditions:
+        - payload_dict contains valid Codex payload fields
+        - context provides necessary metadata for conversion
+
+        Postconditions:
+        - Returns validated CodexPayload instance
+        - Input items, tools, and other fields are properly converted
+
+        Args:
+            payload_dict: Dictionary containing Codex payload fields
+            context: Request context for conversion metadata
+
+        Returns:
+            Validated CodexPayload instance
         """
         ...
 

@@ -22,9 +22,14 @@ from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
+from src.core.domain.validation import ValidationResult
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.translation_service import TranslationService
 
+from tests.unit.connectors.openai_codex.test_helpers import (
+    create_mock_credential_manager,
+    create_mock_settings_loader,
+)
 from tests.unit.fixtures.markers import real_time
 
 
@@ -48,17 +53,25 @@ async def codex_connector_fixture(auth_dir: Path):
         # The setter checks hasattr, so we need to ensure _credential_manager exists
         backend = OpenAICodexConnector(client, cfg, translation_service=ts)
 
+        # Set _auth_credentials on credential manager before initialization
+        backend._credential_manager._auth_credentials = {
+            "tokens": {"access_token": "test_token"}
+        }
+
         with (
             patch.object(
-                backend, "_validate_credentials_file_exists", return_value=(True, [])
+                backend,
+                "_validate_credentials_file_exists",
+                return_value=ValidationResult.success(),
             ),
             patch.object(
-                backend, "_validate_credentials_structure", return_value=(True, [])
+                backend,
+                "_validate_credentials_structure",
+                return_value=ValidationResult.success(),
             ),
             patch.object(backend, "_start_file_watching"),
         ):
             await backend.initialize(openai_codex_path=str(auth_dir))
-            backend._auth_credentials = {"tokens": {"access_token": "test_token"}}
             yield backend
 
 
@@ -99,6 +112,10 @@ async def test_streaming_handshake_auth_failure_retry_success(
 
         mock_credential_manager = create_mock_credential_manager(refresh_success=True)
         mock_credential_manager.refresh_access_token = AsyncMock(return_value=True)
+        # Ensure _auth_credentials is set after _load_auth is called
+        mock_credential_manager._auth_credentials = {
+            "tokens": {"access_token": "test_token"}
+        }
 
         from src.connectors.openai_codex.contracts import CodexConnectorDependencies
 
@@ -124,19 +141,16 @@ async def test_streaming_handshake_auth_failure_retry_success(
             patch.object(
                 codex_connector,
                 "_validate_credentials_file_exists",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(
                 codex_connector,
                 "_validate_credentials_structure",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(codex_connector, "_start_file_watching"),
         ):
             await codex_connector.initialize(openai_codex_path=str(auth_dir))
-            codex_connector._auth_credentials = {
-                "tokens": {"access_token": "test_token"}
-            }
 
             # Create request
             request = CanonicalChatRequest(
@@ -211,7 +225,9 @@ async def test_streaming_handshake_auth_failure_retry_success(
                     mock_credential_manager.refresh_access_token.call_count >= 1
                 )  # Should have refreshed at least once
                 # Verify executor was called (unified execution path)
-                assert executor_call_count[0] >= 1, "Executor should be called for Codex model requests"
+                assert (
+                    executor_call_count[0] >= 1
+                ), "Executor should be called for Codex model requests"
 
 
 @pytest.mark.integration
@@ -226,6 +242,9 @@ async def test_streaming_handshake_auth_failure_retry_exhausted(
         ts = TranslationService()
 
         mock_credential_manager = create_mock_credential_manager(refresh_success=True)
+        mock_credential_manager._auth_credentials = {
+            "tokens": {"access_token": "test_token"}
+        }
         # Use settings loader with max_retries=0 to ensure exception is raised immediately
         mock_settings_loader = create_mock_settings_loader(
             max_retries=0,
@@ -247,19 +266,16 @@ async def test_streaming_handshake_auth_failure_retry_exhausted(
             patch.object(
                 codex_connector,
                 "_validate_credentials_file_exists",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(
                 codex_connector,
                 "_validate_credentials_structure",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(codex_connector, "_start_file_watching"),
         ):
             await codex_connector.initialize(openai_codex_path=str(auth_dir))
-            codex_connector._auth_credentials = {
-                "tokens": {"access_token": "test_token"}
-            }
 
             # Create request
             request = CanonicalChatRequest(
@@ -305,7 +321,9 @@ async def test_streaming_handshake_auth_failure_retry_exhausted(
                 assert details.get("backend") == "openai-codex"
                 assert "attempts" in details
                 assert "max_retries" in details
-                assert details["attempts"] == 0  # With max_retries=0, no retries attempted
+                assert (
+                    details["attempts"] == 0
+                )  # With max_retries=0, no retries attempted
                 assert details["max_retries"] == 0
 
 
@@ -321,6 +339,9 @@ async def test_streaming_chunk_level_auth_failure_retry(
         ts = TranslationService()
 
         mock_credential_manager = create_mock_credential_manager(refresh_success=True)
+        mock_credential_manager._auth_credentials = {
+            "tokens": {"access_token": "test_token"}
+        }
 
         from src.connectors.openai_codex.contracts import CodexConnectorDependencies
 
@@ -346,19 +367,16 @@ async def test_streaming_chunk_level_auth_failure_retry(
             patch.object(
                 codex_connector,
                 "_validate_credentials_file_exists",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(
                 codex_connector,
                 "_validate_credentials_structure",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(codex_connector, "_start_file_watching"),
         ):
             await codex_connector.initialize(openai_codex_path=str(auth_dir))
-            codex_connector._auth_credentials = {
-                "tokens": {"access_token": "test_token"}
-            }
 
             # Create request
             request = CanonicalChatRequest(
@@ -456,6 +474,9 @@ async def test_streaming_retry_backoff_behavior(
         ts = TranslationService()
 
         mock_credential_manager = create_mock_credential_manager(refresh_success=True)
+        mock_credential_manager._auth_credentials = {
+            "tokens": {"access_token": "test_token"}
+        }
         # Use settings loader with known backoff sequence (reduced delays for test performance)
         mock_settings_loader = create_mock_settings_loader(
             max_retries=2,
@@ -481,19 +502,16 @@ async def test_streaming_retry_backoff_behavior(
             patch.object(
                 codex_connector,
                 "_validate_credentials_file_exists",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(
                 codex_connector,
                 "_validate_credentials_structure",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(codex_connector, "_start_file_watching"),
         ):
             await codex_connector.initialize(openai_codex_path=str(auth_dir))
-            codex_connector._auth_credentials = {
-                "tokens": {"access_token": "test_token"}
-            }
 
             # Create request
             request = CanonicalChatRequest(
@@ -567,6 +585,9 @@ async def test_streaming_refresh_failure_returns_error(
         ts = TranslationService()
 
         mock_credential_manager = create_mock_credential_manager(refresh_success=False)
+        mock_credential_manager._auth_credentials = {
+            "tokens": {"access_token": "test_token"}
+        }
 
         from src.connectors.openai_codex.contracts import CodexConnectorDependencies
 
@@ -582,19 +603,16 @@ async def test_streaming_refresh_failure_returns_error(
             patch.object(
                 codex_connector,
                 "_validate_credentials_file_exists",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(
                 codex_connector,
                 "_validate_credentials_structure",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(codex_connector, "_start_file_watching"),
         ):
             await codex_connector.initialize(openai_codex_path=str(auth_dir))
-            codex_connector._auth_credentials = {
-                "tokens": {"access_token": "test_token"}
-            }
 
     # Create request
     request = CanonicalChatRequest(
@@ -821,6 +839,9 @@ async def test_streaming_translation_ordering_preserved_during_retry(
         ts = TranslationService()
 
         mock_credential_manager = create_mock_credential_manager(refresh_success=True)
+        mock_credential_manager._auth_credentials = {
+            "tokens": {"access_token": "test_token"}
+        }
 
         from src.connectors.openai_codex.contracts import CodexConnectorDependencies
 
@@ -836,19 +857,16 @@ async def test_streaming_translation_ordering_preserved_during_retry(
             patch.object(
                 codex_connector,
                 "_validate_credentials_file_exists",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(
                 codex_connector,
                 "_validate_credentials_structure",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(codex_connector, "_start_file_watching"),
         ):
             await codex_connector.initialize(openai_codex_path=str(auth_dir))
-            codex_connector._auth_credentials = {
-                "tokens": {"access_token": "test_token"}
-            }
 
     # Create request
     request = CanonicalChatRequest(
@@ -946,12 +964,12 @@ async def test_compatibility_state_preserved_across_retries(
             patch.object(
                 codex_connector,
                 "_validate_credentials_file_exists",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(
                 codex_connector,
                 "_validate_credentials_structure",
-                return_value=(True, []),
+                return_value=ValidationResult.success(),
             ),
             patch.object(codex_connector, "_start_file_watching"),
         ):

@@ -7,6 +7,12 @@ This is an alpha-stage project. Backward compatibility with legacy or deprecated
 
 The proxy may optionally compact/compress historical tool call results before backend dispatch. Non-forwardable tagging must remain effective even when such server-side history compaction rewrites message content.
 
+**Discovered Constraints (from Gap Analysis)**:
+- Current “do not forward” behavior relies on regex- and metadata-based mechanisms that do not survive client history re-submission; this spec replaces them with session-scoped tagging and a single enforcement boundary.
+- Some entry points can currently bypass the centralized backend call flow; enforcement must therefore live at the single backend-call boundary used by all entry points.
+- The command pipeline may modify message content during command handling; tagging must still recognize the original client-submitted message when it later appears in client history.
+- Not all non-HTTP workflows reliably establish a session id today; this spec requires a session identifier be resolved or created for every interaction that may call a remote backend.
+
 **Project Context**: Universal LLM Proxy - Traffic routing, failover, accounting for multiple LLM backends with async FastAPI architecture.
 
 **Stakeholders**:
@@ -52,7 +58,7 @@ The proxy may optionally compact/compress historical tool call results before ba
 2.2 When the client submits a message that begins with the configured command prefix (default `!/`), the LLM Interactive Proxy shall treat the message as a slash command candidate.
 2.3 When a slash command candidate is valid and supported, the LLM Interactive Proxy shall execute the command server-side and shall return a command response to the client without calling any remote LLM backend.
 2.4 If a slash command candidate is not valid or not supported, then the LLM Interactive Proxy shall return an error response to the client and shall not call any remote LLM backend.
-2.5 When a slash command is handled server-side, the LLM Interactive Proxy shall tag the slash command message as non-forwardable in the “never-forward” scope for the lifetime of the session.
+2.5 When a slash command is handled server-side, the LLM Interactive Proxy shall tag the slash command message (as submitted by the client) as non-forwardable in the “never-forward” scope for the lifetime of the session.
 
 #### Technical Constraints
 - The LLM Interactive Proxy shall apply this behavior consistently across supported frontends that accept client-provided message content and history.
@@ -63,7 +69,7 @@ The proxy may optionally compact/compress historical tool call results before ba
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
-3.1 When the LLM Interactive Proxy generates a response message to a slash command and sends it to the client, the LLM Interactive Proxy shall tag that response message as non-forwardable in the “never-forward” scope for the lifetime of the session.
+3.1 When the LLM Interactive Proxy generates a response message to a slash command and sends it to the client, the LLM Interactive Proxy shall tag that response message (as sent to the client) as non-forwardable in the “never-forward” scope for the lifetime of the session.
 3.2 When a client submits conversation history containing a previously generated command response message from the same session, the LLM Interactive Proxy shall recognize it as non-forwardable and shall exclude it from any outbound backend payload.
 3.3 While processing a request that includes a previously generated command response message, the LLM Interactive Proxy shall not require the client to preserve any special out-of-band metadata for the message to be recognized within the same session.
 
@@ -130,7 +136,7 @@ The proxy may optionally compact/compress historical tool call results before ba
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
-8.1 When the LLM Interactive Proxy processes any request or workflow that may call a remote LLM backend, the LLM Interactive Proxy shall resolve or create a session identifier for that interaction.
+8.1 When the LLM Interactive Proxy processes any request or workflow that may call a remote LLM backend, the LLM Interactive Proxy shall resolve or create a non-empty session identifier for that interaction.
 8.2 When a non-HTTP entry point initiates multiple backend calls as part of a single logical interaction, the LLM Interactive Proxy shall reuse the same session identifier across those calls for the lifetime of that interaction.
 8.3 The LLM Interactive Proxy shall store and apply non-forwardable tags only within the resolved session identifier.
 8.4 The LLM Interactive Proxy shall not apply non-forwardable tags across different session identifiers.

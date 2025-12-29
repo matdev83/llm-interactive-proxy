@@ -163,7 +163,7 @@ class PayloadBuilder(IPayloadBuilder):
 
         # Convert to CodexPayload
         # Note: passthrough payload may have different structure, so we need to adapt
-        return self._dict_to_payload(passthrough_dict, context)
+        return self.convert_dict_to_payload(passthrough_dict, context)
 
     def _build_translated_payload(self, context: CodexRequestContext) -> CodexPayload:
         """Build payload from translated messages and tools.
@@ -363,17 +363,21 @@ class PayloadBuilder(IPayloadBuilder):
 
         return deduplicated
 
-    def _dict_to_payload(
+    def convert_dict_to_payload(
         self, payload_dict: dict[str, Any], context: CodexRequestContext
     ) -> CodexPayload:
-        """Convert dict payload to CodexPayload model.
+        """Convert dictionary payload to CodexPayload model.
+
+        This method handles passthrough format conversion, ensuring that
+        dictionary payloads (e.g., from passthrough requests) are properly
+        converted to CodexPayload instances with correct field types.
 
         Args:
-            payload_dict: Dictionary payload
-            context: Request context
+            payload_dict: Dictionary containing Codex payload fields
+            context: Request context for conversion metadata
 
         Returns:
-            CodexPayload instance
+            Validated CodexPayload instance
         """
         # Convert input items while preserving structure
         input_items = []

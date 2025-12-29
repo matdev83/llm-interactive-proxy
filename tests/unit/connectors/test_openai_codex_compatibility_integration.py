@@ -67,11 +67,11 @@ async def codex_connector_compat_enabled_fixture(auth_dir: Path):
             backend._auth_credentials = {"tokens": {"access_token": "test_token"}}
 
             # Manually initialize session detector since we modified settings after init
-            from src.connectors._openai_codex_session_detector import SessionDetector
-            from src.connectors.openai_codex.compat import CompatibilityLayer
             from src.connectors._openai_codex_kilo_tool_translator import (
                 KiloToolTranslator,
             )
+            from src.connectors._openai_codex_session_detector import SessionDetector
+            from src.connectors.openai_codex.compat import CompatibilityLayer
 
             detection_cfg = backend._connector_settings["compatibility_layer"][
                 "detection"
@@ -292,11 +292,11 @@ class TestRequestFlowIntegration:
         After refactoring, tool translation is handled by CompatibilityLayer.
         This test verifies the compatibility layer correctly translates tools.
         """
+        from src.connectors._openai_codex_capabilities import CodexClientCapabilities
         from src.connectors.openai_codex.contracts import (
             CodexRequestContext,
             ProcessedMessage,
         )
-        from src.connectors._openai_codex_capabilities import CodexClientCapabilities
         from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
         # Create a request context with KiloCode-style message

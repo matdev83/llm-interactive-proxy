@@ -490,7 +490,6 @@ class TestToolAccessPolicyService:
 
         result = service.filter_tool_definitions(tools, "gpt-4")
         filtered = result.filtered_tools
-        metadata = result.metadata
 
         assert len(filtered) == 2
         tool_names = [t["function"]["name"] for t in filtered]
@@ -518,7 +517,6 @@ class TestToolAccessPolicyService:
 
         result = service.filter_tool_definitions(tools, "claude-3")
         filtered = result.filtered_tools
-        metadata = result.metadata
 
         assert len(filtered) == 1
         assert filtered[0]["name"] == "read_file"
@@ -629,7 +627,6 @@ class TestToolAccessPolicyService:
 
         result = service.filter_tool_definitions(tools, "gpt-4")
         filtered = result.filtered_tools
-        metadata = result.metadata
 
         # Should allow all tools with default policy
         assert len(filtered) == 1

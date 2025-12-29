@@ -227,7 +227,7 @@ class ToolCallRetryCoordinator(IToolCallRetryCoordinator):
                 if arguments is not None:
                     try:
                         arg_summary = json.dumps(arguments, ensure_ascii=False)
-                    except (TypeError, ValueError) as exc:
+                    except (TypeError, ValueError):
                         # JSON serialization failed (e.g., non-serializable types)
                         # Fall back to string representation
                         if logger.isEnabledFor(logging.DEBUG):

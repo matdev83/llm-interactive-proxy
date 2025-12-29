@@ -854,7 +854,6 @@ class TestToolAccessControlEndToEnd:
         filtered_tools = result.filtered_tools
 
 
-        metadata = result.metadata
 
         # All tools should pass through
         assert len(filtered_tools) == len(tools)

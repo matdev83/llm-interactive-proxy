@@ -78,7 +78,7 @@ async def test_executor_called_for_codex_model_requests(auth_dir: Path):
                 status_code=200,
             )
 
-            result = await connector.chat_completions(
+            await connector.chat_completions(
                 request_data=request,
                 processed_messages=[],
                 effective_model="openai-codex:gpt-5.1-codex",
@@ -142,7 +142,9 @@ async def test_executor_called_for_streaming_codex_requests(auth_dir: Path):
 
             # Mock executor to return a streaming response
             from src.core.domain.responses import StreamingResponseEnvelope
-            from src.core.interfaces.response_processor_interface import ProcessedResponse
+            from src.core.interfaces.response_processor_interface import (
+                ProcessedResponse,
+            )
 
             async def mock_stream():
                 yield ProcessedResponse(content={"choices": [{"delta": {"content": "test"}}]})
@@ -152,7 +154,7 @@ async def test_executor_called_for_streaming_codex_requests(auth_dir: Path):
                 media_type="text/event-stream",
             )
 
-            result = await connector.chat_completions(
+            await connector.chat_completions(
                 request_data=request,
                 processed_messages=[],
                 effective_model="openai-codex:gpt-5.1-codex",
@@ -211,7 +213,6 @@ async def test_non_codex_models_bypass_executor(auth_dir: Path):
             )
 
             # Mock OpenAI connector's chat_completions to track calls
-            original_chat_completions = connector.chat_completions
             openai_call_count = [0]
 
             async def tracked_chat_completions(*args, **kwargs):

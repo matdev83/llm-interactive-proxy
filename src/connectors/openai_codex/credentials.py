@@ -198,18 +198,15 @@ class CredentialWatcher:
                     logger.debug(
                         "Reloading OpenAI Codex credentials due to file change"
                     )
-                # Use force_reload=True to bypass cache
-                loaded = await self._credential_manager._load_auth(force_reload=True)
+                # Use public interface to reload credentials
+                loaded = await self._credential_manager.reload_credentials(force=True)
                 if loaded:
-                    if self._credential_manager._auth_credentials is not None:
-                        res = self._credential_manager._validate_credentials_structure(
-                            self._credential_manager._auth_credentials
+                    res = self._credential_manager.validate_current_credentials()
+                    if not res and logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Credential structure validation failed after reload: %s",
+                            "; ".join(res.errors),
                         )
-                        if not res and logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Credential structure validation failed after reload: %s",
-                                "; ".join(res.errors),
-                            )
 
                 else:
                     if logger.isEnabledFor(logging.WARNING):
@@ -743,3 +740,33 @@ class CredentialManager(ICredentialManager):
             True if watcher is running, False otherwise
         """
         return self._watcher.is_running()
+
+    async def reload_credentials(self, force: bool = False) -> bool:
+        """Reload credentials from file, optionally bypassing cache.
+
+        This method allows external components (e.g., file watchers) to trigger
+        credential reloads without accessing private implementation details.
+
+        Args:
+            force: If True, bypass cache and force reload from file even if
+                file modification time hasn't changed
+
+        Returns:
+            True if reload succeeded, False otherwise
+        """
+        return await self._load_auth(force_reload=force)
+
+    def validate_current_credentials(self) -> ValidationResult:
+        """Validate currently loaded credentials structure.
+
+        This method validates the credentials that are currently in memory,
+        without reloading from file. Useful for checking credentials after
+        a reload operation.
+
+        Returns:
+            ValidationResult with success/error status. If no credentials
+            are loaded, returns a failure result.
+        """
+        if self._auth_credentials is None:
+            return ValidationResult.failure("No credentials loaded")
+        return self._validate_credentials_structure(self._auth_credentials)

@@ -6,13 +6,13 @@ import logging
 from typing import Any
 
 import src.core.services.metrics_service as metrics
+from src.core.common.exceptions import JSONParsingError, ValidationError
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.response_processor_interface import (
     IResponseFeature,
     IResponseMiddleware,
     ProcessedResponse,
 )
-from src.core.common.exceptions import JSONParsingError, ValidationError
 from src.core.services.json_repair_service import (
     JsonRepairResult,
     JsonRepairService,
@@ -372,7 +372,7 @@ class JsonRepairMiddleware(IResponseMiddleware):
                     )
                 )
                 metrics.inc(f"json_repair.non_streaming.{metric_suffix}")
-            except (JSONParsingError, ValidationError) as e:
+            except (JSONParsingError, ValidationError):
                 # Expected exceptions from repair service in strict mode - re-raise directly
                 metrics.inc(
                     "json_repair.non_streaming.strict_fail"
@@ -380,7 +380,7 @@ class JsonRepairMiddleware(IResponseMiddleware):
                     else "json_repair.non_streaming.best_effort_fail"
                 )
                 raise
-            except Exception as e:
+            except Exception:
                 # Unexpected exceptions - log with context before re-raising
                 metrics.inc(
                     "json_repair.non_streaming.strict_fail"

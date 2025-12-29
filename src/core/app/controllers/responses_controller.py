@@ -17,8 +17,8 @@ from pydantic import ValidationError
 from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
-    TranslationError,
     ParsingError,
+    TranslationError,
 )
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.client_termination import (
@@ -280,7 +280,7 @@ class ResponsesController:
                                     exc_info=True,
                                 )
                             # If conversion fails, fall back to manual conversion
-                        except Exception as e:
+                        except Exception:
                             # Catch-all for unexpected errors - log with full context
                             if logger.isEnabledFor(logging.ERROR):
                                 logger.error(

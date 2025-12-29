@@ -7,8 +7,6 @@ public configuration seams instead of mutating private fields.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -119,6 +117,8 @@ def create_mock_credential_manager(
     mock_manager.get_access_token = MagicMock(return_value=access_token)
     mock_manager.shutdown = AsyncMock()
     mock_manager.is_watcher_running = MagicMock(return_value=False)
+    # Add _load_auth method for connector initialization
+    mock_manager._load_auth = AsyncMock(return_value=True)
 
     return mock_manager
 

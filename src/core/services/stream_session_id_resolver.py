@@ -67,7 +67,7 @@ class StreamSessionIdResolver(IStreamSessionIdResolver):
                     extra_session = extra_body.get("session_id")
                     if extra_session:
                         return str(extra_session)
-            except (AttributeError, TypeError) as err:
+            except (AttributeError, TypeError):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to read session_id from request.extra_body",

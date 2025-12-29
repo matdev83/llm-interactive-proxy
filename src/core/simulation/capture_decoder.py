@@ -347,7 +347,7 @@ class CaptureDecoder:
         try:
             decoded = data.decode("utf-8", errors="ignore")
             return decoded.startswith("data: ") or decoded.strip() == "[DONE]"
-        except (MemoryError, RecursionError) as exc:
+        except (MemoryError, RecursionError):
             # System-level exceptions from string operations (memory issues, recursion errors)
             # Log with context and return False (best-effort decoding)
             if logger.isEnabledFor(logging.DEBUG):
@@ -357,7 +357,7 @@ class CaptureDecoder:
                     exc_info=True,
                 )
             return False
-        except Exception as exc:
+        except Exception:
             # Unexpected errors during SSE format detection (defensive guard)
             # Log with context and return False (best-effort decoding)
             if logger.isEnabledFor(logging.DEBUG):

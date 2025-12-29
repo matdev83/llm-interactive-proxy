@@ -20,11 +20,15 @@ This is an alpha-stage project. The implementation is expected to be final: no b
 
 ### Existing Architecture Analysis
 - Request processing is orchestrated by `RequestProcessor` (`src/core/services/request_processor_service.py`) with decomposed phase components (command handling, backend preparation, request transforms, backend execution).
+- Command processing is implemented by the command pipeline (`src/core/commands/service.py`) and may mutate message content (for example stripping matched command text) during command execution; non-forwardable tagging MUST still recognize and exclude the original client-submitted command message when it later appears in history (2.5, 1.4).
 - Remote backend calls are orchestrated through `BackendCompletionFlow` (`src/core/services/backend_completion_flow/service.py`) and include outbound wire capture prior to backend invocation.
 - Sessions are resolved and persisted via `ISessionService` and repositories; session continuity can be derived from message history (`IntelligentSessionResolver`).
 - Optional history compaction may rewrite historical tool result messages (for example replacing stale tool outputs with explicit stubs) during backend request preparation (`BackendRequestPreparationService`, `HistoryCompactionService`). This rewrites message content while preserving canonical linkage fields (for example `tool_call_id`) and must not break non-forwardable identity matching (1.12, 1.13).
+- Request transforms and history compaction are fail-open by design (`RequestTransformPipeline`, `HistoryCompactionService`); non-forwardable enforcement MUST be independent of these mechanisms and MUST fail closed at the backend-call boundary (7.3, 10.1).
 - There are backend-call entry points that currently bypass `BackendCompletionFlow` by calling `LLMBackend.chat_completions(...)` directly (for example WebSocket features and internal multi-phase workflows). This spec requires routing all remote backend calls through a single orchestrator/enforcement boundary (7.5, 7.6, 8.*).
 - Current “do not forward” behavior is partially implemented via regex-based command stripping and metadata-dependent heuristics (`src/security.py`, `src/core/services/redaction_middleware.py`), which is fragile under client history re-submission and violates 13.1-13.3 for this spec.
+- Backend session resolution inside `BackendCompletionFlow` can currently proceed without a session id when neither context nor request provides one (`CompletionSessionResolver`); this spec requires a non-empty session id be resolved or created for every backend-call interaction (8.1).
+- Some controller/test hooks can invoke backend adapters directly (for example a mock backend attached to app state); these must be removed or routed through the same enforcement boundary to satisfy 7.6.
 
 ### Architecture Pattern & Boundary Map
 Selected pattern: **Service + Boundary Enforcement (Option B)**. Tagging is session-scoped and stored server-side. Enforcement occurs in a single place immediately prior to backend invocation inside backend orchestration.
@@ -85,8 +89,28 @@ This feature relies on a single enforcement boundary (Option B). To make that bo
 - Only the backend-call orchestrator (invoked via `IBackendService.call_completion(...)` → `BackendCompletionFlow`) is permitted to call `LLMBackend.chat_completions(...)`.
 - Any code path currently calling `LLMBackend.chat_completions(...)` directly (for example WebSocket handlers or internal multi-phase executors) MUST be refactored to call `IBackendService.call_completion(...)` instead.
 
+**Known bypasses (evidence from gap analysis; must be eliminated)**
+- `src/codebuff/handlers/prompt_handler.py` (direct `backend.chat_completions(...)`)
+- `src/connectors/hybrid_backend/infrastructure/phase_executor.py` (direct `execution_connector.chat_completions(...)`)
+- `src/core/app/controllers/__init__.py` (test-only direct `app_state.openrouter_backend.chat_completions(...)`)
+
 **Session requirement**
 - All such calls MUST supply a `RequestContext` with `session_id` set so tags remain session-scoped and stable across entry points (8.*).
+- If an entry point does not have a session id available, it MUST resolve or create one and MUST NOT proceed to a backend call without it (8.1).
+
+### Tagging Sources (Normative)
+This design assumes that messages become non-forwardable at specific creation/inference points, and that tags are recorded immediately so later client history re-submission can be filtered reliably.
+
+- **Slash command messages (2.*)**:
+  - When a message is identified as a slash command and handled server-side, the proxy MUST tag the command message as `never_forward` for the session (2.5).
+  - If the command pipeline rewrites the message content during processing, the proxy MUST still tag based on the identity of the original client-submitted message so later history re-submission is recognized (1.4, 2.5).
+- **Command response messages (3.*)**:
+  - When the proxy generates a command response and sends it to the client, it MUST tag that response message as `never_forward` (3.1).
+  - Tag recognition MUST NOT rely on metadata that clients may not round-trip (3.3, 12.1).
+- **Steering/internal injected messages (4.*)**:
+  - When the proxy injects steering/internal messages for a backend-call workflow, it MUST tag those injected message identities as `client_history_only` (4.1).
+  - The injector MUST provide the injected-message provenance boundary so the enforcer can include injected messages for the current call but exclude client-echoed copies later (4.4, 7.2).
+  - Injection sources include tool-call retry/steering flows and other UX-improvement workflows; implementers MUST audit all such injection sites to ensure tags and provenance are applied consistently (7.5, 7.6).
 
 ## System Flows
 
@@ -302,6 +326,7 @@ class INonForwardableMessageRegistry(ABC):
   - Tagging is idempotent: re-tagging the same identity+scope MUST NOT increase stored state (14.2).
   - Tag storage MUST be bounded per session (14.3, 14.4); exceeding the limit MUST raise a domain error and MUST NOT allow a backend call.
   - The per-session tag limit MUST be sourced from proxy configuration and defaults to 10,000 identities per session when not configured (14.4).
+  - Tagging call sites MUST compute identities from the message representation that can appear in client-submitted history, not from internal metadata or mutated/transient representations used only during processing (1.4, 1.9, 2.5, 3.3).
 
 #### NonForwardableMessageEnforcer
 | Field | Detail |
@@ -358,6 +383,7 @@ Non-forwardable tagging is strictly session-scoped. Any entry point that can ini
 - For HTTP API requests, `RequestContext.session_id` (and/or `request.extra_body["session_id"]`) is the session key used for tag storage and matching.
 - For non-HTTP entry points (for example WebSocket-driven features), the entry point MUST allocate or resolve a `session_id` and reuse it across turns, then pass it via `RequestContext.session_id` to the shared backend-call orchestrator.
 - Internal multi-phase workflows MUST propagate the same `session_id` into any nested backend calls.
+- The backend-call orchestrator MUST NOT proceed with a missing session id; when neither context nor request provides one, it MUST generate a new session id and use it consistently for that interaction (8.1).
 
 ### RequestContext Extensions
 Internal provenance required for internal workflows that append injected messages:

@@ -153,11 +153,12 @@ class TestToolCallTracker:
         assert tracker.consecutive_repeats == {}
         assert tracker.chance_given == {}
 
-    def test_prune_expired_no_signatures(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_prune_expired_no_signatures(self, config) -> None:
         """Test pruning when there are no signatures."""
         tracker = ToolCallTracker(config)
 
-        pruned = tracker.prune_expired()
+        pruned = await tracker.prune_expired()
 
         assert pruned == 0
         assert tracker.signatures == []
@@ -198,12 +199,13 @@ class TestToolCallTracker:
         assert expired_sig.get_full_signature() not in tracker.consecutive_repeats
         assert valid_sig.get_full_signature() in tracker.consecutive_repeats
 
-    def test_track_tool_call_disabled(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_disabled(self, config) -> None:
         """Test tracking when disabled."""
         config.enabled = False
         tracker = ToolCallTracker(config)
 
-        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -211,11 +213,12 @@ class TestToolCallTracker:
         # No signature should be added when disabled
         assert len(tracker.signatures) == 0
 
-    def test_track_tool_call_first_call(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_track_tool_call_first_call(self, config) -> None:
         """Test tracking the first call."""
         tracker = ToolCallTracker(config)
 
-        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None
@@ -360,14 +363,15 @@ class TestToolCallTrackerFunctionality:
         full_sig = tracker.signatures[0].get_full_signature()
         assert tracker.chance_given[full_sig] is True
 
-    def test_prune_expired_resets_consecutive_counts(self, config) -> None:
+    @pytest.mark.asyncio
+    async def test_prune_expired_resets_consecutive_counts(self, config) -> None:
         """Expired signatures should reset consecutive repeat counters."""
         tracker = ToolCallTracker(config)
 
         # Populate tracker with repeated calls near the threshold
         initial_calls = config.max_repeats - 1
         for _ in range(initial_calls):
-            tracker.track_tool_call("test_tool", '{"arg": "value"}')
+            await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         full_sig = tracker.signatures[-1].get_full_signature()
         assert len(tracker.signatures) == initial_calls
@@ -379,7 +383,7 @@ class TestToolCallTrackerFunctionality:
             for signature in tracker.signatures[:-1]:
                 signature.timestamp = now - expiration
 
-        pruned = tracker.prune_expired()
+        pruned = await tracker.prune_expired()
         assert pruned == initial_calls - 1
         assert len(tracker.signatures) == 1
 
@@ -387,7 +391,7 @@ class TestToolCallTrackerFunctionality:
         assert tracker.consecutive_repeats[full_sig] == 1
 
         # The next identical call should be treated as the second repeat, not blocked
-        result = tracker.track_tool_call("test_tool", '{"arg": "value"}')
+        result = await tracker.track_tool_call("test_tool", '{"arg": "value"}')
 
         assert result.should_block is False
         assert result.reason is None

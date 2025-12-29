@@ -1,6 +1,6 @@
 # Orchestrator Agent Prompt
 
-Please orchestrate execution of the following task. Create a counter and execute in a loop, up to 100 times. Spawn each task to be executed by a subagent. Spawn only ONE SUBAGENT at time, as this task is not well suited for concurrent execution.
+Please orchestrate execution of the following task. Create a counter and execute in a loop, up to 200 times. Spawn each task to be executed by a subagent. Spawn only ONE SUBAGENT at time, as this task is not well suited for concurrent execution.
 
 To spawn a subagent please use your regular command execution tools like bash, exec or whatever is provided to you and execute the following command:
 
@@ -17,7 +17,7 @@ Orchestrator instructions (READ-ONLY)
 - Use a TODO/Task List tool to track: iteration counter, consecutive "no-fix" count, and post-run verification checks.
 - Loop breaker: before spawning any subagent, check whether `./dev/stop_orchestrator_loops.txt` exists; if it does, STOP iterating immediately.
 
-Per-iteration checklist (for i = 1..100)
+Per-iteration checklist (for i = 1..200)
 1) If the stop file exists: break.
 2) (Read-only) Before spawning, record current branch: `git rev-parse --abbrev-ref HEAD` (must not be `HEAD`), record current HEAD: `git rev-parse HEAD`, and record `git status --porcelain` for context (may be non-empty).
 3) Spawn exactly ONE subagent with the task prompt (replace `{list-of-fixed-files}` with your accumulated list).

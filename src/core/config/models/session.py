@@ -281,7 +281,7 @@ class SessionConfig(DomainModel):
         if angel_model is not None and not isinstance(angel_model, str):
             try:
                 values["angel_model"] = str(angel_model)
-            except (MemoryError, RecursionError) as exc:
+            except (MemoryError, RecursionError):
                 # System-level exceptions from str() conversion (memory issues, recursion errors)
                 # Log with context and set to None to allow model construction
                 if logger.isEnabledFor(logging.WARNING):
@@ -292,7 +292,7 @@ class SessionConfig(DomainModel):
                         exc_info=True,
                     )
                 values["angel_model"] = None
-            except Exception as exc:
+            except Exception:
                 # Unexpected errors during conversion (defensive guard for custom __str__ exceptions or other errors)
                 # Log with full context and set to None to allow model construction
                 if logger.isEnabledFor(logging.WARNING):

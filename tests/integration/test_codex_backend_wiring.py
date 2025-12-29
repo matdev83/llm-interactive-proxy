@@ -23,6 +23,7 @@ from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.app.stages.backend import BackendStage
 from src.core.config.app_config import AppConfig, BackendSettings
 from src.core.di.container import ServiceCollection
+from src.core.domain.validation import ValidationResult
 from src.core.services.backend_registry import backend_registry
 
 
@@ -205,19 +206,6 @@ async def test_backend_factory_resolves_codex_connector(auth_dir: Path):
 @pytest.mark.asyncio
 async def test_connector_initialization_with_dependencies(auth_dir: Path):
     """Test that connector initializes correctly with injected dependencies."""
-    # Import using importlib to avoid package/module name conflict
-    import importlib.util
-    from pathlib import Path
-
-    # Load the module file directly
-    module_path = (
-        Path(__file__).parent.parent.parent / "src" / "connectors" / "openai_codex.py"
-    )
-    spec = importlib.util.spec_from_file_location("openai_codex_module", module_path)
-    openai_codex_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(openai_codex_module)
-    OpenAICodexConnector = openai_codex_module.OpenAICodexConnector
-
     from src.core.services.translation_service import TranslationService
 
     config = AppConfig()
@@ -235,21 +223,24 @@ async def test_connector_initialization_with_dependencies(auth_dir: Path):
             assert connector._response_executor is not None
 
             # Initialize connector with mocked validation
+            # Set _auth_credentials on credential manager before initialization
+            connector._credential_manager._auth_credentials = {
+                "tokens": {"access_token": "test_token"}
+            }
             with (
                 patch.object(
                     connector,
                     "_validate_credentials_file_exists",
-                    return_value=(True, []),
+                    return_value=ValidationResult.success(),
                 ),
                 patch.object(
                     connector,
                     "_validate_credentials_structure",
-                    return_value=(True, []),
+                    return_value=ValidationResult.success(),
                 ),
                 patch.object(connector, "_start_file_watching"),
             ):
                 await connector.initialize(openai_codex_path=str(auth_dir))
-                connector._auth_credentials = {"tokens": {"access_token": "test_token"}}
 
                 # Verify credential manager was initialized
                 # Access via public interface - get_access_token is part of ICredentialManager interface
@@ -279,19 +270,24 @@ async def test_backend_functional_state_after_init(auth_dir: Path):
         assert backend.is_backend_functional() is False
 
         try:
+            # Set _auth_credentials on credential manager before initialization
+            backend._credential_manager._auth_credentials = {
+                "tokens": {"access_token": "test_token"}
+            }
             with (
                 patch.object(
                     backend,
                     "_validate_credentials_file_exists",
-                    return_value=(True, []),
+                    return_value=ValidationResult.success(),
                 ),
                 patch.object(
-                    backend, "_validate_credentials_structure", return_value=(True, [])
+                    backend,
+                    "_validate_credentials_structure",
+                    return_value=ValidationResult.success(),
                 ),
                 patch.object(backend, "_start_file_watching"),
             ):
                 await backend.initialize(openai_codex_path=str(auth_dir))
-                backend._auth_credentials = {"tokens": {"access_token": "test_token"}}
 
                 # After initialization, backend should be functional
                 assert backend.is_backend_functional() is True

@@ -46,7 +46,7 @@ class LoopDetectorFactory(ILoopDetectorFactory):
             if detector is not None:
                 detector.reset()
                 return detector
-        except (ServiceResolutionError, AttributeError, RuntimeError, TypeError) as err:
+        except (ServiceResolutionError, AttributeError, RuntimeError, TypeError):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to resolve ILoopDetector from DI, using fallback",
@@ -60,7 +60,7 @@ class LoopDetectorFactory(ILoopDetectorFactory):
             fallback = HybridLoopDetector()
             fallback.reset()
             return fallback
-        except (ImportError, AttributeError, RuntimeError, TypeError) as err:
+        except (ImportError, AttributeError, RuntimeError, TypeError):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to create fallback loop detector",

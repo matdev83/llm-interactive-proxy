@@ -978,13 +978,17 @@ class OpenAICodexConnector(OpenAIConnector):
                 payload, "prompt_cache_key", None
             ) or str(uuid.uuid4())
 
-        if isinstance(self._payload_builder, PayloadBuilder):
+        # Use public interface to convert dict to payload
+        if self._payload_builder is not None:
             try:
-                return self._payload_builder._dict_to_payload(payload_dict, context)
+                converted_payload: CodexPayload = (
+                    self._payload_builder.convert_dict_to_payload(payload_dict, context)
+                )
+                return converted_payload
             except (TypeError, ValidationError) as err:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Failed to convert payload via _dict_to_payload, using model_validate: %s",
+                        "Failed to convert payload via convert_dict_to_payload, using model_validate: %s",
                         err,
                         exc_info=True,
                     )
