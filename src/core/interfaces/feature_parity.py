@@ -111,6 +111,7 @@ class FeatureParityRegistry:
         """Initialize an empty feature registry."""
         self._features: dict[str, FeatureRegistration] = {}
         self._middleware: dict[str, FeatureRegistration] = {}
+        self._lock = threading.Lock()
 
     def register_feature(
         self,
@@ -158,7 +159,8 @@ class FeatureParityRegistry:
             metadata={"source": "IResponseFeature"},
         )
 
-        self._features[name] = registration
+        with self._lock:
+            self._features[name] = registration
         logger.debug(
             "Registered feature '%s' with capability '%s'",
             name,
@@ -204,7 +206,8 @@ class FeatureParityRegistry:
             metadata={"source": "IResponseMiddleware", "legacy": True},
         )
 
-        self._middleware[feature_name] = registration
+        with self._lock:
+            self._middleware[feature_name] = registration
         logger.debug(
             "Registered middleware '%s' with declared capability '%s'",
             feature_name,
@@ -265,9 +268,11 @@ class FeatureParityRegistry:
         )
 
         if is_feature:
-            self._features[feature_name] = registration
+            with self._lock:
+                self._features[feature_name] = registration
         else:
-            self._middleware[feature_name] = registration
+            with self._lock:
+                self._middleware[feature_name] = registration
 
     def verify_parity(self) -> list[ParityViolation]:
         """Verify parity compliance across all registered features.
@@ -280,13 +285,14 @@ class FeatureParityRegistry:
         """
         violations: list[ParityViolation] = []
 
-        # Check IResponseFeature implementations
-        for name, reg in self._features.items():
-            violations.extend(self._verify_feature_parity(name, reg))
+        with self._lock:
+            # Check IResponseFeature implementations
+            for name, reg in self._features.items():
+                violations.extend(self._verify_feature_parity(name, reg))
 
-        # Check legacy middleware declarations
-        for name, reg in self._middleware.items():
-            violations.extend(self._verify_middleware_parity(name, reg))
+            # Check legacy middleware declarations
+            for name, reg in self._middleware.items():
+                violations.extend(self._verify_middleware_parity(name, reg))
 
         return violations
 
@@ -348,12 +354,13 @@ class FeatureParityRegistry:
         return violations
 
     def get_all_features(self) -> dict[str, FeatureRegistration]:
-        """Get all registered features (both new and legacy).
+        """Get all registered features and middleware.
 
         Returns:
-            Dictionary mapping feature names to registrations
+            Combined dictionary of all registrations
         """
-        return {**self._features, **self._middleware}
+        with self._lock:
+            return {**self._features, **self._middleware}
 
     def get_features_by_capability(self, capability: str) -> list[FeatureRegistration]:
         """Get features that support a specific capability.
@@ -417,8 +424,9 @@ class FeatureParityRegistry:
 
     def clear(self) -> None:
         """Clear all registrations."""
-        self._features.clear()
-        self._middleware.clear()
+        with self._lock:
+            self._features.clear()
+            self._middleware.clear()
 
     def _has_meaningful_implementation(self, instance: Any, method_name: str) -> bool:
         """Check if an instance has a meaningful (non-trivial) method implementation.
