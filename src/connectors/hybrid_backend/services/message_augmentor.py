@@ -8,7 +8,6 @@ Requirements satisfied:
 - Req 3: Protocol-first design
 """
 
-import copy
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -81,9 +80,11 @@ class MessageAugmentor:
         # Check if there's already a system message
         for i, msg in enumerate(messages_copy):
             if isinstance(msg, dict) and msg.get("role") == "system":
-                # Augment existing system message - deepcopy only this message
-                modified_msg = copy.deepcopy(msg)
-                modified_msg["content"] = f"{msg['content']}\n\n{system_content}"
+                # Augment existing system message - shallow copy with updated content
+                modified_msg = {
+                    **msg,
+                    "content": f"{msg['content']}\n\n{system_content}",
+                }
                 messages_copy[i] = modified_msg
                 return messages_copy
 
@@ -120,10 +121,12 @@ class MessageAugmentor:
         # Find first user message
         for i, msg in enumerate(messages_copy):
             if isinstance(msg, dict) and msg.get("role") == "user":
-                # Prepend reasoning to user message - deepcopy only this message
-                modified_msg = copy.deepcopy(msg)
+                # Prepend reasoning to user message - shallow copy with updated content
                 original_content = msg.get("content", "")
-                modified_msg["content"] = f"{formatted_reasoning}\n\n{original_content}"
+                modified_msg = {
+                    **msg,
+                    "content": f"{formatted_reasoning}\n\n{original_content}",
+                }
                 messages_copy[i] = modified_msg
                 break
 
