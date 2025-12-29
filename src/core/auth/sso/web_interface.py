@@ -246,6 +246,34 @@ def create_sso_router(
                 )
             )
 
+        except (KeyboardInterrupt, SystemExit):
+            # Don't interfere with system shutdown signals
+            raise
+        except ConfigurationError as e:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error("SSO configuration error during login: %s", e, exc_info=True)
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Configuration Error",
+                    "The SSO authentication system is not properly configured.",
+                ),
+                status_code=500,
+            )
+        except (ValueError, TypeError, KeyError, AttributeError) as e:
+            # Catch common data validation/access errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Data validation error during login: %s",
+                    e,
+                    exc_info=True,
+                )
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Authentication Error",
+                    "Failed to initialize authentication due to invalid data.",
+                ),
+                status_code=500,
+            )
         except Exception as e:
             logger.exception("Failed to render login page")
             return HTMLResponse(
@@ -346,13 +374,25 @@ def create_sso_router(
         except ConfigurationError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Provider configuration error: {e}")
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except (ValueError, TypeError, KeyError, AttributeError) as e:
+            # Catch common data validation/access errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Data validation error during SSO initiation for provider %s: %s",
+                    provider,
+                    e,
+                    exc_info=True,
+                )
+            raise HTTPException(
+                status_code=400, detail=f"Invalid request data: {e!s}"
+            ) from e
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.exception("Failed to initiate SSO for provider %s", provider)
             raise HTTPException(
                 status_code=500, detail=f"Failed to initiate authentication: {e!s}"
-            )
+            ) from e
 
     @router.api_route(
         "/callback",
@@ -675,6 +715,21 @@ def create_sso_router(
         except (KeyboardInterrupt, SystemExit):
             # Don't interfere with system shutdown signals
             raise
+        except (ValueError, TypeError, KeyError, AttributeError) as e:
+            # Catch common data validation/access errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Data validation error during callback processing: %s",
+                    e,
+                    exc_info=True,
+                )
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Internal Error",
+                    "An unexpected error occurred. Please try again or contact support.",
+                ),
+                status_code=500,
+            )
         except Exception:
             logger.exception("Unexpected error during callback processing")
             return HTMLResponse(
@@ -839,6 +894,21 @@ def create_sso_router(
         except (KeyboardInterrupt, SystemExit):
             # Don't interfere with system shutdown signals
             raise
+        except (ValueError, TypeError, KeyError, AttributeError) as e:
+            # Catch common data validation/access errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Data validation error during confirmation code processing: %s",
+                    e,
+                    exc_info=True,
+                )
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Internal Error",
+                    "An unexpected error occurred. Please try again.",
+                ),
+                status_code=500,
+            )
         except Exception:
             logger.exception("Error processing confirmation code")
             return HTMLResponse(
