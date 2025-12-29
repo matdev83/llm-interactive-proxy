@@ -281,7 +281,9 @@ class ApplicationBuilder:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Stage '%s' completed successfully", stage_name)
             except Exception as e:  # type: ignore[misc]
-                logger.error(f"Stage '{stage_name}' failed: {e}")
+                logger.error(
+                    "Stage '%s' failed: %s", stage_name, e, exc_info=True
+                )
                 # Ensure ServiceCollection cleanup tasks are awaited on failure
                 with contextlib.suppress(Exception):
                     await self._services.dispose()

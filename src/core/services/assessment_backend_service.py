@@ -109,7 +109,10 @@ class AssessmentBackendService(IAssessmentBackendService):
                 and self.config.backend
                 and self.config.model
             )
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Failed to check assessment backend availability: %s", e, exc_info=True
+            )
             return False
 
     async def health_check(self) -> bool:
@@ -161,7 +164,9 @@ class AssessmentBackendService(IAssessmentBackendService):
 
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Assessment backend health check failed: {e}")
+                logger.warning(
+                    "Assessment backend health check failed: %s", e, exc_info=True
+                )
             return False
 
     def _create_chat_request(self, request: AssessmentRequest) -> ChatRequest:

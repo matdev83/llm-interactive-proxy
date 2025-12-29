@@ -88,17 +88,21 @@ def create_codebuff_server(
     try:
         metrics_initializer = service_provider.get_service(ISessionMetricsInitializer)  # type: ignore[type-abstract]
     except (KeyError, AttributeError, TypeError) as e:
-        logger.debug(
-            "Session metrics initializer not available in DI: %s", e, exc_info=True
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Session metrics initializer not available in DI: %s", e, exc_info=True
+            )
 
     client_eos_service = None
     try:
         client_eos_service = service_provider.get_service(IClientEndOfSessionService)  # type: ignore[type-abstract]
     except (KeyError, AttributeError, TypeError) as e:
-        logger.debug(
-            "Client end-of-session service not available in DI: %s", e, exc_info=True
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Client end-of-session service not available in DI: %s",
+                e,
+                exc_info=True,
+            )
 
     # Create WebSocket server
     server = CodebuffWebSocketServer(
