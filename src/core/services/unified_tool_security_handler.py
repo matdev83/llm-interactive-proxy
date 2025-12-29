@@ -8,6 +8,7 @@ pluggable architecture to run multiple security checks in a single pass.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import threading
@@ -287,9 +288,23 @@ class DangerousCommandCheck(ISecurityCheck):
         try:
             session = await self._session_service.get_session(context.session_id)
             project_dir = session.state.project_dir
-        except Exception:
+        except asyncio.CancelledError:
+            # Propagate cancellation - security checks should not block cancellation
+            raise
+        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
+            # Catch specific exceptions from repository/service layer
             logger.warning(
-                "Failed to get session for project root integrity check; allowing command",
+                "Failed to get session for project root integrity check; allowing command: %s",
+                e,
+                exc_info=True,
+                extra={"session_id": context.session_id},
+            )
+            return SecurityCheckResult.allow()
+        except Exception as e:
+            # Fallback for unexpected errors - log and fail open (security boundary)
+            logger.warning(
+                "Unexpected error getting session for project root integrity check; allowing command: %s",
+                e,
                 exc_info=True,
                 extra={"session_id": context.session_id},
             )
@@ -716,10 +731,25 @@ class UnifiedToolSecurityHandler(IToolCallHandler):
                             result.reason,
                         )
                     return self._create_block_result(context, check.name, result)
-            except Exception as e:
+            except asyncio.CancelledError:
+                # Propagate cancellation - security checks should not block cancellation
+                raise
+            except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
+                # Catch specific exceptions from security check implementations
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Security check '%s' failed: %s",
+                        "Security check '%s' failed with expected error: %s",
+                        check.name,
+                        e,
+                        exc_info=True,
+                    )
+                # Fail open on errors
+                continue
+            except Exception as e:
+                # Fallback for unexpected errors - log and fail open (security boundary)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Security check '%s' failed with unexpected error: %s",
                         check.name,
                         e,
                         exc_info=True,
