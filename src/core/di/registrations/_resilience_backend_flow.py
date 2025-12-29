@@ -286,8 +286,8 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 # Cancellation coordinator interface not available (optional dependency)
                 # This is expected when the module doesn't exist
                 pass
-            except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
-                # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies)
+            except (RuntimeError, AttributeError, TypeError, ValueError, LookupError) as exc:
+                # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies, missing keys)
                 # Log with full context but continue with None to allow service construction
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -463,8 +463,8 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 # Cancellation coordinator interface not available (optional dependency)
                 # This is expected when the module doesn't exist
                 pass
-            except (RuntimeError, AttributeError, TypeError, ValueError) as exc:
-                # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies)
+            except (RuntimeError, AttributeError, TypeError, ValueError, LookupError) as exc:
+                # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies, missing keys)
                 # Log with full context but continue with None to allow service construction
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(

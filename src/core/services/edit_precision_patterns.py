@@ -32,7 +32,7 @@ class EditPrecisionPatterns:
 
 try:
     import yaml  # type: ignore
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover
     logger.debug(
         "Failed to import yaml module - edit precision patterns from YAML will not be available",
         exc_info=True,
