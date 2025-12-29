@@ -291,9 +291,10 @@ class JsonRepairService:
                 return formatted_content, parsed_json
 
             except JsonSchemaValidationError as validation_error:
-                logger.warning(
-                    f"Schema validation failed for session {session_id}: {validation_error}"
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        f"Schema validation failed for session {session_id}: {validation_error}"
+                    )
 
                 if strict:
                     raise ValidationError(
