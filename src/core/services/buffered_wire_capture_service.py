@@ -908,7 +908,7 @@ class BufferedWireCapture(IWireCapture):
         for key in empty_keys:
             del self._buffers[key]
         if empty_keys and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Cleaned up {len(empty_keys)} empty buffer keys")
+            logger.debug("Cleaned up %d empty buffer keys", len(empty_keys))
 
     async def _flush_buffer(self) -> None:
         """Flush buffered entries to file."""
