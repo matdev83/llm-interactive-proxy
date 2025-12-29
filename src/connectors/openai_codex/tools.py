@@ -247,7 +247,8 @@ class ToolExecutionService(IToolExecutionService):
                             mcp_tool_name
                         )
                     except Exception as e:
-                        logger.debug("Could not retrieve MCP tool schema: %s", str(e))
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug("Could not retrieve MCP tool schema: %s", e, exc_info=True)
 
                 # Translate parameters
                 if mcp_schema:
@@ -261,6 +262,7 @@ class ToolExecutionService(IToolExecutionService):
                         logger.warning(
                             "Parameter translation failed, using original parameters: %s",
                             str(e),
+                            exc_info=True,
                         )
 
             # Execute MCP tool with timeout
