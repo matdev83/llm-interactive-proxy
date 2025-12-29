@@ -125,9 +125,17 @@ class SSOMiddlewareAdapter(BaseHTTPMiddleware):
                             len(body),
                             self.MAX_BODY_SIZE,
                         )
-            except Exception:
-                # If we can't parse body, continue without messages
-                pass
+            except json.JSONDecodeError as e:
+                logger.debug(
+                    "Failed to parse request body as JSON for SSO inspection: %s",
+                    e,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to parse request body for SSO inspection: %s",
+                    e,
+                    exc_info=True,
+                )
 
         return {
             "headers": headers,

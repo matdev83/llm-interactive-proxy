@@ -294,6 +294,9 @@ class EventBus(IEventBus):
         )
         try:
             await handler(event)
+        except asyncio.CancelledError:
+            # Let cancellation propagate - handler cancellation is intentional
+            raise
         except Exception:
             # Extract correlation identifiers for EoS events
             log_extra = {}
