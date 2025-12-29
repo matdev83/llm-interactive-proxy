@@ -396,9 +396,10 @@ def register_routes(app: FastAPI) -> None:
                             e,
                             exc_info=True,
                         )
-            except Exception:
+            except Exception as exc:
                 logger.debug(
-                    "Failed to debug resolvability against global provider",
+                    "Failed to debug resolvability against global provider: %s",
+                    type(exc).__name__,
                     exc_info=True,
                 )
         except Exception as e:
@@ -433,11 +434,12 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
                     exc_info=True,
                 )
             endpoint_registry = None
-        except Exception:
+        except Exception as exc:
             # Catch any other unexpected exceptions and log them
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Unexpected error resolving EndpointRegistry service in health check",
+                    "Unexpected error resolving EndpointRegistry service in health check: %s",
+                    type(exc).__name__,
                     exc_info=True,
                 )
             endpoint_registry = None
@@ -505,11 +507,12 @@ def _get_endpoint_health_info(sp: IServiceProvider) -> HealthInfo:
                     exc_info=True,
                 )
             backend_notifier = None
-        except Exception:
+        except Exception as exc:
             # Catch any other unexpected exceptions and log them
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Unexpected error resolving BackendHealthNotifier service in health check",
+                    "Unexpected error resolving BackendHealthNotifier service in health check: %s",
+                    type(exc).__name__,
                     exc_info=True,
                 )
             backend_notifier = None

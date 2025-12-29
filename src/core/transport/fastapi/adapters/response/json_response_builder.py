@@ -126,10 +126,27 @@ class JSONResponseBuilder:
                     cast(type, IUsageNormalizationService)
                 )
                 return self._cached_usage_normalization_service
-        except Exception:
+        except ImportError:
+            # Import failures - log at DEBUG since this is a lazy initialization helper
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Could not resolve usage normalization service from DI",
+                    "Could not import dependencies for usage normalization service resolution",
+                    exc_info=True,
+                )
+        except (RuntimeError, AttributeError, KeyError) as exc:
+            # Service provider access errors - log at DEBUG since this is a lazy initialization helper
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Could not resolve usage normalization service from DI: %s",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+        except Exception as exc:
+            # Catch-all for other unexpected exceptions
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Unexpected error resolving usage normalization service from DI: %s",
+                    type(exc).__name__,
                     exc_info=True,
                 )
         return None

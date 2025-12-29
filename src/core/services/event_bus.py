@@ -324,12 +324,12 @@ class EventBus(IEventBus):
                 *log_args,
                 extra=log_extra if log_extra else None,
             )
-        except Exception:
+        except Exception as exc:
             # Catch-all for other unexpected exceptions
             # Extract correlation identifiers for EoS events
             log_extra = {}
-            log_message = "Error in event handler %s for event %s"
-            log_args = [handler_name, type(event).__name__]
+            log_message = "Error in event handler %s for event %s: %s"
+            log_args = [handler_name, type(event).__name__, type(exc).__name__]
 
             # Add session_id correlation for RemoteBackendConnectionEndOfSessionEvent
             try:
