@@ -138,9 +138,19 @@ class FailoverService:
                 exc_info=True,
             )
             return []
-        except Exception:
+        except (TypeError, AttributeError) as e:
+            # Expected exceptions from type checking or attribute access
             logger.warning(
-                "Invalid failover route configuration format (unexpected error)",
+                "Invalid failover route configuration format (type/attribute error): %s",
+                e,
+                exc_info=True,
+            )
+            return []
+        except Exception as e:
+            # Unexpected exceptions should be logged with full context
+            logger.warning(
+                "Unexpected error validating failover route configuration: %s",
+                e,
                 exc_info=True,
             )
             return []
@@ -165,9 +175,20 @@ class FailoverService:
                 if not elem_backend or not elem_model:
                     continue
                 attempts.append(FailoverAttempt(backend=elem_backend, model=elem_model))
-            except Exception:
+            except (ValidationError, TypeError, AttributeError) as e:
+                # Expected exceptions from Pydantic validation or type/attribute errors
                 logger.warning(
-                    "Failed to parse failover route element",
+                    "Failed to parse failover route element (expected error): %s",
+                    e,
+                    element=element,
+                    exc_info=True,
+                )
+                continue
+            except Exception as e:
+                # Unexpected exceptions should be logged with full context
+                logger.warning(
+                    "Unexpected error parsing failover route element: %s",
+                    e,
                     element=element,
                     exc_info=True,
                 )

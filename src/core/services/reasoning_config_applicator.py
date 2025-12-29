@@ -8,6 +8,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
+
 from src.core.interfaces.reasoning_config_applicator_interface import (
     IReasoningConfigApplicator,
 )
@@ -45,13 +47,22 @@ class ReasoningConfigApplicator(IReasoningConfigApplicator):
                     edit_precision_active = bool(
                         extra_body_attr.get("_edit_precision_mode")
                     )
-                except Exception:
-                    # Fallback to False if parsing fails
+                except (TypeError, AttributeError) as e:
+                    # Expected exceptions from type conversion or attribute access
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            "Failed to parse _edit_precision_mode from extra_body, defaulting to False",
+                            "Failed to parse _edit_precision_mode from extra_body, defaulting to False: %s",
+                            e,
                             exc_info=True,
                         )
+                    edit_precision_active = False
+                except Exception as e:
+                    # Unexpected exceptions should be logged at WARNING level
+                    logger.warning(
+                        "Unexpected error parsing _edit_precision_mode from extra_body: %s",
+                        e,
+                        exc_info=True,
+                    )
                     edit_precision_active = False
             else:
                 edit_precision_active = False
@@ -162,11 +173,21 @@ class ReasoningConfigApplicator(IReasoningConfigApplicator):
                             updates["generation_config"] = overrides.get(
                                 "generation_config"
                             )
-            except Exception:
+            except (AttributeError, TypeError, KeyError) as e:
+                # Expected exceptions from attribute access, type conversion, or dict access
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Planning-phase overrides application failed", exc_info=True
+                        "Planning-phase overrides application failed (expected error): %s",
+                        e,
+                        exc_info=True,
                     )
+            except Exception as e:
+                # Unexpected exceptions should be logged at WARNING level
+                logger.warning(
+                    "Unexpected error applying planning-phase overrides: %s",
+                    e,
+                    exc_info=True,
+                )
 
             if updates:
                 request = request.model_copy(update=updates)
@@ -244,9 +265,17 @@ class ReasoningConfigApplicator(IReasoningConfigApplicator):
                 # Update the request with modified messages
                 request = request.model_copy(update={"messages": modified_messages})
 
-        except Exception:
-            # Log but continue if reasoning config application fails
+        except (AttributeError, TypeError, ValueError, ValidationError, KeyError) as e:
+            # Expected exceptions from attribute access, type conversion, parsing, or model validation
+            # Log at DEBUG level and continue (fail-open behavior)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to apply reasoning config", exc_info=True)
+                logger.debug(
+                    "Failed to apply reasoning config (expected error): %s", e, exc_info=True
+                )
+        except Exception as e:
+            # Unexpected exceptions should be logged at WARNING level for visibility
+            logger.warning(
+                "Unexpected error while applying reasoning config: %s", e, exc_info=True
+            )
 
         return request
