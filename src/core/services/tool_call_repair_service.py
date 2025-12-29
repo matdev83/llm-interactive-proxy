@@ -525,9 +525,15 @@ class ToolCallRepairService(IToolCallRepairService):
                 # Try parsing as-is first
                 try:
                     root = ElementTree.fromstring(xml_snippet)
-                except Exception:
+                except Exception as parse_err:
                     # If that fails, try escaping common invalid XML characters
                     # (e.g., unescaped & in text content like "Testing & Documentation")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Initial XML parse failed, attempting sanitization: %s",
+                            parse_err,
+                            exc_info=True,
+                        )
                     sanitized = self._sanitize_xml_for_parsing(xml_snippet)
                     root = ElementTree.fromstring(sanitized)
             except Exception:

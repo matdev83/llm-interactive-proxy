@@ -1077,6 +1077,13 @@ class UniversalToolExecutor:
             )
         except Exception as e:
             error_msg = f"Error performing search and replace in {file_path}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error performing search and replace: %s",
+                    e,
+                    exc_info=True,
+                    extra={"file_path": file_path},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
@@ -1149,6 +1156,13 @@ class UniversalToolExecutor:
             )
         except Exception as e:
             error_msg = f"Error writing to file {file_path}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error writing to file: %s",
+                    e,
+                    exc_info=True,
+                    extra={"file_path": file_path},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
@@ -1242,6 +1256,13 @@ class UniversalToolExecutor:
             )
         except Exception as e:
             error_msg = f"Error inserting content in {file_path}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error inserting content: %s",
+                    e,
+                    exc_info=True,
+                    extra={"file_path": file_path},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
@@ -1309,6 +1330,13 @@ class UniversalToolExecutor:
             )
         except Exception as e:
             error_msg = f"Error editing file {file_path}: {e!s}"
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error editing file: %s",
+                    e,
+                    exc_info=True,
+                    extra={"file_path": file_path},
+                )
             return self._format_result(
                 output=error_msg,
                 exit_code=1,
