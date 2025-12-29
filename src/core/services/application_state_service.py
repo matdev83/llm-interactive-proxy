@@ -84,8 +84,8 @@ class ApplicationStateService(IApplicationState):
         for key, value in self._local_state.items():
             try:
                 setattr(self._state_provider, key, value)
-            except (AttributeError, TypeError) as exc:
-                # Common exceptions during setattr (read-only attribute, type mismatch)
+            except (AttributeError, TypeError, ValueError, RuntimeError) as exc:
+                # Common exceptions during setattr (read-only attribute, type mismatch, validation errors, state errors)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to synchronize state '%s' to provider '%s': %s",
@@ -94,13 +94,14 @@ class ApplicationStateService(IApplicationState):
                         type(exc).__name__,
                         exc_info=True,
                     )
-            except Exception:
+            except Exception as exc:
                 # Catch-all for other unexpected synchronization errors
                 # Log at WARNING level for visibility - unexpected errors during state sync should be visible
                 logger.warning(
-                    "Failed to synchronize state '%s' to provider '%s'",
+                    "Failed to synchronize state '%s' to provider '%s': unexpected error %s",
                     key,
                     type(self._state_provider).__name__,
+                    type(exc).__name__,
                     exc_info=True,
                 )
 
@@ -212,8 +213,8 @@ class ApplicationStateService(IApplicationState):
 
         try:
             return cast(_T | None, getter(service_type))
-        except (AttributeError, RuntimeError, TypeError) as exc:
-            # Common exceptions during service resolution (missing method, circular dependency, type errors)
+        except (AttributeError, RuntimeError, TypeError, ValueError, KeyError) as exc:
+            # Common exceptions during service resolution (missing method, circular dependency, type errors, validation errors, missing keys)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "ApplicationStateService failed to resolve service '%s': %s",
@@ -222,14 +223,15 @@ class ApplicationStateService(IApplicationState):
                     exc_info=True,
                 )
             return None
-        except Exception:
+        except Exception as exc:
             # Catch-all for other unexpected resolution errors
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "ApplicationStateService failed to resolve service '%s'",
-                    getattr(service_type, "__name__", repr(service_type)),
-                    exc_info=True,
-                )
+            # Log at WARNING level for visibility - unexpected errors during service resolution should be visible
+            logger.warning(
+                "ApplicationStateService failed to resolve service '%s': unexpected error %s",
+                getattr(service_type, "__name__", repr(service_type)),
+                type(exc).__name__,
+                exc_info=True,
+            )
             return None
 
     # --- Feature flags (scaffold) ---

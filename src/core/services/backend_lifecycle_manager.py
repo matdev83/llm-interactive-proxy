@@ -195,8 +195,8 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         except asyncio.CancelledError:
             # Propagate cancellation to allow proper cleanup of shutdown tasks
             raise
-        except (RuntimeError, AttributeError, ValueError, TypeError) as exc:
-            # Common exceptions during shutdown (resource cleanup, missing attributes, etc.)
+        except (RuntimeError, AttributeError, ValueError, TypeError, OSError, ConnectionError) as exc:
+            # Common exceptions during shutdown (resource cleanup, missing attributes, file/socket operations, network errors)
             logger.exception(
                 "Error shutting down backend %s: %s",
                 backend.backend_type,
@@ -204,7 +204,11 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             )
         except Exception as exc:
             # Catch-all for other unexpected shutdown errors
-            logger.exception("Error shutting down backend %s", backend.backend_type)
+            logger.exception(
+                "Error shutting down backend %s: unexpected error %s",
+                backend.backend_type,
+                type(exc).__name__,
+            )
 
     def discard(self, backend_type: str, session_id: str | None, reason: str) -> None:
         """Discard and disable a backend instance.
