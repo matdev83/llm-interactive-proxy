@@ -16,6 +16,148 @@ logger = logging.getLogger(__name__)
 _MAX_PATTERNS = 50
 
 
+# Pre-compiled regex patterns for performance optimization
+# Python
+_PYTEST_PATTERNS = [
+    re.compile(r"^pytest(?:\s|$)"),
+    re.compile(r"^py\.test(?:\s|$)"),
+    re.compile(r"^python\s+-m\s+pytest(?:\s|$)"),
+    re.compile(r"^python3\s+-m\s+pytest(?:\s|$)"),
+    re.compile(r"^pipenv\s+run\s+pytest(?:\s|$)"),
+    re.compile(r"^poetry\s+run\s+pytest(?:\s|$)"),
+]
+
+_UNITTEST_PATTERNS = [
+    re.compile(r"^python\s+-m\s+unittest(?:\s|$)"),
+    re.compile(r"^python3\s+-m\s+unittest(?:\s|$)"),
+    re.compile(r"^unittest(?:\s|$)"),
+]
+
+# JavaScript/TypeScript
+_JEST_PATTERNS = [
+    re.compile(r"^jest(?:\s|$)"),
+    re.compile(r"^npm\s+test(?:\s|$)"),
+    re.compile(r"^npm\s+run\s+test(?:\s|$)"),
+    re.compile(r"^npm\s+run\s+jest(?:\s|$)"),
+    re.compile(r"^yarn\s+test(?:\s|$)"),
+    re.compile(r"^yarn\s+run\s+test(?:\s|$)"),
+    re.compile(r"^yarn\s+run\s+jest(?:\s|$)"),
+    re.compile(r"^node\s+.*node_modules/\.bin/jest(?:\s|$)"),
+    re.compile(r"^npx\s+jest(?:\s|$)"),
+    re.compile(r"^pnpm\s+test(?:\s|$)"),
+    re.compile(r"^pnpm\s+run\s+test(?:\s|$)"),
+]
+
+_VITEST_PATTERNS = [
+    re.compile(r"^vitest(?:\s|$)"),
+    re.compile(r"^npm\s+run\s+vitest(?:\s|$)"),
+    re.compile(r"^yarn\s+run\s+vitest(?:\s|$)"),
+    re.compile(r"^npx\s+vitest(?:\s|$)"),
+    re.compile(r"^pnpm\s+run\s+vitest(?:\s|$)"),
+]
+
+_MOCHA_PATTERNS = [
+    re.compile(r"^mocha(?:\s|$)"),
+    re.compile(r"^npm\s+run\s+mocha(?:\s|$)"),
+    re.compile(r"^yarn\s+run\s+mocha(?:\s|$)"),
+    re.compile(r"^node\s+.*node_modules/\.bin/mocha(?:\s|$)"),
+    re.compile(r"^npx\s+mocha(?:\s|$)"),
+    re.compile(r"^pnpm\s+run\s+mocha(?:\s|$)"),
+]
+
+_AVA_PATTERNS = [
+    re.compile(r"^ava(?:\s|$)"),
+    re.compile(r"^npm\s+run\s+ava(?:\s|$)"),
+    re.compile(r"^yarn\s+run\s+ava(?:\s|$)"),
+    re.compile(r"^npx\s+ava(?:\s|$)"),
+    re.compile(r"^pnpm\s+run\s+ava(?:\s|$)"),
+]
+
+# Rust
+_CARGO_PATTERNS = [
+    re.compile(r"^cargo\s+test(?:\s|$)"),
+    re.compile(r"^cargo\s+test\s+"),
+]
+
+# Go
+_GO_PATTERNS = [
+    re.compile(r"^go\s+test(?:\s|$)"),
+    re.compile(r"^go\s+test\s+"),
+]
+
+# Java
+_MAVEN_PATTERNS = [
+    re.compile(r"^mvn\s+.*\btest\b"),
+    re.compile(r"^mvn\s+.*\bverify\b"),
+    re.compile(r"^\.\/mvnw\s+.*\btest\b"),
+    re.compile(r"^mvnw\s+.*\btest\b"),
+]
+
+_GRADLE_PATTERNS = [
+    re.compile(r"^gradle\s+.*\btest\b"),
+    re.compile(r"^\.\/gradlew\s+.*\btest\b"),
+    re.compile(r"^gradlew\s+.*\btest\b"),
+]
+
+# C#
+_DOTNET_PATTERNS = [
+    re.compile(r"^dotnet\s+test(?:\s|$)"),
+    re.compile(r"^dotnet\s+test\s+"),
+]
+
+# Ruby
+_RSPEC_PATTERNS = [
+    re.compile(r"^rspec(?:\s|$)"),
+    re.compile(r"^bundle\s+exec\s+rspec(?:\s|$)"),
+    re.compile(r"^rake\s+test(?:\s|$)"),
+    re.compile(r"^bundle\s+exec\s+rake\s+test(?:\s|$)"),
+    re.compile(r"^ruby\s+-Itest(?:\s|$)"),
+]
+
+# PHP
+_PHPUNIT_PATTERNS = [
+    re.compile(r"^phpunit(?:\s|$)"),
+    re.compile(r"^vendor/bin/phpunit(?:\s|$)"),
+    re.compile(r"^\.\/vendor/bin/phpunit(?:\s|$)"),
+    re.compile(r"^composer\s+test(?:\s|$)"),
+    re.compile(r"^composer\s+run\s+test(?:\s|$)"),
+]
+
+# C/C++
+_CPP_PATTERNS = [
+    re.compile(r"^ctest(?:\s|$)"),
+    re.compile(r"^make\s+test(?:\s|$)"),
+    re.compile(r"^cmake\s+--build\s+.*--target\s+test(?:\s|$)"),
+]
+
+# Swift
+_SWIFT_PATTERNS = [
+    re.compile(r"^swift\s+test(?:\s|$)"),
+    re.compile(r"^swift\s+test\s+"),
+]
+
+# Scala
+_SCALA_PATTERNS = [
+    re.compile(r"^sbt\s+.*\btest\b"),
+    re.compile(r"^sbt\s+.*\btestOnly\b"),
+    re.compile(r"^sbt\s+.*\btestQuick\b"),
+]
+
+# Elixir
+_ELIXIR_PATTERNS = [
+    re.compile(r"^mix\s+test(?:\s|$)"),
+    re.compile(r"^mix\s+test\s+"),
+]
+
+# Dart/Flutter
+_DART_PATTERNS = [
+    re.compile(r"^dart\s+test(?:\s|$)"),
+    re.compile(r"^flutter\s+test(?:\s|$)"),
+    re.compile(r"^dart\s+test\s+"),
+    re.compile(r"^flutter\s+test\s+"),
+]
+
+
 @dataclass
 class TestRunnerPattern:
     """Pattern for detecting test execution commands.
@@ -171,288 +313,151 @@ class TestRunnerRegistry:
         # not just mentioned somewhere in the command line.
         # The key is to ensure pytest/unittest is the actual command being executed,
         # not just an argument or package name.
-        pytest_patterns = [
-            # Direct pytest invocation at start of command
-            re.compile(r"^pytest(?:\s|$)"),
-            re.compile(r"^py\.test(?:\s|$)"),
-            # Python module invocation (pytest must be the module, not an argument)
-            re.compile(r"^python\s+-m\s+pytest(?:\s|$)"),
-            re.compile(r"^python3\s+-m\s+pytest(?:\s|$)"),
-            # Wrapper invocations (pytest must be the command after 'run')
-            re.compile(r"^pipenv\s+run\s+pytest(?:\s|$)"),
-            re.compile(r"^poetry\s+run\s+pytest(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="python",
                 framework="pytest",
-                patterns=pytest_patterns,
+                patterns=_PYTEST_PATTERNS,
                 priority=10,
             )
         )
 
         # Python - unittest
-        unittest_patterns = [
-            # Python module invocation (unittest must be the module, not an argument)
-            re.compile(r"^python\s+-m\s+unittest(?:\s|$)"),
-            re.compile(r"^python3\s+-m\s+unittest(?:\s|$)"),
-            # Direct unittest invocation at start of command
-            re.compile(r"^unittest(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="python",
                 framework="unittest",
-                patterns=unittest_patterns,
+                patterns=_UNITTEST_PATTERNS,
                 priority=10,
             )
         )
 
         # JavaScript/TypeScript - jest
-        jest_patterns = [
-            # Direct jest invocation at start of command
-            re.compile(r"^jest(?:\s|$)"),
-            # NPM/Yarn script invocations
-            re.compile(r"^npm\s+test(?:\s|$)"),
-            re.compile(r"^npm\s+run\s+test(?:\s|$)"),
-            re.compile(r"^npm\s+run\s+jest(?:\s|$)"),
-            re.compile(r"^yarn\s+test(?:\s|$)"),
-            re.compile(r"^yarn\s+run\s+test(?:\s|$)"),
-            re.compile(r"^yarn\s+run\s+jest(?:\s|$)"),
-            # Node module invocation
-            re.compile(r"^node\s+.*node_modules/\.bin/jest(?:\s|$)"),
-            re.compile(r"^npx\s+jest(?:\s|$)"),
-            # Wrapper invocations
-            re.compile(r"^pnpm\s+test(?:\s|$)"),
-            re.compile(r"^pnpm\s+run\s+test(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="javascript",
                 framework="jest",
-                patterns=jest_patterns,
+                patterns=_JEST_PATTERNS,
                 priority=10,
             )
         )
 
         # JavaScript/TypeScript - vitest
-        vitest_patterns = [
-            # Direct vitest invocation at start of command
-            re.compile(r"^vitest(?:\s|$)"),
-            # NPM/Yarn script invocations
-            re.compile(r"^npm\s+run\s+vitest(?:\s|$)"),
-            re.compile(r"^yarn\s+run\s+vitest(?:\s|$)"),
-            # Node module invocation
-            re.compile(r"^npx\s+vitest(?:\s|$)"),
-            # Wrapper invocations
-            re.compile(r"^pnpm\s+run\s+vitest(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="javascript",
                 framework="vitest",
-                patterns=vitest_patterns,
+                patterns=_VITEST_PATTERNS,
                 priority=10,
             )
         )
 
         # JavaScript/TypeScript - mocha
-        mocha_patterns = [
-            # Direct mocha invocation at start of command
-            re.compile(r"^mocha(?:\s|$)"),
-            # NPM/Yarn script invocations
-            re.compile(r"^npm\s+run\s+mocha(?:\s|$)"),
-            re.compile(r"^yarn\s+run\s+mocha(?:\s|$)"),
-            # Node module invocation
-            re.compile(r"^node\s+.*node_modules/\.bin/mocha(?:\s|$)"),
-            re.compile(r"^npx\s+mocha(?:\s|$)"),
-            # Wrapper invocations
-            re.compile(r"^pnpm\s+run\s+mocha(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="javascript",
                 framework="mocha",
-                patterns=mocha_patterns,
+                patterns=_MOCHA_PATTERNS,
                 priority=10,
             )
         )
 
         # JavaScript/TypeScript - ava
-        ava_patterns = [
-            # Direct ava invocation at start of command
-            re.compile(r"^ava(?:\s|$)"),
-            # NPM/Yarn script invocations
-            re.compile(r"^npm\s+run\s+ava(?:\s|$)"),
-            re.compile(r"^yarn\s+run\s+ava(?:\s|$)"),
-            # Node module invocation
-            re.compile(r"^npx\s+ava(?:\s|$)"),
-            # Wrapper invocations
-            re.compile(r"^pnpm\s+run\s+ava(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="javascript",
                 framework="ava",
-                patterns=ava_patterns,
+                patterns=_AVA_PATTERNS,
                 priority=10,
             )
         )
 
         # Rust - cargo test
-        rust_patterns = [
-            # Direct cargo test invocation
-            re.compile(r"^cargo\s+test(?:\s|$)"),
-            # With additional flags
-            re.compile(r"^cargo\s+test\s+"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="rust",
                 framework="cargo",
-                patterns=rust_patterns,
+                patterns=_CARGO_PATTERNS,
                 priority=10,
             )
         )
 
         # Go - go test
-        go_patterns = [
-            # Direct go test invocation
-            re.compile(r"^go\s+test(?:\s|$)"),
-            # With additional flags or paths
-            re.compile(r"^go\s+test\s+"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="go",
                 framework="go test",
-                patterns=go_patterns,
+                patterns=_GO_PATTERNS,
                 priority=10,
             )
         )
 
         # Java - Maven
-        maven_patterns = [
-            # Direct mvn test invocation (with or without clean/other goals)
-            re.compile(r"^mvn\s+.*\btest\b"),
-            re.compile(r"^mvn\s+.*\bverify\b"),
-            # Maven wrapper
-            re.compile(r"^\.\/mvnw\s+.*\btest\b"),
-            re.compile(r"^mvnw\s+.*\btest\b"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="java",
                 framework="maven",
-                patterns=maven_patterns,
+                patterns=_MAVEN_PATTERNS,
                 priority=10,
             )
         )
 
         # Java - Gradle (higher priority than Kotlin to match first)
-        gradle_patterns = [
-            # Direct gradle test invocation (with or without clean/other tasks)
-            re.compile(r"^gradle\s+.*\btest\b"),
-            # Gradle wrapper
-            re.compile(r"^\.\/gradlew\s+.*\btest\b"),
-            re.compile(r"^gradlew\s+.*\btest\b"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="java",
                 framework="gradle",
-                patterns=gradle_patterns,
+                patterns=_GRADLE_PATTERNS,
                 priority=15,  # Higher priority to match before Kotlin
             )
         )
 
         # C# - dotnet test
-        csharp_patterns = [
-            # Direct dotnet test invocation
-            re.compile(r"^dotnet\s+test(?:\s|$)"),
-            # With additional flags
-            re.compile(r"^dotnet\s+test\s+"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="csharp",
                 framework="dotnet",
-                patterns=csharp_patterns,
+                patterns=_DOTNET_PATTERNS,
                 priority=10,
             )
         )
 
         # Ruby - RSpec
-        rspec_patterns = [
-            # Direct rspec invocation
-            re.compile(r"^rspec(?:\s|$)"),
-            # Bundle exec invocation
-            re.compile(r"^bundle\s+exec\s+rspec(?:\s|$)"),
-            # Rake test
-            re.compile(r"^rake\s+test(?:\s|$)"),
-            re.compile(r"^bundle\s+exec\s+rake\s+test(?:\s|$)"),
-            # Ruby test invocation
-            re.compile(r"^ruby\s+-Itest(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="ruby",
                 framework="rspec",
-                patterns=rspec_patterns,
+                patterns=_RSPEC_PATTERNS,
                 priority=10,
             )
         )
 
         # PHP - PHPUnit
-        php_patterns = [
-            # Direct phpunit invocation
-            re.compile(r"^phpunit(?:\s|$)"),
-            # Vendor bin invocation
-            re.compile(r"^vendor/bin/phpunit(?:\s|$)"),
-            re.compile(r"^\.\/vendor/bin/phpunit(?:\s|$)"),
-            # Composer test
-            re.compile(r"^composer\s+test(?:\s|$)"),
-            re.compile(r"^composer\s+run\s+test(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="php",
                 framework="phpunit",
-                patterns=php_patterns,
+                patterns=_PHPUNIT_PATTERNS,
                 priority=10,
             )
         )
 
         # C/C++ - CTest and Make
-        cpp_patterns = [
-            # CTest invocation
-            re.compile(r"^ctest(?:\s|$)"),
-            # Make test
-            re.compile(r"^make\s+test(?:\s|$)"),
-            # CMake build with test target
-            re.compile(r"^cmake\s+--build\s+.*--target\s+test(?:\s|$)"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="cpp",
                 framework="ctest",
-                patterns=cpp_patterns,
+                patterns=_CPP_PATTERNS,
                 priority=10,
             )
         )
 
         # Swift - swift test
-        swift_patterns = [
-            # Direct swift test invocation
-            re.compile(r"^swift\s+test(?:\s|$)"),
-            # With additional flags
-            re.compile(r"^swift\s+test\s+"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="swift",
                 framework="swift test",
-                patterns=swift_patterns,
+                patterns=_SWIFT_PATTERNS,
                 priority=10,
             )
         )
@@ -463,52 +468,31 @@ class TestRunnerRegistry:
         # Java and Kotlin test execution.
 
         # Scala - sbt test
-        scala_patterns = [
-            # Direct sbt test invocation (matches test, testOnly, testQuick, etc.)
-            re.compile(r"^sbt\s+.*\btest\b"),
-            re.compile(r"^sbt\s+.*\btestOnly\b"),
-            re.compile(r"^sbt\s+.*\btestQuick\b"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="scala",
                 framework="sbt",
-                patterns=scala_patterns,
+                patterns=_SCALA_PATTERNS,
                 priority=10,
             )
         )
 
         # Elixir - mix test
-        elixir_patterns = [
-            # Direct mix test invocation
-            re.compile(r"^mix\s+test(?:\s|$)"),
-            # With additional flags
-            re.compile(r"^mix\s+test\s+"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="elixir",
                 framework="mix",
-                patterns=elixir_patterns,
+                patterns=_ELIXIR_PATTERNS,
                 priority=10,
             )
         )
 
         # Dart/Flutter - dart test and flutter test
-        dart_patterns = [
-            # Direct dart test invocation
-            re.compile(r"^dart\s+test(?:\s|$)"),
-            # Flutter test invocation
-            re.compile(r"^flutter\s+test(?:\s|$)"),
-            # With additional flags
-            re.compile(r"^dart\s+test\s+"),
-            re.compile(r"^flutter\s+test\s+"),
-        ]
         self.register_pattern(
             TestRunnerPattern(
                 language="dart",
                 framework="dart test",
-                patterns=dart_patterns,
+                patterns=_DART_PATTERNS,
                 priority=10,
             )
         )

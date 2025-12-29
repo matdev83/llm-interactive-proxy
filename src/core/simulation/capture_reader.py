@@ -7,6 +7,7 @@ Parses CBOR capture files into replay-ready sequences for simulation.
 from __future__ import annotations
 
 import logging
+from bisect import bisect_right
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
@@ -272,12 +273,26 @@ class CaptureReader:
 
         # For each session, pair requests with responses
         for _sid, entries in by_session.items():
-            # Pre-compute position map to avoid O(n^2) .index() calls
-            entry_position: dict[int, int] = {id(e): i for i, e in enumerate(entries)}
+            # Pre-compute response lists for O(log N) lookups instead of O(N^2) scans
+            all_responses = [
+                (i, e)
+                for i, e in enumerate(entries)
+                if e.direction
+                in (
+                    CaptureDirection.BACKEND_TO_PROXY,
+                    CaptureDirection.PROXY_TO_CLIENT,
+                )
+            ]
+            response_indices = [i for i, _ in all_responses]
+
+            # Identify stream starts (subset of responses)
+            stream_start_indices = [
+                i for i, e in all_responses if e.metadata.is_stream_start
+            ]
 
             requests = [
-                e
-                for e in entries
+                (i, e)
+                for i, e in enumerate(entries)
                 if e.direction
                 in (CaptureDirection.CLIENT_TO_PROXY, CaptureDirection.PROXY_TO_BACKEND)
                 and not e.metadata.is_stream_start
@@ -285,36 +300,31 @@ class CaptureReader:
                 and e.metadata.chunk_index is None
             ]
 
-            for req in requests:
-                # Find responses after this request (O(1) lookup via pre-computed map)
-                req_idx = entry_position[id(req)]
-                responses = [
-                    e
-                    for e in entries[req_idx + 1 :]
-                    if e.direction
-                    in (
-                        CaptureDirection.BACKEND_TO_PROXY,
-                        CaptureDirection.PROXY_TO_CLIENT,
-                    )
-                ]
+            for req_idx, req in requests:
+                # Check for any subsequent stream start (mimics original any(...) behavior)
+                ss_pos = bisect_right(stream_start_indices, req_idx)
 
-                if responses:
-                    # Check if it's a streaming response
-                    if any(r.metadata.is_stream_start for r in responses):
-                        # Collect all stream entries
-                        stream_responses = []
-                        in_stream = False
-                        for r in responses:
-                            if r.metadata.is_stream_start:
-                                in_stream = True
-                            if in_stream:
-                                stream_responses.append(r)
-                                if r.metadata.is_stream_end:
-                                    break
-                        pairs.append((req, stream_responses))
-                    else:
-                        # Non-streaming response
-                        pairs.append((req, [responses[0]]))
+                if ss_pos < len(stream_start_indices):
+                    # Found a subsequent stream start - this dominates
+                    start_idx = stream_start_indices[ss_pos]
+
+                    # Find where this stream start is in the responses list
+                    # We start collecting responses from the stream start
+                    resp_pos = bisect_right(response_indices, start_idx - 1)
+
+                    stream_responses = []
+                    # Collect all chunks until stream end
+                    for i in range(resp_pos, len(all_responses)):
+                        _, r = all_responses[i]
+                        stream_responses.append(r)
+                        if r.metadata.is_stream_end:
+                            break
+                    pairs.append((req, stream_responses))
+                else:
+                    # No subsequent stream start, just take the next response
+                    r_pos = bisect_right(response_indices, req_idx)
+                    if r_pos < len(response_indices):
+                        pairs.append((req, [all_responses[r_pos][1]]))
 
         return pairs
 
