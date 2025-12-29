@@ -74,11 +74,12 @@ class PromptHandler:
                     .encode("utf-8", errors="replace")
                     .decode("utf-8", errors="replace")
                 )
-            except Exception:
+            except (TypeError, ValueError, UnicodeError, AttributeError) as e:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "_safe() conversion failed for value type %s",
+                        "_safe() conversion failed for value type %s: %s",
                         type(value).__name__,
+                        e,
                         exc_info=True,
                     )
                 return repr(value)

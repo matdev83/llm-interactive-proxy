@@ -407,7 +407,13 @@ class ApiKeyRedactionFilter(logging.Filter):
                         s = pat.sub(f"Bearer {self.mask}", s)
                     else:
                         s = pat.sub(self.mask, s)
-                except Exception:
+                except (TypeError, ValueError, AttributeError, re.error) as e:
+                    if get_logger(__name__).isEnabledFor(logging.DEBUG):
+                        get_logger(__name__).debug(
+                            "Failed to apply sanitization pattern: %s",
+                            e,
+                            exc_info=True,
+                        )
                     continue
             return s
         if isinstance(obj, dict):
@@ -440,10 +446,17 @@ class ApiKeyRedactionFilter(logging.Filter):
             for attr in ("message", "exc_text", "stack_info"):
                 val = getattr(record, attr, None)
                 if isinstance(val, str):
-                    with contextlib.suppress(Exception):
+                    with contextlib.suppress(
+                        (TypeError, ValueError, AttributeError, re.error)
+                    ):
                         setattr(record, attr, self._sanitize(val))
-        except Exception:
-            # Never let logging filtering raise
+        except (TypeError, ValueError, AttributeError, re.error, RecursionError) as e:
+            if get_logger(__name__).isEnabledFor(logging.WARNING):
+                get_logger(__name__).warning(
+                    "Logging filter encountered error during sanitization: %s",
+                    e,
+                    exc_info=True,
+                )
             return True
         return True
 

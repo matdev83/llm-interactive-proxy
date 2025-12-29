@@ -19,7 +19,7 @@ def _load_pytest_module() -> ModuleType | None:
         return cast(ModuleType, importlib.import_module("pytest"))
     except ImportError:  # pragma: no cover - pytest not installed in runtime
         return None
-    except Exception as e:  # pragma: no cover - defensive
+    except (AttributeError, ValueError, TypeError) as e:  # pragma: no cover - defensive
         logger = logging.getLogger(__name__)
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
