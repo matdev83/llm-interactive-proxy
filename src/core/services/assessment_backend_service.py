@@ -91,7 +91,8 @@ class AssessmentBackendService(IAssessmentBackendService):
 
         except Exception as e:
             logger.error(
-                f"Assessment backend error for session {request.session_id}: {e}"
+                f"Assessment backend error for session {request.session_id}: {e}",
+                exc_info=True,
             )
             raise AssessmentBackendError(f"Backend communication failed: {e}") from e
 
@@ -237,7 +238,9 @@ class AssessmentBackendService(IAssessmentBackendService):
                 raise AssessmentBackendError(f"Response validation failed: {e}") from e
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON response: {content[:200]}...")
+            logger.error(
+                f"Failed to parse JSON response: {content[:200]}...", exc_info=True
+            )
             raise AssessmentBackendError(f"Invalid JSON response: {e}") from e
         except Exception as e:
             raise AssessmentBackendError(f"Response parsing failed: {e}") from e
