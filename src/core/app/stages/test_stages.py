@@ -632,13 +632,14 @@ class MockBackendStage(BaseTestBackendStage):
                             type(e).__name__,
                             exc_info=True,
                         )
-                except Exception:
+                except Exception as e:
                     # Fallback for truly unexpected errors during backend creation
                     # Log the failure to aid debugging when tests unexpectedly use mocks
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            "Failed to create real backend instance for %s (unexpected error), falling back to mock",
+                            "Failed to create real backend instance for %s (unexpected error: %s), falling back to mock",
                             backend_type,
+                            e,
                             exc_info=True,
                         )
 

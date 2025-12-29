@@ -267,11 +267,11 @@ class AnthropicBackend(LLMBackend):
                         logger.warning(
                             "Failed to calculate prompt tokens: %s", e, exc_info=True
                         )
-                except Exception:
+                except Exception as e:
                     # Fallback for truly unexpected errors
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to calculate prompt tokens (unexpected error)", exc_info=True
+                            "Failed to calculate prompt tokens (unexpected error): %s", e, exc_info=True
                         )
 
                 # Integrate with streaming pipeline

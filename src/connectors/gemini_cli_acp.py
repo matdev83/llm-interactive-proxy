@@ -970,10 +970,19 @@ class GeminiCliAcpConnector(GeminiBackend):
                                 # These exceptions occur when logging modules/attributes are torn down
                                 # Suppress silently to avoid masking the original cleanup error
                                 pass
-                            except Exception:
+                            except Exception as e:
                                 # Defensive guard for truly unexpected logging errors
-                                # Still suppress to avoid masking the original cleanup error
-                                pass
+                                # Try to log at DEBUG level if logger is still available
+                                try:
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            "Unexpected error during logging in __del__ cleanup: %s",
+                                            e,
+                                            exc_info=True,
+                                        )
+                                except Exception:
+                                    # If logging itself fails, suppress to avoid masking the original cleanup error
+                                    pass
 
                     # Clean up process pipes
                     self._cleanup_process(process)
@@ -1003,10 +1012,19 @@ class GeminiCliAcpConnector(GeminiBackend):
                         # These exceptions occur when logging modules/attributes are torn down
                         # Suppress silently to avoid masking the original cleanup error
                         pass
-                    except Exception:
+                    except Exception as e:
                         # Defensive guard for truly unexpected logging errors
-                        # Still suppress to avoid masking the original cleanup error
-                        pass
+                        # Try to log at DEBUG level if logger is still available
+                        try:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Unexpected error during logging in __del__ cleanup: %s",
+                                    e,
+                                    exc_info=True,
+                                )
+                        except Exception:
+                            # If logging itself fails, suppress to avoid masking the original cleanup error
+                            pass
                 finally:
                     # Clear reference to prevent leaks
                     self._process = None
