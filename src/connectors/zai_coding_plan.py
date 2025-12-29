@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -27,6 +28,13 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
+
+# Pre-compiled regex pattern for MCP tool extraction (performance optimization)
+# Module-level constant avoids recompiling on every message processing call
+_MCP_TOOL_PATTERN = re.compile(
+    r"<(?P<tag>[A-Za-z0-9_\-]+)\b[^>]*>.*?</(?P=tag)>",
+    re.DOTALL,
+)
 
 
 class ZaiCodingPlanBackend(OpenAIConnector):
@@ -437,84 +445,77 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         )
 
         # Post-process streaming iterator to normalize ZAI attempt_completion output
-        if isinstance(base_handle, StreamingResponseHandle):
+        async def _zai_stream_wrapper() -> AsyncGenerator[ProcessedResponse, None]:
+            collected_content: list[str] = []
+            sanitized_emitted = False
 
-            async def _zai_stream_wrapper() -> AsyncGenerator[ProcessedResponse, None]:
-                collected_content: list[str] = []
-                sanitized_emitted = False
+            async for chunk in base_handle.iterator:
+                parsed_json: dict[str, Any] | None = None
+                chunk_content = chunk.content
 
-                async for chunk in base_handle.iterator:
-                    parsed_json: dict[str, Any] | None = None
-                    chunk_content = chunk.content
-
-                    if isinstance(chunk_content, bytes):
-                        try:
-                            chunk_str = chunk_content.decode("utf-8")
-                        except UnicodeDecodeError:
-                            chunk_str = None
-                    elif isinstance(chunk_content, str):
-                        chunk_str = chunk_content
-                    else:
+                if isinstance(chunk_content, bytes):
+                    try:
+                        chunk_str = chunk_content.decode("utf-8")
+                    except UnicodeDecodeError:
                         chunk_str = None
+                elif isinstance(chunk_content, str):
+                    chunk_str = chunk_content
+                else:
+                    chunk_str = None
 
-                    if (
-                        chunk_str
-                        and chunk_str.startswith("data: ")
-                        and '"model": "glm-4.6"' in chunk_str
-                    ):
-                        try:
-                            parsed_json = json.loads(chunk_str[len("data: ") :])
-                        except json.JSONDecodeError:
-                            parsed_json = None
+                if (
+                    chunk_str
+                    and chunk_str.startswith("data: ")
+                    and '"model": "glm-4.6"' in chunk_str
+                ):
+                    try:
+                        parsed_json = json.loads(chunk_str[len("data: ") :])
+                    except json.JSONDecodeError:
+                        parsed_json = None
 
-                    if parsed_json:
-                        choices = parsed_json.get("choices") or []
-                        if choices:
-                            delta = choices[0].get("delta") or {}
-                            content_piece = delta.get("content")
-                            if isinstance(content_piece, str):
-                                collected_content.append(content_piece)
+                if parsed_json:
+                    choices = parsed_json.get("choices") or []
+                    if choices:
+                        delta = choices[0].get("delta") or {}
+                        content_piece = delta.get("content")
+                        if isinstance(content_piece, str):
+                            collected_content.append(content_piece)
 
-                            finish_reason = choices[0].get("finish_reason")
-                            if (
-                                finish_reason == "stop"
-                                and not sanitized_emitted
-                                and collected_content
-                            ):
-                                sanitized_text = self._extract_attempt_result(
-                                    "".join(collected_content)
+                        finish_reason = choices[0].get("finish_reason")
+                        if (
+                            finish_reason == "stop"
+                            and not sanitized_emitted
+                            and collected_content
+                        ):
+                            sanitized_text = self._extract_attempt_result(
+                                "".join(collected_content)
+                            )
+                            if sanitized_text:
+                                synthetic_chunk = self._build_synthetic_stream_chunk(
+                                    sanitized_text,
+                                    parsed_json.get("model") or "glm-4.6",
                                 )
-                                if sanitized_text:
-                                    synthetic_chunk = (
-                                        self._build_synthetic_stream_chunk(
-                                            sanitized_text,
-                                            parsed_json.get("model") or "glm-4.6",
-                                        )
-                                    )
-                                    yield synthetic_chunk
-                                    sanitized_emitted = True
+                                yield synthetic_chunk
+                                sanitized_emitted = True
 
-                    yield chunk
+                yield chunk
 
-                # Safety: emit sanitized chunk even if finish_reason missing
-                if not sanitized_emitted and collected_content:
-                    sanitized_text = self._extract_attempt_result(
-                        "".join(collected_content)
+            # Safety: emit sanitized chunk even if finish_reason missing
+            if not sanitized_emitted and collected_content:
+                sanitized_text = self._extract_attempt_result(
+                    "".join(collected_content)
+                )
+                if sanitized_text:
+                    synthetic_chunk = self._build_synthetic_stream_chunk(
+                        sanitized_text, "glm-4.6"
                     )
-                    if sanitized_text:
-                        synthetic_chunk = self._build_synthetic_stream_chunk(
-                            sanitized_text, "glm-4.6"
-                        )
-                        yield synthetic_chunk
+                    yield synthetic_chunk
 
-            handle = StreamingResponseHandle(
-                iterator=_zai_stream_wrapper(),
-                cancel_callback=base_handle.cancel_callback,
-                headers=base_handle.headers,
-            )
-
-        else:
-            handle = base_handle
+        handle = StreamingResponseHandle(
+            iterator=_zai_stream_wrapper(),
+            cancel_callback=base_handle.cancel_callback,
+            headers=base_handle.headers,
+        )
 
         return handle
 
@@ -577,8 +578,6 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         Returns:
             List of messages with tool calls extracted
         """
-        import re
-
         from src.core.utils.message_processing_utils import (
             find_last_assistant_message,
             is_message_processed,
@@ -593,10 +592,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
         service_provider = get_service_provider()
         repair_service = service_provider.get_required_service(ToolCallRepairService)
-        tool_pattern = re.compile(
-            r"<(?P<tag>[A-Za-z0-9_\-]+)\b[^>]*>.*?</(?P=tag)>",
-            re.DOTALL,
-        )
+        # Use module-level pre-compiled pattern for performance
+        tool_pattern = _MCP_TOOL_PATTERN
 
         # Find last assistant message for fallback logic
         last_assistant_idx = find_last_assistant_message(messages)
@@ -654,6 +651,9 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
             for match in matches:
                 xml_block = match.group(0)
+                # Note: Using protected method _extract_xml_tool_call here
+                # (despite LSP warning) because the public repair_tool_calls
+                # has different semantics and would break existing tests/behavior
                 repair_result = repair_service._extract_xml_tool_call(xml_block)
                 if not repair_result:
                     continue
