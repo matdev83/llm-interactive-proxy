@@ -803,7 +803,10 @@ class ResponsesController:
                     if asyncio.iscoroutine(result):
                         return bool(await result)
                     return bool(result)
-                except Exception:
+                except (RuntimeError, AttributeError, asyncio.CancelledError):
+                    # RuntimeError: checker function or event loop issues
+                    # AttributeError: defensive guard for unexpected attribute access
+                    # CancelledError: async operation cancelled
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             "Failed checking client disconnect status - request_id=%s",

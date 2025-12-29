@@ -212,8 +212,13 @@ class CborWireCaptureService(IWireCapture):
             if logger.isEnabledFor(logging.INFO):
                 logger.info("CBOR wire capture initialized: %s", self._file_path)
 
-        except Exception:
+        except OSError:
+            # OSError covers file I/O errors (PermissionError, FileNotFoundError, etc.)
             logger.error("Failed to initialize CBOR wire capture", exc_info=True)
+            self._enabled = False
+        except RuntimeError:
+            # RuntimeError may occur from _maybe_start_flush_task() if event loop issues
+            logger.error("Failed to initialize CBOR wire capture (runtime error)", exc_info=True)
             self._enabled = False
 
     def _write_header(self) -> None:
@@ -234,7 +239,8 @@ class CborWireCaptureService(IWireCapture):
             with open(self._file_path, "wb") as f:
                 cbor2.dump(header.to_dict(), f)
             self._header_written = True
-        except Exception:
+        except OSError:
+            # OSError covers file I/O errors (PermissionError, FileNotFoundError, etc.)
             logger.error("Failed to write capture header", exc_info=True)
 
     def enabled(self) -> bool:
