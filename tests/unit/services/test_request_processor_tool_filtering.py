@@ -174,9 +174,11 @@ def create_test_processor(
             return req
 
         # Apply tool filtering
-        filtered_tools, metadata = policy_service.filter_tool_definitions(
+        result = policy_service.filter_tool_definitions(
             req.tools, model_name=req.model, agent=getattr(sess, "agent", None)
         )
+        filtered_tools = result.filtered_tools
+        metadata = result.metadata
 
         # Build updates dict
         updates = {"tools": filtered_tools}
@@ -184,7 +186,7 @@ def create_test_processor(
         # Add metadata to extra_body
         if metadata:
             extra_body = req.extra_body.copy() if req.extra_body else {}
-            extra_body["tool_access"] = metadata
+            extra_body["tool_access"] = metadata.model_dump()
             updates["extra_body"] = extra_body
 
         # Check if tool_choice references a filtered-out tool

@@ -616,9 +616,40 @@ class RequestTransformPipeline(IRequestTransformPipeline):
             model_name = getattr(request, "model", "")
             agent = getattr(session, "agent", None)
 
-            filtered_tools, metadata = policy_service.filter_tool_definitions(
+            result = policy_service.filter_tool_definitions(
                 request.tools or [], model_name, agent
             )
+            filtered_tools = result.filtered_tools
+            metadata = result.metadata
+
+            # Create modified request with filtered tools if any were removed
+            original_tools = request.tools or []
+            if len(filtered_tools) < len(original_tools):
+                request = request.model_copy(update={"tools": filtered_tools})
+
+                # Handle tool_choice if it references a filtered tool
+                request = self._maybe_reset_tool_choice(
+                    request, policy_service, filtered_tools
+                )
+
+                # Log filtering action
+                removed_count = len(original_tools) - len(filtered_tools)
+                policy_name = metadata.policy_applied or "unknown"
+                filtered_names = metadata.filtered_tool_names
+
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Filtered {removed_count} tool definition(s) for model "
+                        f"{model_name} by policy '{policy_name}': {filtered_names}"
+                    )
+
+                # Increment telemetry counter in reactor service (fail-open)
+                self._increment_tool_filtering_telemetry(removed_count)
+
+                # Store metadata in extra_body for observability
+                request = self._inject_extra_body_metadata(
+                    request, "tool_access", metadata.model_dump()
+                )
 
             # Create modified request with filtered tools if any were removed
             original_tools = request.tools or []

@@ -90,8 +90,90 @@ class ToolAccessControlHandler(IToolCallHandler):
 
         try:
             # Check if tool is allowed by policy
-            is_allowed, metadata = self._policy_service.is_tool_allowed(
+            result = self._policy_service.is_tool_allowed(tool_name, model_name, agent)
+            is_allowed = result.is_allowed
+            metadata = result.metadata
+
+            if is_allowed:
+                # Tool is allowed, pass through
+                logger.debug(
+                    f"Tool call '{tool_name}' allowed by policy "
+                    f"'{metadata.policy_applied}' in session {context.session_id}"
+                )
+
+                # Increment telemetry counter
+                if self._reactor_service and hasattr(
+                    self._reactor_service, "increment_tool_calls_allowed"
+                ):
+                    self._reactor_service.increment_tool_calls_allowed()
+
+                return ToolCallReactionResult(
+                    should_swallow=False,
+                    metadata={
+                        "handler": self.name,
+                        "tool_name": tool_name,
+                        "policy_applied": metadata.policy_applied,
+                        "decision": "allowed",
+                        "model_name": model_name,
+                        "agent": agent,
+                        "session_id": context.session_id,
+                        "evaluation_time_ms": metadata.evaluation_time_ms,
+                    },
+                )
+
+            # Tool is blocked, swallow and return block message
+            block_message = self._policy_service.get_block_message(
                 tool_name, model_name, agent
+            )
+
+            # Check if this is first blocked tool call in this session
+            is_first_block = context.session_id not in self._sessions_with_blocked_tools
+            if is_first_block:
+                async with self._lock:
+                    self._sessions_with_blocked_tools[context.session_id] = True
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"First blocked tool call in session {context.session_id}: '{tool_name}' "
+                        f"by policy '{metadata.policy_applied}'"
+                    )
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    f"Blocked tool call '{tool_name}' by policy "
+                    f"'{metadata.policy_applied}' in session {context.session_id}"
+                )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Block reason: {metadata.reason}, "
+                    f"model: {model_name}, agent: {agent}"
+                )
+
+            # Increment telemetry counter
+            if self._reactor_service and hasattr(
+                self._reactor_service, "increment_tool_calls_blocked"
+            ):
+                self._reactor_service.increment_tool_calls_blocked()
+
+            # Optionally add first-block notice to the message
+            final_message = block_message
+            if is_first_block:
+                final_message = f"[Notice: Tool access control is active for this session]\n\n{block_message}"
+
+            return ToolCallReactionResult(
+                should_swallow=True,
+                replacement_response=final_message,
+                metadata={
+                    "handler": self.name,
+                    "tool_name": tool_name,
+                    "policy_applied": metadata.policy_applied,
+                    "decision": "blocked",
+                    "reason": metadata.reason,
+                    "model_name": model_name,
+                    "agent": agent,
+                    "session_id": context.session_id,
+                    "is_first_block_in_session": is_first_block,
+                    "evaluation_time_ms": metadata.evaluation_time_ms,
+                },
             )
 
             if is_allowed:

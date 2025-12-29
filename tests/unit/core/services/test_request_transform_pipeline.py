@@ -590,9 +590,18 @@ async def test_tool_filtering_preserves_original_request(
     mock_policy_service = MagicMock()
     # Filter out one tool
     filtered_tools = [request_with_tools.tools[0]]
-    mock_policy_service.filter_tool_definitions.return_value = (
-        filtered_tools,
-        {"policy_applied": "test", "filtered_tool_names": ["tool2"]},
+    from src.core.services.tool_access_policy_service import (
+        ToolFilterResult,
+        ToolFilterMetadata,
+    )
+    mock_policy_service.filter_tool_definitions.return_value = ToolFilterResult(
+        filtered_tools=filtered_tools,
+        metadata=ToolFilterMetadata(
+            policy_applied="test",
+            original_tool_count=len(request_with_tools.tools or []),
+            filtered_tool_names=["tool2"],
+            filtered_tool_count=1,
+        ),
     )
     mock_app_state.get_service.return_value = mock_policy_service
 

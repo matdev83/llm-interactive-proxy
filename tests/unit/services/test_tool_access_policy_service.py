@@ -405,12 +405,14 @@ class TestToolAccessPolicyService:
             {"type": "function", "function": {"name": "write_file"}},
         ]
 
-        filtered, metadata = service.filter_tool_definitions(tools, "gpt-4")
+        result = service.filter_tool_definitions(tools, "gpt-4")
+        filtered = result.filtered_tools
+        metadata = result.metadata
 
         assert len(filtered) == 2
-        assert metadata["policy_applied"] is None
-        assert metadata["original_tool_count"] == 2
-        assert metadata["filtered_tool_count"] == 2
+        assert metadata.policy_applied is None
+        assert metadata.original_tool_count == 2
+        assert metadata.filtered_tool_count == 2
 
     def test_filter_tool_definitions_allow_all(self) -> None:
         """Test filtering with allow-all policy."""
@@ -430,10 +432,12 @@ class TestToolAccessPolicyService:
             {"type": "function", "function": {"name": "write_file"}},
         ]
 
-        filtered, metadata = service.filter_tool_definitions(tools, "gpt-4")
+        result = service.filter_tool_definitions(tools, "gpt-4")
+        filtered = result.filtered_tools
+        metadata = result.metadata
 
         assert len(filtered) == 2
-        assert metadata["policy_applied"] == "allow_all"
+        assert metadata.policy_applied == "allow_all"
 
     def test_filter_tool_definitions_block_some(self) -> None:
         """Test filtering blocks specific tools."""
@@ -455,11 +459,13 @@ class TestToolAccessPolicyService:
             {"type": "function", "function": {"name": "delete_file"}},
         ]
 
-        filtered, metadata = service.filter_tool_definitions(tools, "gpt-4")
+        result = service.filter_tool_definitions(tools, "gpt-4")
+        filtered = result.filtered_tools
+        metadata = result.metadata
 
         assert len(filtered) == 1
         assert filtered[0]["function"]["name"] == "read_file"
-        assert metadata["filtered_tool_names"] == ["write_file", "delete_file"]
+        assert metadata.filtered_tool_names == ["write_file", "delete_file"]
 
     def test_filter_tool_definitions_whitelist_mode(self) -> None:
         """Test filtering in whitelist mode (deny by default)."""
@@ -482,7 +488,9 @@ class TestToolAccessPolicyService:
             {"type": "function", "function": {"name": "execute_command"}},
         ]
 
-        filtered, metadata = service.filter_tool_definitions(tools, "gpt-4")
+        result = service.filter_tool_definitions(tools, "gpt-4")
+        filtered = result.filtered_tools
+        metadata = result.metadata
 
         assert len(filtered) == 2
         tool_names = [t["function"]["name"] for t in filtered]
@@ -504,11 +512,13 @@ class TestToolAccessPolicyService:
         service = ToolAccessPolicyService(config)
 
         tools = [
-            {"name": "read_file", "description": "Read a file"},
-            {"name": "write_file", "description": "Write a file"},
+            {"name": "read_file"},
+            {"name": "write_file"},
         ]
 
-        filtered, metadata = service.filter_tool_definitions(tools, "claude-3")
+        result = service.filter_tool_definitions(tools, "claude-3")
+        filtered = result.filtered_tools
+        metadata = result.metadata
 
         assert len(filtered) == 1
         assert filtered[0]["name"] == "read_file"
@@ -518,11 +528,13 @@ class TestToolAccessPolicyService:
         config = ToolCallReactorConfig()
         service = ToolAccessPolicyService(config)
 
-        is_allowed, metadata = service.is_tool_allowed("read_file", "gpt-4")
+        result = service.is_tool_allowed("read_file", "gpt-4")
+        is_allowed = result.is_allowed
+        metadata = result.metadata
 
         assert is_allowed is True
-        assert metadata["policy_applied"] is None
-        assert metadata["reason"] == "no_policy_matched"
+        assert metadata.policy_applied is None
+        assert metadata.reason == "no_policy_matched"
 
     def test_is_tool_allowed_with_policy(self) -> None:
         """Test is_tool_allowed with matching policy."""
@@ -538,13 +550,17 @@ class TestToolAccessPolicyService:
         )
         service = ToolAccessPolicyService(config)
 
-        is_allowed, metadata = service.is_tool_allowed("read_file", "gpt-4")
+        result = service.is_tool_allowed("read_file", "gpt-4")
+        is_allowed = result.is_allowed
+        metadata = result.metadata
         assert is_allowed is True
-        assert metadata["reason"] == "allowed"
+        assert metadata.reason == "allowed"
 
-        is_blocked, metadata = service.is_tool_allowed("delete_file", "gpt-4")
+        result = service.is_tool_allowed("delete_file", "gpt-4")
+        is_blocked = result.is_allowed
+        metadata = result.metadata
         assert is_blocked is False
-        assert metadata["reason"] == "blocked"
+        assert metadata.reason == "blocked"
 
     def test_get_block_message_no_policy(self) -> None:
         """Test get_block_message with no matching policy."""
@@ -611,7 +627,9 @@ class TestToolAccessPolicyService:
             {"type": "function", "function": {"name": "any_tool"}},
         ]
 
-        filtered, metadata = service.filter_tool_definitions(tools, "gpt-4")
+        result = service.filter_tool_definitions(tools, "gpt-4")
+        filtered = result.filtered_tools
+        metadata = result.metadata
 
         # Should allow all tools with default policy
         assert len(filtered) == 1
@@ -655,13 +673,15 @@ class TestToolAccessPolicyService:
         service = ToolAccessPolicyService(config)
 
         # Production agent should use restrictive policy
-        is_allowed, _ = service.is_tool_allowed(
+        result = service.is_tool_allowed(
             "write_file", "gpt-4", "production-agent"
         )
+        is_allowed = result.is_allowed
         assert is_allowed is False
 
         # Dev agent should use permissive policy
-        is_allowed, _ = service.is_tool_allowed("write_file", "gpt-4", "dev-agent")
+        result = service.is_tool_allowed("write_file", "gpt-4", "dev-agent")
+        is_allowed = result.is_allowed
         assert is_allowed is True
 
     def test_precedence_allowed_overrides_blocked(self) -> None:
@@ -680,7 +700,8 @@ class TestToolAccessPolicyService:
         service = ToolAccessPolicyService(config)
 
         # read_secret matches both allowed and blocked, allowed should win
-        is_allowed, _ = service.is_tool_allowed("read_secret", "gpt-4")
+        result = service.is_tool_allowed("read_secret", "gpt-4")
+        is_allowed = result.is_allowed
         assert is_allowed is True
 
     def test_policy_cache_is_thread_safe(self) -> None:
@@ -705,12 +726,14 @@ class TestToolAccessPolicyService:
         agents = [f"agent-{i % 4}" for i in range(len(models))]
 
         def evaluate(model: str, agent: str) -> tuple[int, str | None]:
-            filtered, metadata = service.filter_tool_definitions(
+            result = service.filter_tool_definitions(
                 tools=tools,
                 model_name=model,
                 agent=agent,
             )
-            return len(filtered), metadata.get("policy_applied")
+            filtered = result.filtered_tools
+            metadata = result.metadata
+            return len(filtered), metadata.policy_applied
 
         with ThreadPoolExecutor(max_workers=8) as executor:
             results = list(executor.map(evaluate, models, agents))

@@ -127,9 +127,15 @@ class TestToolAccessControlEndToEnd:
         ]
 
         # Filter the tools
-        filtered_tools, metadata = policy_service.filter_tool_definitions(
+        result = policy_service.filter_tool_definitions(
+
             tools, "test-model", None
+
         )
+
+        filtered_tools = result.filtered_tools
+
+        metadata = result.metadata
 
         # Verify dangerous tools were filtered
         filtered_names = [t["function"]["name"] for t in filtered_tools]
@@ -139,11 +145,11 @@ class TestToolAccessControlEndToEnd:
         assert "dangerous_operation" not in filtered_names
 
         # Verify metadata
-        assert metadata["policy_applied"] == "block_dangerous"
-        assert "delete_file" in metadata["filtered_tool_names"]
-        assert "dangerous_operation" in metadata["filtered_tool_names"]
-        assert metadata["original_tool_count"] == 4
-        assert metadata["filtered_tool_count"] == 2
+        assert metadata.policy_applied == "block_dangerous"
+        assert "delete_file" in metadata.filtered_tool_names
+        assert "dangerous_operation" in metadata.filtered_tool_names
+        assert metadata.original_tool_count == 4
+        assert metadata.filtered_tool_count == 2
 
     # Test 2: Response blocking - LLM attempts to call disallowed tool
     @pytest.mark.asyncio
@@ -186,7 +192,7 @@ class TestToolAccessControlEndToEnd:
         # Verify the tool call was blocked
         assert isinstance(result, ProcessedResponse)
         assert result != response  # Should be modified
-        assert result.metadata["tool_call_swallowed"] is True
+        assert result.metadata.tool_call_swallowed is True
         # Extract content from OpenAI-compatible response structure
         if isinstance(result.content, dict):
             content = result.content["choices"][0]["message"]["content"]
@@ -234,13 +240,13 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Check if delete_file is allowed (should be, due to global policy)
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "delete_file", "test-model", None
         )
 
         # Global policy should win due to higher priority
-        assert is_allowed is True
-        assert metadata["policy_applied"] == "global_policy"
+        assert result.is_allowed is True
+        assert result.metadata.policy_applied == "global_policy"
 
     # Test 4: Whitelist mode (deny by default, allow specific tools)
     @pytest.mark.asyncio
@@ -264,27 +270,27 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Test allowed tools
-        is_allowed, _ = policy_service.is_tool_allowed("read_file", "test-model", None)
-        assert is_allowed is True
+        result = policy_service.is_tool_allowed("read_file", "test-model", None)
+        assert result.is_allowed is True
 
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "list_directory", "test-model", None
         )
-        assert is_allowed is True
+        assert result.is_allowed is True
 
         # Test disallowed tools (not in whitelist)
-        is_allowed, _ = policy_service.is_tool_allowed("write_file", "test-model", None)
-        assert is_allowed is False
+        result = policy_service.is_tool_allowed("write_file", "test-model", None)
+        assert result.is_allowed is False
 
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "delete_file", "test-model", None
         )
-        assert is_allowed is False
+        assert result.is_allowed is False
 
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "execute_command", "test-model", None
         )
-        assert is_allowed is False
+        assert result.is_allowed is False
 
     # Test 5: Blacklist mode (allow by default, block specific tools)
     @pytest.mark.asyncio
@@ -308,30 +314,30 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Test allowed tools (not in blacklist)
-        is_allowed, _ = policy_service.is_tool_allowed("read_file", "test-model", None)
-        assert is_allowed is True
+        result = policy_service.is_tool_allowed("read_file", "test-model", None)
+        assert result.is_allowed is True
 
-        is_allowed, _ = policy_service.is_tool_allowed("write_file", "test-model", None)
-        assert is_allowed is True
+        result = policy_service.is_tool_allowed("write_file", "test-model", None)
+        assert result.is_allowed is True
 
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "list_directory", "test-model", None
         )
-        assert is_allowed is True
+        assert result.is_allowed is True
 
         # Test blocked tools (in blacklist)
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "delete_file", "test-model", None
         )
-        assert is_allowed is False
+        assert result.is_allowed is False
 
-        is_allowed, _ = policy_service.is_tool_allowed("rm_file", "test-model", None)
-        assert is_allowed is False
+        result = policy_service.is_tool_allowed("rm_file", "test-model", None)
+        assert result.is_allowed is False
 
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "dangerous_operation", "test-model", None
         )
-        assert is_allowed is False
+        assert result.is_allowed is False
 
     # Test 6: Agent-specific policies with agent_pattern matching
     @pytest.mark.asyncio
@@ -375,37 +381,37 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Test production agent (restricted)
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "read_file", "test-model", "production-agent-1"
         )
-        assert is_allowed is True
-        assert metadata["policy_applied"] == "production_agent_policy"
+        assert result.is_allowed is True
+        assert result.metadata.policy_applied == "production_agent_policy"
 
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "write_file", "test-model", "production-agent-1"
         )
-        assert is_allowed is False  # Not in whitelist
-        assert metadata["policy_applied"] == "production_agent_policy"
+        assert result.is_allowed is False  # Not in whitelist
+        assert result.metadata.policy_applied == "production_agent_policy"
 
         # Test dev agent (less restricted)
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "write_file", "test-model", "dev-agent-1"
         )
-        assert is_allowed is True
-        assert metadata["policy_applied"] == "dev_agent_policy"
+        assert result.is_allowed is True
+        assert result.metadata.policy_applied == "dev_agent_policy"
 
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "dangerous_operation", "test-model", "dev-agent-1"
         )
-        assert is_allowed is False  # In blacklist
-        assert metadata["policy_applied"] == "dev_agent_policy"
+        assert result.is_allowed is False  # In blacklist
+        assert result.metadata.policy_applied == "dev_agent_policy"
 
         # Test agent without specific policy (uses default)
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "any_tool", "test-model", "other-agent"
         )
-        assert is_allowed is True
-        assert metadata["policy_applied"] == "default_policy"
+        assert result.is_allowed is True
+        assert result.metadata.policy_applied == "default_policy"
 
     # Test 7: Multiple policies with priority ordering
     @pytest.mark.asyncio
@@ -453,25 +459,25 @@ class TestToolAccessControlEndToEnd:
         assert policy_service._policies[2].priority == 10
 
         # Test that highest priority matching policy is used
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "delete_file", "test-model", None
         )
-        assert is_allowed is True  # High priority allows it
-        assert metadata["policy_applied"] == "high_priority"
+        assert result.is_allowed is True  # High priority allows it
+        assert result.metadata.policy_applied == "high_priority"
 
         # Test with model that matches medium priority
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "delete_file", "test-other", None
         )
-        assert is_allowed is False  # Medium priority blocks it
-        assert metadata["policy_applied"] == "medium_priority"
+        assert result.is_allowed is False  # Medium priority blocks it
+        assert result.metadata.policy_applied == "medium_priority"
 
         # Test with model that only matches low priority
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "any_tool", "other-model", None
         )
-        assert is_allowed is False  # Low priority denies by default
-        assert metadata["policy_applied"] == "low_priority"
+        assert result.is_allowed is False  # Low priority denies by default
+        assert result.metadata.policy_applied == "low_priority"
 
     # Test 8: Policy precedence - allowed patterns override blocked patterns
     @pytest.mark.asyncio
@@ -495,18 +501,18 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Test that allowed pattern overrides blocked pattern
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "delete_important_file", "test-model", None
         )
-        assert is_allowed is True  # Allowed pattern wins
-        assert metadata["reason"] == "allowed"
+        assert result.is_allowed is True  # Allowed pattern wins
+        assert result.metadata.reason == "allowed"
 
         # Test that other delete operations are still blocked
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "delete_regular_file", "test-model", None
         )
-        assert is_allowed is False  # Blocked pattern applies
-        assert metadata["reason"] == "blocked"
+        assert result.is_allowed is False  # Blocked pattern applies
+        assert result.metadata.reason == "blocked"
 
     # Test 9: End-to-end scenario with request filtering and response blocking
     @pytest.mark.asyncio
@@ -536,14 +542,24 @@ class TestToolAccessControlEndToEnd:
             {"type": "function", "function": {"name": "dangerous_operation"}},
         ]
 
-        filtered_tools, metadata = policy_service.filter_tool_definitions(
+        result = policy_service.filter_tool_definitions(
+
+
             tools, "test-model", None
+
+
         )
+
+
+        filtered_tools = result.filtered_tools
+
+
+        metadata = result.metadata
 
         # Verify dangerous tool was filtered
         assert len(filtered_tools) == 1
         assert filtered_tools[0]["function"]["name"] == "read_file"
-        assert "dangerous_operation" in metadata["filtered_tool_names"]
+        assert "dangerous_operation" in metadata.filtered_tool_names
 
         # Step 2: Response blocking (if LLM somehow calls blocked tool)
         response = self.create_llm_response_with_tool_call("dangerous_operation", {})
@@ -559,7 +575,7 @@ class TestToolAccessControlEndToEnd:
         )
 
         # Verify tool call was blocked
-        assert result.metadata["tool_call_swallowed"] is True
+        assert result.metadata.tool_call_swallowed is True
         # Extract content from OpenAI-compatible response structure
         if isinstance(result.content, dict):
             content = result.content["choices"][0]["message"]["content"]
@@ -619,45 +635,45 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Scenario 1: Production agent with GPT model (matches production_restrictions)
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "read_file", "gpt-4", "prod-agent-1"
         )
-        assert is_allowed is True  # In whitelist
-        assert metadata["policy_applied"] == "production_restrictions"
+        assert result.is_allowed is True  # In whitelist
+        assert result.metadata.policy_applied == "production_restrictions"
 
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "write_file", "gpt-4", "prod-agent-1"
         )
         # The production_restrictions policy should apply (gpt-.* + prod-.*)
         # and deny by default since write_file is not in allowed_patterns
-        assert metadata["policy_applied"] == "production_restrictions"
-        assert is_allowed is False  # Not in whitelist, deny by default
+        assert result.metadata.policy_applied == "production_restrictions"
+        assert result.is_allowed is False  # Not in whitelist, deny by default
 
         # Scenario 2: Global security blocks rm_ for non-prod agents
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "rm_file", "gpt-4", "dev-agent"
         )
-        assert is_allowed is False
-        assert metadata["policy_applied"] == "global_security"
+        assert result.is_allowed is False
+        assert result.metadata.policy_applied == "global_security"
 
         # Scenario 3: Claude model restrictions
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "execute_command", "claude-3", "dev-agent"
         )
-        assert is_allowed is False
-        assert metadata["policy_applied"] == "claude_restrictions"
+        assert result.is_allowed is False
+        assert result.metadata.policy_applied == "claude_restrictions"
 
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "read_file", "claude-3", "dev-agent"
         )
-        assert is_allowed is True  # Not blocked by Claude policy
+        assert result.is_allowed is True  # Not blocked by Claude policy
 
         # Scenario 4: Default permissive for other models
-        is_allowed, metadata = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "any_tool", "other-model", "any-agent"
         )
-        assert is_allowed is True
-        assert metadata["policy_applied"] in ["global_security", "default_permissive"]
+        assert result.is_allowed is True
+        assert result.metadata.policy_applied in ["global_security", "default_permissive"]
 
     # Test 11: Tool choice handling when referenced tool is filtered
     @pytest.mark.asyncio
@@ -687,14 +703,20 @@ class TestToolAccessControlEndToEnd:
         ]
 
         # Filter tools
-        filtered_tools, metadata = policy_service.filter_tool_definitions(
+        result = policy_service.filter_tool_definitions(
+
             tools, "test-model", None
+
         )
+
+        filtered_tools = result.filtered_tools
+
+        metadata = result.metadata
 
         # Verify blocked_tool was filtered
         assert len(filtered_tools) == 1
         assert filtered_tools[0]["function"]["name"] == "allowed_tool"
-        assert "blocked_tool" in metadata["filtered_tool_names"]
+        assert "blocked_tool" in metadata.filtered_tool_names
 
     # Test 12: Performance with large number of tools
     @pytest.mark.asyncio
@@ -733,14 +755,20 @@ class TestToolAccessControlEndToEnd:
 
         # Measure filtering time
         start_time = time.time()
-        filtered_tools, metadata = policy_service.filter_tool_definitions(
+        result = policy_service.filter_tool_definitions(
+
             tools, "test-model", None
+
         )
+
+        filtered_tools = result.filtered_tools
+
+        metadata = result.metadata
         elapsed_ms = (time.time() - start_time) * 1000
 
         # Verify filtering worked
         assert len(filtered_tools) == 100  # Only non-blocked tools
-        assert len(metadata["filtered_tool_names"]) == 10
+        assert len(metadata.filtered_tool_names) == 10
 
         # Verify performance (should be < 15ms for 110 tools)
         assert elapsed_ms < 15, f"Filtering took {elapsed_ms}ms, expected < 15ms"
@@ -814,9 +842,19 @@ class TestToolAccessControlEndToEnd:
             {"type": "function", "function": {"name": "any_tool_2"}},
         ]
 
-        filtered_tools, metadata = policy_service.filter_tool_definitions(
+        result = policy_service.filter_tool_definitions(
+
+
             tools, "test-model", None
+
+
         )
+
+
+        filtered_tools = result.filtered_tools
+
+
+        metadata = result.metadata
 
         # All tools should pass through
         assert len(filtered_tools) == len(tools)
@@ -843,20 +881,20 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Test various case combinations
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "delete_file", "test-model", None
         )
-        assert is_allowed is False
+        assert result.is_allowed is False
 
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "DELETE_FILE", "test-model", None
         )
-        assert is_allowed is False
+        assert result.is_allowed is False
 
-        is_allowed, _ = policy_service.is_tool_allowed(
+        result = policy_service.is_tool_allowed(
             "Delete_File", "test-model", None
         )
-        assert is_allowed is False
+        assert result.is_allowed is False
 
     # Test 16: Multiple tool calls in single response
     @pytest.mark.asyncio
@@ -925,4 +963,4 @@ class TestToolAccessControlEndToEnd:
         )
 
         # The blocked tool should be swallowed
-        assert result.metadata["tool_call_swallowed"] is True
+        assert result.metadata.tool_call_swallowed is True

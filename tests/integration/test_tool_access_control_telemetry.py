@@ -146,13 +146,15 @@ class TestToolAccessControlTelemetry:
         ]
 
         # Filter the tools
-        filtered_tools, metadata = policy_service.filter_tool_definitions(
+        result = policy_service.filter_tool_definitions(
             tools, "test-model", None
         )
+        filtered_tools = result.filtered_tools
+        metadata = result.metadata
 
         # Verify some tools were filtered
         assert len(filtered_tools) < len(tools)
-        assert len(metadata["filtered_tool_names"]) > 0
+        assert len(metadata.filtered_tool_names) > 0
 
         # Note: The counter is incremented in request_processor_service.py
         # This test verifies the counter exists and can be incremented
@@ -334,19 +336,16 @@ class TestToolAccessControlTelemetry:
             {"type": "function", "function": {"name": "list_directory"}},
         ]
 
-        filtered_tools, metadata = policy_service.filter_tool_definitions(
+        result = policy_service.filter_tool_definitions(
             tools, "test-model", "test-agent"
         )
+        metadata = result.metadata
 
         # Verify metadata structure
-        assert "policy_applied" in metadata
-        assert metadata["policy_applied"] == "test_policy"
-        assert "original_tool_count" in metadata
-        assert metadata["original_tool_count"] == 3
-        assert "filtered_tool_count" in metadata
-        assert "filtered_tool_names" in metadata
-        assert "evaluation_time_ms" in metadata
-        assert isinstance(metadata["evaluation_time_ms"], float)
+        assert metadata.policy_applied == "test_policy"
+        assert metadata.original_tool_count == 3
+        assert metadata.filtered_tool_names is not None
+        assert isinstance(metadata.evaluation_time_ms, float)
 
     @pytest.mark.asyncio
     async def test_telemetry_stats_structure(self, reactor_service):

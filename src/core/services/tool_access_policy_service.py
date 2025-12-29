@@ -9,10 +9,44 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import BaseModel, Field
 from src.core.common.logging_utils import get_logger
 from src.core.config.app_config import ToolCallReactorConfig
 
 logger = get_logger(__name__)
+
+
+class ToolFilterMetadata(BaseModel):
+    """Metadata for tool filtering operations."""
+
+    policy_applied: str | None = None
+    original_tool_count: int = 0
+    filtered_tool_names: list[str] = Field(default_factory=list)
+    filtered_tool_count: int = 0
+    evaluation_time_ms: float = 0.0
+
+
+class ToolFilterResult(BaseModel):
+    """Result of filtering tool definitions."""
+
+    filtered_tools: list[dict[str, Any]]
+    metadata: ToolFilterMetadata
+
+
+class ToolCheckMetadata(BaseModel):
+    """Metadata for tool access check operations."""
+
+    policy_applied: str | None = None
+    tool_name: str = ""
+    reason: str = ""
+    evaluation_time_ms: float = 0.0
+
+
+class ToolCheckResult(BaseModel):
+    """Result of checking if a tool is allowed."""
+
+    is_allowed: bool
+    metadata: ToolCheckMetadata
 
 
 @dataclass
@@ -292,7 +326,7 @@ class ToolAccessPolicyService:
         tools: list[dict[str, Any]],
         model_name: str,
         agent: str | None = None,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    ) -> ToolFilterResult:
         """Filter tool definitions based on policies.
 
         Args:
@@ -301,8 +335,7 @@ class ToolAccessPolicyService:
             agent: Optional agent identifier
 
         Returns:
-            Tuple of (filtered_tools, metadata) where metadata contains
-            policy information for observability.
+            ToolFilterResult containing filtered tools and metadata.
         """
         import time
 
@@ -310,18 +343,17 @@ class ToolAccessPolicyService:
 
         policy = self._select_policy(model_name, agent)
 
-        metadata: dict[str, Any] = {
-            "policy_applied": policy.name if policy else None,
-            "original_tool_count": len(tools),
-            "filtered_tool_names": [],
-        }
+        metadata = ToolFilterMetadata(
+            policy_applied=policy.name if policy else None,
+            original_tool_count=len(tools),
+        )
 
         if not policy:
-            metadata["filtered_tool_count"] = len(tools)
+            metadata.filtered_tool_count = len(tools)
             elapsed_ms = (time.perf_counter() - start_time) * 1000
-            metadata["evaluation_time_ms"] = elapsed_ms
+            metadata.evaluation_time_ms = elapsed_ms
             self._record_evaluation_time(elapsed_ms)
-            return tools, metadata
+            return ToolFilterResult(filtered_tools=tools, metadata=metadata)
 
         filtered_tools: list[dict[str, Any]] = []
         filtered_names: list[str] = []
@@ -333,11 +365,11 @@ class ToolAccessPolicyService:
             elif tool_name:
                 filtered_names.append(tool_name)
 
-        metadata["filtered_tool_count"] = len(filtered_tools)
-        metadata["filtered_tool_names"] = filtered_names
+        metadata.filtered_tool_count = len(filtered_tools)
+        metadata.filtered_tool_names = filtered_names
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
-        metadata["evaluation_time_ms"] = elapsed_ms
+        metadata.evaluation_time_ms = elapsed_ms
         self._record_evaluation_time(elapsed_ms)
 
         if filtered_names:
@@ -354,14 +386,14 @@ class ToolAccessPolicyService:
         if logger.is_enabled_for(logging.DEBUG):
             logger.debug(f"Policy evaluation time: {elapsed_ms:.3f}ms")
 
-        return filtered_tools, metadata
+        return ToolFilterResult(filtered_tools=filtered_tools, metadata=metadata)
 
     def is_tool_allowed(
         self,
         tool_name: str,
         model_name: str,
         agent: str | None = None,
-    ) -> tuple[bool, dict[str, Any]]:
+    ) -> ToolCheckResult:
         """Check if a tool is allowed by policies.
 
         Args:
@@ -370,8 +402,7 @@ class ToolAccessPolicyService:
             agent: Optional agent identifier
 
         Returns:
-            Tuple of (is_allowed, metadata) where metadata contains
-            the matched policy and reason.
+            ToolCheckResult containing is_allowed flag and metadata.
         """
         import time
 
@@ -379,31 +410,31 @@ class ToolAccessPolicyService:
 
         policy = self._select_policy(model_name, agent)
 
-        metadata: dict[str, Any] = {
-            "policy_applied": policy.name if policy else None,
-            "tool_name": tool_name,
-        }
+        metadata = ToolCheckMetadata(
+            policy_applied=policy.name if policy else None,
+            tool_name=tool_name,
+        )
 
         if not policy:
-            metadata["reason"] = "no_policy_matched"
+            metadata.reason = "no_policy_matched"
             elapsed_ms = (time.perf_counter() - start_time) * 1000
-            metadata["evaluation_time_ms"] = elapsed_ms
+            metadata.evaluation_time_ms = elapsed_ms
             self._record_evaluation_time(elapsed_ms)
-            return True, metadata
+            return ToolCheckResult(is_allowed=True, metadata=metadata)
 
         is_allowed = policy.is_tool_allowed(tool_name)
-        metadata["reason"] = "allowed" if is_allowed else "blocked"
+        metadata.reason = "allowed" if is_allowed else "blocked"
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
-        metadata["evaluation_time_ms"] = elapsed_ms
+        metadata.evaluation_time_ms = elapsed_ms
         self._record_evaluation_time(elapsed_ms)
 
         if logger.is_enabled_for(logging.DEBUG):
             logger.debug(
-                f"Policy evaluation for '{tool_name}': {metadata['reason']} in {elapsed_ms:.3f}ms"
+                f"Policy evaluation for '{tool_name}': {metadata.reason} in {elapsed_ms:.3f}ms"
             )
 
-        return is_allowed, metadata
+        return ToolCheckResult(is_allowed=is_allowed, metadata=metadata)
 
     def get_block_message(
         self,
