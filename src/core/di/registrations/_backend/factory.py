@@ -52,7 +52,7 @@ def register_backend_factory(
                 )
 
                 endpoint_registry = provider.get_service(EndpointRegistry)
-            except Exception as e:
+            except Exception:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to resolve EndpointRegistry for BackendFactory; proceeding without health checks",
@@ -68,7 +68,7 @@ def register_backend_factory(
                 )
 
                 backend_notifier = provider.get_service(BackendHealthNotifier)
-            except Exception as e:
+            except Exception:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to resolve BackendHealthNotifier for BackendFactory; proceeding without health notifications",
@@ -84,7 +84,7 @@ def register_backend_factory(
                 )
 
                 activity_tracker = provider.get_service(ConnectionActivityTracker)
-            except Exception as e:
+            except Exception:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to resolve ConnectionActivityTracker for BackendFactory; proceeding without activity tracking",
@@ -122,7 +122,7 @@ def register_backend_factory(
             logger.debug("Registered backend factory with dependencies")
     except ImportError as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Could not register backend factory: {e}")
+            logger.warning("Could not register backend factory: %s", e)
 
 
 def register_backend_config_provider(services: ServiceCollection) -> None:
@@ -155,4 +155,4 @@ def register_backend_config_provider(services: ServiceCollection) -> None:
             logger.debug("Registered backend config provider")
     except ImportError as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Could not register backend config provider: {e}")
+            logger.warning("Could not register backend config provider: %s", e)
