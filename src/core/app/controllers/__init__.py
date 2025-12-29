@@ -1131,7 +1131,11 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                                 if gemini_format:
                                     yield f"data: {json.dumps(gemini_format)}\n\n".encode()
                             except Exception as chunk_error:
-                                logger.error(f"Error processing chunk: {chunk_error}")
+                                logger.error(
+                                    "Error processing chunk: %s",
+                                    chunk_error,
+                                    exc_info=True,
+                                )
                                 # Send error message as a chunk
                                 error_format = {
                                     "error": {

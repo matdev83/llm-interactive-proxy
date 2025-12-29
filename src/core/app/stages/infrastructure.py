@@ -66,8 +66,14 @@ class InfrastructureStage(InitializationStage):
                             loop.run_until_complete(self._http_client.aclose())
                     except (RuntimeError, AttributeError):
                         pass
-            except Exception:
-                pass
+            except Exception as e:
+                # Log cleanup errors for debugging, but don't raise in destructor
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Exception during InfrastructureStage cleanup: %s",
+                        e,
+                        exc_info=True,
+                    )
 
     @property
     def name(self) -> str:

@@ -177,7 +177,7 @@ class ToolExecutionService(IToolExecutionService):
                 session_id=session_id,
                 details={"missing_parameters": ["tool_name"]},
             )
-            logger.error(str(error))
+            logger.error("MCP tool execution error: %s", error, exc_info=True)
             return ToolExecutionResult(
                 success=False,
                 result="",
@@ -197,7 +197,7 @@ class ToolExecutionService(IToolExecutionService):
                 error_code=CompatibilityErrorCode.MCP_UNAVAILABLE,
                 session_id=session_id,
             )
-            logger.error(str(error))
+            logger.error("MCP tool execution error: %s", error, exc_info=True)
             return ToolExecutionResult(
                 success=False,
                 result="",
@@ -228,7 +228,7 @@ class ToolExecutionService(IToolExecutionService):
                     session_id=session_id,
                     details={"connection_error": str(conn_error)},
                 )
-                logger.error(str(error))
+                logger.error("MCP tool execution error: %s", error, exc_info=True)
                 return ToolExecutionResult(
                     success=False,
                     result="",
@@ -248,7 +248,11 @@ class ToolExecutionService(IToolExecutionService):
                         )
                     except Exception as e:
                         if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug("Could not retrieve MCP tool schema: %s", e, exc_info=True)
+                            logger.debug(
+                                "Could not retrieve MCP tool schema: %s",
+                                e,
+                                exc_info=True,
+                            )
 
                 # Translate parameters
                 if mcp_schema:
@@ -278,7 +282,7 @@ class ToolExecutionService(IToolExecutionService):
                     error_code=CompatibilityErrorCode.MCP_TIMEOUT,
                     session_id=session_id,
                 )
-                logger.error(str(error))
+                logger.error("MCP tool execution error: %s", error, exc_info=True)
                 return ToolExecutionResult(
                     success=False,
                     result="",
@@ -293,7 +297,7 @@ class ToolExecutionService(IToolExecutionService):
                     session_id=session_id,
                     details={"mcp_error": str(e)},
                 )
-                logger.error(str(error))
+                logger.error("MCP tool execution error: %s", error, exc_info=True)
                 return ToolExecutionResult(
                     success=False,
                     result="",
