@@ -428,7 +428,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                 exc,
                 exc_info=True,
             )
-        except Exception as exc:
+        except (TypeError, RuntimeError) as exc:
             logger.warning(
                 "Unexpected error checking pytest_compression_enabled on session state: %s",
                 exc,
@@ -475,7 +475,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                     actual_command,
                     command_name,
                 )
-        except Exception as exc:
+        except (AttributeError, TypeError, ValueError, IndexError) as exc:
             logger.debug(
                 "Error extracting pytest command from message: %s",
                 exc,
@@ -510,7 +510,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                     exc_info=True,
                 )
                 session_min_lines = None
-            except Exception as exc:
+            except (TypeError, RuntimeError) as exc:
                 logger.warning(
                     "Unexpected error accessing pytest_compression_min_lines: %s",
                     exc,
@@ -549,7 +549,7 @@ class AgentResponseFormatter(IAgentResponseFormatter):
                     message_lines,
                     min_lines,
                 )
-        except Exception as exc:
+        except (TypeError, ValueError, RuntimeError, OSError) as exc:
             logger.debug(
                 "Error determining pytest compression threshold, applying compression as fallback: %s",
                 exc,

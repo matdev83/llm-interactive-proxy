@@ -124,7 +124,7 @@ class UniversalMCPClient:
 
             return True
 
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError, TypeError, RuntimeError, KeyError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Failed to connect to MCP server {server_name}: {e}", exc_info=True
@@ -165,7 +165,7 @@ class UniversalMCPClient:
                         f"Discovered MCP tool: {tool_name} from server {server_name}"
                     )
 
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError, KeyError, TypeError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Failed to discover tools from server {server_name}: {e}",
@@ -225,7 +225,7 @@ class UniversalMCPClient:
                 mcp_result=result,
             )
 
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError, KeyError, TypeError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Error executing MCP tool {tool_name}: {e}", exc_info=True
@@ -273,7 +273,7 @@ class UniversalMCPClient:
                 mime_type="text/plain",
             )
 
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError, KeyError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error reading MCP resource {uri}: {e}", exc_info=True)
             raise
@@ -360,7 +360,7 @@ class UniversalMCPClient:
 
                 del self._connected_servers[server_name]
 
-        except Exception as e:
+        except (OSError, RuntimeError, KeyError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Error disconnecting from MCP server {server_name}: {e}",

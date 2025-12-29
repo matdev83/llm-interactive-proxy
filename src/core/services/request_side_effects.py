@@ -99,7 +99,7 @@ class RequestSideEffects(IRequestSideEffects):
                 logger.debug(
                     f"Registered allowed tools for session {session_id}: {allowed_tools}"
                 )
-        except Exception as e:
+        except (AttributeError, TypeError, KeyError, ValueError, RuntimeError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Failed to register allowed tools: {e}", exc_info=True)
 
@@ -109,10 +109,16 @@ class RequestSideEffects(IRequestSideEffects):
                 request = await self._context_injector.maybe_inject_context(
                     session_id, request
                 )
-            except Exception as e:
+            except (AttributeError, TypeError, ValueError, RuntimeError, KeyError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Context injection failed for session %s: %s", session_id, e
+                        "Context injection failed for session %s: %s", session_id, e, exc_info=True
+                    )
+            except Exception as e:
+                # Fallback for any other unexpected exceptions (preserve fail-open behavior)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error during context injection for session %s: %s", session_id, e, exc_info=True
                     )
 
         # Capture user request interactions (before processing)
@@ -124,10 +130,16 @@ class RequestSideEffects(IRequestSideEffects):
                 # Given strict sequentiality requirements for memory (context depends on previous),
                 # awaiting is safer, but capture_request just buffers.
                 await self._memory_capture.capture_request(session_id, request)
-            except Exception as e:
+            except (AttributeError, TypeError, ValueError, RuntimeError, KeyError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Memory capture failed for session %s: %s", session_id, e
+                        "Memory capture failed for session %s: %s", session_id, e, exc_info=True
+                    )
+            except Exception as e:
+                # Fallback for any other unexpected exceptions (preserve fail-open behavior)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error during memory capture for session %s: %s", session_id, e, exc_info=True
                     )
 
         return request
