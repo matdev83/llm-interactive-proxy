@@ -108,7 +108,7 @@ class CoreServicesStage(InitializationStage):
                 implementation_factory=itool_call_repair_factory,
             )
         except ImportError as e:
-            logger.warning("Could not register IToolCallRepairService interface: %s", e)
+            logger.warning("Could not register IToolCallRepairService interface: %s", e, exc_info=True)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -176,7 +176,7 @@ class CoreServicesStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered session repository services")
         except ImportError as e:  # type: ignore[misc]
-            logger.warning("Could not register session repository: %s", e)
+            logger.warning("Could not register session repository: %s", e, exc_info=True)
 
     def _register_session_service(self, services: ServiceCollection) -> None:
         """Register session service with dependency injection."""
@@ -210,7 +210,7 @@ class CoreServicesStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered session service with factory")
         except ImportError as e:  # type: ignore[misc]
-            logger.warning("Could not register session service: %s", e)
+            logger.warning("Could not register session service: %s", e, exc_info=True)
 
     def _register_session_resolver(
         self,
@@ -412,7 +412,7 @@ class CoreServicesStage(InitializationStage):
                 )
 
         except ImportError as e:
-            logger.warning("Could not register activity tracker service: %s", e)
+            logger.warning("Could not register activity tracker service: %s", e, exc_info=True)
 
     def _register_wire_capture_service(self, services: ServiceCollection) -> None:
         """Register wire capture service.
@@ -503,7 +503,7 @@ class CoreServicesStage(InitializationStage):
                         "WireCaptureEosSubscriber not available, skipping registration"
                     )
         except ImportError as e:
-            logger.warning("Could not register wire capture service: %s", e)
+            logger.warning("Could not register wire capture service: %s", e, exc_info=True)
 
     def _register_usage_tracking_services(
         self, services: ServiceCollection, config: AppConfig
@@ -635,7 +635,7 @@ class CoreServicesStage(InitializationStage):
                         "UsageTrackingEosSubscriber not available, skipping registration"
                     )
         except ImportError as e:
-            logger.warning("Could not register usage tracking services: %s", e)
+            logger.warning("Could not register usage tracking services: %s", e, exc_info=True)
 
     def _register_usage_normalization_service(
         self, services: ServiceCollection
@@ -732,5 +732,5 @@ class CoreServicesStage(InitializationStage):
 
             return True
         except ImportError as e:  # type: ignore[misc]
-            logger.error("Core services validation failed: %s", e)
+            logger.error("Core services validation failed: %s", e, exc_info=True)
             return False

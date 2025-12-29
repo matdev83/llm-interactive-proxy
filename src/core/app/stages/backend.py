@@ -81,7 +81,7 @@ class BackendStage(InitializationStage):
                     )
             except ImportError as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to import connectors: %s", e)
+                    logger.warning("Failed to import connectors: %s", e, exc_info=True)
 
             # Validate static_route backend early - fail fast if invalid
             self._validate_static_route_backend(config)
@@ -116,7 +116,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered backend registry instance")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register backend registry: %s", e)
+                logger.warning("Could not register backend registry: %s", e, exc_info=True)
 
     def _register_backend_factory(self, services: ServiceCollection) -> None:
         """Register backend factory with HTTP client dependency."""
@@ -202,7 +202,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered backend factory with dependencies")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register backend factory: %s", e)
+                logger.warning("Could not register backend factory: %s", e, exc_info=True)
 
     def _register_translation_service(self, services: ServiceCollection) -> None:
         """Register translation service."""
@@ -247,7 +247,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered translation service")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register translation service: %s", e)
+                logger.warning("Could not register translation service: %s", e, exc_info=True)
 
     def _register_backend_config_provider(self, services: ServiceCollection) -> None:
         """Register backend configuration provider."""
@@ -273,7 +273,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered backend config provider")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register backend config provider: %s", e)
+                logger.warning("Could not register backend config provider: %s", e, exc_info=True)
 
     def _register_backend_service(self, services: ServiceCollection) -> None:
         """Register main backend service with all dependencies."""
@@ -543,7 +543,7 @@ class BackendStage(InitializationStage):
                 logger.debug("Registered backend service with all dependencies")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register backend service: %s", e)
+                logger.warning("Could not register backend service: %s", e, exc_info=True)
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that backend services can be registered and backends are functional."""

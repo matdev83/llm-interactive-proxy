@@ -300,5 +300,5 @@ class HealthCheckStage(InitializationStage):
             return True
         except ImportError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Health check services validation failed: %s", e)
+                logger.error("Health check services validation failed: %s", e, exc_info=True)
             return False
