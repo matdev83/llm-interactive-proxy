@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import NamedTuple, cast
 
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
@@ -173,7 +174,7 @@ def _register_backend_non_streaming_response_handler(
             cancellation_coordinator = provider.get_service(
                 cast(type, ISessionCancellationCoordinator)
             )
-        except Exception:
+        except (RuntimeError, AttributeError, TypeError, ValueError, ServiceResolutionError):
             # Cancellation coordinator not available (optional dependency)
             # Log unexpected errors during service lookup to aid debugging
             if logger.isEnabledFor(logging.WARNING):

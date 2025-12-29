@@ -500,7 +500,7 @@ class ResponseProcessor(IResponseProcessor):
                 # Reset loop detector state at the beginning of each streaming session
                 if loop_detector is not None:
                     loop_detector.reset()
-            except Exception:
+            except (TypeError, AttributeError, RuntimeError):
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Failed to create loop detector from factory", exc_info=True
