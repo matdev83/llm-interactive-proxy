@@ -672,6 +672,9 @@ def create_sso_router(
                 ),
                 status_code=403,
             )
+        except (KeyboardInterrupt, SystemExit):
+            # Don't interfere with system shutdown signals
+            raise
         except Exception:
             logger.exception("Unexpected error during callback processing")
             return HTMLResponse(
@@ -833,6 +836,9 @@ def create_sso_router(
                     content=_render_error_page("Authorization Error", str(e)),
                     status_code=403,
                 )
+        except (KeyboardInterrupt, SystemExit):
+            # Don't interfere with system shutdown signals
+            raise
         except Exception:
             logger.exception("Error processing confirmation code")
             return HTMLResponse(

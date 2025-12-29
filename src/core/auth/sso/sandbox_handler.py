@@ -6,12 +6,15 @@ responses for unauthenticated users, guiding them through the SSO
 authentication process.
 """
 
+import logging
 import time
 from typing import Any
 
 from pydantic import BaseModel
 
 from src.core.auth.sso.database import TokenRepository
+
+logger = logging.getLogger(__name__)
 
 
 class ChatCompletionMessage(BaseModel):
@@ -95,9 +98,14 @@ class SandboxHandler:
                 )
                 separator = "&" if "?" in base_url else "?"
                 final_url = f"{base_url}{separator}token={token}"
-            except Exception:
+            except Exception as exc:
                 # Fallback to base URL if token generation fails
-                pass
+                # Log with context to aid debugging of token generation issues
+                logger.warning(
+                    "Failed to generate login token, falling back to base URL: %s",
+                    exc,
+                    exc_info=True,
+                )
 
         # Determine if this is re-authentication or new authentication
         if agent_token_id:

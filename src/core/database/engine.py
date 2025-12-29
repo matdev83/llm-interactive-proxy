@@ -158,9 +158,15 @@ class DatabaseEngine:
                 )
                 await session.rollback()
                 raise
-            except Exception:
+            except Exception as exc:
                 # Catch all other exceptions to ensure rollback, then re-raise
                 # This preserves transaction safety for non-SQLAlchemy errors
+                # Log with full context to aid debugging of unexpected errors
+                logger.error(
+                    "Non-SQLAlchemy error in database session, rolling back: %s",
+                    exc,
+                    exc_info=True,
+                )
                 await session.rollback()
                 raise
 
