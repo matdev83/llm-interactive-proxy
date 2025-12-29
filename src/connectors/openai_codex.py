@@ -47,7 +47,6 @@ from src.connectors._openai_codex_session_detector import SessionDetector
 from src.connectors.base import add_vendor_prefix, strip_vendor_prefix
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex.compat import CompatibilityLayer
-from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.connectors.openai_codex.contracts import (
     CodexConnectorDependencies,
     CodexConnectorSettings,
@@ -1087,7 +1086,8 @@ class OpenAICodexConnector(OpenAIConnector):
                 tool_results = compat_result.tool_results
                 payload_messages = context.processed_messages
             except Exception as exc:
-                logger.debug("Compatibility layer apply failed: %s", exc)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Compatibility layer apply failed: %s", exc)
 
         payload, conversation_id = self._build_codex_payload(
             request_data,
@@ -1121,7 +1121,8 @@ class OpenAICodexConnector(OpenAIConnector):
                     continue
                 payload_tools.append(schema)
                 existing_names.add(schema_name)
-                logger.debug("Added Codex-side tool %s to payload", schema_name)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Added Codex-side tool %s to payload", schema_name)
 
         headers = self._build_codex_headers(conversation_id)
         url = "https://chatgpt.com/backend-api/codex/responses"
@@ -1260,9 +1261,10 @@ class OpenAICodexConnector(OpenAIConnector):
                                     processed_chunk
                                 ):
                                     restart_stream = True
-                                    logger.info(
-                                        "Codex streaming chunk reported authentication failure; attempting token refresh."
-                                    )
+                                    if logger.isEnabledFor(logging.INFO):
+                                        logger.info(
+                                            "Codex streaming chunk reported authentication failure; attempting token refresh."
+                                        )
                                     break
 
                                 if self._compatibility_layer and compatibility_state:
@@ -1279,23 +1281,39 @@ class OpenAICodexConnector(OpenAIConnector):
                                             else translated
                                         )
                                         # Ensure processed_chunk is ProcessedResponse
-                                        if not isinstance(processed_chunk, ProcessedResponse):
+                                        if not isinstance(
+                                            processed_chunk, ProcessedResponse
+                                        ):
                                             # Wrap in ProcessedResponse if needed
                                             processed_chunk = ProcessedResponse(
-                                                content=processed_chunk if isinstance(processed_chunk, (dict, str, bytes)) else str(processed_chunk)
+                                                content=(
+                                                    processed_chunk
+                                                    if isinstance(
+                                                        processed_chunk,
+                                                        (dict, str, bytes),
+                                                    )
+                                                    else str(processed_chunk)
+                                                )
                                             )
                                     except Exception as exc:
-                                        logger.debug(
-                                            "Compatibility layer translation failed: %s",
-                                            exc,
-                                        )
+                                        if logger.isEnabledFor(logging.DEBUG):
+                                            logger.debug(
+                                                "Compatibility layer translation failed: %s",
+                                                exc,
+                                            )
 
                                 # Ensure we yield ProcessedResponse
                                 if isinstance(processed_chunk, ProcessedResponse):
                                     yield processed_chunk
                                 else:
                                     yield ProcessedResponse(
-                                        content=processed_chunk if isinstance(processed_chunk, (dict, str, bytes)) else str(processed_chunk)
+                                        content=(
+                                            processed_chunk
+                                            if isinstance(
+                                                processed_chunk, (dict, str, bytes)
+                                            )
+                                            else str(processed_chunk)
+                                        )
                                     )
 
                         if restart_stream:
@@ -1394,7 +1412,10 @@ class OpenAICodexConnector(OpenAIConnector):
                 if is_kilocode and tool_results:
                     if stream_val:
                         from collections.abc import AsyncIterator
-                        if hasattr(response, "content") and isinstance(response.content, AsyncIterator):
+
+                        if hasattr(response, "content") and isinstance(
+                            response.content, AsyncIterator
+                        ):
                             formatted_stream = self._format_kilo_stream_response(
                                 response.content, tool_results  # type: ignore[arg-type]
                             )
@@ -1479,7 +1500,8 @@ class OpenAICodexConnector(OpenAIConnector):
         self.is_functional = True
         self._credential_validation_errors = []
         self._last_validation_time = time.time()
-        logger.info("OpenAI Codex backend recovered")
+        if logger.isEnabledFor(logging.INFO):
+            logger.info("OpenAI Codex backend recovered")
 
     # -----------------------------
     # Validation methods (stale token handling pattern)
@@ -1534,7 +1556,8 @@ class OpenAICodexConnector(OpenAIConnector):
         if os.environ.get("PYTEST_CURRENT_TEST") and os.environ.get(
             "ENABLE_CODEX_FILE_WATCH", ""
         ).lower() not in {"1", "true", "yes"}:
-            logger.debug("Skipping OpenAI Codex credentials watcher under pytest.")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Skipping OpenAI Codex credentials watcher under pytest.")
             return
         if self._auth_path is None or self._file_observer is not None:
             return
@@ -1546,14 +1569,16 @@ class OpenAICodexConnector(OpenAIConnector):
             watch_dir = self._auth_path.parent
             self._file_observer.schedule(handler, str(watch_dir), recursive=False)
             self._file_observer.start()
-            logger.debug(
-                "Started watching OpenAI Codex credentials directory: %s", watch_dir
-            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Started watching OpenAI Codex credentials directory: %s", watch_dir
+                )
         except Exception as exc:
-            logger.warning(
-                "Failed to start file watching for OpenAI Codex credentials: %s",
-                exc,
-            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to start file watching for OpenAI Codex credentials: %s",
+                    exc,
+                )
 
     def _stop_file_watching(self) -> None:
         observer = self._file_observer
@@ -1569,12 +1594,14 @@ class OpenAICodexConnector(OpenAIConnector):
 
             # Verify thread stopped (safe check for BaseObserver which extends Thread)
             if hasattr(observer, "is_alive") and observer.is_alive():  # type: ignore
-                logger.warning(
-                    "OpenAI Codex file watcher thread did not stop within timeout. "
-                    "This may cause issues in parallel test execution."
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "OpenAI Codex file watcher thread did not stop within timeout. "
+                        "This may cause issues in parallel test execution."
+                    )
         except Exception as exc:
-            logger.debug("Error stopping OpenAI Codex file watcher: %s", exc)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Error stopping OpenAI Codex file watcher: %s", exc)
 
     def _schedule_credentials_reload(self) -> None:
         if self._shutdown_requested.is_set():
