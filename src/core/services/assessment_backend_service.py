@@ -8,7 +8,7 @@ abstracting backend-specific details and providing structured output.
 import json
 import logging
 
-from src.core.common.logging_utils import get_logger, is_log_level_enabled
+from src.core.common.logging_utils import get_logger
 from src.core.domain.assessment import AssessmentRequest, LLMAssessmentResponse
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
@@ -63,7 +63,7 @@ class AssessmentBackendService(IAssessmentBackendService):
             # Create chat request for assessment
             chat_request = self._create_chat_request(request)
 
-            if is_log_level_enabled(logger, logging.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     f"Performing assessment for session {request.session_id} "
                     f"using {self.config.backend}/{self.config.model}"
@@ -81,7 +81,7 @@ class AssessmentBackendService(IAssessmentBackendService):
                 content = str(response)
             assessment_data = self._parse_json_response(content)
 
-            if is_log_level_enabled(logger, logging.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     f"Assessment completed for session {request.session_id}: "
                     f"confidence={assessment_data.confidence}"
@@ -153,14 +153,14 @@ class AssessmentBackendService(IAssessmentBackendService):
                 content = str(response)
             json.loads(content)
 
-            if is_log_level_enabled(logger, logging.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     f"Assessment backend health check passed for {self.config.backend}"
                 )
             return True
 
         except Exception as e:
-            if is_log_level_enabled(logger, logging.WARNING):
+            if logger.isEnabledFor(logging.WARNING):
                 logger.warning(f"Assessment backend health check failed: {e}")
             return False
 
