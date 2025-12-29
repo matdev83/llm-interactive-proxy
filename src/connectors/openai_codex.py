@@ -1986,8 +1986,25 @@ class OpenAICodexConnector(OpenAIConnector):
 
             return result
 
-        except Exception:
+        except asyncio.CancelledError:
+            # Ensure cleanup even if parent is cancelled
+            if self._compatibility_layer and compatibility_state:
+                try:
+                    await self._compatibility_layer.cleanup_state(compatibility_state)
+                except Exception as exc:
+                    logger.debug(
+                        "Failed to cleanup compatibility state during cancellation: %s",
+                        exc,
+                    )
+            raise
+        except Exception as e:
             # Ensure cleanup even if parent fails
+            # Log the outer exception for debugging before ensuring cleanup
+            logger.debug(
+                "Exception in _handle_non_streaming_response, ensuring cleanup: %s",
+                e,
+                exc_info=True,
+            )
             if self._compatibility_layer and compatibility_state:
                 try:
                     await self._compatibility_layer.cleanup_state(compatibility_state)

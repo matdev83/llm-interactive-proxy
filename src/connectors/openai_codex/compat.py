@@ -561,7 +561,20 @@ class CompatibilityLayer(ICompatibilityLayer):
                             message.tool_calls = []
                         try:
                             tool_call_obj = ToolCall.model_validate(tool_call_entry)
-                        except Exception:
+                        except (ValueError, TypeError) as e:
+                            # Expected validation errors - fallback to cast
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "ToolCall validation failed, using cast fallback: %s", e
+                                )
+                            tool_call_obj = cast(ToolCall, tool_call_entry)
+                        except Exception as e:
+                            # Unexpected exception during validation (including pydantic ValidationError)
+                            logger.warning(
+                                "Unexpected error validating ToolCall, using cast fallback: %s",
+                                e,
+                                exc_info=True,
+                            )
                             tool_call_obj = cast(ToolCall, tool_call_entry)
                         message.tool_calls.append(tool_call_obj)
                     elif isinstance(message, dict):

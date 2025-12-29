@@ -255,7 +255,16 @@ class ProjectDirectoryResolutionService:
                 if path_type in ("windows", "unc")
                 else PurePosixPath(path)
             )
-        except Exception:
+        except (ValueError, TypeError) as e:
+            # Invalid path format - expected for malformed input
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Invalid path format in _is_valid_project_path: %s", e)
+            return False
+        except Exception as e:
+            # Unexpected exception during path parsing
+            logger.warning(
+                "Unexpected error parsing path in _is_valid_project_path: %s", e, exc_info=True
+            )
             return False
 
         parts = pure_path.parts
@@ -279,7 +288,16 @@ class ProjectDirectoryResolutionService:
         )
         try:
             parts_lists = [path_class(directory).parts for directory in directories]
-        except Exception:
+        except (ValueError, TypeError) as e:
+            # Invalid path format - expected for malformed input
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Invalid path format in _longest_common_directory: %s", e)
+            return None
+        except Exception as e:
+            # Unexpected exception during path parsing
+            logger.warning(
+                "Unexpected error parsing paths in _longest_common_directory: %s", e, exc_info=True
+            )
             return None
 
         min_length = min(len(parts) for parts in parts_lists)
@@ -319,7 +337,16 @@ class ProjectDirectoryResolutionService:
                 else PurePosixPath(directory)
             )
             return len(pure_path.parts)
-        except Exception:
+        except (ValueError, TypeError) as e:
+            # Invalid path format - expected for malformed input
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Invalid path format in _score_path_candidate: %s", e)
+            return 0
+        except Exception as e:
+            # Unexpected exception during path parsing
+            logger.warning(
+                "Unexpected error parsing path in _score_path_candidate: %s", e, exc_info=True
+            )
             return 0
 
     def _looks_like_path_list_line(self, line: str) -> bool:
@@ -369,7 +396,16 @@ class ProjectDirectoryResolutionService:
                 if name.startswith(".") and name not in {".", ".."}:
                     return True
             return False
-        except Exception:
+        except (OSError, PermissionError) as e:
+            # Expected filesystem errors
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Filesystem error in _has_hidden_files: %s", e)
+            return None
+        except Exception as e:
+            # Unexpected exception during directory inspection
+            logger.warning(
+                "Unexpected error checking for hidden files: %s", e, exc_info=True
+            )
             return None
 
     def _find_absolute_path_in_prompt(self, prompt_text: str) -> str | None:
@@ -507,7 +543,16 @@ class ProjectDirectoryResolutionService:
                 else PurePosixPath(path)
             )
             return list(pure_path.parts)
-        except Exception:
+        except (ValueError, TypeError) as e:
+            # Invalid path format - expected for malformed input
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Invalid path format in _get_path_parts: %s", e)
+            return []
+        except Exception as e:
+            # Unexpected exception during path parsing
+            logger.warning(
+                "Unexpected error parsing path in _get_path_parts: %s", e, exc_info=True
+            )
             return []
 
     def _extract_directory_from_path(self, path: str) -> str:
@@ -789,7 +834,14 @@ class ProjectDirectoryResolutionService:
         if isinstance(content, bytes):
             try:
                 return content.decode("utf-8")
-            except Exception:
+            except UnicodeDecodeError:
+                # Expected for non-UTF-8 content, fallback to ignore errors
+                return content.decode("utf-8", "ignore")
+            except Exception as e:
+                # Unexpected exception during decoding
+                logger.warning(
+                    "Unexpected error decoding response content: %s", e, exc_info=True
+                )
                 return content.decode("utf-8", "ignore")
         if isinstance(content, str):
             return content
