@@ -2,9 +2,33 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from functools import lru_cache
 
+from pydantic import BaseModel, Field
+
 logger = logging.getLogger(__name__)
+
+
+class EditPrecisionPatternsConfig(BaseModel):
+    """Configuration for edit precision patterns loaded from YAML."""
+
+    request_patterns: list[str] = Field(
+        default_factory=list,
+        description="Patterns for request messages that may indicate low precision",
+    )
+    response_patterns: list[str] = Field(
+        default_factory=list,
+        description="Patterns for response messages that may indicate low precision",
+    )
+
+
+@dataclass(frozen=True)
+class EditPrecisionPatterns:
+    """Edit precision patterns extracted from config or defaults."""
+
+    request_patterns: list[str]
+    response_patterns: list[str]
 
 try:
     import yaml  # type: ignore
@@ -42,13 +66,15 @@ DEFAULT_RESPONSE_PATTERNS: list[str] = [
 ]
 
 
-def _load_yaml(path: str) -> dict | None:
+def _load_yaml(path: str) -> EditPrecisionPatternsConfig | None:
     if not yaml:
         return None
     try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
-            return data if isinstance(data, dict) else None
+            if isinstance(data, dict):
+                return EditPrecisionPatternsConfig(**data)
+            return None
     except (FileNotFoundError, PermissionError, OSError, yaml.YAMLError) as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
@@ -66,22 +92,10 @@ def _load_patterns() -> tuple[list[str], list[str]]:
         "EDIT_PRECISION_PATTERNS_PATH",
         os.path.join("config", "edit_precision_patterns.yaml"),
     )
-    data = _load_yaml(path)
-    if not data:
+    config = _load_yaml(path)
+    if not config:
         return DEFAULT_REQUEST_PATTERNS, DEFAULT_RESPONSE_PATTERNS
-    req = data.get("request_patterns")
-    resp = data.get("response_patterns")
-    req_list = (
-        req
-        if isinstance(req, list) and all(isinstance(x, str) for x in req)
-        else DEFAULT_REQUEST_PATTERNS
-    )
-    resp_list = (
-        resp
-        if isinstance(resp, list) and all(isinstance(x, str) for x in resp)
-        else DEFAULT_RESPONSE_PATTERNS
-    )
-    return list(req_list), list(resp_list)
+    return list(config.request_patterns), list(config.response_patterns)
 
 
 def get_request_patterns() -> list[str]:

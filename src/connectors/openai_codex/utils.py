@@ -124,7 +124,13 @@ def to_mapping(candidate: Any) -> dict[str, Any] | None:
             dumped = candidate.model_dump()
             if isinstance(dumped, Mapping):
                 return dict(dumped)
-        except Exception:
+        except (TypeError, AttributeError, ValueError) as e:
+            logger.debug(
+                "Failed to convert model_dump result to mapping: %s (type=%s)",
+                str(e),
+                type(e).__name__,
+                exc_info=True,
+            )
             return None
     if hasattr(candidate, "__dict__"):
         return dict(candidate.__dict__)

@@ -9,12 +9,21 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class RateLimit:
+    """Rate limit configuration."""
+
+    limit: int
+    time_window: int
 
 
 class InMemoryRateLimiter(IRateLimiter):
@@ -35,7 +44,7 @@ class InMemoryRateLimiter(IRateLimiter):
         self._usage_last_access: dict[str, float] = (
             {}
         )  # Track last access time for cleanup
-        self._limits: dict[str, tuple[int, int]] = {}  # Dict[str, (int, int)]
+        self._limits: dict[str, RateLimit] = {}  # Dict[str, RateLimit]
         self._limits_last_access: dict[str, float] = (
             {}
         )  # Track last access time for cleanup
@@ -75,8 +84,10 @@ class InMemoryRateLimiter(IRateLimiter):
         # Get the timestamps of previous usages
         timestamps = self._usage.get(key, [])
 
-        # Get the limits for this key (or use defaults)
-        limit, time_window = self._get_limits(key)
+        # Get limits for this key (or use defaults)
+        rate_limit = self._get_limits(key)
+        limit = rate_limit.limit
+        time_window = rate_limit.time_window
 
         # Filter out timestamps that are outside the time window
         cutoff = now - time_window
@@ -177,7 +188,9 @@ class InMemoryRateLimiter(IRateLimiter):
         # This prevents unbounded list growth when record_usage() is called frequently
         # without check_limit() being called to clean up expired timestamps
         timestamps = self._usage.get(key, [])
-        limit, time_window = self._get_limits(key)
+        rate_limit = self._get_limits(key)
+        limit = rate_limit.limit
+        time_window = rate_limit.time_window
 
         if timestamps:
             cutoff = now - time_window
@@ -245,7 +258,7 @@ class InMemoryRateLimiter(IRateLimiter):
         if len(self._limits) >= self._max_limits and key not in self._limits:
             await self._evict_oldest_limit_locked(now)
 
-        self._limits[key] = (limit, time_window)
+        self._limits[key] = RateLimit(limit=limit, time_window=time_window)
         self._limits_last_access[key] = now
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(f"Set custom rate limit for {key}: {limit}/{time_window}s")
@@ -268,19 +281,22 @@ class InMemoryRateLimiter(IRateLimiter):
                     datetime.fromtimestamp(new_expiry).isoformat(),
                 )
 
-    def _get_limits(self, key: str) -> tuple[int, int]:
+    def _get_limits(self, key: str) -> RateLimit:
         """Get the limits for a key (or default if not set).
 
         Args:
             key: The key to get limits for
 
         Returns:
-            A tuple of (limit, time_window)
+            RateLimit object with limit and time_window
         """
         if key in self._limits:
             # Track access time for cleanup
             self._limits_last_access[key] = time.time()
-        return self._limits.get(key, (self._default_limit, self._default_time_window))
+        rate_limit = self._limits.get(
+            key, RateLimit(limit=self._default_limit, time_window=self._default_time_window)
+        )
+        return rate_limit
 
     async def _cleanup_unused_limits_locked(self, now: float) -> None:
         """Remove unused limits that haven't been accessed recently.

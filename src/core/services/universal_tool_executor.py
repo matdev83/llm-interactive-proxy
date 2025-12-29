@@ -942,8 +942,8 @@ class UniversalToolExecutor:
         """
         schemas = []
 
-        # Add MCP tool schemas
-        schemas.extend(self.mcp_client.get_tool_schemas())
+        # Add MCP tool schemas (convert from models to dicts for backward compatibility)
+        schemas.extend([schema.model_dump() for schema in self.mcp_client.get_tool_schemas()])
 
         # Note: Built-in tools don't need schemas as they're handled internally
         # The tool discovery should come from the actual backend/client capabilities

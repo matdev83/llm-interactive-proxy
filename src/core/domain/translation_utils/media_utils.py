@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 import mimetypes
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _detect_image_mime_type(url: str) -> str:
@@ -55,7 +58,14 @@ def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
         from urllib.parse import urlparse
 
         scheme = (urlparse(url_str).scheme or "").lower()
-    except Exception:
+    except (ValueError, TypeError) as e:
+        logger.debug(
+            "Failed to parse URL scheme from %s: %s (type=%s)",
+            url_str,
+            str(e),
+            type(e).__name__,
+            exc_info=True,
+        )
         scheme = ""
 
     allowed_schemes = {"http", "https"}

@@ -309,14 +309,14 @@ class UniversalMCPClient:
         """
         return list(self._discovered_tools.values())
 
-    def get_tool_schemas(self) -> list[dict[str, Any]]:
+    def get_tool_schemas(self) -> list[OpenAIFunctionSchema]:
         """Get OpenAI-compatible schemas for all available MCP tools.
 
         Returns:
             List of OpenAI function schemas
         """
         return [
-            tool.to_openai_schema().model_dump()
+            tool.to_openai_schema()
             for tool in self._discovered_tools.values()
         ]
 

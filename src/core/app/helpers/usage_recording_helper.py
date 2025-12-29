@@ -7,6 +7,7 @@ usage metrics at appropriate points in the request/response flow.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -16,6 +17,14 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ExtractedToolCalls:
+    """Extracted tool call information from a response."""
+
+    count: int
+    names: list[str]
 
 
 async def record_request_usage(
@@ -145,14 +154,14 @@ async def record_response_usage(
             logger.warning("Failed to record response usage: %s", e, exc_info=True)
 
 
-def extract_tool_calls_from_response(response: Any) -> tuple[int, list[str]]:
+def extract_tool_calls_from_response(response: Any) -> ExtractedToolCalls:
     """Extract tool call information from a response.
 
     Args:
         response: The response object (domain model or dict)
 
     Returns:
-        Tuple of (tool_call_count, tool_names)
+        ExtractedToolCalls object with count and names
     """
     tool_call_count = 0
     tool_names: list[str] = []
@@ -195,7 +204,7 @@ def extract_tool_calls_from_response(response: Any) -> tuple[int, list[str]]:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning("Failed to extract tool calls from response: %s", e)
 
-    return tool_call_count, tool_names
+    return ExtractedToolCalls(count=tool_call_count, names=tool_names)
 
 
 def extract_backend_reported_usage(response: Any) -> OpenRouterUsage | None:

@@ -12,6 +12,7 @@ from src.core.interfaces.rate_limiter_interface import RateLimitInfo
 from src.core.services.rate_limiter import (
     ConfigurableRateLimiter,
     InMemoryRateLimiter,
+    RateLimit,
     create_rate_limiter,
 )
 
@@ -215,7 +216,7 @@ class TestInMemoryRateLimiter:
 
         # Check internal state
         assert key in rate_limiter._limits
-        assert rate_limiter._limits[key] == (100, 120)
+        assert rate_limiter._limits[key] == RateLimit(limit=100, time_window=120)
 
     @pytest.mark.asyncio
     async def test_set_limit_overwrites(
@@ -226,11 +227,13 @@ class TestInMemoryRateLimiter:
 
         # Set initial limits
         await rate_limiter.set_limit(key, limit=50, time_window=60)
-        assert rate_limiter._limits[key] == (50, 60)
-
+        assert rate_limiter._limits[key].limit == 50
+        assert rate_limiter._limits[key].time_window == 60
+    
         # Overwrite with new limits
         await rate_limiter.set_limit(key, limit=200, time_window=300)
-        assert rate_limiter._limits[key] == (200, 300)
+        assert rate_limiter._limits[key].limit == 200
+        assert rate_limiter._limits[key].time_window == 300
 
     @pytest.mark.asyncio
     async def test_custom_limits_applied(
@@ -378,12 +381,14 @@ class TestInMemoryRateLimiter:
 
         # Test default limits
         limits = rate_limiter._get_limits(key)
-        assert limits == (10, 60)
+        assert limits.limit == 10
+        assert limits.time_window == 60
 
         # Set custom limits
         await rate_limiter.set_limit(key, limit=20, time_window=120)
         limits = rate_limiter._get_limits(key)
-        assert limits == (20, 120)
+        assert limits.limit == 20
+        assert limits.time_window == 120
 
 
 class TestConfigurableRateLimiter:
