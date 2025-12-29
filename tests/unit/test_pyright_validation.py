@@ -35,6 +35,13 @@ def _calculate_directory_hash(directory: Path) -> str:
     except OSError:
         pass
 
+    for path in sorted(directory.rglob("*.py")):
+        try:
+            file_stat = path.stat()
+        except OSError:
+            continue
+        hasher.update(f"{path.as_posix()}:{file_stat.st_mtime_ns}".encode())
+
     return hasher.hexdigest()
 
 

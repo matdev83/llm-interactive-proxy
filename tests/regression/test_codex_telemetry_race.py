@@ -79,13 +79,17 @@ def test_concurrent_detection_recording():
     summary = telemetry.get_metrics_summary()
 
     expected_total = num_threads * events_per_thread
-    assert summary.detection.total == expected_total, (
-        f"Expected {expected_total} detections, got {summary.detection.total}"
-    )
+    assert (
+        summary.detection.total == expected_total
+    ), f"Expected {expected_total} detections, got {summary.detection.total}"
 
-    assert summary.detection.by_method["metadata"] > 0, "Should have metadata detections"
+    assert (
+        summary.detection.by_method["metadata"] > 0
+    ), "Should have metadata detections"
     assert summary.detection.by_method["header"] > 0, "Should have header detections"
-    assert summary.detection.by_method["heuristic"] > 0, "Should have heuristic detections"
+    assert (
+        summary.detection.by_method["heuristic"] > 0
+    ), "Should have heuristic detections"
 
 
 def test_concurrent_translation_recording():
@@ -133,9 +137,9 @@ def test_concurrent_translation_recording():
     summary = telemetry.get_metrics_summary()
 
     expected_total = num_threads * events_per_thread
-    assert summary.translation.total == expected_total, (
-        f"Expected {expected_total} translations, got {summary.translation.total}"
-    )
+    assert (
+        summary.translation.total == expected_total
+    ), f"Expected {expected_total} translations, got {summary.translation.total}"
 
     assert summary.translation.successful > 0, "Should have successful translations"
     assert summary.translation.failed > 0, "Should have failed translations"
@@ -184,9 +188,9 @@ def test_concurrent_error_recording():
     summary = telemetry.get_metrics_summary()
 
     expected_total = num_threads * events_per_thread
-    assert summary.errors.total == expected_total, (
-        f"Expected {expected_total} errors, got {summary.errors.total}"
-    )
+    assert (
+        summary.errors.total == expected_total
+    ), f"Expected {expected_total} errors, got {summary.errors.total}"
 
 
 def test_concurrent_enable_disable():

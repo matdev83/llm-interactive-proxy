@@ -1400,7 +1400,7 @@ class OpenAIConnector(LLMBackend):
                 else:
                     body_bytes = b""
                 body = body_bytes.decode("utf-8")
-            except (UnicodeDecodeError, IOError, httpx.RequestError, httpx.HTTPError):
+            except (OSError, UnicodeDecodeError, httpx.RequestError, httpx.HTTPError):
                 # Catch specific exceptions from reading/decoding error response body
                 # UnicodeDecodeError: decode("utf-8") failed
                 # IOError: I/O error during aread() or aiter_bytes()

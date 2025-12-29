@@ -7,6 +7,8 @@ to tool arguments, such as path normalization and Windows command separator fixe
 
 from __future__ import annotations
 
+from typing import Any
+
 from src.core.interfaces.tool_arguments_fixup_pipeline_interface import (
     FixupContext,
     IToolArgumentsFixupPipeline,
@@ -86,9 +88,9 @@ class ToolArgumentsFixupPipeline(IToolArgumentsFixupPipeline):
         )
         if fix_result.was_modified:
             # Update normalized arguments if fixup modified them
-            fixed_args = fix_result.fixed_command
-            if isinstance(fixed_args, dict):
-                envelope.normalized_arguments.root = fixed_args
+            windows_fixed_args: str | dict[str, Any] = fix_result.fixed_command
+            if isinstance(windows_fixed_args, dict):
+                envelope.normalized_arguments.root = windows_fixed_args
             else:
                 # If fixup returned a string, wrap it appropriately
                 # This should be rare - Windows fixup typically works with dicts
@@ -98,7 +100,7 @@ class ToolArgumentsFixupPipeline(IToolArgumentsFixupPipeline):
 
                 # Preserve existing parse outcome and raw arguments
                 new_envelope = normalize_tool_arguments(
-                    fixed_args,
+                    windows_fixed_args,
                     parse_outcome=envelope.parse_outcome,
                     was_modified_by_fixups=True,
                 )

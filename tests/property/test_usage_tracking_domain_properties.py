@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from hypothesis import given
 from hypothesis import strategies as st
@@ -32,7 +32,7 @@ from tests.utils.hypothesis_config import property_test_settings
 @st.composite
 def traffic_leg_strategy(draw: Any) -> TrafficLeg:
     """Generate a random TrafficLeg enum value."""
-    return draw(st.sampled_from(list(TrafficLeg)))
+    return cast(TrafficLeg, draw(st.sampled_from(list(TrafficLeg))))
 
 
 @st.composite
