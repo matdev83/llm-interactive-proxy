@@ -35,7 +35,7 @@ def register_app_config(
             register_singleton_if_absent(services, cast(type, IConfig), instance=app_config)  # type: ignore[type-abstract]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to register IConfig interface: {e}")
+                logger.warning("Failed to register IConfig interface: %s", e)
     else:
         # Register default AppConfig for testing and basic functionality
         default_config = AppConfig()
@@ -44,7 +44,7 @@ def register_app_config(
             register_singleton_if_absent(services, cast(type, IConfig), instance=default_config)  # type: ignore[type-abstract]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to register default IConfig interface: {e}")
+                logger.warning("Failed to register default IConfig interface: %s", e)
 
 
 def register_session_services(services: ServiceCollection) -> None:
@@ -80,7 +80,7 @@ def register_session_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register ISessionService interface: {e}")
+            logger.warning("Failed to register ISessionService interface: %s", e)
 
 
 def register_application_state_services(services: ServiceCollection) -> None:
@@ -145,7 +145,7 @@ def register_application_state_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IAppSettings interface: {e}")
+            logger.warning("Failed to register IAppSettings interface: %s", e)
 
     # Register SecureStateService
     def _secure_state_factory(provider: IServiceProvider) -> SecureStateService:
@@ -168,7 +168,7 @@ def register_application_state_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register secure state interfaces: {e}")
+            logger.warning("Failed to register secure state interfaces: %s", e)
 
     # Register SecureCommandFactory
     def _secure_command_factory(provider: IServiceProvider) -> SecureCommandFactory:
@@ -211,7 +211,7 @@ def register_time_source(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register ITimeSource interface: {e}")
+            logger.warning("Failed to register ITimeSource interface: %s", e)
 
 
 def _register_tool_call_repair_service(services: ServiceCollection) -> None:
@@ -248,7 +248,7 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
         )
     except ImportError as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Could not register ToolCallRepairService: {e}")
+            logger.warning("Could not register ToolCallRepairService: %s", e)
 
     # Register HistoryCompactionService
     from src.core.interfaces.history_compaction_interface import (
@@ -268,7 +268,7 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register IHistoryCompactionService interface: {e}"
+                "Failed to register IHistoryCompactionService interface: %s", e
             )
 
     # Register SessionManager
@@ -313,4 +313,4 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register ISessionManager interface: {e}")
+            logger.warning("Failed to register ISessionManager interface: %s", e)
