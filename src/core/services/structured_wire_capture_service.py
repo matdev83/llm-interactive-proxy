@@ -267,11 +267,19 @@ class StructuredWireCapture(IWireCapture):
                 )
                 try:
                     await self._append_json(chunk_entry)
+                except asyncio.CancelledError:
+                    # Propagate cancellation - wire capture should not block cancellation
+                    raise
+                except OSError as e:
+                    # File I/O errors during wire capture - log at warning level
+                    logger.warning(
+                        "Error capturing inbound stream chunk (OS error): %s", e, exc_info=True
+                    )
                 except Exception as e:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Error capturing stream chunk: %s", e, exc_info=True
-                        )
+                    # Unexpected errors during wire capture - log at warning level
+                    logger.warning(
+                        "Error capturing inbound stream chunk (unexpected error): %s", e, exc_info=True
+                    )
 
                 yield chunk
 
@@ -385,13 +393,19 @@ class StructuredWireCapture(IWireCapture):
                     )
                 try:
                     await self._append_json(chunk_entry)
+                except asyncio.CancelledError:
+                    # Propagate cancellation - wire capture should not block cancellation
+                    raise
+                except OSError as e:
+                    # File I/O errors during wire capture - log at warning level
+                    logger.warning(
+                        "Error capturing outbound stream chunk (OS error): %s", e, exc_info=True
+                    )
                 except Exception as e:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Error capturing outbound stream chunk: %s",
-                            e,
-                            exc_info=True,
-                        )
+                    # Unexpected errors during wire capture - log at warning level
+                    logger.warning(
+                        "Error capturing outbound stream chunk (unexpected error): %s", e, exc_info=True
+                    )
                 yield chunk
 
             end_entry = self._create_json_entry(
@@ -437,12 +451,17 @@ class StructuredWireCapture(IWireCapture):
                 else:
                     payload_str = _safe_json_dump(payload)
                     byte_count = len(payload_str.encode("utf-8"))
-            except Exception:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to calculate byte count for wire capture entry",
-                        exc_info=True,
-                    )
+            except (UnicodeEncodeError, TypeError, ValueError) as e:
+                # Encoding or serialization errors - log at warning level
+                logger.warning(
+                    "Failed to calculate byte count for wire capture entry: %s", e, exc_info=True
+                )
+                byte_count = -1
+            except Exception as e:
+                # Unexpected errors during byte count calculation - log at warning level
+                logger.warning(
+                    "Failed to calculate byte count for wire capture entry (unexpected error): %s", e, exc_info=True
+                )
                 byte_count = -1
 
         # Create entry using Pydantic models
