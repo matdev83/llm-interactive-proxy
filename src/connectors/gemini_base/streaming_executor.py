@@ -390,8 +390,9 @@ class StreamingExecutor:
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Internal generator that handles the streaming loop."""
         response = None
-        generated_text = ""
-        error_json_buffer: str | None = None
+        # PERFORMANCE: Use list accumulators to avoid O(n²) string concatenation in streaming hot path
+        generated_text_parts: list[str] = []
+        error_json_buffer_parts: list[str] | None = None
         google_auth_exceptions = self._google_auth.get_auth_exceptions()
 
         try:
@@ -501,7 +502,7 @@ class StreamingExecutor:
             def _process_decoded_line(
                 decoded_line: str,
             ) -> Iterable[ProcessedResponse]:
-                nonlocal done, generated_text, error_json_buffer
+                nonlocal done, generated_text_parts, error_json_buffer_parts
 
                 if not decoded_line:
                     return
@@ -565,27 +566,32 @@ class StreamingExecutor:
                         delta = choice.get("delta", {}) or {}
                         text_piece = delta.get("content")
                         if text_piece:
-                            generated_text += text_piece
+                            generated_text_parts.append(text_piece)
                             # Handle error JSON detection in content
-                            if error_json_buffer is None:
+                            if error_json_buffer_parts is None:
                                 stripped_piece = text_piece.lstrip()
                                 if stripped_piece.startswith("{"):
-                                    error_json_buffer = stripped_piece
-                            elif len(error_json_buffer) < self.MAX_ERROR_JSON_SIZE:
-                                error_json_buffer += text_piece
+                                    error_json_buffer_parts = [stripped_piece]
+                            elif (
+                                sum(len(p) for p in error_json_buffer_parts)
+                                < self.MAX_ERROR_JSON_SIZE
+                            ):
+                                error_json_buffer_parts.append(text_piece)
                             else:
                                 # Stop buffering if too large - likely valid content, not an error
-                                error_json_buffer = None
+                                error_json_buffer_parts = None
 
                             # Try to parse accumulated error JSON
-                            if error_json_buffer:
-                                candidate_json = error_json_buffer.strip()
+                            if error_json_buffer_parts:
+                                candidate_json = "".join(
+                                    error_json_buffer_parts
+                                ).strip()
                                 try:
                                     parsed_error = json.loads(candidate_json)
                                 except json.JSONDecodeError:
                                     pass
                                 else:
-                                    error_json_buffer = None
+                                    error_json_buffer_parts = None
                                     if (
                                         isinstance(parsed_error, dict)
                                         and "error" in parsed_error
@@ -622,7 +628,7 @@ class StreamingExecutor:
                                             backend_name=self._backend_type,
                                         )
                                     else:
-                                        error_json_buffer = None
+                                        error_json_buffer_parts = None
 
                     # Build metadata
                     metadata = create_gemini_response_metadata(
@@ -763,6 +769,8 @@ class StreamingExecutor:
             usage: dict[str, Any] | None = None
             usage_summary = None
             try:
+                # Join accumulated text parts once for token estimation
+                generated_text = "".join(generated_text_parts)
                 completion_tokens = self._token_estimator.estimate_tokens(
                     generated_text
                 )

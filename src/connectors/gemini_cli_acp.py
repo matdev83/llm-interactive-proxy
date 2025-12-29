@@ -705,7 +705,8 @@ class GeminiCliAcpConnector(GeminiBackend):
                 )
             else:
                 # Collect all chunks for non-streaming response
-                full_response = ""
+                # PERFORMANCE: Use list accumulator to avoid O(n²) string concatenation
+                response_parts: list[str] = []
                 async for processed_chunk in self._process_streaming_response(
                     effective_model
                 ):
@@ -717,7 +718,11 @@ class GeminiCliAcpConnector(GeminiBackend):
                     ):
                         chunk_data = json.loads(chunk[6:])
                         content = chunk_data["choices"][0]["delta"].get("content", "")
-                        full_response += content
+                        if content:
+                            response_parts.append(content)
+
+                # Join all parts once at the end
+                full_response = "".join(response_parts)
 
                 # Create response
                 canonical_response = CanonicalChatResponse(
@@ -939,7 +944,13 @@ class GeminiCliAcpConnector(GeminiBackend):
                                     subprocess.TimeoutExpired, Exception
                                 ):
                                     process.wait(timeout=5)
-                        except (OSError, ProcessLookupError, AttributeError, RuntimeError, ValueError) as exc:
+                        except (
+                            OSError,
+                            ProcessLookupError,
+                            AttributeError,
+                            RuntimeError,
+                            ValueError,
+                        ) as exc:
                             # Best-effort cleanup during interpreter shutdown
                             # Log with nested try-except to handle logging system being torn down
                             try:
@@ -955,7 +966,13 @@ class GeminiCliAcpConnector(GeminiBackend):
 
                     # Clean up process pipes
                     self._cleanup_process(process)
-                except (OSError, ProcessLookupError, AttributeError, RuntimeError, ValueError) as exc:
+                except (
+                    OSError,
+                    ProcessLookupError,
+                    AttributeError,
+                    RuntimeError,
+                    ValueError,
+                ) as exc:
                     # Best-effort cleanup during interpreter shutdown
                     # Log with nested try-except to handle logging system being torn down
                     try:

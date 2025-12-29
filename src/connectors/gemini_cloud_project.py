@@ -547,7 +547,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 # Event loop errors: loop closed, wrong thread, etc.
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "RuntimeError scheduling credentials reload: %s", exc, exc_info=True
+                        "RuntimeError scheduling credentials reload: %s",
+                        exc,
+                        exc_info=True,
                     )
                 with self._reload_task_lock:
                     self._reload_scheduling_in_progress = False
@@ -555,7 +557,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 # Missing attributes (e.g., loop is None)
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "AttributeError scheduling credentials reload: %s", exc, exc_info=True
+                        "AttributeError scheduling credentials reload: %s",
+                        exc,
+                        exc_info=True,
                     )
                 with self._reload_task_lock:
                     self._reload_scheduling_in_progress = False
@@ -876,13 +880,17 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             # JSON serialization errors (TypeError for non-serializable objects, ValueError for edge cases)
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    "JSON encoding error saving OAuth credentials: %s", exc, exc_info=True
+                    "JSON encoding error saving OAuth credentials: %s",
+                    exc,
+                    exc_info=True,
                 )
         except (KeyError, AttributeError) as e:
             # Unexpected credential structure errors
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    "Unexpected credential structure error saving OAuth credentials: %s", e, exc_info=True
+                    "Unexpected credential structure error saving OAuth credentials: %s",
+                    e,
+                    exc_info=True,
                 )
         except Exception:
             # Truly unexpected errors (defensive guard)
@@ -954,20 +962,26 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             # Note: PermissionError, FileNotFoundError, IOError are all subclasses of OSError
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    "File system error loading OAuth credentials: %s", exc, exc_info=True
+                    "File system error loading OAuth credentials: %s",
+                    exc,
+                    exc_info=True,
                 )
             return False
         except (KeyError, AttributeError, ValueError) as e:
             # Unexpected credential structure or data errors
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    "Unexpected credential structure error loading OAuth credentials: %s", e, exc_info=True
+                    "Unexpected credential structure error loading OAuth credentials: %s",
+                    e,
+                    exc_info=True,
                 )
             return False
         except Exception:
             # Truly unexpected errors (defensive guard)
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Unexpected error loading OAuth credentials", exc_info=True)
+                logger.error(
+                    "Unexpected error loading OAuth credentials", exc_info=True
+                )
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -1583,19 +1597,20 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
                     # Process the streaming response using iter_content for real-time streaming
                     # Use iter_content instead of iter_lines to avoid buffering complete lines
-                    line_buffer = ""
+                    # PERFORMANCE: Use list accumulator to avoid O(n²) string concatenation
+                    line_buffer_parts: list[str] = []
                     for chunk in response.iter_content(
                         chunk_size=1, decode_unicode=False
                     ):  # Read byte-by-byte for real-time streaming
                         try:
                             # Decode chunk to string
                             char = chunk.decode("utf-8")
-                            line_buffer += char
+                            line_buffer_parts.append(char)
 
                             # Check if we have a complete line (ends with \n)
                             if char == "\n":
-                                decoded_line = line_buffer.rstrip("\r\n")
-                                line_buffer = ""  # Reset buffer for next line
+                                decoded_line = "".join(line_buffer_parts).rstrip("\r\n")
+                                line_buffer_parts.clear()  # Reset buffer for next line
 
                                 if decoded_line.startswith("data: "):
                                     data_str = decoded_line[6:].strip()
@@ -1642,7 +1657,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
                 except Exception as e:
                     if logger.isEnabledFor(logging.ERROR):
-                        logger.error(f"Error in streaming generator: {e}", exc_info=True)
+                        logger.error(
+                            f"Error in streaming generator: {e}", exc_info=True
+                        )
                     # Yield an error chunk or ensure stream ends gracefully
                     yield self.translation_service.to_domain_stream_chunk(
                         chunk=None,  # Indicate end of stream due to error
@@ -1667,7 +1684,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 logger.error(
                     f"Unexpected error during streaming API call: {e}", exc_info=True
                 )
-            raise BackendError(f"Unexpected error during streaming API call: {e}") from e
+            raise BackendError(
+                f"Unexpected error during streaming API call: {e}"
+            ) from e
 
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
         top_k = getattr(request_data, "top_k", None)
