@@ -255,7 +255,6 @@ class TestReauthenticationTokenLinking:
             fixed_time = datetime(2024, 1, 1, 12, 0, 0)
             # Create existing token (user already authenticated before)
             token_result = token_service.generate_token()
-            plaintext_token = token_result.plaintext
             token_hash = token_result.hash
             existing_token = TokenRecord(
                 id="existing-token-id",
@@ -330,7 +329,6 @@ class TestReauthenticationTokenLinking:
         # The web interface should create a NEW token
 
         token_result = token_service.generate_token()
-        plaintext_token = token_result.plaintext
         token_hash = token_result.hash
         fixed_time = datetime(2024, 1, 1, 12, 0, 0)
         new_token = TokenRecord(
@@ -502,7 +500,6 @@ class TestReauthenticationTokenLinking:
         """
         # Create initial token
         token_result = token_service.generate_token()
-        plaintext_token = token_result.plaintext
         token_hash = token_result.hash
         fixed_time = datetime(2024, 1, 1, 12, 0, 0)
         token_record = TokenRecord(
