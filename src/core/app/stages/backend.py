@@ -588,7 +588,13 @@ class BackendStage(InitializationStage):
                         # Consider it configured if any api key-like field may be present (checked later)
                         configured.append(backend_name)
                 has_configured = len(configured) > 0
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to check configured backends in config: %s",
+                        e,
+                        exc_info=True,
+                    )
                 has_configured = False
 
             if has_configured and not functional_backends:
@@ -774,7 +780,8 @@ class BackendStage(InitializationStage):
                 except Exception as e:
                     if logger.isEnabledFor(logging.ERROR):
                         logger.error(
-                            f"Failed to validate backend '{backend_name}': {e}"
+                            f"Failed to validate backend '{backend_name}': {e}",
+                            exc_info=True,
                         )
 
         except ServiceResolutionError as exc:
@@ -804,7 +811,8 @@ class BackendStage(InitializationStage):
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Failed to get BackendFactory service for validation: {e}"
+                    f"Failed to get BackendFactory service for validation: {e}",
+                    exc_info=True,
                 )
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("Falling back to manual backend validation")
@@ -1043,10 +1051,16 @@ class BackendStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Registered temporary HTTP client for backend validation before infrastructure stage"
-                )
-        except Exception:
+            )
+        except Exception as e:
             # If exception occurs after client creation but before assignment/registration,
             # ensure client is cleaned up to prevent leak
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Exception during validation client creation, attempting cleanup: %s",
+                    e,
+                    exc_info=True,
+                )
             if client is not None and self._validation_client is None:
                 # Client was created but not assigned - clean it up immediately
                 try:

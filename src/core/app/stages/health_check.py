@@ -82,7 +82,9 @@ class HealthCheckStage(InitializationStage):
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Failed to initialize health check services: %s", e)
+                logger.error(
+                    "Failed to initialize health check services: %s", e, exc_info=True
+                )
             raise
 
     def _register_event_bus(self, services: ServiceCollection) -> None:
