@@ -4,13 +4,13 @@ SQLite-based credential provider for Antigravity backend.
 Loads OAuth credentials from the Antigravity VS Code state database.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
 import os
 import sqlite3
 import time
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -355,7 +355,7 @@ class AntigravitySQLiteCredentialProvider:
             except Exception as exc:
                 errors.append(f"Unexpected error reading {path}: {exc}")
                 logger.warning(
-                    "Error loading Antigravity credentials from %s: %s", path, exc
+                    "Error loading Antigravity credentials from %s: %s", path, exc, exc_info=True
                 )
 
         if errors and logger.isEnabledFor(logging.ERROR):

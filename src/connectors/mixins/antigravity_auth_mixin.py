@@ -28,13 +28,13 @@ warnings.warn(
     stacklevel=2,
 )
 
+import asyncio
 import hashlib
 import json
 import logging
 import os
 import sqlite3
 import time
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -418,7 +418,7 @@ class AntigravityAuthMixin:
                 errors.append(f"Unexpected error reading {path}: {exc}")
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error loading Antigravity credentials from %s: %s", path, exc
+                        "Error loading Antigravity credentials from %s: %s", path, exc, exc_info=True
                     )
 
         if errors:
