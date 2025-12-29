@@ -8,6 +8,7 @@ initialization.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 from collections import defaultdict, deque
@@ -539,8 +540,13 @@ class ApplicationBuilder:
                 )
                 if backend_lifecycle_manager:
                     await backend_lifecycle_manager.shutdown_all()
+            except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
+                # Best-effort shutdown - log specific shutdown errors
+                logger.warning(
+                    "Failed to shut down backends: %s", type(exc).__name__, exc_info=True
+                )
             except Exception:
-                # Best-effort shutdown
+                # Best-effort shutdown - catch-all for other errors
                 logger.warning("Failed to shut down backends", exc_info=True)
 
             # Dispose of ServiceCollection to await pending cleanup tasks
@@ -549,6 +555,13 @@ class ApplicationBuilder:
             # instances are properly awaited before closing the final client
             try:
                 await self._services.dispose()
+            except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
+                # Best-effort disposal - log specific disposal errors
+                logger.warning(
+                    "Failed to dispose ServiceCollection: %s",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
             except Exception:
                 # Best-effort disposal; ignore errors to avoid masking real failures
                 logger.warning("Failed to dispose ServiceCollection", exc_info=True)
@@ -577,6 +590,13 @@ class ApplicationBuilder:
                     await wire_capture.shutdown()  # pyright: ignore[reportAttributeAccessIssue]
                     if logger.isEnabledFor(logging.INFO):
                         logger.info("Wire capture service shut down successfully.")
+            except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
+                # Best-effort shutdown - log specific shutdown errors
+                logger.warning(
+                    "Failed to shut down wire capture service: %s",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
             except Exception:
                 # Best-effort shutdown; ignore errors to avoid masking real failures
                 logger.warning(

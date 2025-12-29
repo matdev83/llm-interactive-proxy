@@ -162,7 +162,7 @@ class EmptyResponseFeature(IResponseFeature):
             if isinstance(val, bytes | bytearray):
                 try:
                     val = val.decode("utf-8")
-                except Exception:
+                except UnicodeDecodeError:
                     val = val.decode("utf-8", errors="ignore")
             if isinstance(val, str):
                 return not val.strip()
@@ -539,7 +539,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
             if isinstance(val, bytes | bytearray):
                 try:
                     val = val.decode("utf-8")
-                except Exception:
+                except UnicodeDecodeError:
                     val = val.decode("utf-8", errors="ignore")
             if isinstance(val, str):
                 return not val.strip()

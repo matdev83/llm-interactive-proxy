@@ -297,7 +297,35 @@ class EventBus(IEventBus):
         except asyncio.CancelledError:
             # Let cancellation propagate - handler cancellation is intentional
             raise
+        except (RuntimeError, ValueError, AttributeError, TypeError) as exc:
+            # Common handler errors - log with full context
+            log_extra = {}
+            log_message = "Error in event handler %s for event %s: %s"
+            log_args = [handler_name, type(event).__name__, type(exc).__name__]
+
+            # Add session_id correlation for RemoteBackendConnectionEndOfSessionEvent
+            try:
+                from src.core.domain.events.end_of_session_events import (
+                    RemoteBackendConnectionEndOfSessionEvent,
+                )
+
+                if isinstance(event, RemoteBackendConnectionEndOfSessionEvent):
+                    session_id = getattr(event, "session_id", None)
+                    if session_id:
+                        log_extra["session_id"] = session_id
+                        log_message += " (session_id=%s)"
+                        log_args.append(session_id)
+            except ImportError:
+                # EoS events module not available, skip correlation
+                pass
+
+            logger.exception(
+                log_message,
+                *log_args,
+                extra=log_extra if log_extra else None,
+            )
         except Exception:
+            # Catch-all for other unexpected exceptions
             # Extract correlation identifiers for EoS events
             log_extra = {}
             log_message = "Error in event handler %s for event %s"
