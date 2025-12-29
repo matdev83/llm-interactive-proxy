@@ -221,7 +221,7 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
             self.connector._credentials_path
         ):
             if logger.isEnabledFor(logging.INFO):
-                logger.info(f"Credentials file modified: {event.src_path}")
+                logger.info("Credentials file modified: %s", event.src_path)
             # Schedule credential reload in the connector's event loop
             self.connector._schedule_credentials_reload()
 
@@ -786,7 +786,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
-        try:
+
+        def _save_sync() -> None:
+            """Synchronous file write helper."""
             if self.credentials_path:
                 creds_path = Path(self.credentials_path)
                 if creds_path.is_dir():
@@ -800,7 +802,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             with open(creds_path, "w", encoding="utf-8") as f:
                 json.dump(credentials, f, indent=4)
             if logger.isEnabledFor(logging.INFO):
-                logger.info(f"OAuth credentials saved to {creds_path}")
+                logger.info("OAuth credentials saved to %s", creds_path)
+
+        try:
+            await asyncio.to_thread(_save_sync)
         except Exception:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Error saving OAuth credentials", exc_info=True)
@@ -818,13 +823,22 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
             self._credentials_path = creds_path
 
-            if not creds_path.exists():
+            def _check_exists() -> bool:
+                return creds_path.exists()
+
+            file_exists = await asyncio.to_thread(_check_exists)
+
+            if not file_exists:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(f"OAuth credentials not found at {creds_path}")
+                    logger.warning("OAuth credentials not found at %s", creds_path)
                 return False
 
             try:
-                current_modified = creds_path.stat().st_mtime
+
+                def _get_mtime() -> float:
+                    return creds_path.stat().st_mtime
+
+                current_modified = await asyncio.to_thread(_get_mtime)
                 if current_modified == self._last_modified and self._oauth_credentials:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -1236,7 +1250,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             )
 
             if logger.isEnabledFor(logging.INFO):
-                logger.info(f"Making Code Assist API call with project {project_id}")
+                logger.info("Making Code Assist API call with project %s", project_id)
 
             # Prepare request body for non-streaming call
             request_body = {
@@ -1772,7 +1786,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             )
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Failed to extract Code Assist usage: {e}")
+                logger.debug("Failed to extract Code Assist usage: %s", e)
             return None
 
     def __del__(self):
