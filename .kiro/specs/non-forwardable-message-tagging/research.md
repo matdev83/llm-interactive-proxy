@@ -66,7 +66,7 @@
   - The design should treat message provenance (client history vs server injection) as an internal concept during backend request composition, rather than trusting message metadata from clients.
 
 ### Legacy Removal Requirement
-- **Context**: NFR5.* requires removal of regex-based non-forwardable mechanisms and forbids compatibility fallbacks.
+- **Context**: Requirement 13.1-13.3 requires removal of regex-based non-forwardable mechanisms and forbids compatibility fallbacks.
 - **Findings**:
   - Relevant legacy/fragile enforcement candidates include:
     - `src/security.py::ProxyCommandFilter` usage for stripping proxy commands from outbound prompts.
@@ -79,9 +79,9 @@
 
 | Option | Description | Strengths | Risks / Limitations | Notes |
 |--------|-------------|-----------|---------------------|-------|
-| Extend existing redaction/regex filters | Keep filtering in request transform pipeline | Minimal wiring changes | Fail-open semantics; incomplete coverage of internal backend calls; violates NFR5 | Rejected |
+| Extend existing redaction/regex filters | Keep filtering in request transform pipeline | Minimal wiring changes | Fail-open semantics; incomplete coverage of internal backend calls; violates 13.1-13.3 | Rejected |
 | **Service + boundary enforcement (Option B)** | New registry + identity service; enforce inside backend completion flow | Single enforcement point; covers retries/steering; wire capture correctness | Requires cross-cutting integration for tagging and injection provenance | **Selected** |
-| Hybrid (temporary dual behavior) | Keep legacy as fallback while introducing new mechanism | Lower migration risk | Explicitly forbidden by NFR5.2 and alpha finality | Rejected |
+| Hybrid (temporary dual behavior) | Keep legacy as fallback while introducing new mechanism | Lower migration risk | Explicitly forbidden by 13.2 and alpha finality | Rejected |
 
 ## Design Decisions
 
@@ -108,7 +108,7 @@
 - **Follow-up**: Decide whether to store tags in `SessionState` or a dedicated repository model; ensure repository update semantics are safe under concurrent requests.
 
 ### Decision: Alpha Finality and Legacy Deletion
-- **Context**: NFR5.* requires removal of regex-based non-forwardable filtering and forbids fallbacks/backward compatibility.
+- **Context**: Requirement 13.1-13.3 requires removal of regex-based non-forwardable filtering and forbids fallbacks/backward compatibility.
 - **Selected Approach**: Remove legacy enforcement code paths and their tests; update behavior to rely solely on message tagging + boundary enforcement.
 - **Follow-up**: Ensure no remaining regex-based non-forwardable enforcement or “compat” toggles exist post-implementation.
 
@@ -119,7 +119,7 @@
   - Backend-call filter/enforcer: `Singleton` (stateless; uses registry)
 
 ### Decision: Error Handling Strategy
-- **Context**: Requirement 7.3 and NFR2.1 require fail-closed behavior when filtering cannot be safely performed.
+- **Context**: Requirement 7.3 and requirement 10.1 require fail-closed behavior when filtering cannot be safely performed.
 - **Selected Approach**:
   - Introduce a dedicated `LLMProxyError` subclass for non-forwardable enforcement failures (internal error → fail before backend call).
   - Introduce a client-visible structured error for “no forwardable content” (requirement 5.3).
@@ -152,4 +152,3 @@
 - Error hierarchy: `src/core/common/exceptions.py`
 - Backend orchestration: `src/core/services/backend_completion_flow/service.py`
 - Session domain model: `src/core/domain/session.py`
-
