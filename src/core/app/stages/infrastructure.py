@@ -192,7 +192,7 @@ class InfrastructureStage(InitializationStage):
                 logger.debug("Registered shared HTTP client")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register HTTP client: {e}", exc_info=True)
+                logger.warning("Could not register HTTP client: %s", e, exc_info=True)
 
     def _register_rate_limiter(self, services: ServiceCollection) -> None:
         """Register rate limiter service."""
@@ -206,7 +206,7 @@ class InfrastructureStage(InitializationStage):
                 logger.debug("Registered rate limiter service")
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register rate limiter: {e}", exc_info=True)
+                logger.warning("Could not register rate limiter: %s", e, exc_info=True)
 
     def _register_loop_detector(self, services: ServiceCollection) -> None:
         """Register loop detector service."""
@@ -292,7 +292,7 @@ class InfrastructureStage(InitializationStage):
 
         except ImportError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register loop detector: {e}", exc_info=True)
+                logger.warning("Could not register loop detector: %s", e, exc_info=True)
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that infrastructure services can be registered."""
