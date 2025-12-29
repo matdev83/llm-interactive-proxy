@@ -99,6 +99,11 @@ class ControllerStage(InitializationStage):
                     cast(type, ISessionMetricsInitializer)
                 )
             except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to resolve ISessionMetricsInitializer for ChatController; proceeding without metrics initializer",
+                        exc_info=True,
+                    )
                 metrics_initializer = None
             return ChatController(
                 request_processor,
@@ -235,6 +240,11 @@ class ControllerStage(InitializationStage):
                     cast(type, ISessionMetricsInitializer)
                 )
             except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to resolve ISessionMetricsInitializer for ResponsesController; proceeding without metrics initializer",
+                        exc_info=True,
+                    )
                 metrics_initializer = None
 
             return ResponsesController(

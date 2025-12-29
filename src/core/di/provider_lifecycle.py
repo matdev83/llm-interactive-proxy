@@ -271,7 +271,9 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register dangerous command handler: {e}")
+                logger.debug(
+                    f"Could not register dangerous command handler: {e}", exc_info=True
+                )
 
         # Register droid path fix handler if enabled
         try:
@@ -288,7 +290,9 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register droid path fix handler: {e}")
+                logger.debug(
+                    f"Could not register droid path fix handler: {e}", exc_info=True
+                )
 
         # Register pytest compression handler if enabled
         try:
@@ -316,7 +320,9 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register pytest compression handler: {e}")
+                logger.debug(
+                    f"Could not register pytest compression handler: {e}", exc_info=True
+                )
 
         # Register pytest context saving handler if enabled
         try:
@@ -333,7 +339,10 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register pytest context saving handler: {e}")
+                logger.debug(
+                    f"Could not register pytest context saving handler: {e}",
+                    exc_info=True,
+                )
 
         # Register test execution reminder handler if enabled
         try:
@@ -381,7 +390,10 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register test execution reminder handler: {e}")
+                logger.debug(
+                    f"Could not register test execution reminder handler: {e}",
+                    exc_info=True,
+                )
 
         # Register End-of-Session tool call handler if EoS is enabled
         try:
@@ -408,7 +420,8 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Could not register End-of-Session tool call handler: {e}"
+                    f"Could not register End-of-Session tool call handler: {e}",
+                    exc_info=True,
                 )
 
         # Register unified steering handler if available
@@ -421,7 +434,9 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register unified steering handler: {e}")
+                logger.debug(
+                    f"Could not register unified steering handler: {e}", exc_info=True
+                )
 
         # Register unified tool security handler if available
         try:
@@ -435,7 +450,10 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register unified tool security handler: {e}")
+                logger.debug(
+                    f"Could not register unified tool security handler: {e}",
+                    exc_info=True,
+                )
 
         # Register tool access control handler if policies are configured
         try:
@@ -465,7 +483,10 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
         except Exception as e:
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Could not register tool access control handler: {e}")
+                logger.debug(
+                    f"Could not register tool access control handler: {e}",
+                    exc_info=True,
+                )
     except Exception as e:
         logger = logging.getLogger(__name__)
         if logger.isEnabledFor(logging.DEBUG):

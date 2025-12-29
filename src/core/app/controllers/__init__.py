@@ -1123,9 +1123,12 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                                 )
 
                                 # Debug: log gemini_format for usage chunks
-                                if "usage" in canonical_chunk:
+                                if "usage" in canonical_chunk and logger.isEnabledFor(
+                                    logging.DEBUG
+                                ):
                                     logger.debug(
-                                        f"[ENDPOINT] Usage chunk translated to: {gemini_format}"
+                                        "[ENDPOINT] Usage chunk translated to: %s",
+                                        gemini_format,
                                     )
 
                                 if gemini_format:
