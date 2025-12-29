@@ -1950,7 +1950,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             raise
         except Exception as e:
             logger.error(f"Unexpected error during API call: {e}", exc_info=True)
-            raise BackendError(f"Unexpected error during API call: {e}")
+            raise BackendError(f"Unexpected error during API call: {e}") from e
 
     async def _chat_completions_code_assist_streaming(
         self,
@@ -2098,7 +2098,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             logger.error(
                 f"Unexpected error during streaming API call: {e}", exc_info=True
             )
-            raise BackendError(f"Unexpected error during streaming API call: {e}")
+            raise BackendError(f"Unexpected error during streaming API call: {e}") from e
 
     def _build_vtc_wrapper(
         self, request_data: Any, effective_model: str

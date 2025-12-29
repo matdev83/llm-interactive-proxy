@@ -1414,7 +1414,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Unexpected error during API call: {e}", exc_info=True)
-            raise BackendError(f"Unexpected error during API call: {e}")
+            raise BackendError(f"Unexpected error during API call: {e}") from e
 
     async def _chat_completions_streaming(
         self,
@@ -1667,7 +1667,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 logger.error(
                     f"Unexpected error during streaming API call: {e}", exc_info=True
                 )
-            raise BackendError(f"Unexpected error during streaming API call: {e}")
+            raise BackendError(f"Unexpected error during streaming API call: {e}") from e
 
     def _build_generation_config(self, request_data: Any) -> dict[str, Any]:
         top_k = getattr(request_data, "top_k", None)
