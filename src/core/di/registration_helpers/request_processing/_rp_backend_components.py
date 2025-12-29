@@ -77,7 +77,8 @@ def _register_structured_output_enforcer(services: ServiceCollection) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register IStructuredOutputEnforcer interface: {e}"
+                f"Failed to register IStructuredOutputEnforcer interface: {e}",
+                exc_info=True,
             )
 
 
@@ -121,7 +122,8 @@ def _register_tool_call_retry_coordinator(services: ServiceCollection) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register IToolCallRetryCoordinator interface: {e}"
+                f"Failed to register IToolCallRetryCoordinator interface: {e}",
+                exc_info=True,
             )
 
 
@@ -203,7 +205,8 @@ def _register_backend_non_streaming_response_handler(
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register INonStreamingBackendResponseHandler interface: {e}"
+                f"Failed to register INonStreamingBackendResponseHandler interface: {e}",
+                exc_info=True,
             )
 
 
@@ -248,7 +251,8 @@ def _register_backend_request_preparation_service(
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register IBackendRequestPreparation interface: {e}"
+                f"Failed to register IBackendRequestPreparation interface: {e}",
+                exc_info=True,
             )
 
 
@@ -280,7 +284,9 @@ def _register_loop_detector_factory(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to register ILoopDetectorFactory interface: %s", e)
+            logger.warning(
+                "Failed to register ILoopDetectorFactory interface: %s", e, exc_info=True
+            )
 
 
 def _register_angel_stream_verifier(services: ServiceCollection) -> None:
@@ -325,7 +331,9 @@ def _register_angel_stream_verifier(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to register IAngelStreamVerifier interface: %s", e)
+            logger.warning(
+                "Failed to register IAngelStreamVerifier interface: %s", e, exc_info=True
+            )
 
 
 def _register_backend_streaming_response_handler(
@@ -392,7 +400,8 @@ def _register_backend_streaming_response_handler(
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register IStreamingBackendResponseHandler interface: {e}"
+                f"Failed to register IStreamingBackendResponseHandler interface: {e}",
+                exc_info=True,
             )
 
 
@@ -477,4 +486,6 @@ def _register_loop_detector(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to register ILoopDetector interface: %s", e)
+            logger.warning(
+                "Failed to register ILoopDetector interface: %s", e, exc_info=True
+            )
