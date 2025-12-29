@@ -48,7 +48,13 @@ class BackendConfigProvider(IBackendConfigProvider):
                     cfg = lookup_method(lookup_name)  # type: ignore[assignment]
                 else:
                     cfg = self._app_config.backends.get(lookup_name, None)  # type: ignore[arg-type]
-            except Exception:
+            except (AttributeError, TypeError, KeyError):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to lookup backend config for name %s",
+                        lookup_name,
+                        exc_info=True,
+                    )
                 cfg = None
 
             if cfg is None:

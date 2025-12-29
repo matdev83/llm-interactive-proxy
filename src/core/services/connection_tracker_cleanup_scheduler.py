@@ -188,5 +188,11 @@ class ConnectionTrackerCleanupScheduler:
             cleaned_count = await cleaned_count
         try:
             return int(cleaned_count or 0)
-        except Exception:
+        except (ValueError, TypeError) as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to convert cleanup count to int: %s",
+                    e,
+                    exc_info=True,
+                )
             return 0

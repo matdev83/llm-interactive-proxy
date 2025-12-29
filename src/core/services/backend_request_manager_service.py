@@ -120,8 +120,13 @@ class BackendRequestManager(IBackendRequestManager):
                     session_id=session_id,
                     is_streaming=bool(request.stream),
                 )
-        except Exception:
-            # fail-open: do not block request processing
+        except (AttributeError, ImportError, KeyError) as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Preflight tool call retry limit check failed: %s",
+                    e,
+                    exc_info=True,
+                )
             return None
 
         return None
