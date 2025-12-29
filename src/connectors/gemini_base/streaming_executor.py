@@ -934,9 +934,19 @@ class StreamingExecutor:
         """Handle non-200 HTTP response."""
         try:
             error_detail = response.json()
-        except Exception:
+        except (ValueError, json.JSONDecodeError) as e:
+            # Expected exceptions from JSON parsing (invalid JSON format)
             logger.debug(
-                "Failed to parse error response as JSON, falling back to text",
+                "Failed to parse error response as JSON, falling back to text: %s",
+                e,
+                exc_info=True,
+            )
+            error_detail = response.text
+        except Exception as e:
+            # Unexpected exceptions (e.g., AttributeError if response.json() doesn't exist)
+            logger.warning(
+                "Unexpected error parsing error response as JSON: %s",
+                e,
                 exc_info=True,
             )
             error_detail = response.text

@@ -52,13 +52,23 @@ def register_backend_factory(
                 )
 
                 endpoint_registry = provider.get_service(EndpointRegistry)
-            except Exception:
+            except (RuntimeError, ValueError, TypeError, AttributeError, KeyError):
+                # Expected exceptions from service resolution (service not registered or resolution failed)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to resolve EndpointRegistry for BackendFactory; proceeding without health checks",
                         exc_info=True,
                     )
                 # Health checks not enabled or not yet registered
+            except Exception as e:
+                # Unexpected exceptions during service resolution - log at warning level
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error resolving EndpointRegistry for BackendFactory: %s",
+                        e,
+                        exc_info=True,
+                    )
+                # Proceed without health checks
 
             # Get backend notifier if available (for health notifications)
             backend_notifier = None
@@ -68,13 +78,23 @@ def register_backend_factory(
                 )
 
                 backend_notifier = provider.get_service(BackendHealthNotifier)
-            except Exception:
+            except (RuntimeError, ValueError, TypeError, AttributeError, KeyError):
+                # Expected exceptions from service resolution (service not registered or resolution failed)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to resolve BackendHealthNotifier for BackendFactory; proceeding without health notifications",
                         exc_info=True,
                     )
                 # Health notifications not enabled or not yet registered
+            except Exception as e:
+                # Unexpected exceptions during service resolution - log at warning level
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error resolving BackendHealthNotifier for BackendFactory: %s",
+                        e,
+                        exc_info=True,
+                    )
+                # Proceed without health notifications
 
             # Get activity tracker if available (for connection monitoring)
             activity_tracker = None
@@ -84,13 +104,23 @@ def register_backend_factory(
                 )
 
                 activity_tracker = provider.get_service(ConnectionActivityTracker)
-            except Exception:
+            except (RuntimeError, ValueError, TypeError, AttributeError, KeyError):
+                # Expected exceptions from service resolution (service not registered or resolution failed)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to resolve ConnectionActivityTracker for BackendFactory; proceeding without activity tracking",
                         exc_info=True,
                     )
                 # Activity tracking not enabled or not yet registered
+            except Exception as e:
+                # Unexpected exceptions during service resolution - log at warning level
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error resolving ConnectionActivityTracker for BackendFactory: %s",
+                        e,
+                        exc_info=True,
+                    )
+                # Proceed without activity tracking
 
             return BackendFactory(  # DI-bypass (factory construction)
                 httpx_client,
