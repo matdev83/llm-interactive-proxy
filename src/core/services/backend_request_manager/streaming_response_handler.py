@@ -277,6 +277,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 processing_context.session_id,
                 context=middleware_context,
             )
+        except (KeyboardInterrupt, SystemExit):
+            # Re-raise system exceptions to allow proper cleanup
+            raise
         except asyncio.CancelledError:
             # Re-raise cancellation to allow proper cleanup
             raise
@@ -299,7 +302,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 )
             return original_stream
         except Exception as e:
-            # Catch-all for unexpected errors - log with full context but still fail-open
+            # Catch-all for unexpected application-level errors - log with full context but still fail-open
+            # System exceptions (KeyboardInterrupt, SystemExit, CancelledError) are excluded above
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     "Unexpected error in streaming middleware for session %s: %s",

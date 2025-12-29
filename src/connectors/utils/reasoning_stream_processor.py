@@ -8,6 +8,7 @@ to identify when the reasoning phase ends and extract the reasoning content.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -380,7 +381,15 @@ class ReasoningStreamProcessor:
                         )
                     break
 
+        except (KeyboardInterrupt, SystemExit):
+            # Re-raise system exceptions to allow proper cleanup
+            raise
+        except asyncio.CancelledError:
+            # Re-raise cancellation to allow proper cleanup
+            raise
         except Exception as e:
+            # Catch application-level exceptions during stream capture
+            # System exceptions (KeyboardInterrupt, SystemExit, CancelledError) are excluded above
             logger.error("Error capturing reasoning stream: %s", e, exc_info=True)
             detection_metadata.method = "error"
             detection_metadata.error = str(e)
