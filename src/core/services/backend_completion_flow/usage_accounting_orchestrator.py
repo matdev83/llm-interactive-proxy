@@ -160,7 +160,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                     )
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(f"Failed to record request usage: {e}")
+                        logger.warning(f"Failed to record request usage: {e}", exc_info=True)
 
         except Exception:
             if logger.isEnabledFor(logging.DEBUG):

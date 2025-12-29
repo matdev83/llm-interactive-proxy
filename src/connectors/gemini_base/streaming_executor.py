@@ -416,6 +416,7 @@ class StreamingExecutor:
                             logger.log(
                                 TRACE_LEVEL,
                                 "Code Assist sanitized tools payload present (non-serializable)",
+                                exc_info=True,
                             )
 
                 response = await asyncio.to_thread(
@@ -933,6 +934,10 @@ class StreamingExecutor:
         try:
             error_detail = response.json()
         except Exception:
+            logger.debug(
+                "Failed to parse error response as JSON, falling back to text",
+                exc_info=True,
+            )
             error_detail = response.text
 
         detail_payload: dict[str, Any] = (
