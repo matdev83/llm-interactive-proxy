@@ -226,15 +226,8 @@ def convert_openai_to_gemini_content(
 
                             function_call["args"] = json.loads(function_call["args"])
                         except (json.JSONDecodeError, TypeError):  # type: ignore[name-defined]
+                            # Invalid JSON or wrong type - keep original string value
                             pass
-                        except Exception:
-                            # json module might not be available in some contexts
-                            # Log unexpected errors for debugging
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    "Unexpected error parsing tool call arguments as JSON",
-                                    exc_info=True,
-                                )
 
                     parts.append(GeminiPart(function_call=function_call))
 
