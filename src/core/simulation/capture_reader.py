@@ -7,10 +7,12 @@ Parses CBOR capture files into replay-ready sequences for simulation.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
 import cbor2
+from pydantic import BaseModel
 
 from src.core.domain.cbor_capture import (
     CaptureDirection,
@@ -20,6 +22,29 @@ from src.core.domain.cbor_capture import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CaptureDirectionCounts:
+    client_to_proxy: int = 0
+    proxy_to_client: int = 0
+    proxy_to_backend: int = 0
+    backend_to_proxy: int = 0
+
+
+class CaptureSummary(BaseModel):
+    """Summary of a CBOR capture file."""
+
+    session_id: str
+    created_at: float
+    total_entries: int
+    direction_counts: CaptureDirectionCounts
+    stream_count: int
+    total_bytes: int
+    duration_seconds: float
+    min_timing_delta: float
+    max_timing_delta: float
+    avg_timing_delta: float
 
 
 class CaptureReaderError(Exception):
@@ -293,34 +318,49 @@ class CaptureReader:
 
         return pairs
 
-    def summarize(self) -> dict[str, object]:
+    def summarize(self) -> CaptureSummary:
         """Get a summary of the loaded capture.
 
         Returns:
-            Dictionary with capture statistics
+            CaptureSummary with capture statistics
         """
         session = self.get_session()
         entries = session.entries
 
-        direction_counts = {
-            "client_to_proxy": 0,
-            "proxy_to_client": 0,
-            "proxy_to_backend": 0,
-            "backend_to_proxy": 0,
-        }
+        direction_counts = CaptureDirectionCounts()
 
         stream_count = 0
         total_bytes = 0
 
         for entry in entries:
             if entry.direction == CaptureDirection.CLIENT_TO_PROXY:
-                direction_counts["client_to_proxy"] += 1
+                direction_counts = CaptureDirectionCounts(
+                    client_to_proxy=direction_counts.client_to_proxy + 1,
+                    proxy_to_client=direction_counts.proxy_to_client,
+                    proxy_to_backend=direction_counts.proxy_to_backend,
+                    backend_to_proxy=direction_counts.backend_to_proxy,
+                )
             elif entry.direction == CaptureDirection.PROXY_TO_CLIENT:
-                direction_counts["proxy_to_client"] += 1
+                direction_counts = CaptureDirectionCounts(
+                    client_to_proxy=direction_counts.client_to_proxy,
+                    proxy_to_client=direction_counts.proxy_to_client + 1,
+                    proxy_to_backend=direction_counts.proxy_to_backend,
+                    backend_to_proxy=direction_counts.backend_to_proxy,
+                )
             elif entry.direction == CaptureDirection.PROXY_TO_BACKEND:
-                direction_counts["proxy_to_backend"] += 1
+                direction_counts = CaptureDirectionCounts(
+                    client_to_proxy=direction_counts.client_to_proxy,
+                    proxy_to_client=direction_counts.proxy_to_client,
+                    proxy_to_backend=direction_counts.proxy_to_backend + 1,
+                    backend_to_proxy=direction_counts.backend_to_proxy,
+                )
             elif entry.direction == CaptureDirection.BACKEND_TO_PROXY:
-                direction_counts["backend_to_proxy"] += 1
+                direction_counts = CaptureDirectionCounts(
+                    client_to_proxy=direction_counts.client_to_proxy,
+                    proxy_to_client=direction_counts.proxy_to_client,
+                    proxy_to_backend=direction_counts.proxy_to_backend,
+                    backend_to_proxy=direction_counts.backend_to_proxy + 1,
+                )
 
             if entry.metadata.is_stream_start:
                 stream_count += 1
@@ -332,15 +372,15 @@ class CaptureReader:
         if len(entries) >= 2:
             duration = entries[-1].timestamp - entries[0].timestamp
 
-        return {
-            "session_id": session.header.session_id,
-            "created_at": session.header.created_at,
-            "total_entries": len(entries),
-            "direction_counts": direction_counts,
-            "stream_count": stream_count,
-            "total_bytes": total_bytes,
-            "duration_seconds": duration,
-            "min_timing_delta": min(timing) if timing else 0,
-            "max_timing_delta": max(timing) if timing else 0,
-            "avg_timing_delta": sum(timing) / len(timing) if timing else 0,
-        }
+        return CaptureSummary(
+            session_id=session.header.session_id,
+            created_at=session.header.created_at,
+            total_entries=len(entries),
+            direction_counts=direction_counts,
+            stream_count=stream_count,
+            total_bytes=total_bytes,
+            duration_seconds=duration,
+            min_timing_delta=min(timing) if timing else 0,
+            max_timing_delta=max(timing) if timing else 0,
+            avg_timing_delta=sum(timing) / len(timing) if timing else 0,
+        )

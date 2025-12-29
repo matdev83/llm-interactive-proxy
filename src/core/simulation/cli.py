@@ -15,7 +15,9 @@ import logging
 import sys
 from pathlib import Path
 
-from src.core.simulation.capture_reader import CaptureReader
+from src.core.simulation.capture_reader import (
+    CaptureReader,
+)
 from src.core.simulation.output_utils import (
     configure_console_encoding,
     console_print,
@@ -115,31 +117,39 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     summary = reader.summarize()
 
     console_print(f"Capture File: {capture_path}")
-    console_print(f"Session ID: {safe_str(str(summary['session_id']))}")
-    console_print(f"Created At: {summary['created_at']}")
+    console_print(f"Session ID: {safe_str(str(summary.session_id))}")
+    console_print(f"Created At: {summary.created_at}")
     console_print()
     console_print("Statistics:")
-    console_print(f"  Total Entries: {summary['total_entries']}")
-    console_print(f"  Total Bytes: {summary['total_bytes']}")
-    console_print(f"  Duration: {summary['duration_seconds']:.2f}s")
-    console_print(f"  Streams: {summary['stream_count']}")
+    console_print(f"  Total Entries: {summary.total_entries}")
+    console_print(f"  Total Bytes: {summary.total_bytes}")
+    console_print(f"  Duration: {summary.duration_seconds:.2f}s")
+    console_print(f"  Streams: {summary.stream_count}")
     console_print()
     console_print("Direction Counts:")
-    direction_counts = summary.get("direction_counts", {})
-    if isinstance(direction_counts, dict):
-        for direction, count in direction_counts.items():
-            console_print(f"  {direction}: {count}")
+    direction_counts = summary.direction_counts
+    console_print(f"  client_to_proxy: {direction_counts.client_to_proxy}")
+    console_print(f"  proxy_to_client: {direction_counts.proxy_to_client}")
+    console_print(f"  proxy_to_backend: {direction_counts.proxy_to_backend}")
+    console_print(f"  backend_to_proxy: {direction_counts.backend_to_proxy}")
     console_print()
     console_print("Timing:")
-    console_print(f"  Min Delta: {summary['min_timing_delta']:.4f}s")
-    console_print(f"  Max Delta: {summary['max_timing_delta']:.4f}s")
-    console_print(f"  Avg Delta: {summary['avg_timing_delta']:.4f}s")
+    console_print(f"  Min Delta: {summary.min_timing_delta:.4f}s")
+    console_print(f"  Max Delta: {summary.max_timing_delta:.4f}s")
+    console_print(f"  Avg Delta: {summary.avg_timing_delta:.4f}s")
 
     if args.json:
         console_print()
         console_print("JSON Summary:")
         # Use ensure_ascii=True for console output to avoid encoding issues
-        console_print(json.dumps(summary, indent=2, default=str, ensure_ascii=True))
+        console_print(
+            json.dumps(
+                summary.model_dump(mode="python"),
+                indent=2,
+                default=str,
+                ensure_ascii=True,
+            )
+        )
 
     if args.entries:
         console_print()
@@ -187,10 +197,10 @@ def cmd_list(args: argparse.Namespace) -> int:
         try:
             reader.load(path)
             summary = reader.summarize()
-            session_id = safe_str(str(summary["session_id"]))
+            session_id = safe_str(str(summary.session_id))
             console_print(
-                f"  {path.name}: {summary['total_entries']} entries, "
-                f"{summary['total_bytes']} bytes, "
+                f"  {path.name}: {summary.total_entries} entries, "
+                f"{summary.total_bytes} bytes, "
                 f"session={session_id}"
             )
         except Exception as e:

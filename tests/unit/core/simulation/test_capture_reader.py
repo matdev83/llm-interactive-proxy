@@ -16,6 +16,7 @@ from src.core.domain.cbor_capture import (
 from src.core.simulation.capture_reader import (
     CaptureReader,
     CaptureReaderError,
+    CaptureSummary,
     InvalidCaptureFileError,
 )
 
@@ -231,7 +232,7 @@ class TestCaptureReader:
         capture_file = temp_capture_dir / "test.cbor"
         entries = [
             CaptureEntry(1.0, CaptureDirection.CLIENT_TO_PROXY, 0, b"req1"),
-            CaptureEntry(1.5, CaptureDirection.PROXY_TO_BACKEND, 1, b"be-req"),
+            CaptureEntry(1.5, CaptureDirection.PROXY_TO_BACKEND, 1, b"be-req1"),
             CaptureEntry(
                 2.0,
                 CaptureDirection.BACKEND_TO_PROXY,
@@ -246,13 +247,7 @@ class TestCaptureReader:
                 b"chunk",
                 CaptureMetadata(chunk_index=1),
             ),
-            CaptureEntry(
-                2.2,
-                CaptureDirection.BACKEND_TO_PROXY,
-                4,
-                b"",
-                CaptureMetadata(is_stream_end=True),
-            ),
+            CaptureEntry(2.2, CaptureDirection.BACKEND_TO_PROXY, 4, b"chunk2"),
             CaptureEntry(3.0, CaptureDirection.PROXY_TO_CLIENT, 5, b"response"),
         ]
         create_test_capture_file(capture_file, entries)
@@ -261,14 +256,15 @@ class TestCaptureReader:
         reader.load(capture_file)
 
         summary = reader.summarize()
-        assert summary["session_id"] == "test-session"
-        assert summary["total_entries"] == 6
-        assert summary["direction_counts"]["client_to_proxy"] == 1
-        assert summary["direction_counts"]["proxy_to_backend"] == 1
-        assert summary["direction_counts"]["backend_to_proxy"] == 3
-        assert summary["direction_counts"]["proxy_to_client"] == 1
-        assert summary["stream_count"] == 1
-        assert summary["duration_seconds"] == 2.0
+        assert isinstance(summary, CaptureSummary)
+        assert summary.session_id == "test-session"
+        assert summary.total_entries == 6
+        assert summary.direction_counts.client_to_proxy == 1
+        assert summary.direction_counts.proxy_to_backend == 1
+        assert summary.direction_counts.backend_to_proxy == 3
+        assert summary.direction_counts.proxy_to_client == 1
+        assert summary.stream_count == 1
+        assert summary.duration_seconds == 2.0
 
     def test_inbound_outbound_filters(self, temp_capture_dir):
         """Test individual direction filters."""
