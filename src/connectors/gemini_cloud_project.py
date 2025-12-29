@@ -1609,7 +1609,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
                 except Exception as e:
                     if logger.isEnabledFor(logging.ERROR):
-                        logger.error(f"Error in streaming generator: {e}")
+                        logger.error(f"Error in streaming generator: {e}", exc_info=True)
                     # Yield an error chunk or ensure stream ends gracefully
                     yield self.translation_service.to_domain_stream_chunk(
                         chunk=None,  # Indicate end of stream due to error
