@@ -84,7 +84,18 @@ class ApplicationStateService(IApplicationState):
         for key, value in self._local_state.items():
             try:
                 setattr(self._state_provider, key, value)
-            except Exception:
+            except (AttributeError, TypeError) as exc:
+                # Common exceptions during setattr (read-only attribute, type mismatch)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to synchronize state '%s' to provider '%s': %s",
+                        key,
+                        type(self._state_provider).__name__,
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+            except Exception as exc:
+                # Catch-all for other unexpected synchronization errors
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to synchronize state '%s' to provider '%s'",
@@ -201,7 +212,18 @@ class ApplicationStateService(IApplicationState):
 
         try:
             return cast(_T | None, getter(service_type))
-        except Exception:
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            # Common exceptions during service resolution (missing method, circular dependency, type errors)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "ApplicationStateService failed to resolve service '%s': %s",
+                    getattr(service_type, "__name__", repr(service_type)),
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+            return None
+        except Exception as exc:
+            # Catch-all for other unexpected resolution errors
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "ApplicationStateService failed to resolve service '%s'",
