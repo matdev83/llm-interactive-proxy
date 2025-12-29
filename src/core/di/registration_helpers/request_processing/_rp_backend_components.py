@@ -15,13 +15,27 @@ Registers:
 from __future__ import annotations
 
 import logging
-from typing import cast
+from typing import NamedTuple, cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.di_interface import IServiceProvider
 
 logger = logging.getLogger(__name__)
+
+
+class HybridDetectorConfig(NamedTuple):
+    """Configuration for HybridLoopDetector.
+
+    Contains both short and long pattern detection configurations.
+
+    Attributes:
+        short_config: Configuration for short pattern detection
+        long_config: Configuration for long pattern detection
+    """
+
+    short_config: dict
+    long_config: dict
 
 
 def register_backend_component_services(services: ServiceCollection) -> None:
@@ -393,11 +407,11 @@ def _should_use_noop_detector(config: AppConfig | None) -> bool:
     return not loop_config or not loop_config.get("enabled", True)
 
 
-def _create_hybrid_detector_config() -> tuple[dict, dict]:
+def _create_hybrid_detector_config() -> HybridDetectorConfig:
     """Create configuration for HybridLoopDetector.
 
     Returns:
-        Tuple of (short_config, long_config) dictionaries.
+        HybridDetectorConfig containing both short and long configurations.
     """
     from src.loop_detection.config import (
         InternalLoopDetectionConfig,
@@ -422,7 +436,7 @@ def _create_hybrid_detector_config() -> tuple[dict, dict]:
         "max_history": internal_config.max_history_length,
     }
 
-    return short_config, long_config
+    return HybridDetectorConfig(short_config=short_config, long_config=long_config)
 
 
 def _register_loop_detector(services: ServiceCollection) -> None:
@@ -432,18 +446,18 @@ def _register_loop_detector(services: ServiceCollection) -> None:
     from src.loop_detection.hybrid_detector import HybridLoopDetector
 
     def _loop_detector_factory(provider: IServiceProvider) -> ILoopDetector:
-        config = provider.get_service(AppConfig)
+        app_config = provider.get_service(AppConfig)
 
-        if _should_use_noop_detector(config):
+        if _should_use_noop_detector(app_config):
             from src.loop_detection.detector import NoOpLoopDetector
 
             return NoOpLoopDetector()
 
-        short_config, long_config = _create_hybrid_detector_config()
+        hybrid_config = _create_hybrid_detector_config()
 
         return HybridLoopDetector(
-            short_detector_config=short_config,
-            long_detector_config=long_config,
+            short_detector_config=hybrid_config.short_config,
+            long_detector_config=hybrid_config.long_config,
         )
 
     register_transient_if_absent(

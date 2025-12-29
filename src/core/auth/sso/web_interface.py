@@ -623,12 +623,12 @@ def create_sso_router(
                             status_code=200,
                         )
                     # First-time authentication: generate new token
-                plaintext_token, token_hash = token_service.generate_token()
+                generated = token_service.generate_token()
 
                 # Store token in database
                 token_record = TokenRecord(
                     id=secrets.token_hex(16),
-                    token_hash=token_hash,
+                    token_hash=generated.hash,
                     user_id=user_id,
                     user_email=user_email,
                     provider=provider,
@@ -644,8 +644,10 @@ def create_sso_router(
 
                 # Redirect to success page with token
                 return RedirectResponse(
-                    url=f"/auth/success?token={plaintext_token}", status_code=302
+                    url=f"/auth/success?token={generated.plaintext}", status_code=302
                 )
+
+                await token_repo.store_token(token_record)
 
             else:
                 raise ValueError(
@@ -771,12 +773,12 @@ def create_sso_router(
                     )
                 else:
                     # First-time authentication: generate new token
-                    plaintext_token, token_hash = token_service.generate_token()
+                    generated = token_service.generate_token()
 
                     # Store token in database
                     token_record = TokenRecord(
                         id=secrets.token_hex(16),
-                        token_hash=token_hash,
+                        token_hash=generated.hash,
                         user_id=row["user_id"],
                         user_email=row["user_email"],
                         provider=row["provider"],
@@ -792,7 +794,7 @@ def create_sso_router(
 
                     # Redirect to success page with token
                     return RedirectResponse(
-                        url=f"/auth/success?token={plaintext_token}", status_code=302
+                        url=f"/auth/success?token={generated.plaintext}", status_code=302
                     )
 
             else:

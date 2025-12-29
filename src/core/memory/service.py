@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from weakref import WeakSet
 
+import pydantic
+
 from src.core.memory.capture_buffer import SessionCaptureBuffer
 from src.core.memory.config import MemoryConfiguration
 from src.core.memory.models import (
@@ -27,6 +29,21 @@ if TYPE_CHECKING:
     from src.core.memory.repository import IMemoryRepository
 
 logger = logging.getLogger(__name__)
+
+
+class RequeueResult(pydantic.BaseModel):
+    """Result of requeue_session_summary operation.
+
+    Attributes:
+        success: Whether the session was successfully requeued
+        message: Human-readable status message
+    """
+
+    success: bool
+    message: str
+
+    model_config = {"frozen": True}
+
 
 # Maximum number of session states to keep in memory to prevent unbounded growth.
 # 10,000 sessions is roughly ~2-3 MB of memory, providing a large window
@@ -282,14 +299,18 @@ class MemoryService:
         )
         return True
 
-    async def requeue_session_summary(self, session_id: str) -> tuple[bool, str]:
+    async def requeue_session_summary(self, session_id: str) -> RequeueResult:
         """Force a session back into the analysis queue."""
         if not self.is_available():
-            return False, "Memory feature is not available."
+            return RequeueResult(
+                success=False, message="Memory feature is not available."
+            )
 
         async with self._state_lock:
             if session_id not in self._session_states:
-                return False, "Session is not enabled for memory."
+                return RequeueResult(
+                    success=False, message="Session is not enabled for memory."
+                )
             state = self._session_states[session_id]
             state.last_access = time.time()
             self._session_states.move_to_end(session_id)
@@ -298,15 +319,21 @@ class MemoryService:
         interaction_count = await self._capture_buffer.get_interaction_count(session_id)
         if interaction_count == 0:
             metrics_service.inc("memory.analysis.requeue_empty")
-            return False, "No buffered interactions to summarize."
+            return RequeueResult(
+                success=False, message="No buffered interactions to summarize."
+            )
 
         try:
             self._analysis_queue.put_nowait(session_id)
             metrics_service.inc("memory.analysis.requeued")
-            return True, "Session queued for summary regeneration."
+            return RequeueResult(
+                success=True, message="Session queued for summary regeneration."
+            )
         except asyncio.QueueFull:
             metrics_service.inc("memory.analysis.queue_full")
-            return False, "Analysis queue is full; try again later."
+            return RequeueResult(
+                success=False, message="Analysis queue is full; try again later."
+            )
 
     async def mark_session_complete(
         self,

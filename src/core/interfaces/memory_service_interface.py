@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
+from src.core.memory.service import RequeueResult
+
 if TYPE_CHECKING:
     from src.core.memory.models import CapturedInteraction
 
@@ -117,11 +119,11 @@ class IMemoryService(Protocol):
         """
         ...
 
-    async def requeue_session_summary(self, session_id: str) -> tuple[bool, str]:
+    async def requeue_session_summary(self, session_id: str) -> RequeueResult:
         """Force a session back into the analysis queue.
 
         Returns:
-            Tuple of (success, message) describing the result.
+            RequeueResult containing success status and message.
         """
         ...
 

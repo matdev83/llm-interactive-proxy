@@ -8,10 +8,28 @@ using Argon2id with 2025-recommended security parameters.
 import base64
 import secrets
 
+import pydantic
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 
 from src.core.auth.sso.exceptions import TokenError
+
+
+class GeneratedToken(pydantic.BaseModel):
+    """Result of token generation.
+
+    Contains both the plaintext token (for immediate use) and its hash
+    (for secure storage and verification).
+
+    Attributes:
+        plaintext: Base64url-encoded token (43+ characters) with 256-bit entropy
+        hash: Argon2id hash of the token for secure storage
+    """
+
+    plaintext: str
+    hash: str
+
+    model_config = {"frozen": True}
 
 
 class TokenService:
@@ -81,7 +99,7 @@ class TokenService:
             salt_len=16,  # Always 16 bytes salt
         )
 
-    def generate_token(self) -> tuple[str, str]:
+    def generate_token(self) -> GeneratedToken:
         """
         Generate a new agent token with 256-bit entropy.
 
@@ -89,9 +107,9 @@ class TokenService:
         and encoded as base64url for Bearer token compatibility.
 
         Returns:
-            tuple[str, str]: (plaintext_token, token_hash)
-                - plaintext_token: Base64url-encoded token (43+ characters)
-                - token_hash: Argon2id hash of the token
+            GeneratedToken: Object containing both plaintext token and its hash
+                - plaintext: Base64url-encoded token (43+ characters)
+                - hash: Argon2id hash of token
 
         Raises:
             TokenError: If token generation or hashing fails
@@ -108,7 +126,7 @@ class TokenService:
             # Hash the token using Argon2id
             token_hash = self.hash_token(plaintext_token)
 
-            return plaintext_token, token_hash
+            return GeneratedToken(plaintext=plaintext_token, hash=token_hash)
 
         except Exception as e:
             raise TokenError(
