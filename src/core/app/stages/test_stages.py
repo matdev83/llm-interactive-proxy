@@ -614,7 +614,13 @@ class MockBackendStage(BaseTestBackendStage):
 
                 except Exception:
                     # Fall back to mock backend when real instantiation fails
-                    pass
+                    # Log the failure to aid debugging when tests unexpectedly use mocks
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to create real backend instance for %s, falling back to mock",
+                            backend_type,
+                            exc_info=True,
+                        )
 
                 # Create new mock backend with the global mock behavior
                 mock_backend = MagicMock(spec=LLMBackend)
