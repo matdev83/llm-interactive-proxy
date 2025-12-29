@@ -371,27 +371,39 @@ class ReplacementMetrics:
         """Log a comprehensive metrics summary."""
         summary = self.get_summary()
 
-        logger.info(
-            f"REPLACEMENT_METRICS_SUMMARY: "
-            f"elapsed={summary['elapsed_seconds']:.1f}s | "
-            f"activations={summary['activation_metrics']['total_activations']} "
-            f"(rate={summary['activation_metrics']['activation_rate_per_second']:.4f}/s, "
-            f"last_60s={summary['activation_metrics']['activations_last_60s']:.1f}) | "
-            f"turns={summary['turn_count_metrics']['total_turns_completed']} "
-            f"(avg={summary['turn_count_metrics']['average_turn_count']:.2f}) | "
-            f"opt_outs={summary['opt_out_metrics']['total_opt_outs']} "
-            f"(header={summary['opt_out_metrics']['header_opt_outs']}, "
-            f"session={summary['opt_out_metrics']['session_opt_outs']}, "
-            f"rate={summary['opt_out_metrics']['opt_out_rate_per_second']:.4f}/s)"
-        )
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "REPLACEMENT_METRICS_SUMMARY: "
+                "elapsed=%.1fs | "
+                "activations=%s "
+                "(rate=%.4f/s, "
+                "last_60s=%.1f) | "
+                "turns=%s "
+                "(avg=%.2f) | "
+                "opt_outs=%s "
+                "(header=%s, "
+                "session=%s, "
+                "rate=%.4f/s)",
+                summary["elapsed_seconds"],
+                summary["activation_metrics"]["total_activations"],
+                summary["activation_metrics"]["activation_rate_per_second"],
+                summary["activation_metrics"]["activations_last_60s"],
+                summary["turn_count_metrics"]["total_turns_completed"],
+                summary["turn_count_metrics"]["average_turn_count"],
+                summary["opt_out_metrics"]["total_opt_outs"],
+                summary["opt_out_metrics"]["header_opt_outs"],
+                summary["opt_out_metrics"]["session_opt_outs"],
+                summary["opt_out_metrics"]["opt_out_rate_per_second"],
+            )
 
         # Log turn count distribution if there are activations
         if self._turn_count_histogram:
             distribution = summary["turn_count_metrics"]["turn_count_distribution"]
-            dist_str = ", ".join(
-                f"{k}turns={v}x" for k, v in sorted(distribution.items())
-            )
-            logger.info(f"REPLACEMENT_TURN_DISTRIBUTION: {dist_str}")
+            if logger.isEnabledFor(logging.INFO):
+                dist_str = ", ".join(
+                    f"{k}turns={v}x" for k, v in sorted(distribution.items())
+                )
+                logger.info("REPLACEMENT_TURN_DISTRIBUTION: %s", dist_str)
 
     def reset(self) -> None:
         """Reset all metrics to initial state."""
