@@ -198,7 +198,9 @@ class LoopDetectionFeature(IResponseFeature):
         """
         super().__init__(priority)
         self._loop_detector = loop_detector
-        self._accumulated_content: TTLCache[str, str] = TTLCache(maxsize=1000, ttl=300)
+        self._accumulated_content: TTLCache[str, list[str]] = TTLCache(
+            maxsize=1000, ttl=300
+        )
 
     async def _check_and_accumulate(
         self,
@@ -210,9 +212,9 @@ class LoopDetectionFeature(IResponseFeature):
         if not content:
             return response
 
-        self._accumulated_content.setdefault(session_id, "")
-        self._accumulated_content[session_id] += str(content)
-        accumulated = self._accumulated_content[session_id]
+        self._accumulated_content.setdefault(session_id, [])
+        self._accumulated_content[session_id].append(str(content))
+        accumulated = "".join(self._accumulated_content[session_id])
 
         if len(accumulated) > 100:
             loop_result = await self._loop_detector.check_for_loops(accumulated)
@@ -391,7 +393,9 @@ class LoopDetectionMiddleware(IResponseMiddleware):
             "Use LoopDetectionFeature instead for proper streaming/non-streaming parity."
         )
         self._loop_detector = loop_detector
-        self._accumulated_content: TTLCache[str, str] = TTLCache(maxsize=1000, ttl=300)
+        self._accumulated_content: TTLCache[str, list[str]] = TTLCache(
+            maxsize=1000, ttl=300
+        )
         self._priority = priority
 
     @property
@@ -410,9 +414,9 @@ class LoopDetectionMiddleware(IResponseMiddleware):
         if not response.content:
             return response
 
-        self._accumulated_content.setdefault(session_id, "")
-        self._accumulated_content[session_id] += response.content
-        content = self._accumulated_content[session_id]
+        self._accumulated_content.setdefault(session_id, [])
+        self._accumulated_content[session_id].append(response.content)
+        content = "".join(self._accumulated_content[session_id])
 
         if len(content) > 100:
             loop_result = await self._loop_detector.check_for_loops(content)

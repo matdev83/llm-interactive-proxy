@@ -71,7 +71,7 @@ class SSESerializer:
             }
 
             # Extract additional metadata fields (use original for non-typed fields)
-            for key in ["id", "model", "created"]:
+            for key in ("id", "model", "created"):
                 if key in content.metadata:
                     error_data[key] = content.metadata[key]
             return f"data: {json.dumps(error_data)}\n\ndata: [DONE]\n\n".encode()
@@ -92,7 +92,7 @@ class SSESerializer:
                 "finish_reason": "cancelled",
             }
             # Extract additional metadata fields (use original for non-typed fields)
-            for key in ["id", "model", "created"]:
+            for key in ("id", "model", "created"):
                 if key in content.metadata:
                     data[key] = content.metadata[key]
             return f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode()
@@ -610,7 +610,7 @@ class SSESerializer:
 
         # Add metadata fields (use original for non-typed fields like id, model, created)
         metadata_dict = content.metadata
-        for key in ["id", "model", "created"]:
+        for key in ("id", "model", "created"):
             if key in metadata_dict:
                 response_data[key] = metadata_dict[key]
 
