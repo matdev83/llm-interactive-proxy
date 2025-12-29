@@ -928,12 +928,16 @@ class QwenOAuthConnector(OpenAIConnector):
             refresh_exception_occurred = False
             try:
                 refresh_success = await self._refresh_token_if_needed()
-            except Exception:
-                # Catch AuthenticationError and others to ensure graceful degradation
+            except asyncio.CancelledError:
+                # Re-raise cancellation to allow proper cleanup
+                raise
+            except (AuthenticationError, BackendError, OSError, FileNotFoundError, RuntimeError, AttributeError, ValueError, httpx.RequestError, httpx.HTTPStatusError) as exc:
+                # Catch expected exceptions during token refresh to ensure graceful degradation
                 refresh_success = False
                 refresh_exception_occurred = True
                 logger.error(
-                    "Failed to refresh expired OAuth token during initialization",
+                    "Failed to refresh expired OAuth token during initialization: %s",
+                    exc,
                     exc_info=True,
                 )
 

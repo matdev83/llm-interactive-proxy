@@ -939,16 +939,35 @@ class GeminiCliAcpConnector(GeminiBackend):
                                     subprocess.TimeoutExpired, Exception
                                 ):
                                     process.wait(timeout=5)
-                        except Exception:
-                            # Suppress all exceptions during interpreter shutdown
-                            # The logging system may already be torn down
-                            pass
+                        except (OSError, ProcessLookupError, AttributeError, RuntimeError, ValueError) as exc:
+                            # Best-effort cleanup during interpreter shutdown
+                            # Log with nested try-except to handle logging system being torn down
+                            try:
+                                if logger.isEnabledFor(logging.WARNING):
+                                    logger.warning(
+                                        "Failed to terminate gemini-cli process during __del__ cleanup: %s",
+                                        exc,
+                                        exc_info=True,
+                                    )
+                            except Exception:
+                                # Logging system unavailable - suppress silently
+                                pass
 
                     # Clean up process pipes
                     self._cleanup_process(process)
-                except Exception:
-                    # Suppress all exceptions during interpreter shutdown
-                    pass
+                except (OSError, ProcessLookupError, AttributeError, RuntimeError, ValueError) as exc:
+                    # Best-effort cleanup during interpreter shutdown
+                    # Log with nested try-except to handle logging system being torn down
+                    try:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to cleanup gemini-cli process during __del__ cleanup: %s",
+                                exc,
+                                exc_info=True,
+                            )
+                    except Exception:
+                        # Logging system unavailable - suppress silently
+                        pass
                 finally:
                     # Clear reference to prevent leaks
                     self._process = None

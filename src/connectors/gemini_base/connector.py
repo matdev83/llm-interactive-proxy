@@ -2534,11 +2534,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         if hasattr(self, "_token_manager") and self._token_manager:
             try:
                 await self._token_manager.cleanup()
-            except Exception:
+            except asyncio.CancelledError:
+                # Re-raise cancellation to allow proper cleanup
+                raise
+            except (OSError, ProcessLookupError, AttributeError, RuntimeError, ValueError) as exc:
                 # Best-effort cleanup; suppress errors to avoid masking real failures
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Error cleaning up TokenManager during shutdown", exc_info=True
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error cleaning up TokenManager during shutdown: %s",
+                        exc,
+                        exc_info=True,
                     )
 
     def __del__(self):
