@@ -139,6 +139,9 @@ class CircuitBreaker:
             # Don't interfere with system shutdown signals
             raise
         except Exception:
+            # Circuit breaker pattern: catch all application-level exceptions to track failures
+            # This is intentionally broad - circuit breakers need to detect any failure to determine service health
+            # System-level exceptions (KeyboardInterrupt, SystemExit) are excluded above
             self._on_failure()
             logger.warning(
                 "Circuit breaker %s caught exception during operation",

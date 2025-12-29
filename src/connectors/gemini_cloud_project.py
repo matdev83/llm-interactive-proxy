@@ -559,8 +559,16 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     )
                 with self._reload_task_lock:
                     self._reload_scheduling_in_progress = False
+            except (KeyError, ValueError) as e:
+                # Task scheduling errors (KeyError for missing task attributes, ValueError for invalid state)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error scheduling credentials reload: %s", e, exc_info=True
+                    )
+                with self._reload_task_lock:
+                    self._reload_scheduling_in_progress = False
             except Exception:
-                # Unexpected errors
+                # Truly unexpected errors (defensive guard)
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Unexpected error scheduling credentials reload", exc_info=True
@@ -593,9 +601,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         try:
             observer.stop()
-        except Exception:
+        except (OSError, RuntimeError) as e:
+            # File watcher stop errors (OSError for file system issues, RuntimeError for threading issues)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Error stopping file watcher (stop)", exc_info=True)
+                logger.debug("Error stopping file watcher (stop): %s", e, exc_info=True)
 
         # If stop is invoked from within the observer thread (e.g. via a file event
         # callback), joining would raise `RuntimeError: cannot join current thread`.
@@ -612,9 +621,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             observer.join(timeout=1.0)
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Stopped watching credentials file")
-        except Exception:
+        except RuntimeError as e:
+            # Thread join errors (e.g., cannot join current thread - though we check for this above)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Error stopping file watcher (join)", exc_info=True)
+                logger.debug("Error stopping file watcher (join): %s", e, exc_info=True)
 
     async def _handle_credentials_file_change(self) -> None:
         """Handle credentials file change event."""
@@ -868,8 +878,14 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 logger.error(
                     "JSON encoding error saving OAuth credentials: %s", exc, exc_info=True
                 )
+        except (KeyError, AttributeError) as e:
+            # Unexpected credential structure errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected credential structure error saving OAuth credentials: %s", e, exc_info=True
+                )
         except Exception:
-            # Unexpected errors (defensive guard for truly unexpected errors)
+            # Truly unexpected errors (defensive guard)
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Unexpected error saving OAuth credentials", exc_info=True)
 
@@ -941,8 +957,15 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     "File system error loading OAuth credentials: %s", exc, exc_info=True
                 )
             return False
+        except (KeyError, AttributeError, ValueError) as e:
+            # Unexpected credential structure or data errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected credential structure error loading OAuth credentials: %s", e, exc_info=True
+                )
+            return False
         except Exception:
-            # Unexpected errors (defensive guard for truly unexpected errors)
+            # Truly unexpected errors (defensive guard)
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Unexpected error loading OAuth credentials", exc_info=True)
             return False

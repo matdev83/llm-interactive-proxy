@@ -12,6 +12,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from pydantic import ValidationError
+
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.app.test_utils import get_app_config_from_state
 
@@ -147,7 +149,7 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
                 config = cfg
             else:  # type: ignore[unreachable]
                 config = create_test_config()  # type: ignore[unreachable]
-        except Exception:
+        except (OSError, FileNotFoundError, ValueError, KeyError, AttributeError, ValidationError):
             logger.warning(
                 "Failed to load config from environment, using test config",
                 exc_info=True,
@@ -163,7 +165,7 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
             and not (list(getattr(config.auth, "api_keys", []) or []))
         ):
             config.auth.api_keys = ["test-proxy-key"]  # type: ignore[attr-defined]
-    except Exception:
+    except (AttributeError, TypeError, ValidationError):
         logger.warning(
             "Failed to configure auth defaults for test, continuing without modification",
             exc_info=True,
@@ -184,7 +186,7 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
         app_config = get_app_config_from_state(app)
         api_keys = discover_api_keys_from_config_and_env(app_config)
         install_api_key_redaction_filter(api_keys)
-    except Exception:
+    except (AttributeError, RuntimeError, ImportError):
         # Don't fail test app creation if redaction installation fails
         logger.warning(
             "Failed to install API key redaction filter during test app creation",
@@ -213,7 +215,7 @@ def build_test_app(config: AppConfig | None = None) -> FastAPI:
                 config = cfg
             else:  # type: ignore[unreachable]
                 config = create_test_config()  # type: ignore[unreachable]
-        except Exception:
+        except (OSError, FileNotFoundError, ValueError, KeyError, AttributeError, ValidationError):
             logger.warning(
                 "Failed to load config from environment, using test config",
                 exc_info=True,
@@ -258,7 +260,7 @@ async def build_minimal_test_app_async(config: AppConfig | None = None) -> FastA
         app_config = get_app_config_from_state(app)
         api_keys = discover_api_keys_from_config_and_env(app_config)
         install_api_key_redaction_filter(api_keys)
-    except Exception:
+    except (AttributeError, RuntimeError, ImportError):
         logger.warning(
             "Failed to install API key redaction filter during minimal test app creation",
             exc_info=True,
