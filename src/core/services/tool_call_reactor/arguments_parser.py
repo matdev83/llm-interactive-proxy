@@ -9,6 +9,7 @@ and safe telemetry recording without exposing secrets.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any, Literal, Protocol
 
 from json_repair import repair_json
@@ -131,8 +132,11 @@ class ToolArgumentsParser(IToolArgumentsParser):
                 repaired = repair_json(raw_arguments)
                 if isinstance(repaired, str):
                     candidates.append(repaired)
-            except Exception:
-                pass
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "JSON repair failed for tool arguments: %s", e, exc_info=True
+                    )
 
         # Always include original as a candidate
         if raw_arguments not in candidates:

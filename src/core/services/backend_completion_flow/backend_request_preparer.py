@@ -125,14 +125,24 @@ class BackendRequestPreparer(IBackendRequestPreparer):
                 project_value = getattr(session.state, "project", None)
                 if isinstance(project_value, str) and project_value:
                     backend_call_kwargs["project"] = project_value
-            except Exception:
-                pass
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to extract project value from session state: %s",
+                        e,
+                        exc_info=True,
+                    )
             try:
                 project_dir_value = getattr(session.state, "project_dir", None)
                 if isinstance(project_dir_value, str) and project_dir_value:
                     backend_call_kwargs["project_dir"] = project_dir_value
-            except Exception:
-                pass
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to extract project_dir value from session state: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         # Special handling for cline backend
         if context is not None and backend_type == "cline":
@@ -148,7 +158,12 @@ class BackendRequestPreparer(IBackendRequestPreparer):
 
                 if headers_dict is not None:
                     backend_call_kwargs["incoming_headers"] = headers_dict
-            except Exception:
-                pass
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to extract headers from context for cline backend: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         return backend_call_kwargs

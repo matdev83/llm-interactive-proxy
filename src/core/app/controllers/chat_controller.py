@@ -357,7 +357,9 @@ class ChatController:
                         str(domain_request.model or ""),
                         default_backend="zai-coding-plan",
                     )
-                    normalized_model: str = parsed.model_name if parsed.model_name else "glm-4.6"
+                    normalized_model: str = (
+                        parsed.model_name if parsed.model_name else "glm-4.6"
+                    )
 
                     anth_req = AnthropicMessagesRequest(
                         model=normalized_model,
@@ -937,7 +939,13 @@ class ChatController:
                     )
 
                     return response
-                except Exception:
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to convert response to OpenAI chat schema, returning raw content: %s",
+                            e,
+                            exc_info=True,
+                        )
                     return content
 
             return domain_response_to_fastapi(
