@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from src.core.domain.chat import CanonicalStreamChunk
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
 from src.core.domain.translators.openai.streaming import openai_to_domain_stream_chunk
+
+logger = logging.getLogger(__name__)
 
 
 def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
@@ -73,7 +76,23 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                                 part["functionCall"], part=part
                             ).model_dump()
                         )
-                    except Exception:
+                    except (KeyError, TypeError, AttributeError, ValueError) as e:
+                        # Expected data transformation errors - log and skip this tool call
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to process function call in Code Assist stream chunk, skipping: %s",
+                                e,
+                                exc_info=True,
+                            )
+                        continue
+                    except Exception as e:
+                        # Unexpected errors - log with full context but still skip to avoid breaking the stream
+                        if logger.isEnabledFor(logging.ERROR):
+                            logger.error(
+                                "Unexpected error processing function call in Code Assist stream chunk, skipping: %s",
+                                e,
+                                exc_info=True,
+                            )
                         continue
             content = "".join(text_parts)
 

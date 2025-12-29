@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from src.core.domain.chat import (
@@ -9,6 +10,8 @@ from src.core.domain.chat import (
 )
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
 from src.core.domain.usage_summary import UsageSummary
+
+logger = logging.getLogger(__name__)
 
 
 def _map_gemini_finish_reason(finish_reason: str | None) -> str | None:
@@ -81,7 +84,23 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                                     part["functionCall"], part=part
                                 )
                             )
-                        except Exception:
+                        except (KeyError, TypeError, AttributeError, ValueError) as e:
+                            # Expected data transformation errors - log and skip this tool call
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Failed to process function call in Code Assist response, skipping: %s",
+                                    e,
+                                    exc_info=True,
+                                )
+                            continue
+                        except Exception as e:
+                            # Unexpected errors - log with full context but still skip to avoid breaking the response
+                            if logger.isEnabledFor(logging.ERROR):
+                                logger.error(
+                                    "Unexpected error processing function call in Code Assist response, skipping: %s",
+                                    e,
+                                    exc_info=True,
+                                )
                             continue
             generated_text = "".join(text_parts)
 
