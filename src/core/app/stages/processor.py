@@ -121,7 +121,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered command processor")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register command processor: {e}")
+                logger.warning("Could not register command processor: %s", e)
 
     def _register_artifact_service(self, services: ServiceCollection) -> None:
         """Register artifact service for tool output preview management."""
@@ -138,7 +138,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered artifact service")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register artifact service: {e}")
+                logger.warning("Could not register artifact service: %s", e)
 
     def _register_command_handler(self, services: ServiceCollection) -> None:
         """Register command handler (request processor internal phase)."""
@@ -206,7 +206,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered command handler")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register command handler: {e}")
+                logger.warning("Could not register command handler: %s", e)
 
     def _register_backend_preparer(self, services: ServiceCollection) -> None:
         """Register backend preparer (request processor internal phase)."""
@@ -254,7 +254,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered backend preparer")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend preparer: {e}")
+                logger.warning("Could not register backend preparer: %s", e)
 
     def _register_session_enricher(self, services: ServiceCollection) -> None:
         """Register session enricher (request processor internal phase)."""
@@ -302,7 +302,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered session enricher")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register session enricher: {e}")
+                logger.warning("Could not register session enricher: %s", e)
 
     def _register_request_side_effects(self, services: ServiceCollection) -> None:
         """Register request side effects (request processor internal phase)."""
@@ -348,7 +348,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered request side effects")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register request side effects: {e}")
+                logger.warning("Could not register request side effects: %s", e)
 
     def _register_request_transform_pipeline(self, services: ServiceCollection) -> None:
         """Register request transformation pipeline."""
@@ -386,7 +386,7 @@ class ProcessorStage(InitializationStage):
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Could not register request transformation pipeline: {e}"
+                    "Could not register request transformation pipeline: %s", e
                 )
 
     def _register_backend_executor(self, services: ServiceCollection) -> None:
@@ -432,7 +432,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered backend executor")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend executor: {e}")
+                logger.warning("Could not register backend executor: %s", e)
 
     def _register_backend_processor(self, services: ServiceCollection) -> None:
         """Register backend processor with backend and session service dependencies."""
@@ -485,7 +485,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered backend processor")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register backend processor: {e}")
+                logger.warning("Could not register backend processor: %s", e)
 
     def _register_request_processor(self, services: ServiceCollection) -> None:
         """Register request processor as the main orchestrator."""
@@ -632,7 +632,7 @@ class ProcessorStage(InitializationStage):
                 logger.debug("Registered request processor with all dependencies")
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Could not register request processor: {e}")
+                logger.warning("Could not register request processor: %s", e)
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that processor services can be registered."""
@@ -642,5 +642,7 @@ class ProcessorStage(InitializationStage):
             return True
         except ImportError as e:  # type: ignore[misc]
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Processor services validation failed: {e}", exc_info=True)
+                logger.error(
+                    "Processor services validation failed: %s", e, exc_info=True
+                )
             return False
