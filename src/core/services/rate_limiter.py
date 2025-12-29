@@ -294,7 +294,8 @@ class InMemoryRateLimiter(IRateLimiter):
             # Track access time for cleanup
             self._limits_last_access[key] = time.time()
         rate_limit = self._limits.get(
-            key, RateLimit(limit=self._default_limit, time_window=self._default_time_window)
+            key,
+            RateLimit(limit=self._default_limit, time_window=self._default_time_window),
         )
         return rate_limit
 
