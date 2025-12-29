@@ -304,7 +304,7 @@ class BackendService(IBackendService):
         except (BackendError, TypeError, ValueError, AttributeError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Backend validation failed for {backend}: {e!s}", exc_info=True
+                    "Backend validation failed for %s: %s", backend, e, exc_info=True
                 )
             return False, f"Backend validation failed: {e!s}"
 
@@ -452,7 +452,7 @@ class BackendService(IBackendService):
                 self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
         if logger.isEnabledFor(logging.INFO):
-            logger.info(f"Using complex failover policy for model {effective_model}")
+            logger.info("Using complex failover policy for model %s", effective_model)
         try:
             from src.core.domain.configuration.backend_config import (
                 BackendConfiguration,
@@ -551,7 +551,10 @@ class BackendService(IBackendService):
             except (BackendError, RateLimitExceededError) as attempt_error:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}",
+                        "Failover attempt failed for %s:%s: %s",
+                        backend_attempt,
+                        model_attempt,
+                        attempt_error,
                         exc_info=True,
                     )
                 last_error = attempt_error
