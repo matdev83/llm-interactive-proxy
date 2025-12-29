@@ -286,7 +286,13 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 # Cancellation coordinator interface not available (optional dependency)
                 # This is expected when the module doesn't exist
                 pass
-            except (RuntimeError, AttributeError, TypeError, ValueError, LookupError) as exc:
+            except (
+                RuntimeError,
+                AttributeError,
+                TypeError,
+                ValueError,
+                LookupError,
+            ) as exc:
                 # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies, missing keys)
                 # Log with full context but continue with None to allow service construction
                 if logger.isEnabledFor(logging.DEBUG):
@@ -299,11 +305,11 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             except Exception:
                 # Unexpected error during service resolution (defensive guard for truly unexpected errors)
                 # Log with full context but continue with None to allow service construction
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Unexpected error resolving ISessionCancellationCoordinator for FailureRecoveryExecutor",
-                        exc_info=True,
-                    )
+                # Use WARNING level so errors are visible in production (not just DEBUG)
+                logger.warning(
+                    "Unexpected error resolving ISessionCancellationCoordinator for FailureRecoveryExecutor",
+                    exc_info=True,
+                )
                 cancellation_coordinator = None
 
             return FailureRecoveryExecutor(
@@ -463,7 +469,13 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 # Cancellation coordinator interface not available (optional dependency)
                 # This is expected when the module doesn't exist
                 pass
-            except (RuntimeError, AttributeError, TypeError, ValueError, LookupError) as exc:
+            except (
+                RuntimeError,
+                AttributeError,
+                TypeError,
+                ValueError,
+                LookupError,
+            ) as exc:
                 # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies, missing keys)
                 # Log with full context but continue with None to allow service construction
                 if logger.isEnabledFor(logging.DEBUG):
@@ -476,11 +488,11 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             except Exception:
                 # Unexpected error during service resolution (defensive guard for truly unexpected errors)
                 # Log with full context but continue with None to allow service construction
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Unexpected error resolving ISessionCancellationCoordinator for BackendCompletionFlow",
-                        exc_info=True,
-                    )
+                # Use WARNING level so errors are visible in production (not just DEBUG)
+                logger.warning(
+                    "Unexpected error resolving ISessionCancellationCoordinator for BackendCompletionFlow",
+                    exc_info=True,
+                )
                 cancellation_coordinator = None
 
             return BackendCompletionFlow(

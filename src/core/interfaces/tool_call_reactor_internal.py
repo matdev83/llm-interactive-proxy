@@ -130,6 +130,9 @@ def normalize_tool_arguments(
                             outcome = "recovered"
                         except (json.JSONDecodeError, TypeError, ValueError):
                             pass
+                except (KeyboardInterrupt, SystemExit):
+                    # System-level exceptions should propagate
+                    raise
                 except Exception:
                     # Log repair failures - unexpected errors during JSON repair should be visible
                     # This is a fallback path, so log at WARNING level for visibility
