@@ -19,12 +19,17 @@ import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
+from dataclasses import dataclass
 from typing import Any, cast
 
 from pydantic.types import JsonValue
-from dataclasses import dataclass
 
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import (
+    BackendError,
+    LLMProxyError,
+    ParsingError,
+    TranslationError,
+)
 from src.core.domain.backend_request_manager.context_models import (
     ResponseProcessingContext,
     StreamingContext,
@@ -267,10 +272,24 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 processing_context.session_id,
                 context=middleware_context,
             )
-        except Exception as e:
+        except asyncio.CancelledError:
+            # Re-raise cancellation to allow proper cleanup
+            raise
+        except (LLMProxyError, ParsingError, TranslationError, TypeError, ValueError, AttributeError, KeyError) as e:
+            # Catch domain exceptions and common data processing errors for fail-open behavior
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Streaming middleware failed for session %s: %s",
+                    processing_context.session_id,
+                    e,
+                    exc_info=True,
+                )
+            return original_stream
+        except Exception as e:
+            # Catch-all for unexpected errors - log with full context but still fail-open
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error in streaming middleware for session %s: %s",
                     processing_context.session_id,
                     e,
                     exc_info=True,

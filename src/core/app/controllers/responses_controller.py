@@ -14,7 +14,12 @@ from fastapi import HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from src.core.common.exceptions import InitializationError, LLMProxyError
+from src.core.common.exceptions import (
+    InitializationError,
+    LLMProxyError,
+    TranslationError,
+    ParsingError,
+)
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.client_termination import (
     ClientEndOfSessionSignal,
@@ -260,17 +265,26 @@ class ResponsesController:
                                     f"Response converted from dict via TranslationService - request_id={request_id}"
                                 )
                             return converted_response
-                        except ValidationError as e:
+                        except ValidationError:
                             if logger.isEnabledFor(logging.WARNING):
                                 logger.warning(
                                     f"Failed to convert dict to ChatResponse (validation error) - request_id={request_id}",
                                     exc_info=True,
                                 )
                             # If conversion fails, fall back to manual conversion
-                        except Exception as e:
+                        except (TranslationError, ParsingError, TypeError, AttributeError, KeyError) as e:
+                            # Catch domain exceptions and common data processing errors
                             if logger.isEnabledFor(logging.WARNING):
                                 logger.warning(
-                                    f"Failed to convert dict to ChatResponse (unexpected error) - request_id={request_id}",
+                                    f"Failed to convert dict to ChatResponse (domain/data error: {type(e).__name__}) - request_id={request_id}",
+                                    exc_info=True,
+                                )
+                            # If conversion fails, fall back to manual conversion
+                        except Exception as e:
+                            # Catch-all for unexpected errors - log with full context
+                            if logger.isEnabledFor(logging.ERROR):
+                                logger.error(
+                                    f"Unexpected error converting dict to ChatResponse - request_id={request_id}",
                                     exc_info=True,
                                 )
                             # If conversion fails, fall back to manual conversion
