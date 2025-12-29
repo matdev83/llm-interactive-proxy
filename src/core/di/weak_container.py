@@ -163,6 +163,22 @@ class WeakDIContainer:
                                 exc_info=True,
                             )
 
+            # Clean up async context managers (like httpx.AsyncClient)
+            for instance in list(self._instances.values()):
+                try:
+                    if hasattr(instance, "__aenter__") and hasattr(
+                        instance, "__aexit__"
+                    ):
+                        await instance.__aexit__(None, None, None)
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Error disposing instance %s: %s",
+                            type(instance).__name__,
+                            e,
+                            exc_info=True,
+                        )
+
             self._instances.clear()
 
     async def remove_service(self, service_type: type[Any]) -> bool:
