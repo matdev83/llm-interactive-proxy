@@ -64,9 +64,16 @@ class DangerousCommandHandler(IToolCallHandler):
             if isinstance(self._service, DangerousCommandService):
                 return self._service.might_be_dangerous(tool_name, arguments)
             return bool(self._service.scan(tool_name, arguments))
-        except Exception:
+        except (TypeError, ValueError, AttributeError) as err:
             logger.warning(
                 "DangerousCommandHandler.can_handle failed to scan arguments",
+                exc_info=True,
+            )
+            return False
+        except Exception as err:
+            # Fallback for unexpected exceptions - log at error level for visibility
+            logger.error(
+                "DangerousCommandHandler.can_handle encountered unexpected error during scan",
                 exc_info=True,
             )
             return False
@@ -80,9 +87,16 @@ class DangerousCommandHandler(IToolCallHandler):
 
         try:
             scan_result = self._service.scan(tool_name, arguments)
-        except Exception:
+        except (TypeError, ValueError, AttributeError) as err:
             logger.warning(
                 "DangerousCommandHandler.handle failed to scan arguments",
+                exc_info=True,
+            )
+            return ToolCallReactionResult(should_swallow=False)
+        except Exception as err:
+            # Fallback for unexpected exceptions - log at error level for visibility
+            logger.error(
+                "DangerousCommandHandler.handle encountered unexpected error during scan",
                 exc_info=True,
             )
             return ToolCallReactionResult(should_swallow=False)

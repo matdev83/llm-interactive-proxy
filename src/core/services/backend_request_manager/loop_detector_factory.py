@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import cast
 
+from src.core.common.exceptions import ServiceResolutionError
 from src.core.interfaces.backend_request_manager_components import (
     ILoopDetectorFactory,
 )
@@ -45,7 +46,7 @@ class LoopDetectorFactory(ILoopDetectorFactory):
             if detector is not None:
                 detector.reset()
                 return detector
-        except Exception:
+        except (ServiceResolutionError, AttributeError, RuntimeError, TypeError) as err:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to resolve ILoopDetector from DI, using fallback",
@@ -59,7 +60,7 @@ class LoopDetectorFactory(ILoopDetectorFactory):
             fallback = HybridLoopDetector()
             fallback.reset()
             return fallback
-        except Exception:
+        except (ImportError, AttributeError, RuntimeError, TypeError) as err:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to create fallback loop detector",
