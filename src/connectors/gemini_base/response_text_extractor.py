@@ -111,7 +111,13 @@ class ResponseTextExtractor:
         def _build_preview(payload: Any) -> str:
             try:
                 text = json.dumps(payload, ensure_ascii=False)
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to serialize payload as JSON, using repr: %s",
+                        e,
+                        exc_info=True,
+                    )
                 text = repr(payload)
             if len(text) > 512:
                 return text[:512] + "..."

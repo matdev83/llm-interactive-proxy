@@ -37,7 +37,14 @@ def extract_function_declarations(
         if tool_dict is None and hasattr(tool, "model_dump"):
             try:
                 tool_dict = tool.model_dump()  # type: ignore[attr-defined]
-            except Exception:
+            except Exception as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to serialize tool with model_dump(), skipping: type=%s, error: %s",
+                        type(tool).__name__,
+                        e,
+                        exc_info=True,
+                    )
                 tool_dict = None
         if not isinstance(tool_dict, dict):
             continue

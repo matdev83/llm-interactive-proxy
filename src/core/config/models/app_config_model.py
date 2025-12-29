@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from pydantic import ConfigDict, Field
@@ -108,6 +109,7 @@ class AppConfigModel(DomainModel, IConfig):
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value by dotted key path."""
+        logger = logging.getLogger(__name__)
         keys = key.split(".")
         value: Any = self
         try:
@@ -117,7 +119,11 @@ class AppConfigModel(DomainModel, IConfig):
                 else:
                     value = getattr(value, k, default)
             return value
-        except Exception:
+        except (AttributeError, KeyError, TypeError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get configuration value for key '%s': %s", key, e
+                )
             return default
 
     def set(self, key: str, value: Any) -> None:
