@@ -550,10 +550,14 @@ class ApplicationBuilder:
                         type(exc).__name__,
                         exc_info=True,
                     )
-            except Exception:
+            except Exception as exc:
                 # Best-effort shutdown - catch-all for other errors
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to shut down backends", exc_info=True)
+                    logger.warning(
+                        "Failed to shut down backends: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
 
             # Dispose of ServiceCollection to await pending cleanup tasks
 
@@ -569,10 +573,14 @@ class ApplicationBuilder:
                         type(exc).__name__,
                         exc_info=True,
                     )
-            except Exception:
+            except Exception as exc:
                 # Best-effort disposal; ignore errors to avoid masking real failures
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to dispose ServiceCollection", exc_info=True)
+                    logger.warning(
+                        "Failed to dispose ServiceCollection: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
             # Clean up resources
             try:
                 import httpx
@@ -590,11 +598,13 @@ class ApplicationBuilder:
                         type(exc).__name__,
                         exc_info=True,
                     )
-            except Exception:
+            except Exception as exc:
                 # Best-effort cleanup - catch-all for other errors
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to close httpx.AsyncClient", exc_info=True
+                        "Failed to close httpx.AsyncClient: %s",
+                        type(exc).__name__,
+                        exc_info=True,
                     )
 
             # Attempt to gracefully stop background services (e.g., wire capture)
@@ -617,11 +627,13 @@ class ApplicationBuilder:
                         type(exc).__name__,
                         exc_info=True,
                     )
-            except Exception:
+            except Exception as exc:
                 # Best-effort shutdown; ignore errors to avoid masking real failures
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to shut down wire capture service", exc_info=True
+                        "Failed to shut down wire capture service: %s",
+                        type(exc).__name__,
+                        exc_info=True,
                     )
 
         # Set lifespan handler

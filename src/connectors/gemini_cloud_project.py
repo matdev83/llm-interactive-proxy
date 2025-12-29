@@ -455,10 +455,20 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 logger.info(
                     f"Started watching credentials file: {self._credentials_path}"
                 )
-        except Exception:
+        except (OSError, RuntimeError, ValueError) as exc:
+            # File system errors, threading issues, or invalid paths
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to start file watching",
+                    "Failed to start file watching: %s",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+        except Exception as exc:
+            # Catch-all for other unexpected errors
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to start file watching: %s",
+                    type(exc).__name__,
                     exc_info=True,
                 )
 
@@ -787,9 +797,23 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error("Google Auth token refresh error", exc_info=True)
                 return False
-            except Exception:
+            except (ValueError, TypeError, OSError) as exc:
+                # Credential construction errors, file I/O errors
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error("Unexpected error during token refresh", exc_info=True)
+                    logger.error(
+                        "Error during token refresh: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+                return False
+            except Exception as exc:
+                # Catch-all for other unexpected errors (network, etc.)
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Unexpected error during token refresh: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
                 return False
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
