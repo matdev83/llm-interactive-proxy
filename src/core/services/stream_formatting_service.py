@@ -180,7 +180,13 @@ class StreamFormattingService(IStreamFormattingService):
 
         # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict
         if hasattr(content, "model_dump") and callable(content.model_dump):
-            return f"data: {json.dumps(content.model_dump())}\n\n".encode()
+            # Use model_dump_json() to avoid creating intermediate dict (performance optimization)
+            json_str = (
+                content.model_dump_json()
+                if hasattr(content, "model_dump_json")
+                else json.dumps(content.model_dump())
+            )
+            return f"data: {json_str}\n\n".encode()
 
         if isinstance(content, dict):
             return f"data: {json.dumps(content)}\n\n".encode()

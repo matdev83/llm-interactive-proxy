@@ -545,6 +545,9 @@ def _safe_json_dump(obj: Any) -> str:
     except (TypeError, ValueError):
         try:
             if hasattr(obj, "model_dump"):
+                # Use model_dump_json() to avoid creating intermediate dict (performance optimization)
+                if hasattr(obj, "model_dump_json"):
+                    return obj.model_dump_json(indent=2)  # type: ignore[attr-defined, no-any-return]
                 return json.dumps(obj.model_dump(), ensure_ascii=False, indent=2)  # type: ignore[attr-defined]
             return json.dumps(obj.__dict__, ensure_ascii=False, indent=2)
         except (TypeError, ValueError, AttributeError) as e:
