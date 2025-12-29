@@ -1,16 +1,19 @@
 """Privilege checking service for CLI.
 
 This module provides cross-platform privilege detection and enforcement,
-extracted from src/core/cli.py as part of the CLI God Object refactoring.
+extracted from src/core/cli.py as part of CLI God Object refactoring.
 
 **Feature: cli-god-object-refactoring, Task 8: PrivilegeChecker**
 **Validates: Requirements 3.1, 3.2, 3.3, 3.4**
 """
 
+import logging
 import os
 import sys
 from collections.abc import Callable
 from typing import Protocol, cast
+
+logger = logging.getLogger(__name__)
 
 
 class PlatformDetector(Protocol):
@@ -116,9 +119,6 @@ class PrivilegeChecker:
     def is_admin(self) -> bool:
         """Check if running with admin/root privileges.
 
-        Detects admin/root status on Windows, Linux, and macOS.
-        Returns False (safe default) if platform doesn't support privilege checking.
-
         Returns:
             True if running as admin/root, False otherwise.
 
@@ -131,9 +131,14 @@ class PrivilegeChecker:
             else:
                 # Windows systems
                 return self._is_admin_windows()
-        except Exception:
+        except Exception as e:
             # Safe default when detection fails
             # **Validates: Requirement 3.3**
+            logger.debug(
+                "Privilege detection failed, using safe default (non-admin): %s",
+                e,
+                exc_info=True,
+            )
             return False
 
     def _is_admin_unix(self) -> bool:
@@ -183,7 +188,8 @@ class PrivilegeChecker:
                     return True
                 except AttributeError:
                     return False
-        except Exception:
+        except Exception as e:
+            logger.debug("Privilege functionality check failed: %s", e, exc_info=True)
             return False
 
     def check_privileges(self, *, allow_admin: bool = False) -> None:

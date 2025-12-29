@@ -235,7 +235,12 @@ class ServerLifecycleManager:
                 sys.exit(0)
                 # This line is unreachable but keeps static analysis happy about return type consistency
                 return True
-            except Exception:
+            except Exception as e:
+                logger.warning(
+                    "Failed to daemonize process, attempting cleanup: %s",
+                    e,
+                    exc_info=True,
+                )
                 # Cleanup daemon process on any exception to prevent resource leaks
                 # This handles cases where unexpected errors occur between Popen and poll
                 if daemon_process is not None and daemon_process.poll() is None:
@@ -246,9 +251,12 @@ class ServerLifecycleManager:
                         except subprocess.TimeoutExpired:
                             daemon_process.kill()
                             daemon_process.wait(timeout=5)
-                    except Exception:
-                        # Suppress cleanup errors during exception handling
-                        pass
+                    except Exception as cleanup_err:
+                        logger.warning(
+                            "Failed to cleanup daemon process: %s",
+                            cleanup_err,
+                            exc_info=True,
+                        )
                 raise
 
         self._daemonize()

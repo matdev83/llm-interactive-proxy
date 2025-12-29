@@ -154,7 +154,12 @@ class CodexCapabilityResolver:
                     return dumped
                 if isinstance(dumped, Mapping):
                     return dict(dumped)
-            except Exception:
+            except Exception as e:
+                logger.debug(
+                    "Failed to call model_dump on candidate object: %s",
+                    e,
+                    exc_info=True,
+                )
                 return None
         if hasattr(candidate, "__dict__"):
             return dict(candidate.__dict__)
