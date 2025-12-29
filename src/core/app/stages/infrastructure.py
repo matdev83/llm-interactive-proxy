@@ -268,7 +268,9 @@ class InfrastructureStage(InitializationStage):
             return True
         except ImportError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Infrastructure services validation failed: {e}")
+                logger.error(
+                    "Infrastructure services validation failed: %s", e, exc_info=True
+                )
             return False
 
     async def _cleanup_http_client(self) -> None:

@@ -295,7 +295,11 @@ class CoreServicesStage(InitializationStage):
                 logger.debug("Registered core services from DI module")
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Failed to register core services from DI module: {e}")
+                logger.error(
+                    "Failed to register core services from DI module: %s",
+                    e,
+                    exc_info=True,
+                )
             raise
 
         # Register streaming and tooling services via registrars

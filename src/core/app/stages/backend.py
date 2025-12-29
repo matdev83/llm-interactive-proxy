@@ -624,7 +624,7 @@ class BackendStage(InitializationStage):
 
         except ImportError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Backend services validation failed: {e}")
+                logger.error("Backend services validation failed: %s", e, exc_info=True)
             return False
 
     async def _validate_backend_functionality(
