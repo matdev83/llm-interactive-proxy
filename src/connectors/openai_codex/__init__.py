@@ -4,7 +4,10 @@ This module contains the refactored OpenAI Codex connector with separated
 responsibilities and clear interfaces.
 """
 
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 __all__: list[str] = []
 
@@ -24,8 +27,13 @@ try:
             OpenAICodexConnector = _openai_codex_file.OpenAICodexConnector
             OPENAI_VENDOR_PREFIX = _openai_codex_file.OPENAI_VENDOR_PREFIX
             __all__ = ["OpenAICodexConnector", "OPENAI_VENDOR_PREFIX"]
-except Exception:
+except (ImportError, AttributeError, OSError) as err:
     # Fallback: try direct import if file import fails
+    logger.debug(
+        "Failed to load OpenAI Codex connector via file import: %s",
+        err,
+        exc_info=True,
+    )
     try:
         from ..openai_codex import (  # type: ignore[attr-defined]
             OPENAI_VENDOR_PREFIX,
@@ -33,7 +41,12 @@ except Exception:
         )
 
         __all__ = ["OpenAICodexConnector", "OPENAI_VENDOR_PREFIX"]
-    except Exception:
+    except (ImportError, AttributeError) as err2:
+        logger.warning(
+            "Failed to import OpenAI Codex connector: %s",
+            err2,
+            exc_info=True,
+        )
         __all__ = []
 
 # Also export OpenAICredentialsFileHandler from credentials module

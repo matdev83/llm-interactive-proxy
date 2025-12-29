@@ -94,7 +94,12 @@ class GoogleAuthProvider:
         try:
             auth_exceptions = self.get_auth_exceptions()
             return isinstance(exception, auth_exceptions.GoogleAuthError)
-        except Exception:
+        except (ImportError, AttributeError) as err:
+            logger.debug(
+                "Failed to check if exception is GoogleAuthError: %s",
+                err,
+                exc_info=True,
+            )
             return False
 
 

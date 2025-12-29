@@ -2,11 +2,14 @@
 Configuration primitives for Gemini OAuth connectors.
 """
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from src.core.config.app_config import AppConfig
+
+logger = logging.getLogger(__name__)
 
 # Code Assist API endpoint (matching the CLI's endpoint):
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
@@ -70,7 +73,12 @@ class GracefulDegradationConfig:
                 return list(default)
             try:
                 return [float(v) for v in list(value)]
-            except Exception:
+            except (TypeError, ValueError) as err:
+                logger.debug(
+                    "Failed to coerce graceful_degradation_retry_delays to list of floats: %s",
+                    err,
+                    exc_info=True,
+                )
                 return list(default)
 
         return cls(
