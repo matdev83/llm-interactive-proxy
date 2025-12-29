@@ -22,7 +22,7 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
     if isinstance(chunk, bytes | bytearray):
         try:
             chunk = chunk.decode("utf-8")
-        except Exception as exc:
+        except UnicodeDecodeError:
             logger.warning(
                 "Failed to decode bytes chunk in openai_to_domain_stream_chunk",
                 exc_info=True,
@@ -146,7 +146,7 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
         )
     except Exception as exc:
         logger.warning(
-            "Failed to convert OpenAI chunk to CanonicalStreamChunk: %s", exc
+            "Failed to convert OpenAI chunk to CanonicalStreamChunk: %s", exc, exc_info=True
         )
         return {"error": f"Failed to convert chunk: {exc}"}
 
