@@ -5,6 +5,7 @@ A command handler for failover commands.
 from __future__ import annotations
 
 import contextlib
+import logging
 import threading
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
@@ -48,10 +49,15 @@ class SessionStateApplicationStateAdapter(
         self._lock = threading.Lock()
 
     def get_command_prefix(self) -> str | None:
+        logger = logging.getLogger(__name__)
         prefix = None
         try:
             prefix = getattr(self._session.state, "command_prefix_override", None)
         except Exception:
+            logger.warning(
+                "Failed to get command prefix from session state",
+                exc_info=True,
+            )
             prefix = None
         if isinstance(prefix, str) and prefix:
             return prefix
@@ -172,6 +178,7 @@ class SessionStateApplicationStateAdapter(
             self._local_state["model_defaults"] = defaults
 
     def get_service(self, service_type: type[_T_co]) -> _T_co | None:
+        logger = logging.getLogger(__name__)
         with self._lock:
             provider = self._local_state.get("service_provider")
             getter = getattr(provider, "get_service", None) if provider else None
@@ -180,6 +187,11 @@ class SessionStateApplicationStateAdapter(
         try:
             return cast(_T_co | None, getter(service_type))
         except Exception:
+            logger.warning(
+                "Failed to get service %s from provider",
+                getattr(service_type, "__name__", repr(service_type)),
+                exc_info=True,
+            )
             return None
 
     def set_failover_route(self, name: str, route_config: dict[str, Any]) -> None:

@@ -182,7 +182,11 @@ class SteeringLeakProtector:
         try:
             content = data.decode("utf-8", errors="ignore")
             return self.has_leak(content)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Failed to decode bytes for leak detection",
+                exc_info=True,
+            )
             return False
 
     def sanitize_content(self, content: str) -> SanitizationResult:
