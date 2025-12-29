@@ -176,8 +176,13 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         delta = choice.get("delta", {})
                         if delta.get("tool_calls"):
                             return True
+                        # PERFORMANCE: Check for content directly to avoid expensive serialization
+                        content_val = delta.get("content")
+                        if content_val and str(content_val).strip():
+                            return True
 
         text = self._extract_text_from_chunk(chunk)
+
         return bool(text and text.strip())
 
     async def _create_retry_request(
@@ -275,7 +280,15 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         except asyncio.CancelledError:
             # Re-raise cancellation to allow proper cleanup
             raise
-        except (LLMProxyError, ParsingError, TranslationError, TypeError, ValueError, AttributeError, KeyError) as e:
+        except (
+            LLMProxyError,
+            ParsingError,
+            TranslationError,
+            TypeError,
+            ValueError,
+            AttributeError,
+            KeyError,
+        ) as e:
             # Catch domain exceptions and common data processing errors for fail-open behavior
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(

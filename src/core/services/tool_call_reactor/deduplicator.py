@@ -79,14 +79,22 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
         # Filter non-buffered calls against lifecycle registry
         for tool_call in tool_calls:
             # Compute signature once and reuse
-            signature = build_tool_call_signature(tool_call.model_dump())
+            # PERFORMANCE: Avoid expensive model_dump() if ID is available
+            # build_tool_call_signature uses ID if present anyway
+            if tool_call.id:
+                signature = tool_call.id
+            else:
+                signature = build_tool_call_signature(tool_call.model_dump())
 
             # Check if already processed in buffer state
+
             if buffer_state is not None and buffer_state.is_processed(signature):
                 continue
 
             # Check lifecycle registry for non-buffered calls
-            is_new = await self._lifecycle_registry.register_detection(stream_key, signature)
+            is_new = await self._lifecycle_registry.register_detection(
+                stream_key, signature
+            )
             if not is_new:
                 continue
 
