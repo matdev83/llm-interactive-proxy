@@ -160,11 +160,14 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                     )
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(f"Failed to record request usage: {e}", exc_info=True)
+                        logger.warning(
+                            f"Failed to record request usage: {e}", exc_info=True
+                        )
 
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
+            # Log at WARNING level since this is on a critical path for usage tracking/billing
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
                     "Failed to calculate outbound tokens or record usage",
                     exc_info=True,
                 )

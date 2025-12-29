@@ -167,8 +167,9 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
             if loop_detector is not None:
                 registry.register_feature(LoopDetectionFeature(loop_detector))
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to register LoopDetectionFeature", exc_info=True)
+            # Log at WARNING level since this is on a critical path for DI initialization
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Failed to register LoopDetectionFeature", exc_info=True)
 
         # Register middleware instances from the middleware manager
         try:
@@ -193,8 +194,9 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
                         name=mw_name,
                     )
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
+            # Log at WARNING level since this is on a critical path for DI initialization
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
                     "Failed to register middleware in parity registry", exc_info=True
                 )
 

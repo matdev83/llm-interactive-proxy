@@ -400,8 +400,9 @@ class JSONResponseBuilder:
                 "total_tokens": int(usage.get("total_tokens", 0) or 0),
             }
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
+            # Log at WARNING level since this is on a critical path for response formatting
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
                     "Failed to normalize usage payload: %s", usage, exc_info=True
                 )
             return None
@@ -595,7 +596,6 @@ class JSONResponseBuilder:
                 logger.warning(
                     "SECURITY: Sanitized leaked steering data from non-streaming JSON response"
                 )
-
 
         # Headers are already sanitized by HeaderSanitizer, but ensure they're filtered
         # Allow provider-specific headers for usage tracking and rate limiting
