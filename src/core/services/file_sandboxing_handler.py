@@ -26,6 +26,26 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Pre-compiled regex patterns for path extraction (performance optimization)
+# Module-level constants avoid recompiling on every _extract_paths_from_command_strings call
+_PATH_EXTRACTION_PATTERNS = (
+    re.compile(r"\bcd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+    re.compile(r"\bpushd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+    re.compile(r"\brm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+    re.compile(r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-delete", re.IGNORECASE),
+    re.compile(
+        r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-exec\s+rm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b(?:rmdir|rd)\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+    re.compile(r"\bdel\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
+    re.compile(r"\bRemove-Item\s+(?P<path>[^\s;&]+)[^\n;&]*-Recurse", re.IGNORECASE),
+)
+
+_ABSOLUTE_PATH_FALLBACK_PATTERN = re.compile(
+    r"(?P<path>(?:[A-Za-z]:\\|/|\\)[^\s'\";]+)"
+)
+
 
 class FileSandboxingHandler(IToolCallHandler):
     """Handler that enforces file access sandboxing for tool calls.
@@ -140,9 +160,6 @@ class FileSandboxingHandler(IToolCallHandler):
 
     def _extract_command_strings(self, arguments: dict[str, object]) -> list[str]:
         """Pull raw command strings out of common command tool args."""
-        if not isinstance(arguments, dict):
-            return []
-
         cmd = arguments.get("command") or arguments.get("cmd")
         strings: list[str] = []
 
@@ -171,38 +188,16 @@ class FileSandboxingHandler(IToolCallHandler):
 
         path_candidates: set[str] = set()
 
-        # Patterns keyed to destructive verbs (reduce false positives)
-        patterns = [
-            re.compile(r"\bcd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
-            re.compile(r"\bpushd\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
-            re.compile(
-                r"\brm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)", re.IGNORECASE
-            ),
-            re.compile(r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-delete", re.IGNORECASE),
-            re.compile(
-                r"\bfind\s+(?P<start>[^\s;&]+)[^\n;&]*?-exec\s+rm\s+-[^\s]*r[^\s]*f[^\s]*\s+(?P<path>[^\s;&]+)",
-                re.IGNORECASE,
-            ),
-            re.compile(r"\b(?:rmdir|rd)\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
-            re.compile(r"\bdel\s+/s\s+/q\s+(?P<path>[^\s;&]+)", re.IGNORECASE),
-            re.compile(
-                r"\bRemove-Item\s+(?P<path>[^\s;&]+)[^\n;&]*-Recurse", re.IGNORECASE
-            ),
-        ]
-
-        absolute_path_fallback = re.compile(
-            r"(?P<path>(?:[A-Za-z]:\\\\|/|\\\\)[^\s'\";]+)"
-        )
-
         for command in commands:
-            for pattern in patterns:
+            # Use module-level pre-compiled patterns
+            for pattern in _PATH_EXTRACTION_PATTERNS:
                 for match in pattern.finditer(command):
                     for group_name in ("path", "start"):
                         candidate = match.groupdict().get(group_name)
                         if candidate:
                             path_candidates.add(candidate)
 
-            for match in absolute_path_fallback.finditer(command):
+            for match in _ABSOLUTE_PATH_FALLBACK_PATTERN.finditer(command):
                 candidate = match.group("path")
                 if candidate:
                     path_candidates.add(candidate)
@@ -349,7 +344,7 @@ class FileSandboxingHandler(IToolCallHandler):
                         )
                     if invalid_path_errors:
                         error_messages.append(
-                            f"Invalid paths: {', '.join([p for p, e in invalid_path_errors])}"
+                            f"Invalid paths: {', '.join([p for p, _ in invalid_path_errors])}"
                         )
 
                     return ToolCallReactionResult(
