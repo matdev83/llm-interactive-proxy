@@ -368,7 +368,7 @@ class AsyncUsageWriteQueue:
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Failed to insert batch of %d records: %s", len(batch), e)
+                logger.error("Failed to insert batch of %d records: %s", len(batch), e, exc_info=True)
             # Records are lost - could implement retry queue here
 
         finally:
@@ -398,7 +398,7 @@ class AsyncUsageWriteQueue:
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Failed to update batch of %d records: %s", len(batch), e)
+                logger.error("Failed to update batch of %d records: %s", len(batch), e, exc_info=True)
             # Records are lost - could implement retry queue here
 
         finally:

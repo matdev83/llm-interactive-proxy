@@ -94,6 +94,10 @@ class BackendPreparer(IBackendPreparer):
                 try:
                     backend_type = self._app_state.get_backend_type()
                 except Exception:
+                    logger.debug(
+                        "Failed to get backend type from app_state",
+                        exc_info=True
+                    )
                     backend_type = None
 
                 _rm = getattr(backend_request, "model", None) or getattr(
@@ -118,11 +122,14 @@ class BackendPreparer(IBackendPreparer):
 
                 model_defaults: ModelDefaults | dict[str, Any] | None = None
                 for k in candidate_keys:
-                    md = model_defaults_map.get(k)
+                    md: Any = model_defaults_map.get(k)
                     if md is None:
                         continue
                     # Accept either a ModelDefaults instance or a plain dict-like
-                    if isinstance(md, ModelDefaults | dict):
+                    if isinstance(md, dict):
+                        model_defaults = md
+                        break
+                    elif hasattr(md, "limits"):
                         model_defaults = md
                         break
 
@@ -138,9 +145,10 @@ class BackendPreparer(IBackendPreparer):
 
                 # Check for CLI context window override first
                 cli_context_window = None
-                if self._app_state is not None:
+                app_state = self._app_state
+                if app_state is not None:  # type: ignore[truthy-function]
                     try:
-                        app_config = self._app_state.get_setting("app_config")
+                        app_config = app_state.get_setting("app_config")
                         if app_config is not None and hasattr(
                             app_config, "context_window_override"
                         ):
@@ -272,7 +280,7 @@ class BackendPreparer(IBackendPreparer):
                     except InvalidRequestError:
                         # Re-raise structured invalid request
                         raise
-                    except Exception:
+                    except (ValueError, TypeError, AttributeError, KeyError, RuntimeError):
                         # Unexpected error during enforcement: fail-open
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
@@ -282,7 +290,7 @@ class BackendPreparer(IBackendPreparer):
             except InvalidRequestError:
                 # Bubble up to FastAPI exception handlers
                 raise
-            except Exception:
+            except (ValueError, TypeError, AttributeError, KeyError, RuntimeError):
                 # Unexpected error in validation setup: fail-open
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(

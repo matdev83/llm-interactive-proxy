@@ -110,7 +110,7 @@ class BackendProcessor(IBackendProcessor):
                             failover_routes.append({"name": name, **data})
                 elif isinstance(session_routes, list) and session_routes:
                     failover_routes = list(session_routes)
-        except Exception:
+        except (AttributeError, KeyError, TypeError, ValueError):
             logger.debug(
                 "Failed to extract failover routes from session", exc_info=True
             )
@@ -121,7 +121,7 @@ class BackendProcessor(IBackendProcessor):
                 failover_routes = cast(
                     list[Any] | None, self._app_state.get_failover_routes()
                 )
-            except Exception:
+            except (AttributeError, TypeError, KeyError):
                 logger.debug(
                     "Failed to get failover routes from app_state", exc_info=True
                 )
