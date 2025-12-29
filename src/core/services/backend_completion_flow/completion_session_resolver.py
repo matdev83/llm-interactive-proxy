@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from src.core.domain.chat import CanonicalChatRequest
@@ -34,13 +35,27 @@ class CompletionSessionResolver(ICompletionSessionResolver):
             session_id_for_backend = context.session_id
             try:
                 session = await self._session_service.get_session(context.session_id)
-            except Exception:
+            except asyncio.CancelledError:
+                # Propagate cancellation - session resolution should not block cancellation
+                raise
+            except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
+                # Catch specific exceptions from repository/service layer
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Failed to load session '%s' for backend call",
+                        "Failed to load session '%s' for backend call: %s",
                         context.session_id,
+                        e,
                         exc_info=True,
                     )
+                session = None
+            except Exception as e:
+                # Fallback for unexpected errors - log and continue (fail-open)
+                logger.warning(
+                    "Unexpected error loading session '%s' for backend call: %s",
+                    context.session_id,
+                    e,
+                    exc_info=True,
+                )
                 session = None
 
         # Try to get session from request extra_body if not found in context
@@ -56,11 +71,27 @@ class CompletionSessionResolver(ICompletionSessionResolver):
                 session_id_for_backend = request_session_id
             try:
                 session = await self._session_service.get_session(request_session_id)
-            except Exception:
+            except asyncio.CancelledError:
+                # Propagate cancellation - session resolution should not block cancellation
+                raise
+            except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
+                # Catch specific exceptions from repository/service layer
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        f"Could not load session {request_session_id} for backend from backend-only service"
+                        "Could not load session %s for backend from backend-only service: %s",
+                        request_session_id,
+                        e,
+                        exc_info=True,
                     )
+                session = None
+            except Exception as e:
+                # Fallback for unexpected errors - log and continue (fail-open)
+                logger.warning(
+                    "Unexpected error loading session %s for backend from backend-only service: %s",
+                    request_session_id,
+                    e,
+                    exc_info=True,
+                )
                 session = None
 
         return session, session_id_for_backend

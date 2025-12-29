@@ -1,33 +1,24 @@
-Please orchestrate execution of the following task. Create a counter and execute in a loop, up to 50 times. Spawn each task to be executed by a subagent. Spawn only ONE SUBAGENT at time, as this task is not well suited for concurrent execution.
+# Task: Code maintenance - exception hygiene and logging
 
-To spawn a subagent please use your regular command execution tools like bash, exec or whatever is provided to you and execute the following command:
+## Goal
 
-```bash
-cursor-agent --print --output-format text --force "Please execute workflow from the following file: "
-```
-
-Each single task is as follows:
-
-```
-Task: Code maintenance - exception hygiene and logging
-
-Goal
 - Improve maintainability and debuggability by replacing overly broad exception handling with precise exceptions and consistent logging.
 - Ensure exception handling follows project standards (LLMProxyError hierarchy, async correctness, logging with exc_info=True).
 - IMPORTANT: An exception-handling refactor is not "done" until ALL dependent call sites/receivers and ALL directly related tests are updated to the new behavior/contract.
 
-Non-goals (avoid churn)
+## Non-goals (avoid churn)
+
 - Do NOT change runtime behavior or error surfaces unless the current behavior is clearly unsafe (e.g., bare except swallowing errors silently).
 - Do NOT refactor large control flow just to "clean up" exceptions.
 - Do NOT touch files listed in "already fixed files".
 
-Scope and limits
+## Scope and limits
+
 - Scan only ./src/ and its subfolders.
-- Use `rg` for all searches.
-- Avoid scanning dot/underscore directories (folders starting with `.` or `_`) to skip caches and generated content.
 - Fix up to THREE (3) high-impact cases total in this session.
 
-What counts as "exception hygiene" issues
+## What counts as "exception hygiene" issues
+
 Prioritize cases that:
 1) Use bare or too-broad handlers:
    - `except:`
@@ -41,7 +32,8 @@ Prioritize cases that:
 4) Catch/raise patterns that hide root causes:
    - `raise SomeError("...")` without chaining or context when rethrowing a lower-level exception
 
-How to pick the best 1-3 refactors (high leverage)
+## How to pick the best 1-3 refactors (high leverage)
+
 Choose handlers that:
 - Sit on boundaries (connectors, service layer, controllers).
 - Affect multiple call sites or error reporting paths.
@@ -49,7 +41,8 @@ Choose handlers that:
 Avoid:
 - One-off helpers with a single local call site unless the current handling is actively dangerous.
 
-Refactor approach (required)
+## Refactor approach (required)
+
 For each selected handler:
 1) Identify the expected exception types and use the most precise type(s) available.
 2) Preserve behavior:
@@ -69,22 +62,15 @@ For each selected handler:
    - Re-run `rg` to confirm you updated all previously recorded call sites.
    - Add a follow-up `rg` for the old patterns you removed (examples: old exception class name, old catch-all handler, old return-on-error sentinel) and confirm there are no remaining hits for the target you changed.
 
-Project constraints
+## Project constraints
+
 - Use codebase standards and existing conventions.
 - Prefer `LLMProxyError` and existing exception classes where appropriate.
 - Avoid import cycles.
 - Keep runtime behavior identical unless there is a clear bug fix aligned with the hygiene improvements.
 
-Search rules (must follow)
-- Use `rg` for searches. Limit to ./src/.
-- Exclude directories starting with `.` or `_`.
-- IMPORTANT (Windows): this repo contains a `src/nul` file that can make ripgrep error; always exclude it.
-  Example patterns (adapt as needed):
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'except\\s*:'`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'except\\s+Exception|except\\s+BaseException'`
-  - `rg -n --glob 'src/**' --glob '!.*/**' --glob '!_*/**' --glob '!src/nul' --glob '!**/nul' 'exc_info\\s*=\\s*False|logger\\.error\\('`
+## Completion gates (must be satisfied before reporting success)
 
-Completion gates (must be satisfied before reporting success)
 - Progress tracking: Use a TODO/Task List tool to track: scan -> pick targets -> implement -> run related tests -> commit -> final report.
 - Contract-change completeness (required): For each changed handler, show the "impact map" you created (call sites/receivers/tests) and confirm every item was updated.
 - Git state (do not block on dirty): Record `git status --porcelain` before editing for context. If it is not empty, continue anyway; do NOT try to "clean" the tree (no stash/reset/checkout), and do NOT stage/commit unrelated changes.
@@ -106,7 +92,8 @@ Completion gates (must be satisfied before reporting success)
   - Stage explicitly: `git add <file1> <file2> ...`, then verify: `git diff --cached --name-only`.
   - End state: overall `git status --porcelain` may be non-empty (other agents), but none of the files you touched should remain modified or staged after your commit.
 
-Deliverables / reporting (in your final response)
+## Deliverables / reporting (in your final response)
+
 1) Short summary of the up to 3 fixes (function name, file, old handler -> new handler, why it's materially better).
 2) List of files changed.
 3) Notes on any behavior-sensitive edge cases you verified.
@@ -115,32 +102,9 @@ Deliverables / reporting (in your final response)
 6) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
 7) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
 8) Post-commit `git status --porcelain` output (may be non-empty if other agents are working); confirm none of the files you touched remain uncommitted.
+9) Make sure you removed any temporary scripts you created during the process.
+10) Do not create any report/summary file, only display it.
 
-Already fixed files (do not modify):
+## Already fixed files (do not modify): 
+
 {list-of-fixed-files}
-```
-
-Orchestrator instructions (READ-ONLY)
-- You are a READ-ONLY orchestrator: do not modify the repo. Do not run commands that write files (including formatting/linting/test runs). Only spawn subagents to perform edits, run tests, and commit.
-- Branch/remote safety: Do NOT create/switch branches, detach HEAD, or do any operations on remotes.
-- Concurrency note: The working tree may be dirty due to other agents; do NOT require a clean `git status`. Focus verification on whether the subagent ran the required tests and produced a commit that includes only the files it touched.
-- Use a TODO/Task List tool to track: iteration counter, consecutive "no-fix" count, and post-run verification checks.
-- Loop breaker: before spawning any subagent, check whether `./dev/stop_orchestrator_loops.txt` exists; if it does, STOP iterating immediately.
-
-Per-iteration checklist (for i = 1..50)
-1) If the stop file exists: break.
-2) (Read-only) Before spawning, record current branch: `git rev-parse --abbrev-ref HEAD` (must not be `HEAD`), record current HEAD: `git rev-parse HEAD`, and record `git status --porcelain` for context (may be non-empty).
-3) Spawn exactly ONE subagent with the task prompt (replace `{list-of-fixed-files}` with your accumulated list).
-4) After the subagent reports back, verify (read-only checks + report review):
-   - Branch/HEAD safety: `git rev-parse --abbrev-ref HEAD` is unchanged and not `HEAD`.
-   - If the subagent changed any files:
-     - Contract-change completeness: it included an "impact map" (call sites/receivers/tests) and follow-up `rg` checks showing no missed call sites/old patterns remain.
-     - Tests: it ran baseline (pre-change) and post-change runs of ALL directly related tests and they passed (commands + PASS result are required).
-     - Git: it reported exactly ONE commit hash for its work.
-       - Verify the commit exists: `git cat-file -t <commit_hash>` returns `commit`.
-       - Verify committed files: `git show --name-only --pretty=oneline <commit_hash>` matches the subagent's reported touched files.
-       - Optional sanity check: `git merge-base --is-ancestor <commit_hash> HEAD` succeeds.
-   - If the subagent made no changes: do NOT require tests/commit; count this as a "no-fix found" iteration.
-5) If (and only if) the subagent changed files and any required gate is missing (impact map missing, follow-up `rg` checks missing, baseline tests missing/not green, post-change tests not green, no commit, commit hash missing/mismatch, commit includes extra files): before spawning the follow-up subagent, check whether `./dev/stop_orchestrator_loops.txt` exists; if it does, STOP iterating. If the violation would require forbidden git operations to fix (branch switched/detached, history rewritten, or a bad commit that cannot be corrected without rewriting history), STOP iterating and report. Otherwise spawn a follow-up subagent with brief instructions to fix ONLY that (complete missed call-site audit + update remaining call sites/tests and/or run/fix tests and/or commit hygiene). Do not fix it yourself.
-6) If the subagent failed to find at least one issue to fix in three consecutive iterations: stop iterating (job done).
-7) Append newly committed files to the "already fixed files" list before the next iteration (only when a commit was created).

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
@@ -46,10 +47,23 @@ class BackendProcessor(IBackendProcessor):
         session = None
         try:
             session = await self._session_service.get_session(session_id)
-        except Exception:
+        except asyncio.CancelledError:
+            # Propagate cancellation - session resolution should not block cancellation
+            raise
+        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
+            # Catch specific exceptions from repository/service layer
             logger.debug(
-                "Failed to resolve session %s in BackendProcessor",
+                "Failed to resolve session %s in BackendProcessor: %s",
                 session_id,
+                e,
+                exc_info=True,
+            )
+        except Exception as e:
+            # Fallback for unexpected errors - log and continue (fail-open)
+            logger.warning(
+                "Unexpected error resolving session %s in BackendProcessor: %s",
+                session_id,
+                e,
                 exc_info=True,
             )
 

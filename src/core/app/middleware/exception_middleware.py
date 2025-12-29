@@ -105,11 +105,24 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
                 service_provider, IServiceProvider
             ):
                 return
-        except Exception:
-            # Service provider not available - fail-open with logging for debugging
+        except asyncio.CancelledError:
+            # Propagate cancellation - termination reporting should not block cancellation
+            raise
+        except (AttributeError, RuntimeError, TypeError) as e:
+            # Catch specific exceptions from attribute access/type checking
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
-                    "Failed to get service_provider from request.app.state during client termination reporting",
+                    "Failed to get service_provider from request.app.state during client termination reporting: %s",
+                    e,
+                    exc_info=True,
+                )
+            return
+        except Exception as e:
+            # Fallback for unexpected errors - fail-open with logging for debugging
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Unexpected error getting service_provider from request.app.state during client termination reporting: %s",
+                    e,
                     exc_info=True,
                 )
             return
@@ -121,11 +134,24 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
             )
             if client_eos_service is None:
                 return
-        except Exception:
-            # Service not available - fail-open with logging for debugging
+        except asyncio.CancelledError:
+            # Propagate cancellation - termination reporting should not block cancellation
+            raise
+        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError) as e:
+            # Catch specific exceptions from service provider
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
-                    "Failed to get IClientEndOfSessionService from service_provider",
+                    "Failed to get IClientEndOfSessionService from service_provider: %s",
+                    e,
+                    exc_info=True,
+                )
+            return
+        except Exception as e:
+            # Fallback for unexpected errors - fail-open with logging for debugging
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Unexpected error getting IClientEndOfSessionService from service_provider: %s",
+                    e,
                     exc_info=True,
                 )
             return
