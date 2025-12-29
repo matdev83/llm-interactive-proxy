@@ -568,31 +568,42 @@ class SSESerializer:
             else:
                 delta["content"] = json.dumps(parsed_content)
         elif chunk.payload.kind == "opaque_json" and chunk.payload.opaque_json:
-            # Parse JSON to check if it's OpenAI-formatted
-            try:
-                parsed_content = json.loads(chunk.payload.opaque_json)
-                if isinstance(parsed_content, dict):
-                    # Check if OpenAI-formatted chunk
-                    if "choices" in parsed_content or "usage" in parsed_content:
-                        return self._serialize_openai_formatted_dict(
-                            parsed_content, chunk, content
-                        )
+            # OPTIMIZATION: Check for OpenAI keywords before expensive JSON parsing.
+            # We only need to parse if it looks like an OpenAI chunk or if we need to check for leaks.
+            # Using string search is much faster than full JSON parsing for every chunk.
+            json_str = chunk.payload.opaque_json
+            is_potential_openai = '"choices"' in json_str or '"usage"' in json_str
+            is_leak_check_needed = isinstance(content.content, StopChunkWithUsage)
 
-                    # Check for StopChunkWithUsage misuse
-                    if isinstance(content.content, StopChunkWithUsage):
-                        raise UsageChunkLeakError(
-                            chunk_id=(
-                                parsed_content.get("id")
-                                if isinstance(parsed_content, dict)
-                                else None
+            if not is_potential_openai and not is_leak_check_needed:
+                delta["content"] = json_str
+            else:
+                # Parse JSON to check if it's OpenAI-formatted
+                try:
+                    parsed_content = json.loads(json_str)
+                    if isinstance(parsed_content, dict):
+                        # Check if OpenAI-formatted chunk
+                        if "choices" in parsed_content or "usage" in parsed_content:
+                            return self._serialize_openai_formatted_dict(
+                                parsed_content, chunk, content
                             )
-                        )
 
-                    delta["content"] = chunk.payload.opaque_json
-                else:
-                    delta["content"] = chunk.payload.opaque_json
-            except json.JSONDecodeError:
-                delta["content"] = chunk.payload.opaque_json
+                        # Check for StopChunkWithUsage misuse
+                        if is_leak_check_needed:
+                            raise UsageChunkLeakError(
+                                chunk_id=(
+                                    parsed_content.get("id")
+                                    if isinstance(parsed_content, dict)
+                                    else None
+                                )
+                            )
+
+                        delta["content"] = json.dumps(parsed_content)
+                    else:
+                        delta["content"] = json.dumps(parsed_content)
+                except json.JSONDecodeError:
+                    delta["content"] = json_str
+
         elif chunk.payload.kind == "binary" and chunk.payload.binary_b64:
             # Decode base64 binary content
             binary_data: bytes | None = None
