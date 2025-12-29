@@ -1482,7 +1482,8 @@ class QwenOAuthConnector(OpenAIConnector):
         except Exception as e:
             # Convert other exceptions to BackendError
             logger.error(
-                f"Error in Qwen OAuth chat_completions: {e}, type: {type(e).__name__}"
+                f"Error in Qwen OAuth chat_completions: {e}, type: {type(e).__name__}",
+                exc_info=True,
             )
             raise BackendError(
                 message=f"Qwen OAuth chat completion failed: {e!s}"
@@ -1566,7 +1567,7 @@ class QwenOAuthConnector(OpenAIConnector):
 
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to calculate token usage: %s", e)
+                logger.warning("Failed to calculate token usage: %s", e, exc_info=True)
             # Return zero usage as fallback
             return {
                 "prompt_tokens": 0,
