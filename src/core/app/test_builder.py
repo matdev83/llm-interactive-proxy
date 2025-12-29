@@ -148,11 +148,10 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
             else:  # type: ignore[unreachable]
                 config = create_test_config()  # type: ignore[unreachable]
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Failed to load config from environment, using test config",
-                    exc_info=True,
-                )
+            logger.warning(
+                "Failed to load config from environment, using test config",
+                exc_info=True,
+            )
             config = create_test_config()
     # Ensure sensible auth defaults for tests: if auth isn't disabled and no keys provided,
     # allow the common test key so TestClient headers work out of the box.
@@ -165,11 +164,10 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
         ):
             config.auth.api_keys = ["test-proxy-key"]  # type: ignore[attr-defined]
     except Exception:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Failed to configure auth defaults for test, continuing without modification",
-                exc_info=True,
-            )
+        logger.warning(
+            "Failed to configure auth defaults for test, continuing without modification",
+            exc_info=True,
+        )
 
     builder = ApplicationTestBuilder().add_test_stages()
     app = await builder.build(config)
@@ -188,11 +186,10 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
         install_api_key_redaction_filter(api_keys)
     except Exception:
         # Don't fail test app creation if redaction installation fails
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Failed to install API key redaction filter during test app creation",
-                exc_info=True,
-            )
+        logger.warning(
+            "Failed to install API key redaction filter during test app creation",
+            exc_info=True,
+        )
 
     return app
 
@@ -217,11 +214,10 @@ def build_test_app(config: AppConfig | None = None) -> FastAPI:
             else:  # type: ignore[unreachable]
                 config = create_test_config()  # type: ignore[unreachable]
         except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Failed to load config from environment, using test config",
-                    exc_info=True,
-                )
+            logger.warning(
+                "Failed to load config from environment, using test config",
+                exc_info=True,
+            )
             config = create_test_config()
 
     try:
@@ -263,11 +259,10 @@ async def build_minimal_test_app_async(config: AppConfig | None = None) -> FastA
         api_keys = discover_api_keys_from_config_and_env(app_config)
         install_api_key_redaction_filter(api_keys)
     except Exception:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Failed to install API key redaction filter during minimal test app creation",
-                exc_info=True,
-            )
+        logger.warning(
+            "Failed to install API key redaction filter during minimal test app creation",
+            exc_info=True,
+        )
 
     return app
 

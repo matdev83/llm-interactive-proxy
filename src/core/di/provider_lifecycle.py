@@ -207,8 +207,9 @@ def _initialize_feature_parity_registry(provider: IServiceProvider) -> None:
     except Exception as e:
         # Don't fail startup due to parity registration issues
         init_logger = logging.getLogger(__name__)
-        if init_logger.isEnabledFor(logging.DEBUG):
-            init_logger.debug("Feature parity initialization skipped: %s", e)
+        init_logger.warning(
+            "Feature parity initialization skipped: %s", e, exc_info=True
+        )
 
 
 def _register_tool_call_handlers(provider: IServiceProvider) -> None:

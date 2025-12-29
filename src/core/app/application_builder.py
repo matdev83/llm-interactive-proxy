@@ -541,8 +541,7 @@ class ApplicationBuilder:
                     await backend_lifecycle_manager.shutdown_all()
             except Exception:
                 # Best-effort shutdown
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Failed to shut down backends", exc_info=True)
+                logger.warning("Failed to shut down backends", exc_info=True)
 
             # Dispose of ServiceCollection to await pending cleanup tasks
 
@@ -552,8 +551,7 @@ class ApplicationBuilder:
                 await self._services.dispose()
             except Exception:
                 # Best-effort disposal; ignore errors to avoid masking real failures
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Failed to dispose ServiceCollection", exc_info=True)
+                logger.warning("Failed to dispose ServiceCollection", exc_info=True)
             # Clean up resources
             try:
                 import httpx
@@ -581,10 +579,9 @@ class ApplicationBuilder:
                         logger.info("Wire capture service shut down successfully.")
             except Exception:
                 # Best-effort shutdown; ignore errors to avoid masking real failures
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to shut down wire capture service", exc_info=True
-                    )
+                logger.warning(
+                    "Failed to shut down wire capture service", exc_info=True
+                )
 
         # Set lifespan handler
         app.router.lifespan_context = lifespan
