@@ -12,6 +12,7 @@ from src.core.interfaces.response_processor_interface import (
     IResponseMiddleware,
     ProcessedResponse,
 )
+from src.core.common.exceptions import JSONParsingError, ValidationError
 from src.core.services.json_repair_service import (
     JsonRepairResult,
     JsonRepairService,
@@ -110,11 +111,12 @@ class JsonRepairFeature(IResponseFeature):
         content: str,
         strict: bool,
         mode: str,
-    ) -> tuple[JsonRepairResult | None, bool]:
+    ) -> tuple[JsonRepairResult | None, Exception | None]:
         """Apply JSON repair and return result.
 
         Returns:
-            Tuple of (repair_result, should_raise_on_failure)
+            Tuple of (repair_result, exception_to_raise). exception_to_raise is None
+            if no exception should be raised, or the exception to raise otherwise.
         """
         try:
             repair_result = self.json_repair_service.repair_and_validate_json(
@@ -132,15 +134,32 @@ class JsonRepairFeature(IResponseFeature):
                 )
             )
             metrics.inc(f"json_repair.{mode}.{metric_suffix}")
-            return repair_result, False
+            return repair_result, None
 
-        except Exception:
+        except (JSONParsingError, ValidationError) as e:
+            # These are expected exceptions from the repair service in strict mode
+            # Re-raise them directly to preserve the exception chain
             metrics.inc(
                 f"json_repair.{mode}.strict_fail"
                 if strict
                 else f"json_repair.{mode}.best_effort_fail"
             )
-            return None, True
+            return None, e
+        except Exception as e:
+            # Unexpected exceptions - log with context
+            metrics.inc(
+                f"json_repair.{mode}.strict_fail"
+                if strict
+                else f"json_repair.{mode}.best_effort_fail"
+            )
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error during JSON repair",
+                    exc_info=True,
+                    extra={"mode": mode, "strict": strict},
+                )
+            # In strict mode, re-raise unexpected exceptions; in best-effort mode, swallow
+            return None, e if strict else None
 
     def _update_response_content(
         self, response: Any, repaired_content: str, session_id: str
@@ -192,12 +211,12 @@ class JsonRepairFeature(IResponseFeature):
             return response
 
         strict = self._determine_strict_mode(response, context)
-        repair_result, should_raise = self._apply_repair(
+        repair_result, exception_to_raise = self._apply_repair(
             content, strict, "non_streaming"
         )
 
-        if should_raise:
-            raise
+        if exception_to_raise is not None:
+            raise exception_to_raise
 
         if repair_result and repair_result.success:
             if logger.isEnabledFor(logging.INFO):
@@ -239,12 +258,12 @@ class JsonRepairFeature(IResponseFeature):
 
             if accumulated_content:
                 strict = self._determine_strict_mode(chunk, context)
-                repair_result, should_raise = self._apply_repair(
+                repair_result, exception_to_raise = self._apply_repair(
                     accumulated_content, strict, "streaming"
                 )
 
-                if should_raise:
-                    raise
+                if exception_to_raise is not None:
+                    raise exception_to_raise
 
                 if repair_result and repair_result.success:
                     if logger.isEnabledFor(logging.INFO):
@@ -353,12 +372,27 @@ class JsonRepairMiddleware(IResponseMiddleware):
                     )
                 )
                 metrics.inc(f"json_repair.non_streaming.{metric_suffix}")
-            except Exception:
+            except (JSONParsingError, ValidationError) as e:
+                # Expected exceptions from repair service in strict mode - re-raise directly
                 metrics.inc(
                     "json_repair.non_streaming.strict_fail"
                     if strict_effective
                     else "json_repair.non_streaming.best_effort_fail"
                 )
+                raise
+            except Exception as e:
+                # Unexpected exceptions - log with context before re-raising
+                metrics.inc(
+                    "json_repair.non_streaming.strict_fail"
+                    if strict_effective
+                    else "json_repair.non_streaming.best_effort_fail"
+                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error during JSON repair in legacy middleware",
+                        exc_info=True,
+                        extra={"session_id": session_id, "strict": strict_effective},
+                    )
                 raise
             if repair_result.success:
                 if logger.isEnabledFor(logging.INFO):
