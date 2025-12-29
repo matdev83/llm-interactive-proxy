@@ -370,7 +370,8 @@ class StreamingContent:
                         except Exception:
                             # If conversion fails, skip this tool call
                             logger.warning(
-                                f"Failed to convert tool call dict to ToolCall: {tc}"
+                                f"Failed to convert tool call dict to ToolCall: {tc}",
+                                exc_info=True,
                             )
 
         error: StreamingErrorInfo | None = None
@@ -389,7 +390,8 @@ class StreamingContent:
                     error = StreamingErrorInfo(**valid_fields)
                 except Exception:
                     logger.warning(
-                        f"Failed to convert error dict to StreamingErrorInfo: {error_dict}"
+                        f"Failed to convert error dict to StreamingErrorInfo: {error_dict}",
+                        exc_info=True,
                     )
                     # Preserve original error dict in metadata if conversion fails
                     metadata_dict["error"] = error_dict
@@ -402,7 +404,8 @@ class StreamingContent:
                 usage = StreamingUsage(**usage_dict)
             except Exception:
                 logger.warning(
-                    f"Failed to convert usage dict to StreamingUsage: {usage_dict}"
+                    f"Failed to convert usage dict to StreamingUsage: {usage_dict}",
+                    exc_info=True,
                 )
         if "usage" in metadata_dict:
             metadata_dict.pop("usage")

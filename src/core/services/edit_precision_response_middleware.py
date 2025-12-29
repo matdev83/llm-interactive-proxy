@@ -142,7 +142,14 @@ class EditPrecisionFeature(IResponseFeature):
                     if p.search(combined_text):
                         matched_pattern = getattr(p, "pattern", None) or str(p)
                         break
-                except Exception:
+                except Exception as e:
+                    # Log pattern matching failures for debugging
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Pattern matching failed during edit precision detection",
+                            exc_info=True,
+                            extra={"pattern": getattr(p, "pattern", None) or str(p)},
+                        )
                     continue
 
         if matched_pattern is None and tool_failure_detected:
@@ -172,7 +179,13 @@ class EditPrecisionFeature(IResponseFeature):
                 pending_map = {}
             else:
                 pending_map = dict(pending_map)
-        except Exception:
+        except Exception as e:
+            # Log failures when converting pending_map to dict
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Failed to convert pending_map to dict in edit precision handler",
+                    exc_info=True,
+                )
             pending_map = {}
 
         key = session_id or ""
@@ -713,7 +726,14 @@ class EditPrecisionResponseMiddleware(IResponseMiddleware):
                     if p.search(combined_text):
                         matched_pattern = getattr(p, "pattern", None) or str(p)
                         break
-                except Exception:
+                except Exception as e:
+                    # Log pattern matching failures for debugging
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Pattern matching failed during edit precision detection",
+                            exc_info=True,
+                            extra={"pattern": getattr(p, "pattern", None) or str(p)},
+                        )
                     continue
 
         if matched_pattern is None and tool_failure_detected:
