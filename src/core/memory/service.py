@@ -605,10 +605,10 @@ class MemoryService:
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
             except Exception:
                 # If gather fails, cancel all tasks
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Error during MemoryService cleanup task gather", exc_info=True
-                    )
+                logger.warning(
+                    "Error during MemoryService cleanup task gather",
+                    exc_info=True,
+                )
                 for task in pending_tasks:
                     if not task.done():
                         task.cancel()

@@ -485,7 +485,10 @@ class QwenOAuthConnector(OpenAIConnector):
                 self.is_functional = False
 
         except Exception as e:
-            logger.error(f"Error handling credentials file change: {e}")
+            logger.error(
+                f"Error handling credentials file change: {e}",
+                exc_info=True,
+            )
             self.is_functional = False
 
     def _start_file_watching(self) -> None:
@@ -749,7 +752,10 @@ class QwenOAuthConnector(OpenAIConnector):
         try:
             await asyncio.to_thread(_save_sync)
         except Exception as e:
-            logger.error(f"Error saving Qwen OAuth credentials: {e}")
+            logger.error(
+                f"Error saving Qwen OAuth credentials: {e}",
+                exc_info=True,
+            )
 
     async def _load_oauth_credentials(self) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
@@ -804,7 +810,10 @@ class QwenOAuthConnector(OpenAIConnector):
             logger.error(f"Error decoding Qwen OAuth credentials JSON: {e}")
             return False
         except Exception as e:
-            logger.error(f"Error loading Qwen OAuth credentials: {e}")
+            logger.error(
+                f"Error loading Qwen OAuth credentials: {e}",
+                exc_info=True,
+            )
             return False
 
     def get_headers(self, identity: IAppIdentityConfig | None = None) -> dict[str, str]:
@@ -854,7 +863,10 @@ class QwenOAuthConnector(OpenAIConnector):
             return True
 
         except Exception as e:
-            logger.error(f"Qwen OAuth health check failed - unexpected error: {e}")
+            logger.error(
+                f"Qwen OAuth health check failed - unexpected error: {e}",
+                exc_info=True,
+            )
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -912,18 +924,27 @@ class QwenOAuthConnector(OpenAIConnector):
 
             # Step 4: Attempt token refresh if needed
             logger.info("Step 3: Checking token expiry and refreshing if needed...")
+            refresh_success = False
+            refresh_exception_occurred = False
             try:
                 refresh_success = await self._refresh_token_if_needed()
             except Exception:
                 # Catch AuthenticationError and others to ensure graceful degradation
                 refresh_success = False
+                refresh_exception_occurred = True
+                logger.error(
+                    "Failed to refresh expired OAuth token during initialization",
+                    exc_info=True,
+                )
 
             if not refresh_success:
                 # Tolerant startup behavior: degrade instead of outright failure
                 error_msg = "OAuth token refresh pending"
-                logger.error(
-                    "Failed to refresh expired OAuth token during initialization"
-                )
+                if not refresh_exception_occurred:
+                    # Only log if no exception occurred (refresh returned False)
+                    logger.error(
+                        "Failed to refresh expired OAuth token during initialization"
+                    )
                 self._credential_validation_errors = [error_msg]
                 self._initialization_failed = False
                 self.is_functional = False

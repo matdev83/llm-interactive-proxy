@@ -253,7 +253,8 @@ def production_retry(config: RetryConfig):
 
                     if attempt == config.max_attempts:
                         logger.error(
-                            f"All {config.max_attempts} retry attempts failed for {func.__name__}"
+                            f"All {config.max_attempts} retry attempts failed for {func.__name__}",
+                            exc_info=True,
                         )
                         raise
 
@@ -294,7 +295,8 @@ def production_retry(config: RetryConfig):
 
                     if attempt == config.max_attempts:
                         logger.error(
-                            f"All {config.max_attempts} retry attempts failed for {func.__name__}"
+                            f"All {config.max_attempts} retry attempts failed for {func.__name__}",
+                            exc_info=True,
                         )
                         raise
 
