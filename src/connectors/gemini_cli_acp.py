@@ -874,7 +874,7 @@ class GeminiCliAcpConnector(GeminiBackend):
         try:
             encoding = tiktoken.get_encoding("cl100k_base")
             return len(encoding.encode(text))
-        except Exception:
+        except (ImportError, LookupError, AttributeError, RuntimeError):
             # Fallback: rough estimate with logging for debugging
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(

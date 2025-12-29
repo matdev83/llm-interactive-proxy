@@ -443,7 +443,7 @@ class ResponseProcessor(IResponseProcessor):
                             usage=processed_response.usage,
                             metadata=processed_response.metadata,
                         )
-            except Exception:
+            except (KeyError, TypeError, ValueError, AttributeError):
                 # Be conservative: do not break normal flow on Angel errors
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning("Angel verification failed; continuing", exc_info=True)

@@ -253,7 +253,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                         }
                         clean_tool_calls.append(clean_tc)
                     response.metadata["tool_calls"] = clean_tool_calls
-        except Exception:
+        except (TypeError, ValueError, KeyError, AttributeError):
             # Log unexpected errors during metadata annotation at WARNING level
             # to ensure visibility even when DEBUG logging is disabled
             if logger.isEnabledFor(logging.WARNING):
