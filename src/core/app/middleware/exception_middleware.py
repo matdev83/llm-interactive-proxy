@@ -147,13 +147,13 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
                 )
             return
         except Exception as e:
-            # Fallback for unexpected errors - fail-open with logging for debugging
-            if self._logger.isEnabledFor(logging.DEBUG):
-                self._logger.debug(
-                    "Unexpected error getting IClientEndOfSessionService from service_provider: %s",
-                    e,
-                    exc_info=True,
-                )
+            # Fallback for unexpected errors - fail-open but log at WARNING level for visibility
+            # Unexpected errors during service provider access should be visible in production logs
+            self._logger.warning(
+                "Unexpected error getting IClientEndOfSessionService from service_provider: %s",
+                e,
+                exc_info=True,
+            )
             return
 
         # Create RequestContext from FastAPI request to resolve SessionKey

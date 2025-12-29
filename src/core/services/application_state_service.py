@@ -94,15 +94,15 @@ class ApplicationStateService(IApplicationState):
                         type(exc).__name__,
                         exc_info=True,
                     )
-            except Exception as exc:
+            except Exception:
                 # Catch-all for other unexpected synchronization errors
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to synchronize state '%s' to provider '%s'",
-                        key,
-                        type(self._state_provider).__name__,
-                        exc_info=True,
-                    )
+                # Log at WARNING level for visibility - unexpected errors during state sync should be visible
+                logger.warning(
+                    "Failed to synchronize state '%s' to provider '%s'",
+                    key,
+                    type(self._state_provider).__name__,
+                    exc_info=True,
+                )
 
     def set_state_provider(self, state_provider: Any) -> None:
         """Set the state provider.
@@ -222,7 +222,7 @@ class ApplicationStateService(IApplicationState):
                     exc_info=True,
                 )
             return None
-        except Exception as exc:
+        except Exception:
             # Catch-all for other unexpected resolution errors
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(

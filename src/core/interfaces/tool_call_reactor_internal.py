@@ -130,13 +130,13 @@ def normalize_tool_arguments(
                             outcome = "recovered"
                         except (json.JSONDecodeError, TypeError, ValueError):
                             pass
-                except Exception as exc:
-                    # Log repair failures for debugging
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "JSON repair failed during tool arguments normalization",
-                            exc_info=True,
-                        )
+                except Exception:
+                    # Log repair failures - unexpected errors during JSON repair should be visible
+                    # This is a fallback path, so log at WARNING level for visibility
+                    logger.warning(
+                        "JSON repair failed during tool arguments normalization",
+                        exc_info=True,
+                    )
 
         # If we have a parsed value, normalize it
         if parsed_value is not None:
