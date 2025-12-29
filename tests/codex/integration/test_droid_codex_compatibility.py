@@ -53,7 +53,7 @@ class TestDroidCodexCompatibility:
             "Execute": {"command": "ls"},
             "Edit": {"file_path": "/test.py", "old_str": "a", "new_str": "b"},
             "Grep": {"pattern": "test"},
-            "Glob": {"patterns": ["*.py"]},
+            "Glob": {"pattern": "*.py"},
             "Create": {"file_path": "/new.py", "content": ""},
             "TodoWrite": {"todos": []},
             "WebSearch": {"query": "test"},

@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 import shlex
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -110,13 +110,13 @@ class DroidToolTranslator:
             TranslationResult object
 
         Raises:
-            ValueError: If the tool is not recognized
+            ValueError: If tool is not recognized
         """
         # Check if it's a native Codex tool
         if tool_name in self.CODEX_NATIVE_TOOLS:
             translator_method = getattr(self, f"_translate_{tool_name.lower()}", None)
             if translator_method:
-                result = cast(TranslationResult, translator_method(arguments))
+                result: TranslationResult = translator_method(arguments)
                 result.original_tool_name = tool_name
                 return result
             # Fallback for tools without specific translators
@@ -170,7 +170,8 @@ class DroidToolTranslator:
         # Get reverse translator if exists
         translator_method = getattr(self, f"_reverse_translate_{codex_tool_name}", None)
         if translator_method:
-            return cast(ReverseTranslationResult, translator_method(codex_arguments))
+            result: ReverseTranslationResult = translator_method(codex_arguments)
+            return result
 
         # Default: just map name, keep arguments as-is
         return ReverseTranslationResult(
@@ -179,7 +180,7 @@ class DroidToolTranslator:
 
     def _reverse_translate_read_file(
         self, codex_args: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> ReverseTranslationResult:
         """Translate read_file back to Read.
 
         Codex read_file:
@@ -207,11 +208,14 @@ class DroidToolTranslator:
         elif end_line is not None:
             droid_args["limit"] = end_line
 
-        return "Read", droid_args
+        return ReverseTranslationResult(
+            droid_tool_name="Read",
+            droid_arguments=droid_args,
+        )
 
     def _reverse_translate_shell(
         self, codex_args: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> ReverseTranslationResult:
         """Translate shell back to Execute.
 
         Codex shell:
@@ -227,11 +231,14 @@ class DroidToolTranslator:
         else:
             command_str = str(command)
 
-        return "Execute", {"command": command_str}
+        return ReverseTranslationResult(
+            droid_tool_name="Execute",
+            droid_arguments={"command": command_str},
+        )
 
     def _reverse_translate_list_dir(
         self, codex_args: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> ReverseTranslationResult:
         """Translate list_dir back to LS.
 
         Codex list_dir:
@@ -240,11 +247,14 @@ class DroidToolTranslator:
         Droid LS:
             - directory_path: Directory path
         """
-        return "LS", {"directory_path": codex_args.get("path", ".")}
+        return ReverseTranslationResult(
+            droid_tool_name="LS",
+            droid_arguments={"directory_path": codex_args.get("path", ".")},
+        )
 
     def _reverse_translate_grep_files(
         self, codex_args: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> ReverseTranslationResult:
         """Translate grep_files back to Grep.
 
         Codex grep_files:
@@ -265,16 +275,19 @@ class DroidToolTranslator:
         if "path" in codex_args:
             droid_args["path"] = codex_args["path"]
 
-        return "Grep", droid_args
+        return ReverseTranslationResult(
+            droid_tool_name="Grep",
+            droid_arguments=droid_args,
+        )
 
     def _reverse_translate_apply_patch(
         self, codex_args: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> ReverseTranslationResult:
         """Translate apply_patch back to Edit.
 
         This is a complex translation - Codex uses diff format while
         Droid uses old_str/new_str format. For now, we pass through
-        the patch content and let the client handle it.
+        patch content and let client handle it.
 
         Codex apply_patch:
             - file_path: Target file
@@ -290,10 +303,24 @@ class DroidToolTranslator:
 
         # If it's a new file creation, map to Create tool behavior
         if codex_args.get("is_new_file"):
-            return "Create", {
+            return ReverseTranslationResult(
+                droid_tool_name="Create",
+                droid_arguments={
+                    "file_path": file_path,
+                    "content": codex_args.get("content", ""),
+                },
+            )
+
+        # For edits, we pass through as-is since diff format
+        # is complex to reverse-engineer
+        return ReverseTranslationResult(
+            droid_tool_name="Edit",
+            droid_arguments={
                 "file_path": file_path,
-                "content": codex_args.get("content", ""),
-            }
+                "old_str": "",  # Placeholder - actual diff handling needed
+                "new_str": codex_args.get("content", ""),
+            },
+        )
 
         # For edits, we pass through as-is since the diff format
         # is complex to reverse-engineer
@@ -363,9 +390,7 @@ class DroidToolTranslator:
             original_tool_name="LS",
         )
 
-    def _translate_execute(
-        self, arguments: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    def _translate_execute(self, arguments: dict[str, Any]) -> TranslationResult:
         """Translate Execute tool to shell.
 
         Droid Execute:
@@ -396,7 +421,11 @@ class DroidToolTranslator:
         # Note: timeout is not directly supported by Codex shell
         # It should be handled by the executor
 
-        return "shell", codex_args
+        return TranslationResult(
+            codex_tool_name="shell",
+            codex_arguments=codex_args,
+            original_tool_name="Execute",
+        )
 
     def _translate_grep(self, arguments: dict[str, Any]) -> TranslationResult:
         """Translate Grep tool to grep_files.
@@ -405,11 +434,13 @@ class DroidToolTranslator:
             - pattern: Search pattern
             - file_pattern: Optional file pattern
             - max_results: Optional max results
+            - path: Optional search path
 
         Codex grep_files:
             - pattern: Search pattern
             - file_patterns: Optional file patterns
             - max_results: Optional max results
+            - path: Optional search path
         """
         codex_args: dict[str, Any] = {"pattern": arguments["pattern"]}
 
@@ -418,6 +449,9 @@ class DroidToolTranslator:
 
         if "max_results" in arguments:
             codex_args["max_results"] = arguments["max_results"]
+
+        if "path" in arguments:
+            codex_args["path"] = arguments["path"]
 
         return TranslationResult(
             codex_tool_name="grep_files",
@@ -473,9 +507,7 @@ class DroidToolTranslator:
             original_tool_name="Edit",
         )
 
-    def _translate_create(
-        self, arguments: dict[str, Any]
-    ) -> tuple[str, dict[str, Any]]:
+    def _translate_create(self, arguments: dict[str, Any]) -> TranslationResult:
         """Translate Create tool to apply_patch.
 
         Droid Create:
@@ -491,7 +523,11 @@ class DroidToolTranslator:
             "is_new_file": True,
         }
 
-        return "apply_patch", codex_args
+        return TranslationResult(
+            codex_tool_name="apply_patch",
+            codex_arguments=codex_args,
+            original_tool_name="Create",
+        )
 
     def format_result(self, codex_result: dict[str, Any], _original_tool: str) -> str:
         """Format a Codex result back to Droid format.

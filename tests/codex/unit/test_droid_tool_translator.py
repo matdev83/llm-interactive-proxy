@@ -251,37 +251,37 @@ class TestDroidToolTranslatorGrep:
         assert args["path"] == "src/"
 
     def test_translate_grep_with_type(self):
-        """Grep with type should convert to include pattern."""
+        """Grep with type should convert to file_patterns."""
         from src.connectors._openai_codex_droid_tool_translator import (
             DroidToolTranslator,
         )
 
         translator = DroidToolTranslator()
         result = translator.translate_tool_call(
-            "Grep", {"pattern": "class", "type": "py"}
+            "Grep", {"pattern": "class", "file_pattern": "*.py"}
         )
         tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "class"
-        assert args["include"] == "*.py"
+        assert args["file_patterns"] == ["*.py"]
 
     def test_translate_grep_with_glob(self):
-        """Grep with glob should convert to include pattern."""
+        """Grep with glob should convert to file_patterns."""
         from src.connectors._openai_codex_droid_tool_translator import (
             DroidToolTranslator,
         )
 
         translator = DroidToolTranslator()
         result = translator.translate_tool_call(
-            "Grep", {"pattern": "TODO", "glob": "**/*.md"}
+            "Grep", {"pattern": "TODO", "file_pattern": "**/*.md"}
         )
         tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "TODO"
-        assert args["include"] == "**/*.md"
+        assert args["file_patterns"] == ["**/*.md"]
 
-    def test_translate_grep_with_include_exclude(self):
-        """Grep with include/exclude should pass through."""
+    def test_translate_grep_with_file_pattern_max_results(self):
+        """Grep with file_pattern and max_results should map correctly."""
         from src.connectors._openai_codex_droid_tool_translator import (
             DroidToolTranslator,
         )
@@ -291,15 +291,15 @@ class TestDroidToolTranslatorGrep:
             "Grep",
             {
                 "pattern": "error",
-                "include": "*.log",
-                "exclude": "*.bak",
+                "file_pattern": "*.log",
+                "max_results": 100,
             },
         )
         tool_name, args = result.codex_tool_name, result.codex_arguments
         assert tool_name == "grep_files"
         assert args["pattern"] == "error"
-        assert args["include"] == "*.log"
-        assert args["exclude"] == "*.bak"
+        assert args["file_patterns"] == ["*.log"]
+        assert args["max_results"] == 100
 
 
 class TestProxySideTools:
