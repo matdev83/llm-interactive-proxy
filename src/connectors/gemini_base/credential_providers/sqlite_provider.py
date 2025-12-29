@@ -10,6 +10,7 @@ import logging
 import os
 import sqlite3
 import time
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -202,9 +203,6 @@ class AntigravitySQLiteCredentialProvider:
         Antigravity stores credentials with 'apiKey' field, but the OAuth system
         expects 'access_token'. This method maps the fields appropriately.
         """
-        if not isinstance(credentials, dict):
-            return credentials
-
         # Create a copy to avoid modifying the original
         normalized = credentials.copy()
 
@@ -341,7 +339,7 @@ class AntigravitySQLiteCredentialProvider:
 
                 try:
                     credentials_file_hash = hashlib.sha256(
-                        path.read_bytes()
+                        await asyncio.to_thread(path.read_bytes)
                     ).hexdigest()
                 except OSError:
                     credentials_file_hash = None
