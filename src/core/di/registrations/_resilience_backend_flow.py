@@ -282,9 +282,19 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 cancellation_coordinator = provider.get_service(
                     cast(type, ISessionCancellationCoordinator)
                 )
-            except Exception:
-                # Cancellation coordinator not available (optional dependency)
+            except ImportError:
+                # Cancellation coordinator interface not available (optional dependency)
+                # This is expected when the module doesn't exist
                 pass
+            except Exception:
+                # Unexpected error during service resolution (e.g., DI container bug, circular dependency)
+                # Log with full context but continue with None to allow service construction
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Unexpected error resolving ISessionCancellationCoordinator for FailureRecoveryExecutor",
+                        exc_info=True,
+                    )
+                cancellation_coordinator = None
 
             return FailureRecoveryExecutor(
                 failover_planner=failover_planner,
@@ -439,9 +449,19 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 cancellation_coordinator = provider.get_service(
                     cast(type, ISessionCancellationCoordinator)
                 )
-            except Exception:
-                # Cancellation coordinator not available (optional dependency)
+            except ImportError:
+                # Cancellation coordinator interface not available (optional dependency)
+                # This is expected when the module doesn't exist
                 pass
+            except Exception:
+                # Unexpected error during service resolution (e.g., DI container bug, circular dependency)
+                # Log with full context but continue with None to allow service construction
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Unexpected error resolving ISessionCancellationCoordinator for BackendCompletionFlow",
+                        exc_info=True,
+                    )
+                cancellation_coordinator = None
 
             return BackendCompletionFlow(
                 availability_checker=availability_checker,
