@@ -216,7 +216,7 @@ class CodebuffWebSocketServer:
             if session_id is not None:
                 try:
                     await self._connection_manager.disconnect(websocket)
-                except Exception as e:
+                except (TypeError, RuntimeError, OSError) as e:
                     if logger.isEnabledFor(logging.ERROR):
                         logger.error(
                             "Error during disconnect cleanup: %s", str(e), exc_info=True
@@ -225,7 +225,13 @@ class CodebuffWebSocketServer:
                 # (only if identify completed and we haven't already reported)
                 try:
                     await self._report_client_termination(session_id)
-                except Exception as e:
+                except asyncio.CancelledError:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Client termination reporting cancelled during cleanup: session_id=%s",
+                            session_id,
+                        )
+                except (RuntimeError, OSError, ValueError) as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             "Failed to report client termination during cleanup: %s",
