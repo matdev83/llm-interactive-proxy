@@ -371,7 +371,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
                     except Exception as e:
                         if logger.isEnabledFor(logging.WARNING):
-                            logger.warning("Failed to parse XML tool call: %s", e)
+                            logger.warning(
+                                "Failed to parse XML tool call: %s", e, exc_info=True
+                            )
 
             if tool_calls:
                 # Construct CanonicalChatResponse
@@ -1242,7 +1244,11 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             return None
         except json.JSONDecodeError as exc:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to parse Antigravity auth status JSON: %s", exc)
+                logger.warning(
+                    "Failed to parse Antigravity auth status JSON: %s",
+                    exc,
+                    exc_info=True,
+                )
             return None
         except Exception as exc:  # pragma: no cover
             if logger.isEnabledFor(logging.ERROR):
@@ -1471,9 +1477,20 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         # This is acceptable during interpreter shutdown
                         pass
             except Exception:
-                # Suppress all exceptions during cleanup
-                # The logging system may already be torn down
-                pass
+                # Best-effort logging during cleanup (logging system may be torn down)
+                # Use try-except to avoid raising if logging fails
+                try:
+                    import logging
+
+                    logger = logging.getLogger(__name__)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Exception during AntigravityOAuthConnector cleanup",
+                            exc_info=True,
+                        )
+                except Exception:
+                    # Logging system unavailable - suppress silently
+                    pass
 
         # Call parent cleanup
         super().__del__()

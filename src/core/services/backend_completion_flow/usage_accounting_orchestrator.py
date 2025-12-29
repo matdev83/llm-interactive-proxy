@@ -164,11 +164,22 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                             f"Failed to record request usage: {e}", exc_info=True
                         )
 
-        except Exception:
-            # Log at WARNING level since this is on a critical path for usage tracking/billing
+        except (ValueError, TypeError, AttributeError, KeyError) as exc:
+            # Token calculation errors (calculate_outbound_tokens handles these internally,
+            # but catch here as defensive guard for unexpected code paths)
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to calculate outbound tokens or record usage",
+                    "Failed to calculate outbound tokens or record usage: %s",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+        except Exception as exc:
+            # Defensive catch-all for truly unexpected errors on critical billing path
+            # Fail-open: log but don't break request flow
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error calculating outbound tokens or recording usage: %s",
+                    type(exc).__name__,
                     exc_info=True,
                 )
 
