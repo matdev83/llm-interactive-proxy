@@ -475,11 +475,17 @@ class AnthropicOAuthBackend(AnthropicBackend):
 
         except json.JSONDecodeError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Malformed Anthropic OAuth credentials JSON: {e}")
+                logger.error(
+                    f"Malformed Anthropic OAuth credentials JSON: {e}",
+                    exc_info=True,
+                )
             return False
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error loading Anthropic OAuth credentials: {e}")
+                logger.error(
+                    f"Error loading Anthropic OAuth credentials: {e}",
+                    exc_info=True,
+                )
             return False
 
     # -----------------------------

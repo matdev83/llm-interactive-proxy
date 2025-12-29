@@ -184,7 +184,10 @@ class AntigravitySQLiteCredentialProvider:
             return None
         except json.JSONDecodeError as exc:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Failed to parse Antigravity auth status JSON: {exc}")
+                logger.warning(
+                    f"Failed to parse Antigravity auth status JSON: {exc}",
+                    exc_info=True,
+                )
             return None
         except Exception as exc:  # pragma: no cover
             if logger.isEnabledFor(logging.ERROR):

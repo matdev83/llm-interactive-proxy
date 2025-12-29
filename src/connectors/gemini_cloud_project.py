@@ -852,7 +852,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             return True
         except json.JSONDecodeError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error decoding OAuth credentials JSON: {e}")
+                logger.error(
+                    f"Error decoding OAuth credentials JSON: {e}", exc_info=True
+                )
             return False
         except Exception:
             if logger.isEnabledFor(logging.ERROR):
