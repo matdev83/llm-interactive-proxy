@@ -92,7 +92,9 @@ def register_command_pipeline_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register ICommandStateService interface: {e}")
+            logger.warning(
+                f"Failed to register ICommandStateService interface: {e}", exc_info=True
+            )
 
     # Register CommandPolicyService
     def _command_policy_service_factory(
@@ -120,7 +122,9 @@ def register_command_pipeline_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register ICommandPolicyService interface: {e}")
+            logger.warning(
+                f"Failed to register ICommandPolicyService interface: {e}", exc_info=True
+            )
 
     # Register CommandService
     def _command_service_factory(provider: IServiceProvider) -> ICommandService:
@@ -169,4 +173,6 @@ def register_command_pipeline_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register ICommandProcessor interface: {e}")
+            logger.warning(
+                f"Failed to register ICommandProcessor interface: {e}", exc_info=True
+            )
