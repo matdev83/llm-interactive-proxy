@@ -147,10 +147,24 @@ class ToolCallBufferState:
 class JsonRepairBufferState:
     """Shared JSON repair state for a streaming session."""
 
-    buffer: str = ""
+    buffer_parts: list[str] = field(default_factory=list)
+    buffer_length: int = 0
     brace_level: int = 0
     in_string: bool = False
     json_started: bool = False
+
+    @property
+    def buffer(self) -> str:
+        """Get the full buffer content (for backward compatibility/convenience).
+        Warning: This creates a new string every time.
+        """
+        return "".join(self.buffer_parts)
+
+    @buffer.setter
+    def buffer(self, value: str) -> None:
+        """Set buffer content."""
+        self.buffer_parts = [value] if value else []
+        self.buffer_length = len(value)
 
 
 @dataclass

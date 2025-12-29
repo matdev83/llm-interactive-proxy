@@ -204,7 +204,7 @@ class XmlToolCallPostProcessor:
                     return
 
             # Reconstruct full content
-            full_content = ""
+            content_parts: list[str] = []
             for chunk in buffer:
                 if hasattr(chunk, "content"):
                     chunk_content = chunk.content
@@ -214,9 +214,10 @@ class XmlToolCallPostProcessor:
                             delta = choices[0].get("delta", {})
                             content_part = delta.get("content", "")
                             if content_part:
-                                full_content += content_part
+                                content_parts.append(content_part)
                     elif isinstance(chunk_content, str):
-                        full_content += chunk_content
+                        content_parts.append(chunk_content)
+            full_content = "".join(content_parts)
 
             # Check for XML tool calls
             tool_calls: list[ToolCall] = []
@@ -259,7 +260,9 @@ class XmlToolCallPostProcessor:
                         "choices": [
                             {
                                 "index": 0,
-                                "delta": {"tool_calls": [tc.model_dump() for tc in tool_calls]},
+                                "delta": {
+                                    "tool_calls": [tc.model_dump() for tc in tool_calls]
+                                },
                                 "finish_reason": "tool_calls",
                             }
                         ],

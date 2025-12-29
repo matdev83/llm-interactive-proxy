@@ -202,25 +202,30 @@ class JsonRepairProcessor(IStreamProcessor):
                 state.brace_level += 1
             elif ch == "}" or ch == "]":
                 state.brace_level -= 1
-        state.buffer += ch
+        state.buffer_parts.append(ch)
+        state.buffer_length += len(ch)
         return i + 1
 
     def _is_current_quote_escaped(self, state: JsonRepairBufferState) -> bool:
         backslash_count = 0
-        for existing_char in reversed(state.buffer):
-            if existing_char == "\\":
-                backslash_count += 1
-            else:
-                break
+        # Iterate backwards through buffer parts
+        for part in reversed(state.buffer_parts):
+            for existing_char in reversed(part):
+                if existing_char == "\\":
+                    backslash_count += 1
+                else:
+                    return backslash_count % 2 == 1
+            # If we processed the whole part and it was all backslashes, continue to previous part
         return backslash_count % 2 == 1
 
     def _is_json_complete(self, state: JsonRepairBufferState) -> bool:
         return state.json_started and state.brace_level == 0 and not state.in_string
 
     def _handle_json_completion(self, state: JsonRepairBufferState) -> JsonRepairResult:
+        full_buffer = state.buffer
         try:
             result = self._service.repair_and_validate_json(
-                state.buffer,
+                full_buffer,
                 schema=self._schema,
                 strict=self._strict_mode,
             )
@@ -230,7 +235,7 @@ class JsonRepairProcessor(IStreamProcessor):
                     raise
                 raise JSONParsingError(
                     message=f"JSON repair failed in strict mode: {e}",
-                    details={"original_buffer": state.buffer},
+                    details={"original_buffer": full_buffer},
                 ) from e
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("JSON repair raised error: %s", e)
@@ -247,12 +252,13 @@ class JsonRepairProcessor(IStreamProcessor):
         return result
 
     def _flush_final_buffer(self, state: JsonRepairBufferState) -> str | None:
-        if not state.json_started or not state.buffer:
+        if not state.json_started or not state.buffer_parts:
             return None
 
         buf = state.buffer
         if not state.in_string and buf.rstrip().endswith(":"):
             buf = buf + " null"
+            # Update state to match buf modification (though we are resetting anyway)
             state.buffer = buf
 
         repair_result = self._service.repair_and_validate_json(
@@ -263,13 +269,14 @@ class JsonRepairProcessor(IStreamProcessor):
             result = json.dumps(repair_result.content)
         else:
             self._increment_failure_metrics()
-            result = state.buffer
+            result = buf
 
         self._reset_state(state)
         return result
 
     def _reset_state(self, state: JsonRepairBufferState) -> None:
-        state.buffer = ""
+        state.buffer_parts.clear()
+        state.buffer_length = 0
         state.brace_level = 0
         state.in_string = False
         state.json_started = False
@@ -277,7 +284,7 @@ class JsonRepairProcessor(IStreamProcessor):
     def _log_buffer_capacity_warning(self, state: JsonRepairBufferState) -> None:
         if (
             state.json_started
-            and len(state.buffer) > self._buffer_cap_bytes
+            and state.buffer_length > self._buffer_cap_bytes
             and logger.isEnabledFor(logging.WARNING)
         ):
             logger.warning(

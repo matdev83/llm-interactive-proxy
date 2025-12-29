@@ -40,11 +40,11 @@ class StreamingResponseAccumulator:
         Returns:
             A ResponseEnvelope containing the accumulated content
         """
-        accumulated_content: str = ""
+        accumulated_content_parts: list[str] = []
         accumulated_tool_calls: list[dict[str, Any]] = []
         finish_reason: str | None = None
         usage_data: dict[str, int] | None = None
-        accumulated_reasoning: str = ""
+        accumulated_reasoning_parts: list[str] = []
         error_data: dict[str, Any] | None = None
 
         try:
@@ -54,19 +54,19 @@ class StreamingResponseAccumulator:
             async for chunk in streaming_response.content:
                 result = self._process_chunk(
                     chunk,
-                    accumulated_content,
+                    accumulated_content_parts,
                     accumulated_tool_calls,
                     finish_reason,
                     usage_data,
-                    accumulated_reasoning,
+                    accumulated_reasoning_parts,
                     error_data,
                 )
                 (
-                    accumulated_content,
+                    accumulated_content_parts,
                     accumulated_tool_calls,
                     finish_reason,
                     usage_data,
-                    accumulated_reasoning,
+                    accumulated_reasoning_parts,
                     error_data,
                 ) = result
 
@@ -90,11 +90,11 @@ class StreamingResponseAccumulator:
 
         # Build successful response
         return self._build_success_response(
-            accumulated_content,
+            "".join(accumulated_content_parts),
             accumulated_tool_calls,
             finish_reason,
             usage_data,
-            accumulated_reasoning,
+            "".join(accumulated_reasoning_parts),
             streaming_response.headers or {},
             streaming_response.status_code or 200,
         )
@@ -102,18 +102,18 @@ class StreamingResponseAccumulator:
     def _process_chunk(
         self,
         chunk: Any,
-        accumulated_content: str,
+        accumulated_content_parts: list[str],
         accumulated_tool_calls: list[dict[str, Any]],
         finish_reason: str | None,
         usage_data: dict[str, int] | None,
-        accumulated_reasoning: str,
+        accumulated_reasoning_parts: list[str],
         error_data: dict[str, Any] | None,
     ) -> tuple[
-        str,
+        list[str],
         list[dict[str, Any]],
         str | None,
         dict[str, int] | None,
-        str,
+        list[str],
         dict[str, Any] | None,
     ]:
         """Process a single chunk and update accumulated state."""
@@ -127,11 +127,11 @@ class StreamingResponseAccumulator:
         if isinstance(chunk_content, dict):
             return self._process_openai_chunk(
                 chunk_content,
-                accumulated_content,
+                accumulated_content_parts,
                 accumulated_tool_calls,
                 finish_reason,
                 usage_data,
-                accumulated_reasoning,
+                accumulated_reasoning_parts,
                 error_data,
             )
 
@@ -141,11 +141,11 @@ class StreamingResponseAccumulator:
 
         if not isinstance(chunk_content, str):
             return (
-                accumulated_content,
+                accumulated_content_parts,
                 accumulated_tool_calls,
                 finish_reason,
                 usage_data,
-                accumulated_reasoning,
+                accumulated_reasoning_parts,
                 error_data,
             )
 
@@ -162,48 +162,48 @@ class StreamingResponseAccumulator:
             try:
                 data = json.loads(data_str)
                 (
-                    accumulated_content,
+                    accumulated_content_parts,
                     accumulated_tool_calls,
                     finish_reason,
                     usage_data,
-                    accumulated_reasoning,
+                    accumulated_reasoning_parts,
                     error_data,
                 ) = self._process_openai_chunk(
                     data,
-                    accumulated_content,
+                    accumulated_content_parts,
                     accumulated_tool_calls,
                     finish_reason,
                     usage_data,
-                    accumulated_reasoning,
+                    accumulated_reasoning_parts,
                     error_data,
                 )
             except json.JSONDecodeError:
                 continue
 
         return (
-            accumulated_content,
+            accumulated_content_parts,
             accumulated_tool_calls,
             finish_reason,
             usage_data,
-            accumulated_reasoning,
+            accumulated_reasoning_parts,
             error_data,
         )
 
     def _process_openai_chunk(
         self,
         data: dict[str, Any],
-        accumulated_content: str,
+        accumulated_content_parts: list[str],
         accumulated_tool_calls: list[dict[str, Any]],
         finish_reason: str | None,
         usage_data: dict[str, int] | None,
-        accumulated_reasoning: str,
+        accumulated_reasoning_parts: list[str],
         error_data: dict[str, Any] | None,
     ) -> tuple[
-        str,
+        list[str],
         list[dict[str, Any]],
         str | None,
         dict[str, int] | None,
-        str,
+        list[str],
         dict[str, Any] | None,
     ]:
         """Process an OpenAI-style chunk and accumulate content."""
@@ -214,11 +214,11 @@ class StreamingResponseAccumulator:
             if choices and choices[0].get("finish_reason"):
                 finish_reason = choices[0]["finish_reason"]
             return (
-                accumulated_content,
+                accumulated_content_parts,
                 accumulated_tool_calls,
                 finish_reason,
                 usage_data,
-                accumulated_reasoning,
+                accumulated_reasoning_parts,
                 error_data,
             )
 
@@ -231,12 +231,12 @@ class StreamingResponseAccumulator:
             # Accumulate text content
             content_piece = delta.get("content")
             if content_piece:
-                accumulated_content += content_piece
+                accumulated_content_parts.append(content_piece)
 
             # Accumulate reasoning content (for thinking models)
             reasoning_piece = delta.get("reasoning_content") or delta.get("reasoning")
             if reasoning_piece:
-                accumulated_reasoning += reasoning_piece
+                accumulated_reasoning_parts.append(reasoning_piece)
 
             # Accumulate tool calls
             if "tool_calls" in delta:
@@ -253,11 +253,11 @@ class StreamingResponseAccumulator:
             usage_data = data["usage"]
 
         return (
-            accumulated_content,
+            accumulated_content_parts,
             accumulated_tool_calls,
             finish_reason,
             usage_data,
-            accumulated_reasoning,
+            accumulated_reasoning_parts,
             error_data,
         )
 
