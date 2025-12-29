@@ -202,7 +202,7 @@ class ServiceProvider(IServiceProvider):
             for service_type, instance in list(self._singleton_instances.items()):
                 try:
                     if hasattr(instance, "__aexit__") and callable(instance.__aexit__):
-                        await instance.__aexit__(None, None, None)
+                        await instance.__aexit__(None, None, None)  # type: ignore[misc]
                     elif hasattr(instance, "dispose") and callable(instance.dispose):
                         if asyncio.iscoroutinefunction(instance.dispose):
                             await instance.dispose()
@@ -477,7 +477,7 @@ class ServiceCollection(IServiceCollection):
                 logger.warning(
                     "Post-build hooks failed: %s",
                     err,
-                    exc_info=False,
+                    exc_info=True,
                 )
         return provider
 

@@ -351,7 +351,7 @@ class InfrastructureStage(InitializationStage):
                         logger.warning(
                             "Failed to close HTTP client during cleanup: %s",
                             err,
-                            exc_info=False,
+                            exc_info=True,
                         )
             return
 

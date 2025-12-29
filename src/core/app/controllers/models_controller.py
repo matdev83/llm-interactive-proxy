@@ -190,7 +190,13 @@ def get_backend_factory_service() -> BackendFactory:
     else:
         try:
             translation = provider.get_required_service(TranslationService)
-        except Exception:
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to resolve TranslationService from provider: %s",
+                    exc,
+                    exc_info=True,
+                )
             translation = None
     if translation is not None:
         services.add_instance(TranslationService, translation)
