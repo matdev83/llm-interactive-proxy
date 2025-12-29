@@ -69,13 +69,14 @@ class GeminiHealthCheckService(IHealthCheckService):
 
         if self._disable_health_checks:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Health checks disabled for {self._backend_name}")
+                logger.debug("Health checks disabled for %s", self._backend_name)
             self._health_checked = True
             return
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Performing first-use health check for {self._backend_name} backend"
+                "Performing first-use health check for %s backend",
+                self._backend_name,
             )
 
         # Refresh token if needed before health check
@@ -97,7 +98,8 @@ class GeminiHealthCheckService(IHealthCheckService):
         self._health_checked = True
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Backend health check completed for {self._backend_name} - ready for use"
+                "Backend health check completed for %s - ready for use",
+                self._backend_name,
             )
 
     async def _perform_health_check(self) -> bool:
@@ -118,7 +120,8 @@ class GeminiHealthCheckService(IHealthCheckService):
             if not credentials or not credentials.access_token:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Health check failed for {self._backend_name} - no access token available"
+                        "Health check failed for %s - no access token available",
+                        self._backend_name,
                     )
                 return False
 
@@ -149,7 +152,8 @@ class GeminiHealthCheckService(IHealthCheckService):
             if response.status_code == 200:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        f"Health check passed for {self._backend_name} - API connectivity verified via fetchAvailableModels"
+                        "Health check passed for %s - API connectivity verified via fetchAvailableModels",
+                        self._backend_name,
                     )
                 return True
 
@@ -182,13 +186,16 @@ class GeminiHealthCheckService(IHealthCheckService):
             if response.status_code == 200:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        f"Health check passed for {self._backend_name} via loadCodeAssist"
+                        "Health check passed for %s via loadCodeAssist",
+                        self._backend_name,
                     )
                 return True
 
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Health check failed for {self._backend_name} - API returned status {response.status_code}"
+                    "Health check failed for %s - API returned status %s",
+                    self._backend_name,
+                    response.status_code,
                 )
             return False
 
