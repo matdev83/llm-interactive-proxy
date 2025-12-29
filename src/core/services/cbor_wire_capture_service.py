@@ -212,8 +212,8 @@ class CborWireCaptureService(IWireCapture):
             if logger.isEnabledFor(logging.INFO):
                 logger.info("CBOR wire capture initialized: %s", self._file_path)
 
-        except Exception as e:
-            logger.error(f"Failed to initialize CBOR wire capture: {e}")
+        except Exception:
+            logger.error("Failed to initialize CBOR wire capture", exc_info=True)
             self._enabled = False
 
     def _write_header(self) -> None:
@@ -234,8 +234,8 @@ class CborWireCaptureService(IWireCapture):
             with open(self._file_path, "wb") as f:
                 cbor2.dump(header.to_dict(), f)
             self._header_written = True
-        except Exception as e:
-            logger.error(f"Failed to write capture header: {e}")
+        except Exception:
+            logger.error("Failed to write capture header", exc_info=True)
 
     def enabled(self) -> bool:
         """Return True if capture is enabled."""
@@ -699,8 +699,8 @@ class CborWireCaptureService(IWireCapture):
         try:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
-        except Exception as e:
-            logger.error(f"Failed to flush capture buffer: {e}")
+        except Exception:
+            logger.error("Failed to flush capture buffer", exc_info=True)
 
     def _write_entries_sync(self, entries: list[CaptureEntry]) -> None:
         """Synchronously write entries to file."""
@@ -711,8 +711,8 @@ class CborWireCaptureService(IWireCapture):
             with open(self._file_path, "ab") as f:
                 for entry in entries:
                     cbor2.dump(entry.to_dict(), f)
-        except Exception as e:
-            logger.error(f"Failed to write capture entries: {e}")
+        except Exception:
+            logger.error("Failed to write capture entries", exc_info=True)
 
     async def _background_flush_loop(self) -> None:
         """Background task to periodically flush buffer."""

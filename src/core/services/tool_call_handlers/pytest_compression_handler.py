@@ -89,10 +89,12 @@ class PytestCompressionHandler(IToolCallHandler):
             await self._session_service.update_session(session)
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Set compression state for session {context.session_id}")
-        except Exception as e:
+        except Exception:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Failed to set compression state for session {context.session_id}: {e}"
+                    "Failed to set compression state for session %s",
+                    context.session_id,
+                    exc_info=True,
                 )
 
         # Do NOT swallow the tool call - let it execute normally
