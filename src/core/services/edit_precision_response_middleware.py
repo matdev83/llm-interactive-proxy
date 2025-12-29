@@ -203,8 +203,10 @@ class EditPrecisionFeature(IResponseFeature):
                 pending_map = {}
             else:
                 pending_map = dict(pending_map)
-        except Exception:
+        except (TypeError, ValueError):
             # Log failures when converting pending_map to dict
+            # TypeError: if pending_map is not iterable or doesn't support dict conversion
+            # ValueError: if dict conversion fails (less common, but possible)
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
                     "Failed to convert pending_map to dict in edit precision handler",
@@ -227,7 +229,9 @@ class EditPrecisionFeature(IResponseFeature):
             response_type = ""
             try:
                 response_type = str((context or {}).get("response_type") or "")
-            except Exception:
+            except (TypeError, AttributeError):
+                # TypeError: if context is not dict-like (e.g., None, int, etc.)
+                # AttributeError: if context doesn't have get method (custom object without dict interface)
                 if self._logger.isEnabledFor(logging.DEBUG):
                     self._logger.debug(
                         "Failed to extract response_type from context in edit precision handler",
@@ -275,7 +279,9 @@ class EditPrecisionFeature(IResponseFeature):
                     hybrid_reasoning_disabled_map = {}
                 else:
                     hybrid_reasoning_disabled_map = dict(hybrid_reasoning_disabled_map)
-            except Exception:
+            except (TypeError, ValueError):
+                # TypeError: if hybrid_reasoning_disabled_map is not iterable or doesn't support dict conversion
+                # ValueError: if dict conversion fails (less common, but possible)
                 if self._logger.isEnabledFor(logging.DEBUG):
                     self._logger.debug(
                         "Failed to convert hybrid_reasoning_disabled_map to dict in edit precision handler",
