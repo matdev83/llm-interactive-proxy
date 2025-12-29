@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar, cast
 
+from src.core.common.exceptions import ServiceUnavailableError
+
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
 
@@ -125,7 +127,7 @@ class CircuitBreaker:
                     self.success_count = 0
                 else:
                     production_metrics.circuit_breaker_trips += 1
-                    raise Exception(
+                    raise ServiceUnavailableError(
                         f"Circuit breaker {self.name} is OPEN - operation rejected"
                     )
 
@@ -204,7 +206,7 @@ class ProductionAsyncLock:
 
         except asyncio.TimeoutError:
             production_metrics.record_deadlock_detection(self.name)
-            raise Exception(
+            raise RuntimeError(
                 f"Potential deadlock detected in lock {self.name} after {self.timeout}s"
             )
 
