@@ -34,7 +34,7 @@ async def validation_exception_handler(
         JSON response with error details
     """
     if logger.isEnabledFor(logging.WARNING):
-        logger.warning("Validation error: %s", exc.errors())
+        logger.warning("Validation error: %s", exc.errors(), exc_info=True)
 
     error_details: list[dict[str, Any]] = []
     for error in exc.errors():
@@ -143,7 +143,9 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
         JSON response with error details
     """
     if logger.isEnabledFor(logging.WARNING):
-        logger.warning("HTTP error %s: %s", exc.status_code, exc.detail)
+        logger.warning(
+            "HTTP error %s: %s", exc.status_code, exc.detail, exc_info=True
+        )
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False
@@ -217,10 +219,12 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
     exc_status = getattr(exc, "status_code", None)
     if exc_status is not None:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("%s (%s): %s", exc_name, exc_status, exc_message)
+            logger.warning(
+                "%s (%s): %s", exc_name, exc_status, exc_message, exc_info=True
+            )
     else:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("%s: %s", exc_name, exc_message)
+            logger.warning("%s: %s", exc_name, exc_message, exc_info=True)
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False

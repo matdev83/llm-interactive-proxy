@@ -111,7 +111,9 @@ def register_application_state_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IApplicationState interface: {e}")
+            logger.warning(
+                "Failed to register IApplicationState interface: %s", e, exc_info=True
+            )
 
     # Register AppSettings
     def _app_settings_factory(provider: IServiceProvider) -> AppSettings:
@@ -122,7 +124,13 @@ def register_application_state_services(services: ServiceCollection) -> None:
             )
             if app_state_service:
                 app_state = app_state_service.get_setting("service_provider")
-        except Exception:
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to get service_provider from app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
             app_state = None
         return AppSettings(app_state)
 

@@ -70,7 +70,9 @@ class AppSettings(IAppSettings):
             if _get_strict_services_errors():
                 raise
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error initializing settings from app_state: %s", e)
+                logger.warning(
+                    "Error initializing settings from app_state: %s", e, exc_info=True
+                )
 
     def get_setting(self, key: str, default: Any = None) -> Any:
         """Get a setting by key.
@@ -91,10 +93,17 @@ class AppSettings(IAppSettings):
             try:
                 if hasattr(self._app_state, key):
                     return getattr(self._app_state, key)
-            except Exception:
+            except Exception as e:
                 if _get_strict_services_errors():
                     raise
                 # Best-effort fallback when not strict
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to get setting '%s' from app_state: %s",
+                        key,
+                        e,
+                        exc_info=True,
+                    )
                 return default
 
         # Return default
@@ -118,7 +127,9 @@ class AppSettings(IAppSettings):
                 if _get_strict_services_errors():
                     raise
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Error setting %s in app_state: %s", key, e)
+                    logger.warning(
+                        "Error setting %s in app_state: %s", key, e, exc_info=True
+                    )
 
     def has_setting(self, key: str) -> bool:
         """Check if a setting exists.
@@ -137,9 +148,16 @@ class AppSettings(IAppSettings):
         if self._app_state is not None:
             try:
                 return hasattr(self._app_state, key)
-            except Exception:
+            except Exception as e:
                 if _get_strict_services_errors():
                     raise
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to check setting '%s' existence in app_state: %s",
+                        key,
+                        e,
+                        exc_info=True,
+                    )
                 return False
 
         return False
@@ -168,7 +186,9 @@ class AppSettings(IAppSettings):
                 if _get_strict_services_errors():
                     raise
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Error getting all settings from app_state: %s", e)
+                    logger.warning(
+                        "Error getting all settings from app_state: %s", e, exc_info=True
+                    )
 
         return all_settings
 
