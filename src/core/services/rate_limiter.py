@@ -64,7 +64,9 @@ class InMemoryRateLimiter(IRateLimiter):
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Initialized InMemoryRateLimiter with defaults: {default_limit}/{default_time_window}s"
+                "Initialized InMemoryRateLimiter with defaults: %s/%ss",
+                default_limit,
+                default_time_window,
             )
 
     async def check_limit(self, key: str) -> RateLimitInfo:
@@ -154,7 +156,11 @@ class InMemoryRateLimiter(IRateLimiter):
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                f"Rate limit check: {key} - {used}/{limit} used, limited: {is_limited}"
+                "Rate limit check: %s - %s/%s used, limited: %s",
+                key,
+                used,
+                limit,
+                is_limited,
             )
 
         return RateLimitInfo(
@@ -227,7 +233,7 @@ class InMemoryRateLimiter(IRateLimiter):
             self._usage_last_access.pop(key, None)
 
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Recorded usage for {key}: cost={cost}")
+            logger.debug("Recorded usage for %s: cost=%s", key, cost)
 
     async def reset(self, key: str) -> None:
         """Reset rate limit counters for the given key.
@@ -239,7 +245,7 @@ class InMemoryRateLimiter(IRateLimiter):
             del self._usage[key]
             self._usage_last_access.pop(key, None)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Reset rate limit counters for {key}")
+                logger.debug("Reset rate limit counters for %s", key)
         if key in self._cooldowns:
             self._cooldowns.pop(key, None)
         # Note: We don't remove custom limits on reset as they may be intentionally persistent
@@ -261,7 +267,9 @@ class InMemoryRateLimiter(IRateLimiter):
         self._limits[key] = RateLimit(limit=limit, time_window=time_window)
         self._limits_last_access[key] = now
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Set custom rate limit for {key}: {limit}/{time_window}s")
+            logger.debug(
+                "Set custom rate limit for %s: %s/%ss", key, limit, time_window
+            )
 
     async def apply_cooldown(self, key: str, cooldown_seconds: int) -> None:
         """Force a temporary cooldown for the key."""
