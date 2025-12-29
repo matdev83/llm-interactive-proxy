@@ -275,9 +275,49 @@ class JsonRepairService:
                         logger.info(
                             f"Successfully repaired JSON for session {session_id}"
                         )
-                except Exception as repair_error:
+                except (JSONParsingError, json.JSONDecodeError) as repair_error:
+                    # Expected exceptions from repair_json - JSON parsing/repair failures
                     logger.error(
                         f"JSON repair failed for session {session_id}: {repair_error}",
+                        exc_info=True,
+                    )
+                    if strict:
+                        raise JSONParsingError(
+                            message=f"Failed to parse or repair JSON content: {repair_error}",
+                            details={
+                                "session_id": session_id,
+                                "original_error": str(e),
+                                "repair_error": str(repair_error),
+                                "content_preview": (
+                                    content[:200] if len(content) > 200 else content
+                                ),
+                            },
+                        ) from repair_error
+                    return content, None
+                except (MemoryError, OSError) as repair_error:
+                    # System-level errors during repair - log with context
+                    logger.error(
+                        f"System error during JSON repair for session {session_id}: {repair_error}",
+                        exc_info=True,
+                    )
+                    if strict:
+                        raise JSONParsingError(
+                            message=f"Failed to parse or repair JSON content due to system error: {repair_error}",
+                            details={
+                                "session_id": session_id,
+                                "original_error": str(e),
+                                "repair_error": str(repair_error),
+                                "error_type": type(repair_error).__name__,
+                                "content_preview": (
+                                    content[:200] if len(content) > 200 else content
+                                ),
+                            },
+                        ) from repair_error
+                    return content, None
+                except Exception as repair_error:
+                    # Unexpected exceptions during repair - defensive guard for truly unexpected errors
+                    logger.error(
+                        f"Unexpected error during JSON repair for session {session_id}: {repair_error}",
                         exc_info=True,
                     )
                     if strict:
