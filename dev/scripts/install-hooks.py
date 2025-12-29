@@ -10,7 +10,20 @@ import os
 import shutil
 import stat
 import subprocess
+from datetime import datetime
 from pathlib import Path
+
+
+def _timestamp() -> str:
+    return datetime.now().strftime("%Y%m%d%H%M%S")
+
+
+def _backup_existing(path: Path) -> None:
+    if not path.exists():
+        return
+    backup = path.with_name(f"{path.name}.bak.{_timestamp()}")
+    os.rename(path, backup)
+    print(f"Backed up existing hook: {path} -> {backup}")
 
 
 def install_hook(
@@ -31,39 +44,73 @@ def install_hook(
 
     target_path = hooks_dir / hook_name
 
-    # Copy the hook file
-    shutil.copy2(source_path, target_path)
-
-    # Make the hook executable
-    st = os.stat(target_path)
-    os.chmod(target_path, st.st_mode | stat.S_IEXEC)
-
     # If the hook should be mandatory, create a wrapper that prevents --no-verify bypass
     if mandatory:
-        # Rename the original hook
         mandatory_target = hooks_dir / f"{hook_name}.original"
-        os.rename(target_path, mandatory_target)
 
-        # Create a wrapper script that can't be bypassed with --no-verify
-        with open(target_path, "w", encoding="utf-8") as f:
+        # Make repeated installs safe: rotate any existing hook files out of the way.
+        _backup_existing(mandatory_target)
+        _backup_existing(target_path)
+
+        # Install the real hook script as {hook}.original.
+        shutil.copy2(source_path, mandatory_target)
+        st = os.stat(mandatory_target)
+        os.chmod(mandatory_target, st.st_mode | stat.S_IEXEC)
+
+        # Create a wrapper script that can't be bypassed with --no-verify.
+        with open(target_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(
                 f"""#!/bin/sh
-# This is a mandatory hook that cannot be bypassed with --no-verify
+# Mandatory {hook_name} hook; cannot be bypassed with --no-verify
 echo "Running mandatory {hook_name} hook..."
-{mandatory_target}
+
+# Resolve repo root and hook paths in a portable way
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+if [ -z "$REPO_ROOT" ]; then
+  echo "ERROR: Unable to determine repo root"
+  exit 1
+fi
+
+ORIGINAL_HOOK="$REPO_ROOT/.git/hooks/{hook_name}.original"
+PYTHON_BIN="$REPO_ROOT/.venv/Scripts/python.exe"
+
+# Prefer venv Python if present; otherwise, try to execute the hook directly
+if [ -x "$PYTHON_BIN" ]; then
+  HOOK_TO_RUN="$ORIGINAL_HOOK"
+
+  case "$PYTHON_BIN" in
+    *.exe)
+      if command -v wslpath >/dev/null 2>&1; then
+        WINDOWS_PATH=$(wslpath -w "$ORIGINAL_HOOK" 2>/dev/null) || WINDOWS_PATH=""
+        if [ -n "$WINDOWS_PATH" ]; then
+          HOOK_TO_RUN="$WINDOWS_PATH"
+        fi
+      fi
+      ;;
+  esac
+
+  "$PYTHON_BIN" "$HOOK_TO_RUN"
+else
+  "$ORIGINAL_HOOK"
+fi
+
 exit_code=$?
 if [ $exit_code -ne 0 ]; then
-    echo "ERROR: {hook_name} hook failed. This hook is mandatory and cannot be bypassed."
-    echo "Please fix the issues before committing."
-    exit $exit_code
+  echo "ERROR: {hook_name} hook failed. This hook is mandatory and cannot be bypassed."
+  echo "Please fix the issues before committing."
+  exit $exit_code
 fi
 """
             )
 
-        # Make the wrapper executable
+        st = os.stat(target_path)
         os.chmod(target_path, st.st_mode | stat.S_IEXEC)
         print(f"Installed mandatory {hook_name} hook to {target_path}")
     else:
+        _backup_existing(target_path)
+        shutil.copy2(source_path, target_path)
+        st = os.stat(target_path)
+        os.chmod(target_path, st.st_mode | stat.S_IEXEC)
         print(f"Installed {hook_name} hook to {target_path}")
 
 
