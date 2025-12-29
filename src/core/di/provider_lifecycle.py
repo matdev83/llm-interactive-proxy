@@ -493,4 +493,4 @@ def _register_tool_call_handlers(provider: IServiceProvider) -> None:
     except Exception as e:
         logger = logging.getLogger(__name__)
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Tool call handler registration skipped: {e}")
+            logger.debug("Tool call handler registration skipped: %s", e)
