@@ -2230,11 +2230,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 conversation_context.append(f"{prefix}: {normalized}")
 
         # Combine system prompt with conversation context
-        full_prompt = system_prompt
+        # Build full_prompt efficiently using join to avoid O(n) string concatenations
+        parts = []
+        if system_prompt:
+            parts.append(system_prompt)
         if conversation_context:
-            if full_prompt:
-                full_prompt += "\n\n"
-            full_prompt += "\n".join(conversation_context)
+            parts.append("\n".join(conversation_context))
+        full_prompt = "\n\n".join(parts) if parts else ""
 
         # Create Code Assist request format (matching Gemini CLI format)
         code_assist_request = {

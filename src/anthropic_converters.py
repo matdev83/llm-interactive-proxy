@@ -15,7 +15,14 @@ logger = logging.getLogger(__name__)
 
 
 # Fields that may contain sensitive data and should be redacted from logs
-SENSITIVE_REQUEST_FIELDS = {"api_key", "authorization", "token", "secret", "password", "credentials"}
+SENSITIVE_REQUEST_FIELDS = {
+    "api_key",
+    "authorization",
+    "token",
+    "secret",
+    "password",
+    "credentials",
+}
 
 
 def _redact_sensitive_fields(data: Any) -> Any:
@@ -413,6 +420,7 @@ def anthropic_to_openai_request(
         redacted_result = _redact_sensitive_fields(result)
         logger.debug("Converted Anthropic to OpenAI request: %r", redacted_result)
     return result
+
 
 def openai_to_anthropic_response(
     openai_response: Any,
@@ -1047,7 +1055,8 @@ async def openai_stream_to_anthropic_stream(
             logger.log(TRACE_LEVEL, f"RAW_CHUNK: {chunk_data!r}")
 
         normalized_chunk = chunk_data.replace("\r\n", "\n")
-        buffer += normalized_chunk
+        # Optimize: avoid O(n) string concatenation by joining buffer and chunk
+        buffer = "".join([buffer, normalized_chunk])
 
         buffer_result = _consume_sse_buffer(buffer)
         buffer = buffer_result.remaining_buffer

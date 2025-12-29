@@ -674,7 +674,8 @@ class StreamingExecutor:
                     except (UnicodeDecodeError, AttributeError):
                         continue
 
-                    line_buffer += chunk_str
+                    # Optimize: avoid O(n) string concatenation by joining
+                    line_buffer = "".join([line_buffer, chunk_str])
                     lines = line_buffer.splitlines(keepends=True)
 
                     if lines and not lines[-1].endswith(("\n", "\r")):
