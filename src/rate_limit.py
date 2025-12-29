@@ -5,7 +5,9 @@ import logging
 import threading
 import time
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, MutableMapping
+
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -18,29 +20,16 @@ class RateLimitRegistry:
     """
 
     def __init__(self, max_size: int = 10000) -> None:
-        self._until: dict[tuple[str, str, str], float] = {}
-        self._max_size = max_size
+        self._until: MutableMapping[tuple[str, str, str], float] = TTLCache(
+            maxsize=max_size, ttl=365 * 24 * 60 * 60
+        )
         self._lock = threading.Lock()
 
     def set(
         self, backend: str, model: str | None, key_name: str, delay_seconds: float
     ) -> None:
         with self._lock:
-            if len(self._until) >= self._max_size:
-                self._cleanup_expired()
-                if len(self._until) >= self._max_size:
-                    # Evict oldest inserted (FIFO behavior with dict)
-                    first_key = next(iter(self._until))
-                    del self._until[first_key]
-
             self._until[(backend, model or "", key_name)] = time.time() + delay_seconds
-
-    def _cleanup_expired(self) -> None:
-        """Remove expired entries. Caller must hold lock."""
-        now = time.time()
-        expired_keys = [k for k, ts in self._until.items() if now >= ts]
-        for k in expired_keys:
-            del self._until[k]
 
     def get(self, backend: str, model: str | None, key_name: str) -> float | None:
         key = (backend, model or "", key_name)
@@ -49,7 +38,17 @@ class RateLimitRegistry:
             if ts is None:
                 return None
             if time.time() >= ts:
-                del self._until[key]
+                # This entry should have been expired by TTLCache, but if not
+                # (e.g. if accessed before its TTL but after its time.time() expiry),
+                # ensure it's removed and treated as expired.
+                # TTLCache's eviction is based on LRU when maxsize is hit,
+                # and TTL when an item is accessed after its TTL.
+                # Direct time-based check provides an additional layer of certainty for
+                # correctness, even if the item is still in cache.
+                try:
+                    del self._until[key]
+                except KeyError:
+                    pass
                 return None
             return ts
 
@@ -57,36 +56,33 @@ class RateLimitRegistry:
         self, combos: Iterable[tuple[str, str, str]] | None = None
     ) -> float | None:
         """Return earliest retry timestamp for given combinations."""
-        keys: Iterable[tuple[str, str, str]]
-        if combos is None:
-            keys = list(self._until.keys())
-        else:
-            combos_list = list(combos)
-            if (
-                not combos_list
-            ):  # Empty list should fall back to all entries (preserve original behavior)
-                keys = list(self._until.keys())
-            else:
-                keys = [
-                    (backend, model or "", key_name)
-                    for backend, model, key_name in combos_list
-                ]
         now = time.time()
         valid_times: list[float] = []
-        expired_keys: list[tuple[str, str, str]] = []
 
         with self._lock:
-            for key in keys:
-                ts = self._until.get(key)
-                if ts is None:
-                    continue
-                if now >= ts:
-                    expired_keys.append(key)
-                    continue
-                valid_times.append(ts)
-
-            for key in expired_keys:
-                self._until.pop(key, None)
+            if combos is None or not combos: # Changed: handle empty list like None
+                # Iterate over all items in the cache
+                for key, ts in list(self._until.items()):  # Use list() to iterate over a copy
+                    if now >= ts:
+                        try:
+                            del self._until[key]
+                        except KeyError:
+                            pass
+                        continue
+                    valid_times.append(ts)
+            else:
+                for backend, model, key_name in combos:
+                    key = (backend, model or "", key_name)
+                    ts = self._until.get(key)
+                    if ts is None:
+                        continue
+                    if now >= ts:
+                        try:
+                            del self._until[key]
+                        except KeyError:
+                            pass
+                        continue
+                    valid_times.append(ts)
 
         if not valid_times:
             return None
