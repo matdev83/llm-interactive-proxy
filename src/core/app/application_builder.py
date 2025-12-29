@@ -582,9 +582,20 @@ class ApplicationBuilder:
                 )
                 if client:
                     await client.aclose()
-            except (RuntimeError, AttributeError):
-                # Ignore errors when closing client
-                pass
+            except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
+                # Best-effort cleanup - log specific cleanup errors
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to close httpx.AsyncClient: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+            except Exception:
+                # Best-effort cleanup - catch-all for other errors
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to close httpx.AsyncClient", exc_info=True
+                    )
 
             # Attempt to gracefully stop background services (e.g., wire capture)
             try:
