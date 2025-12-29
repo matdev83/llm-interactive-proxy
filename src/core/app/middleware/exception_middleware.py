@@ -181,9 +181,28 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
                 details="HTTP non-streaming cancellation detected",
             )
             await asyncio.shield(client_eos_service.report_client_termination(signal))
+        except asyncio.CancelledError:
+            # Propagate cancellation - termination reporting should not block cancellation
+            # Note: asyncio.shield should prevent this, but handle explicitly for safety
+            raise
+        except (AttributeError, TypeError, ValueError) as exc:
+            # Catch specific exceptions from request context conversion, session key resolution,
+            # or signal construction (e.g., invalid arguments, missing attributes)
+            if self._logger.isEnabledFor(logging.WARNING):
+                self._logger.warning(
+                    "Failed to report client termination for cancellation (context/signal error): %s",
+                    exc,
+                    exc_info=True,
+                    extra={
+                        "reason": reason.value,
+                        "error_code": "CLIENT_TERMINATION_REPORT_FAILED",
+                        "exception_type": type(exc).__name__,
+                    },
+                )
         except Exception as exc:
             # Fail-open: log but don't raise - termination reporting is best-effort
             # Design.md line 445: Log with high-visibility error code
+            # Catch-all for unexpected errors (e.g., from report_client_termination)
             if self._logger.isEnabledFor(logging.WARNING):
                 self._logger.warning(
                     "Failed to report client termination for cancellation: %s",
