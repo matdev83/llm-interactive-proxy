@@ -715,6 +715,9 @@ def create_sso_router(
         except (KeyboardInterrupt, SystemExit):
             # Don't interfere with system shutdown signals
             raise
+        except HTTPException:
+            # Re-raise FastAPI HTTP exceptions to let FastAPI handle them
+            raise
         except (ValueError, TypeError, KeyError, AttributeError) as e:
             # Catch common data validation/access errors
             if logger.isEnabledFor(logging.ERROR):
@@ -730,7 +733,23 @@ def create_sso_router(
                 ),
                 status_code=500,
             )
+        except (RuntimeError, OSError, asyncio.TimeoutError) as e:
+            # Catch runtime/system-level errors that might occur during async operations
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Runtime error during callback processing: %s",
+                    e,
+                    exc_info=True,
+                )
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Internal Error",
+                    "An unexpected error occurred. Please try again or contact support.",
+                ),
+                status_code=500,
+            )
         except Exception:
+            # Fallback for truly unexpected errors - log with full context
             logger.exception("Unexpected error during callback processing")
             return HTMLResponse(
                 content=_render_error_page(
@@ -894,6 +913,9 @@ def create_sso_router(
         except (KeyboardInterrupt, SystemExit):
             # Don't interfere with system shutdown signals
             raise
+        except HTTPException:
+            # Re-raise FastAPI HTTP exceptions to let FastAPI handle them
+            raise
         except (ValueError, TypeError, KeyError, AttributeError) as e:
             # Catch common data validation/access errors
             if logger.isEnabledFor(logging.ERROR):
@@ -909,7 +931,23 @@ def create_sso_router(
                 ),
                 status_code=500,
             )
+        except (RuntimeError, OSError, asyncio.TimeoutError) as e:
+            # Catch runtime/system-level errors that might occur during async operations
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Runtime error during confirmation code processing: %s",
+                    e,
+                    exc_info=True,
+                )
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Internal Error",
+                    "An unexpected error occurred. Please try again.",
+                ),
+                status_code=500,
+            )
         except Exception:
+            # Fallback for truly unexpected errors - log with full context
             logger.exception("Error processing confirmation code")
             return HTMLResponse(
                 content=_render_error_page(

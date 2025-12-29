@@ -259,10 +259,19 @@ class AnthropicBackend(LLMBackend):
 
                     prompt_text = extract_prompt_text(processed_messages)
                     prompt_tokens = count_tokens(prompt_text, model=effective_model)
-                except Exception:
+                except (ImportError, AttributeError, TypeError, KeyError, ValueError) as e:
+                    # Catch expected exceptions from token counting utilities
+                    # ImportError: tiktoken not available
+                    # AttributeError/TypeError/KeyError/ValueError: data structure issues
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to calculate prompt tokens", exc_info=True
+                            "Failed to calculate prompt tokens: %s", e, exc_info=True
+                        )
+                except Exception:
+                    # Fallback for truly unexpected errors
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to calculate prompt tokens (unexpected error)", exc_info=True
                         )
 
                 # Integrate with streaming pipeline

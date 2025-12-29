@@ -612,12 +612,32 @@ class MockBackendStage(BaseTestBackendStage):
                         mock_backend_service._backend_cache[backend_type] = real_backend
                         return real_backend
 
+                except (ValueError, TypeError, AttributeError, KeyError) as e:
+                    # Catch expected exceptions from backend factory/creation
+                    # ValueError: backend type not supported
+                    # TypeError/AttributeError/KeyError: configuration or factory issues
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to create real backend instance for %s (expected error: %s), falling back to mock",
+                            backend_type,
+                            type(e).__name__,
+                            exc_info=True,
+                        )
+                except (ImportError, RuntimeError) as e:
+                    # Catch import/runtime errors during backend initialization
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to create real backend instance for %s (import/runtime error: %s), falling back to mock",
+                            backend_type,
+                            type(e).__name__,
+                            exc_info=True,
+                        )
                 except Exception:
-                    # Fall back to mock backend when real instantiation fails
+                    # Fallback for truly unexpected errors during backend creation
                     # Log the failure to aid debugging when tests unexpectedly use mocks
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            "Failed to create real backend instance for %s, falling back to mock",
+                            "Failed to create real backend instance for %s (unexpected error), falling back to mock",
                             backend_type,
                             exc_info=True,
                         )
