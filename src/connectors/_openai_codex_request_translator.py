@@ -48,16 +48,6 @@ def _extract_command_text_from_arguments(arguments: str | None) -> str | None:
     if isinstance(command_value, str):
         return command_value
     return None
-    try:
-        parsed = json.loads(arguments)
-    except Exception:
-        return None
-    command_value = parsed.get("command")
-    if isinstance(command_value, list | tuple):
-        return " ".join(str(part) for part in command_value)
-    if isinstance(command_value, str):
-        return command_value
-    return None
 
 
 class _TextToolCallMatcher:
@@ -513,7 +503,11 @@ class CodexRequestTranslator:
                 json.dumps(preview_source)[:200],
                 suffix,
             )
-        except Exception:
+        except (ValueError, TypeError, AttributeError) as err:
             logger.debug(
-                "Codex message role=%s content=<unserializable>%s", role, suffix
+                "Codex message role=%s content=<unserializable>%s, error: %s",
+                role,
+                suffix,
+                err,
+                exc_info=True,
             )

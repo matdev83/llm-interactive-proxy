@@ -58,7 +58,13 @@ class _PassthroughStreamNormalizer(IProcessingStreamNormalizer):
                 else:
                     try:
                         yield StreamingContent.from_raw(item)
-                    except Exception:
+                    except (ValueError, TypeError, KeyError) as err:
+                        logger.debug(
+                            "Failed to convert item to StreamingContent, using fallback: %s, error: %s",
+                            type(item).__name__,
+                            err,
+                            exc_info=True,
+                        )
                         content = (
                             item.decode() if isinstance(item, bytes) else str(item)
                         )
@@ -221,10 +227,18 @@ def normalize_streaming_response(
             async for chunk in processed_stream:
                 if isinstance(chunk, bytes):
                     yield chunk
-                elif hasattr(chunk, "to_bytes") and callable(getattr(chunk, "to_bytes", None)):
+                elif hasattr(chunk, "to_bytes") and callable(
+                    getattr(chunk, "to_bytes", None)
+                ):
                     try:
                         yield chunk.to_bytes()  # type: ignore[attr-defined]
-                    except Exception:
+                    except (AttributeError, TypeError, ValueError) as err:
+                        logger.debug(
+                            "Failed to convert chunk with to_bytes(), using str fallback: %s, error: %s",
+                            type(chunk).__name__,
+                            err,
+                            exc_info=True,
+                        )
                         yield str(chunk).encode("utf-8")
                 else:
                     yield str(chunk).encode("utf-8")

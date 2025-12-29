@@ -136,7 +136,15 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                             if isinstance(args_raw, str)
                             else args_raw
                         )
-                    except Exception:
+                    except (ValueError, TypeError) as err:
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "Failed to parse tool arguments JSON, using raw value: %s, error: %s",
+                                fn,
+                                err,
+                                exc_info=True,
+                            )
                         args_val = args_raw
 
                     function_call_part: dict[str, Any] = {
@@ -154,8 +162,15 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                             function_call_part["thoughtSignature"] = thought_sig
 
                     parts.append(function_call_part)
-            except Exception:
-                pass
+            except (ValueError, TypeError, KeyError, AttributeError) as err:
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(
+                        TRACE_LEVEL,
+                        "Failed to process tool calls for message, skipping: %s, error: %s",
+                        msg_dict.get("role", "unknown"),
+                        err,
+                        exc_info=True,
+                    )
 
         if not has_tool_calls and message.role != "tool":
             if isinstance(message.content, str):
@@ -215,7 +230,16 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
 
                     try:
                         resp_obj = _json.loads(val)
-                    except Exception:
+                    except (ValueError, TypeError) as err:
+                        if _logger.isEnabledFor(TRACE_LEVEL):
+                            _logger.log(
+                                TRACE_LEVEL,
+                                "Failed to parse tool response JSON, using text fallback: tool_call_id=%s, tool_name=%s, error: %s",
+                                tool_call_id,
+                                name,
+                                err,
+                                exc_info=True,
+                            )
                         resp_obj = {"text": val}
                 elif isinstance(val, dict):
                     resp_obj = val
@@ -248,7 +272,15 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
             else:
                 try:
                     tool_dict = tool.model_dump()  # type: ignore[attr-defined]
-                except Exception:
+                except (AttributeError, TypeError) as err:
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Failed to serialize tool with model_dump(), using empty dict: type=%s, error: %s",
+                            type(tool).__name__,
+                            err,
+                            exc_info=True,
+                        )
                     tool_dict = {}
             function = (
                 tool_dict.get("function") if isinstance(tool_dict, dict) else None
