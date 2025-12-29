@@ -118,3 +118,4 @@ var/*.md
 var/*.json
 var/*.jsonl
 var/*.py
+pyright_output.json

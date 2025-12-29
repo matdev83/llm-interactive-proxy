@@ -6,20 +6,19 @@ hashing, and verification.
 
 import pytest
 from src.core.auth.sso.exceptions import TokenError
-from src.core.auth.sso.token_service import TokenService
+from src.core.auth.sso.token_service import GeneratedToken, TokenService
 
 
 class TestTokenService:
     """Unit tests for TokenService."""
 
     def test_generate_token_returns_tuple(self) -> None:
-        """Test that generate_token returns a tuple of (token, hash)."""
+        """Test that generate_token returns a GeneratedToken that can be unpacked as a tuple."""
         service = TokenService(memory_cost=8192, time_cost=1, parallelism=1)
         result = service.generate_token()
 
-        assert isinstance(result, tuple)
-        assert len(result) == 2
-
+        assert isinstance(result, GeneratedToken)
+        # Verify it can be unpacked as a tuple for backward compatibility
         plaintext_token, token_hash = result
         assert isinstance(plaintext_token, str)
         assert isinstance(token_hash, str)

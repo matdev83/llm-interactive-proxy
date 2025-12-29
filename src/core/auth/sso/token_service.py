@@ -31,6 +31,11 @@ class GeneratedToken(pydantic.BaseModel):
 
     model_config = {"frozen": True}
 
+    def __iter__(self):  # type: ignore[override]
+        """Allow tuple unpacking for backward compatibility."""
+        yield self.plaintext
+        yield self.hash
+
 
 class TokenService:
     """

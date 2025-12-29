@@ -196,7 +196,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
         self._max_cached_sessions = max_cached_sessions
         self._session_order: list[str] = []  # Track LRU order
         self._logger = logging.getLogger(__name__)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
 
     async def process(self, content: StreamingContent) -> StreamingContent:
         """Process streaming content and check for tool call loops.
