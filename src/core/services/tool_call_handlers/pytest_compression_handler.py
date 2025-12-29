@@ -55,10 +55,15 @@ class PytestCompressionHandler(IToolCallHandler):
         try:
             result = self._service.scan_for_pytest(tool_name, arguments)
             return result is not None
-        except Exception:
+        except (ValueError, TypeError, AttributeError, KeyError) as e:
+            # ValueError: JSON parsing or data validation errors
+            # TypeError: type errors during argument processing
+            # AttributeError: missing attributes during dict access
+            # KeyError: missing dict keys (though get() is used, defensive guard)
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "PytestCompressionHandler.can_handle failed to scan arguments",
+                    "PytestCompressionHandler.can_handle failed to scan arguments: %s",
+                    e,
                     exc_info=True,
                 )
             return False
@@ -89,11 +94,16 @@ class PytestCompressionHandler(IToolCallHandler):
             await self._session_service.update_session(session)
             if logger.isEnabledFor(logging.INFO):
                 logger.info(f"Set compression state for session {context.session_id}")
-        except Exception:
+        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+            # ValueError: state validation errors
+            # TypeError: type errors during state operations
+            # AttributeError: missing session attributes
+            # RuntimeError: async/session service errors
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    "Failed to set compression state for session %s",
+                    "Failed to set compression state for session %s: %s",
                     context.session_id,
+                    e,
                     exc_info=True,
                 )
 

@@ -705,8 +705,14 @@ class CborWireCaptureService(IWireCapture):
         try:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
-        except Exception:
-            logger.error("Failed to flush capture buffer", exc_info=True)
+        except (OSError, RuntimeError) as e:
+            # OSError: file I/O errors from executor
+            # RuntimeError: executor or event loop errors
+            logger.error(
+                "Failed to flush capture buffer: %s",
+                e,
+                exc_info=True,
+            )
 
     def _write_entries_sync(self, entries: list[CaptureEntry]) -> None:
         """Synchronously write entries to file."""
@@ -717,8 +723,15 @@ class CborWireCaptureService(IWireCapture):
             with open(self._file_path, "ab") as f:
                 for entry in entries:
                     cbor2.dump(entry.to_dict(), f)
-        except Exception:
-            logger.error("Failed to write capture entries", exc_info=True)
+        except (OSError, ValueError, TypeError) as e:
+            # OSError: file I/O errors (FileNotFoundError, PermissionError, etc.)
+            # ValueError: CBOR encoding errors
+            # TypeError: type errors during serialization
+            logger.error(
+                "Failed to write capture entries: %s",
+                e,
+                exc_info=True,
+            )
 
     async def _background_flush_loop(self) -> None:
         """Background task to periodically flush buffer."""

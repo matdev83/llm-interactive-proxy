@@ -603,10 +603,14 @@ class MemoryService:
                 # Await cancelled tasks to ensure they complete
                 with contextlib.suppress(Exception):
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
-            except Exception:
+            except (RuntimeError, ValueError, TypeError) as e:
+                # RuntimeError: event loop or executor errors
+                # ValueError: invalid arguments to gather
+                # TypeError: type errors in gather arguments
                 # If gather fails, cancel all tasks
                 logger.warning(
-                    "Error during MemoryService cleanup task gather",
+                    "Error during MemoryService cleanup task gather: %s",
+                    e,
                     exc_info=True,
                 )
                 for task in pending_tasks:
