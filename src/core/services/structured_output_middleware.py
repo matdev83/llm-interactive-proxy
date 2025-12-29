@@ -382,7 +382,8 @@ class StructuredOutputMiddleware(IResponseMiddleware):
         if is_streaming:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Skipping structured output validation for streaming response in session {session_id}"
+                    "Skipping structured output validation for streaming response in session %s",
+                    session_id,
                 )
             return response
 
@@ -390,7 +391,7 @@ class StructuredOutputMiddleware(IResponseMiddleware):
         content = self._extract_content(response)
         if not content:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"No content to validate in session {session_id}")
+                logger.debug("No content to validate in session %s", session_id)
             return response
 
         # Determine strictness from context
@@ -439,7 +440,7 @@ class StructuredOutputMiddleware(IResponseMiddleware):
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"Structured output processing completed for session {session_id}"
+                    "Structured output processing completed for session %s", session_id
                 )
             return updated_response
 
@@ -536,7 +537,7 @@ class StructuredOutputMiddleware(IResponseMiddleware):
         else:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Unable to extract content from response type: {type(response)}"
+                    "Unable to extract content from response type: %s", type(response)
                 )
             return None
 
