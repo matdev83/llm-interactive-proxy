@@ -106,7 +106,12 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
             ):
                 return
         except Exception:
-            # Service provider not available - fail-open
+            # Service provider not available - fail-open with logging for debugging
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Failed to get service_provider from request.app.state during client termination reporting",
+                    exc_info=True,
+                )
             return
 
         # Get client EoS service (optional - may not be registered)
@@ -117,7 +122,12 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
             if client_eos_service is None:
                 return
         except Exception:
-            # Service not available - fail-open
+            # Service not available - fail-open with logging for debugging
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug(
+                    "Failed to get IClientEndOfSessionService from service_provider",
+                    exc_info=True,
+                )
             return
 
         # Create RequestContext from FastAPI request to resolve SessionKey

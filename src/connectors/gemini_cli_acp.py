@@ -836,7 +836,12 @@ class GeminiCliAcpConnector(GeminiBackend):
             encoding = tiktoken.get_encoding("cl100k_base")
             return len(encoding.encode(text))
         except Exception:
-            # Fallback: rough estimate
+            # Fallback: rough estimate with logging for debugging
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "tiktoken.get_encoding failed, using word-count fallback for token estimation",
+                    exc_info=True,
+                )
             return len(text.split()) * 2
 
     def get_available_models(self) -> list[str]:

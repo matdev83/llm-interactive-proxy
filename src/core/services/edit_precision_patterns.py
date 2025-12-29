@@ -4,13 +4,16 @@ import logging
 import os
 from functools import lru_cache
 
+logger = logging.getLogger(__name__)
+
 try:
     import yaml  # type: ignore
 except Exception:  # pragma: no cover
+    logger.debug(
+        "Failed to import yaml module - edit precision patterns from YAML will not be available",
+        exc_info=True,
+    )
     yaml = None  # type: ignore
-
-
-logger = logging.getLogger(__name__)
 
 
 DEFAULT_REQUEST_PATTERNS: list[str] = [
