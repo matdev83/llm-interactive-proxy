@@ -143,7 +143,13 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                 )
                 if not isinstance(session_override, bool | type(None)):
                     session_override = None
-        except Exception:
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to get session state for API key redaction check: %s",
+                    e,
+                    exc_info=True,
+                )
             session_override = None
 
         if session_override is not None:

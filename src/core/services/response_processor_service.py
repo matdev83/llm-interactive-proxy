@@ -295,9 +295,13 @@ class ResponseProcessor(IResponseProcessor):
 
             cleaned = svc.strip_override_marker(corrected_text)
             return {"action": "steer", "corrected_content": cleaned}
-        except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Angel verification internal error", exc_info=True)
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Angel verification internal error: %s",
+                    e,
+                    exc_info=True,
+                )
             return None
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:

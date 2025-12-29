@@ -1019,9 +1019,16 @@ class ResponsesController:
                         )
                 await trigger_cancel("stream_cancelled")
                 raise
-            except Exception:
+            except Exception as e:
                 if not stream_terminated:
                     await trigger_cancel("stream_error")
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Unexpected error in streaming response handler: %s",
+                        e,
+                        exc_info=True,
+                        extra={"request_id": request_id},
+                    )
                 raise
             finally:
                 # Ensure termination is reported even if stream ends abnormally
