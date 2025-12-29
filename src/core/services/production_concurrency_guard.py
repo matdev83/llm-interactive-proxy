@@ -135,6 +135,9 @@ class CircuitBreaker:
             result = func(*args, **kwargs)
             self._on_success()
             return result
+        except (KeyboardInterrupt, SystemExit):
+            # Don't interfere with system shutdown signals
+            raise
         except Exception:
             self._on_failure()
             if logger.isEnabledFor(logging.DEBUG):
@@ -256,6 +259,9 @@ def production_retry(config: RetryConfig):
                 try:
                     return await cast(Awaitable[T], func(*args, **kwargs))
 
+                except (KeyboardInterrupt, SystemExit):
+                    # Don't retry system shutdown signals
+                    raise
                 except Exception as e:
                     last_exception = e
 
@@ -298,6 +304,9 @@ def production_retry(config: RetryConfig):
                 try:
                     return func(*args, **kwargs)
 
+                except (KeyboardInterrupt, SystemExit):
+                    # Don't retry system shutdown signals
+                    raise
                 except Exception as e:
                     last_exception = e
 

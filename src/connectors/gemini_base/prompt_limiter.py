@@ -35,7 +35,7 @@ def serialize_part(part: Any) -> str | None:
             return text_value
         try:
             return json.dumps(part, ensure_ascii=False, default=str)
-        except Exception:
+        except (TypeError, ValueError, OverflowError):
             # Fallback to repr if JSON serialization fails
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -86,7 +86,7 @@ def estimate_prompt_tokens(
                 prompt_text_parts.append(
                     json.dumps(generation_config, ensure_ascii=False)
                 )
-            except Exception:
+            except (TypeError, ValueError, OverflowError):
                 # Fallback to repr if JSON serialization fails
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -102,7 +102,7 @@ def estimate_prompt_tokens(
                     prompt_text_parts.append(
                         json.dumps(extra_value, ensure_ascii=False)
                     )
-                except Exception:
+                except (TypeError, ValueError, OverflowError):
                     # Fallback to repr if JSON serialization fails
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -117,8 +117,10 @@ def estimate_prompt_tokens(
 
         full_prompt = "\n".join(prompt_text_parts)
         return len(encoding.encode(full_prompt))
-    except Exception as exc:  # pragma: no cover - defensive logging only
-        logger.warning("Failed to estimate prompt tokens: %s", exc)
+    except (TypeError, ValueError, AttributeError, KeyError) as exc:
+        # Catch expected errors from encoding or data structure issues
+        # Exclude system exceptions (KeyboardInterrupt, SystemExit) to allow proper shutdown
+        logger.warning("Failed to estimate prompt tokens: %s", exc, exc_info=True)
         return None
 
 

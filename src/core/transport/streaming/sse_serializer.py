@@ -603,7 +603,7 @@ class SSESerializer:
                 if binary_data is not None:
                     try:
                         delta["content"] = binary_data.decode("latin-1")
-                    except Exception:
+                    except UnicodeDecodeError:
                         # Fallback to string representation if all decode attempts fail
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
