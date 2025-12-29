@@ -364,12 +364,21 @@ class GeminiCliAcpConnector(GeminiBackend):
                 continue
             try:
                 stream.close()
-            except Exception as stream_error:
+            except (OSError, ValueError) as stream_error:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Error closing gemini-cli %s stream: %s",
                         stream_name,
                         stream_error,
+                        exc_info=True,
+                    )
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error closing gemini-cli %s stream: %s",
+                        stream_name,
+                        e,
+                        exc_info=True,
                     )
 
         if proc is self._process:
@@ -542,7 +551,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                             )
                             yield ProcessedResponse(content=sse_chunk)
 
-                        elif isinstance(message, DataPart):
+                        else:
                             # Handle tool calls or other structured data
                             if message.tool_call:
                                 tool_call = message.tool_call
@@ -552,7 +561,7 @@ class GeminiCliAcpConnector(GeminiBackend):
                                 # They'll be reflected in the final response text
 
                     # Handle raw dict as fallback
-                    elif isinstance(message, dict):
+                    else:
                         if "TextPart" in message:
                             text = message["TextPart"]
                             sse_chunk = self._create_sse_chunk(
@@ -816,7 +825,13 @@ class GeminiCliAcpConnector(GeminiBackend):
                 if not isinstance(content, str):
                     try:
                         content = str(content)
-                    except Exception:
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to convert message content to string: %s",
+                                e,
+                                exc_info=True,
+                            )
                         content = ""
 
             elif isinstance(msg, str):
@@ -832,7 +847,13 @@ class GeminiCliAcpConnector(GeminiBackend):
                 if not isinstance(content, str):
                     try:
                         content = str(content)
-                    except Exception:
+                    except Exception as e:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to convert message content to string: %s",
+                                e,
+                                exc_info=True,
+                            )
                         content = ""
 
             # Only process user messages
