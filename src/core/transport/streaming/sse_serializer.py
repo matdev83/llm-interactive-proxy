@@ -455,6 +455,57 @@ class SSESerializer:
             chunk: Typed StreamingChunk contract
             content: Original StreamingContent for accessing non-typed fields
         """
+        # OPTIMIZATION: Fast path for simple text chunks (most common case)
+        # Avoids dictionary allocation and full object traversal for simple text deltas
+        if (
+            chunk.payload.kind == "text"
+            and chunk.payload.text is not None
+            and not chunk.metadata.tool_calls
+            and not chunk.metadata.reasoning_content
+            # role is allowed now
+            and not chunk.metadata.finish_reason
+            and not chunk.metadata.usage
+            and not content.usage
+            and not content.metadata.get("tool_call_id")
+            and not content.metadata.get("_virtual_tool_calls")
+        ):
+            # Extract common metadata
+            # Note: We use json.dumps for strings to ensure proper escaping
+            # We explicitly match json.dumps default separators (', ', ': ') to preserve exact output
+            parts = ['{"choices": [{"delta": {']
+
+            # Add role if present
+            if chunk.metadata.role:
+                parts.append('"role": ')
+                parts.append(json.dumps(chunk.metadata.role))
+                parts.append(", ")
+
+            parts.append('"content": ')
+            parts.append(json.dumps(chunk.payload.text))
+            parts.append("}}]")
+
+            # Add metadata fields in insertion order (matches existing behavior)
+            # id
+            id_val = content.metadata.get("id")
+            if id_val is not None:
+                parts.append(', "id": ')
+                parts.append(json.dumps(id_val))
+
+            # model
+            model_val = content.metadata.get("model")
+            if model_val is not None:
+                parts.append(', "model": ')
+                parts.append(json.dumps(model_val))
+
+            # created
+            created_val = content.metadata.get("created")
+            if created_val is not None:
+                parts.append(', "created": ')
+                parts.append(json.dumps(created_val))
+
+            parts.append("}")
+            return f"data: {''.join(parts)}\n\n".encode()
+
         # Build delta object
         delta: dict[str, Any] = {}
 
