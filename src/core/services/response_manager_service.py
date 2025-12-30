@@ -920,8 +920,9 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         filtered_output = "\n".join(filtered_lines)
 
         # Log compression statistics
-        original_lines = len(output.split("\n")) if output else 0
-        compressed_lines = len(filtered_output.split("\n")) if filtered_output else 0
+        # OPTIMIZATION: Reuse existing list lengths instead of re-splitting string
+        original_lines = len(lines)
+        compressed_lines = len(filtered_lines)
         if original_lines > 0:
             compression_ratio = (1 - compressed_lines / original_lines) * 100
             if logger.isEnabledFor(logging.INFO):
@@ -954,26 +955,31 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         if not output:
             return PytestCompressionResult(output=output, token_count=0)
 
+        lines = output.strip().split("\n")
+        if not lines:
+            # If strip() results in empty list, but output was not empty (e.g. only whitespace),
+            # we should probably return empty result or original?
+            # Original logic handled this implicitly by lines being empty list.
+            # But we need token count if we return.
+            # If lines is empty here, it means output was whitespace only.
+            return PytestCompressionResult(output=output, token_count=0)
+
         # Calculate original metrics
+        # OPTIMIZATION: Reuse split lines for line count
         original_tokens = 0
-        original_lines = 0
+        original_lines = len(lines)
         should_log = logger.isEnabledFor(logging.INFO)
 
         if should_log:
             from src.core.utils.token_count import count_tokens
 
             original_tokens = count_tokens(output)
-            original_lines = len(output.split("\n")) if output else 0
 
             logger.info(
                 "Pytest compression started - Original metrics: %d tokens, %d lines",
                 original_tokens,
                 original_lines,
             )
-
-        lines = output.strip().split("\n")
-        if not lines:
-            return PytestCompressionResult(output=output, token_count=original_tokens)
 
         # Always preserve the last line (summary/final output)
         last_line = lines[-1] if lines else ""
@@ -1010,7 +1016,8 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             from src.core.utils.token_count import count_tokens
 
             final_tokens = count_tokens(filtered_output)
-            final_lines = len(filtered_output.split("\n")) if filtered_output else 0
+            # OPTIMIZATION: Reuse filtered_lines length
+            final_lines = len(filtered_lines)
             tokens_filtered = original_tokens - final_tokens
             lines_filtered = original_lines - final_lines
 
