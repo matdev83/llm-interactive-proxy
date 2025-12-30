@@ -952,6 +952,17 @@ class TestMetadataAttachment:
             processed_stream
         )
 
+        # Mock loop detector and Angel verifier
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, request_context=None):
+            async for chunk in stream:
+                yield chunk
+
+        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+
         # Act
         result = await handler.handle(
             stream=stream_envelope,

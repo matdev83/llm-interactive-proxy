@@ -57,6 +57,7 @@ class EditPrecisionFeature(IResponseFeature):
         self._app_state = app_state
         self._compiled = list(self._DEFAULT_PATTERNS)
         self._last_stream_ids: dict[str, str] = {}
+        self._combined_pattern: re.Pattern[str] | None = None
 
         try:
             from src.core.services.edit_precision_patterns import get_response_patterns
@@ -87,6 +88,29 @@ class EditPrecisionFeature(IResponseFeature):
                     err,
                     exc_info=True,
                 )
+
+        # Pre-compile a combined regex for fast-fail checks
+        # This converts O(N) regex searches into O(1) for the common case (no errors)
+        try:
+            pattern_strings = []
+            for p in self._compiled:
+                if hasattr(p, "pattern"):
+                    pattern_strings.append(p.pattern)
+                else:
+                    pattern_strings.append(str(p))
+
+            if pattern_strings:
+                # Use non-capturing groups for safety
+                combined = "|".join(f"(?:{p})" for p in pattern_strings)
+                self._combined_pattern = re.compile(combined, re.IGNORECASE | re.DOTALL)
+            else:
+                self._combined_pattern = None
+        except Exception as err:
+            if self._logger.isEnabledFor(logging.WARNING):
+                self._logger.warning(
+                    "Failed to compile combined edit precision pattern: %s", err
+                )
+            self._combined_pattern = None
 
     @staticmethod
     def _extract_text_from_chunk(chunk: dict) -> str:
@@ -141,7 +165,15 @@ class EditPrecisionFeature(IResponseFeature):
 
         matched_pattern: str | None = None
         if combined_text:
-            for p in self._compiled:
+            # OPTIMIZATION: Use combined pattern for O(1) fast-fail check
+            # If combined pattern exists and doesn't match, we can skip individual checks
+            should_scan = True
+            if self._combined_pattern and not self._combined_pattern.search(
+                combined_text
+            ):
+                should_scan = False
+
+            for p in self._compiled if should_scan else []:
                 try:
                     if p.search(combined_text):
                         matched_pattern = getattr(p, "pattern", None) or str(p)

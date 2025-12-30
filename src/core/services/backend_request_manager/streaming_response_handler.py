@@ -115,7 +115,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             except UnicodeDecodeError:
                 return content.decode("utf-8", errors="ignore")
         if isinstance(content, dict):
-            # Use dict() to safely handle StopChunkWithUsage which is a dict subclass
+            # OPTIMIZATION: Extract from standard OpenAI format directly to avoid expensive json.dumps
+            # This is on the hot path for every token (loop detection + meaning check)
+            if "choices" in content and isinstance(content["choices"], list):
+                choices = content["choices"]
+                if choices and isinstance(choices[0], dict):
+                    # Try delta (stream) or message (non-stream)
+                    delta = choices[0].get("delta") or choices[0].get("message")
+                    if isinstance(delta, dict) and "content" in delta:
+                        val = delta["content"]
+                        if val is not None:
+                            return str(val)
+
+            # Fallback: Use dict() to safely handle StopChunkWithUsage which is a dict subclass
             return json.dumps(dict(content))
         return str(content) if content is not None else ""
 
@@ -695,7 +707,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                                         ],
                                     }
                                     yield ProcessedResponse(
-                                        content=cancellation_payload,
+                                        content=cast(Any, cancellation_payload),
                                         metadata={
                                             "is_cancellation": True,
                                             "is_done": True,
@@ -730,9 +742,13 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
 
             async for chunk in monitored_stream():
                 if isinstance(chunk, ProcessedResponse):
-                    processed_metadata: dict[str, JsonValue] = dict(
-                        chunk.metadata or {}
-                    )
+                    # OPTIMIZATION: Modify metadata in-place to avoid copying dicts per-token
+                    if chunk.metadata is None:
+                        chunk.metadata = {}
+
+                    # We own this chunk (transient), so in-place modification is safe and faster
+                    processed_metadata = chunk.metadata  # type: ignore
+
                     if original_request_payload is not None:
                         processed_metadata.setdefault(
                             "original_request", original_request_payload
@@ -744,7 +760,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         processed_metadata.setdefault(
                             "client_os", cast(JsonValue, processing_context.client_os)
                         )
-                    chunk.metadata = processed_metadata
+                    # No need to re-assign chunk.metadata as we modified it in place
                     yield chunk
                 else:
                     metadata: dict[str, JsonValue] = {}
