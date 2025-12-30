@@ -313,13 +313,26 @@ class ServiceProvider(IServiceProvider):
             # Note: BaseException (KeyboardInterrupt, SystemExit) will propagate
             # without cleanup, which is correct behavior for shutdown signals
             type_name = getattr(service_type, "__name__", str(service_type))
-            logger.error(
-                "Error resolving service %s (%s)",
-                type_name,
-                type(e).__name__,
-                exc_info=True,
-                extra={"service_type": type_name, "exception_type": type(e).__name__},
-            )
+            # Only log at ERROR level for unexpected errors (not "service not registered")
+            # because get_service is a non-throwing API that returns None for missing services
+            message = str(e)
+            if message.startswith("Service ") and message.endswith(
+                " is not registered"
+            ):
+                # This is expected for get_service calls on optional services
+                # Don't log at ERROR level to avoid noise in logs
+                pass
+            else:
+                logger.error(
+                    "Error resolving service %s (%s)",
+                    type_name,
+                    type(e).__name__,
+                    exc_info=True,
+                    extra={
+                        "service_type": type_name,
+                        "exception_type": type(e).__name__,
+                    },
+                )
             pop_resolution()
             raise
         except Exception as e:
