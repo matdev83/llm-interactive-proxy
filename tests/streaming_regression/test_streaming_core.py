@@ -86,7 +86,7 @@ async def test_openai_streaming_incremental_delivery() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.005)  # Reduced from 0.02 for performance
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)  # Increased for reliable timing
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -280,7 +280,7 @@ async def test_openai_tool_call_streaming() -> None:
     """Test that tool calls stream correctly without buffering."""
     chunks = cast(list[str | bytes], OpenAIStreamingEmulator.create_tool_call_chunks())
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.005)  # Reduced from 0.02 for performance
+    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)  # Increased for reliable timing
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
