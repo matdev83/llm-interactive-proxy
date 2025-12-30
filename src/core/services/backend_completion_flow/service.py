@@ -47,6 +47,7 @@ from src.core.services.resilience.scope import (
     build_resilience_error_context,
     build_resilience_instance_id,
 )
+from src.core.services.connector_invoker import ConnectorInvoker
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
@@ -108,6 +109,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         usage_accounting_orchestrator: IUsageAccountingOrchestrator,
         exception_normalizer: IExceptionNormalizer,
         stream_formatting_service: IStreamFormattingService,
+        connector_invoker: ConnectorInvoker,
         resilience_coordinator: IResilienceCoordinator | None = None,
         eos_adapter: BackendCompletionFlowEosAdapter | None = None,  # type: ignore[invalid-type-form]
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
@@ -129,6 +131,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._eos_adapter = eos_adapter
         self._cancellation_coordinator = cancellation_coordinator
         self._non_forwardable_enforcer = non_forwardable_enforcer
+        self._connector_invoker = connector_invoker
         # Track cancellation tasks to prevent resource leaks
         self._cancellation_tasks: set[asyncio.Task[None]] = set()
         self._cancellation_tasks_lock = threading.Lock()
@@ -385,15 +388,17 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     session_id_for_backend=session_id_for_backend,
                 )
 
-                # Execute the backend call
-                result = await backend.chat_completions(
-                    request_data=domain_request,
-                    processed_messages=canonical_request.messages,
+                # Execute the backend call through ConnectorInvoker
+                result = await self._connector_invoker.invoke(
+                    backend=backend,
+                    domain_request=domain_request,
+                    canonical_request=canonical_request,
                     effective_model=effective_model,
                     identity=identity,
                     cancellation_token=session_key,
                     cancellation_coordinator=self._cancellation_coordinator,
-                    **backend_call_kwargs,
+                    context=context,
+                    options=backend_call_kwargs,
                 )
 
                 # Register cancellable work if coordinator and session_key are available

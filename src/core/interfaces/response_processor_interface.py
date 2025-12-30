@@ -8,30 +8,34 @@ from pydantic.types import JsonValue
 
 from src.core.domain.usage_summary import UsageSummary
 
+# Typed contract for processed chunk content crossing boundaries
+ProcessedChunkContent = bytes | str | dict[str, JsonValue] | None
+
 
 class ProcessedResponse:
     """Result of response processing."""
 
     def __init__(
         self,
-        content: dict[str, Any] | str | bytes | None = "",
+        content: ProcessedChunkContent = "",
         usage: UsageSummary | None = None,
         metadata: dict[str, JsonValue] | None = None,
     ):
         """Initialize a processed response.
 
         Args:
-            content: The response content (JSON dict, string, bytes, or None)
+            content: The response content (JSON dict with JsonValue values, string, bytes, or None)
             usage: Usage information (canonical UsageSummary contract)
             metadata: Additional metadata (JSON-serializable values)
         """
         self.content = content
         self.usage = usage
-        self.metadata = metadata or {}
+        # No mutable class-level default - create new dict instance per object
+        self.metadata = metadata if metadata is not None else {}
 
-    content: Any | None
+    content: ProcessedChunkContent
     usage: UsageSummary | None = None
-    metadata: dict[str, JsonValue] = {}
+    metadata: dict[str, JsonValue]
 
 
 class IResponseProcessor(ABC):

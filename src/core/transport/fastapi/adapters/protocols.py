@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, Protocol
 
+from pydantic.types import JsonValue
+
 if TYPE_CHECKING:
     from src.core.domain.openrouter_usage import OpenRouterUsage
     from src.core.transport.fastapi.adapters.sse.models import DecodedSSE
@@ -62,7 +64,7 @@ class IReasoningInjector(Protocol):
     def inject_reasoning(
         self,
         content: Any,
-        metadata: dict[str, Any],
+        metadata: dict[str, JsonValue],
         *,
         streaming: bool | None = None,
     ) -> Any:
@@ -79,8 +81,8 @@ class IReasoningInjector(Protocol):
         ...
 
     def build_streaming_payload(
-        self, content: Any, metadata: dict[str, Any]
-    ) -> dict[str, Any]:
+        self, content: Any, metadata: dict[str, JsonValue]
+    ) -> dict[str, JsonValue]:
         """Build OpenAI-style payload when content is not dict.
 
         Args:
@@ -134,7 +136,7 @@ class IUsageHeaderInjector(Protocol):
     def inject_headers(
         self,
         headers: dict[str, str],
-        usage: dict[str, Any],
+        usage: dict[str, JsonValue],
         canonical_usage: Any | None = None,
     ) -> dict[str, str]:
         """Add usage headers to response headers.
@@ -269,7 +271,7 @@ class IStreamingContentConverter(Protocol):
     """Convert raw stream chunks to StreamingContent."""
 
     async def convert_stream(
-        self, raw_stream: AsyncIterator[Any], context: dict[str, Any]
+        self, raw_stream: AsyncIterator[Any], context: dict[str, JsonValue]
     ) -> AsyncIterator[StreamingContent]:
         """Convert raw chunks to StreamingContent.
 

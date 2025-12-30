@@ -26,6 +26,7 @@ class OrchestratorHarness:
     request_preparer: AsyncMock
     session_resolver: AsyncMock
     backend_invoker: AsyncMock
+    connector_invoker: AsyncMock
     failover_executor: AsyncMock
     wire_capture_orchestrator: AsyncMock
     usage_accounting: AsyncMock
@@ -53,6 +54,7 @@ def harness() -> OrchestratorHarness:
     usage_accounting = AsyncMock()
     exception_normalizer = Mock()
     stream_formatting_service = AsyncMock()
+    connector_invoker = AsyncMock()
 
     service = BackendCompletionFlow(
         availability_checker=availability_checker,
@@ -64,6 +66,7 @@ def harness() -> OrchestratorHarness:
         usage_accounting_orchestrator=usage_accounting,
         exception_normalizer=exception_normalizer,
         stream_formatting_service=stream_formatting_service,
+        connector_invoker=connector_invoker,
         resilience_coordinator=None,
     )
 
@@ -73,6 +76,7 @@ def harness() -> OrchestratorHarness:
         request_preparer=request_preparer,
         session_resolver=session_resolver,
         backend_invoker=backend_invoker,
+        connector_invoker=connector_invoker,
         failover_executor=failover_executor,
         wire_capture_orchestrator=wire_capture_orchestrator,
         usage_accounting=usage_accounting,
@@ -117,9 +121,9 @@ async def test_normalizes_transport_exceptions(harness: OrchestratorHarness) -> 
         "ptb",
     )
 
-    # Mock backend call to raise transport error
+    # Mock connector invoker to raise transport error
     transport_error = DummyTransportError("Connection failed", 503)
-    backend_mock.chat_completions.side_effect = transport_error
+    harness.connector_invoker.invoke.side_effect = transport_error
 
     # Mock exception normalizer to return domain error
     domain_error = BackendError(
@@ -184,9 +188,9 @@ async def test_auth_failure_invalidates_backend(harness: OrchestratorHarness) ->
         "ptb",
     )
 
-    # Backend raises auth error
+    # Connector invoker raises auth error
     auth_error = DummyTransportError("Unauthorized", 401)
-    backend_mock.chat_completions.side_effect = auth_error
+    harness.connector_invoker.invoke.side_effect = auth_error
 
     # Normalizer returns AuthenticationError
     domain_auth_error = AuthenticationError("Invalid key")
@@ -244,9 +248,9 @@ async def test_captures_inbound_error_payload(harness: OrchestratorHarness) -> N
         "ptb",
     )
 
-    # Backend raises error
+    # Connector invoker raises error
     error = BackendError(message="Boom", backend_name="backend_a")
-    backend_mock.chat_completions.side_effect = error
+    harness.connector_invoker.invoke.side_effect = error
 
     harness.exception_normalizer.normalize.return_value = error
 
@@ -307,7 +311,7 @@ async def test_records_usage_for_streaming(harness: OrchestratorHarness) -> None
     streaming_response = StreamingResponseEnvelope(
         content=AsyncMock(), media_type="text/event-stream"
     )
-    backend_mock.chat_completions.return_value = streaming_response
+    harness.connector_invoker.invoke.return_value = streaming_response
 
     # Response handler mocks
     harness.usage_accounting.wrap_response_for_usage.return_value = streaming_response
@@ -357,7 +361,7 @@ async def test_records_usage_for_non_streaming(harness: OrchestratorHarness) -> 
 
     # Non-streaming response
     response = ResponseEnvelope(content="hello")
-    backend_mock.chat_completions.return_value = response
+    harness.connector_invoker.invoke.return_value = response
 
     # Response handler mocks
     harness.usage_accounting.wrap_response_for_usage.return_value = response
@@ -371,4 +375,62 @@ async def test_records_usage_for_non_streaming(harness: OrchestratorHarness) -> 
     # Verify usage wrapping and handling called
     harness.usage_accounting.wrap_response_for_usage.assert_called_once()
     harness.usage_accounting.handle_non_streaming_response.assert_called_once()
+    assert result == response
+
+
+@pytest.mark.asyncio
+async def test_uses_connector_invoker(harness: OrchestratorHarness) -> None:
+    """Verify that connector invocation goes through ConnectorInvoker."""
+    request = ChatRequest(
+        messages=[ChatMessage(role="user", content="test")],
+        model="gpt-4",
+        stream=False,
+    )
+    context = RequestContext(headers={}, cookies={}, state=Mock(), app_state=Mock())
+
+    # Mock setup
+    harness.request_preparer.prepare_request.return_value = BackendTarget(
+        backend="backend_a",
+        model="model_a",
+        uri_params={},
+    )
+    harness.request_preparer.synchronize_request_with_target.return_value = request
+    harness.failover_executor.check_complex_failover.return_value = False
+    harness.availability_checker.check_backend_availability.return_value = None
+
+    backend_mock = AsyncMock()
+    harness.backend_invoker.acquire_backend.return_value = backend_mock
+    harness.request_preparer.prepare_backend_request.return_value = request
+    harness.request_preparer.prepare_backend_kwargs.return_value = {
+        "session_id": "test_session"
+    }
+    harness.session_resolver.resolve_session.return_value = (None, "session_1")
+    harness.usage_accounting.calculate_and_record_usage.return_value = (
+        10,
+        "ctp",
+        "ptb",
+    )
+
+    # Non-streaming response
+    response = ResponseEnvelope(content="hello")
+    harness.connector_invoker.invoke.return_value = response
+
+    # Response handler mocks
+    harness.usage_accounting.wrap_response_for_usage.return_value = response
+    harness.usage_accounting.handle_non_streaming_response.return_value = response
+
+    # Execute
+    result = await harness.service.call_completion(
+        request, stream=False, allow_failover=True, context=context
+    )
+
+    # Verify ConnectorInvoker was called with correct parameters
+    harness.connector_invoker.invoke.assert_called_once()
+    call_args = harness.connector_invoker.invoke.call_args
+    assert call_args.kwargs["backend"] == backend_mock
+    assert call_args.kwargs["domain_request"] == request
+    assert call_args.kwargs["canonical_request"] == request
+    assert call_args.kwargs["effective_model"] == "model_a"
+    assert call_args.kwargs["context"] == context
+    assert call_args.kwargs["options"] == {"session_id": "test_session"}
     assert result == response

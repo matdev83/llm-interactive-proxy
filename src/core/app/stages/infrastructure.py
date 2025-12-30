@@ -111,206 +111,169 @@ class InfrastructureStage(InitializationStage):
 
     def _configure_streaming_sampler(self, config: AppConfig) -> None:
         """Configure the streaming sampler with settings from AppConfig."""
-        try:
-            from src.core.ports.streaming_metrics import configure_sampler
+        from src.core.ports.streaming_metrics import configure_sampler
 
-            sampler_config = config.session.streaming_sampler
-            configure_sampler(
-                sample_rate=sampler_config.sample_rate,
-                max_samples=sampler_config.max_samples,
-                enabled=sampler_config.enabled,
+        sampler_config = config.session.streaming_sampler
+        configure_sampler(
+            sample_rate=sampler_config.sample_rate,
+            max_samples=sampler_config.max_samples,
+            enabled=sampler_config.enabled,
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Configured streaming sampler: enabled=%s, rate=%s, max=%s",
+                sampler_config.enabled,
+                sampler_config.sample_rate,
+                sampler_config.max_samples,
             )
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Configured streaming sampler: enabled=%s, rate=%s, max=%s",
-                    sampler_config.enabled,
-                    sampler_config.sample_rate,
-                    sampler_config.max_samples,
-                )
-        except (ImportError, AttributeError, KeyError) as err:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Could not configure streaming sampler: %s",
-                    err,
-                    exc_info=True,
-                )
 
     def _register_http_client(self, services: ServiceCollection) -> None:
         """Register shared HTTP client as singleton."""
+        import httpx
+
+        provider = services.build_service_provider()
         try:
-            import httpx
+            existing_client = provider.get_service(httpx.AsyncClient)
+            if existing_client is not None:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Shared HTTP client already registered; skipping registration"
+                    )
+                return
+        except RuntimeError:
+            # Service not registered - proceed with registration
+            pass
 
-            provider = services.build_service_provider()
-            try:
-                existing_client = provider.get_service(httpx.AsyncClient)
-                if existing_client is not None:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Shared HTTP client already registered; skipping registration"
-                        )
-                    return
-            except RuntimeError:
-                # Service not registered - proceed with registration
-                pass
+        # Create shared HTTP client instance with http2 fallback
+        shared_httpx_client: httpx.AsyncClient | None = None
+        try:
+            shared_httpx_client = httpx.AsyncClient(
+                http2=True,
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                trust_env=False,
+            )
+        except (ValueError, RuntimeError, OSError, httpx.UnsupportedProtocol):
+            # Fallback to HTTP/1.1 if HTTP/2 setup fails
+            shared_httpx_client = httpx.AsyncClient(
+                http2=False,
+                timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+                limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+                trust_env=False,
+            )
 
-            # Create shared HTTP client instance with http2 fallback
-            shared_httpx_client: httpx.AsyncClient | None = None
-            try:
-                shared_httpx_client = httpx.AsyncClient(
-                    http2=True,
-                    timeout=httpx.Timeout(
-                        connect=10.0, read=60.0, write=60.0, pool=60.0
-                    ),
-                    limits=httpx.Limits(
-                        max_connections=100, max_keepalive_connections=20
-                    ),
-                    trust_env=False,
-                )
-            except (ValueError, RuntimeError, OSError, httpx.UnsupportedProtocol):
-                # Fallback to HTTP/1.1 if HTTP/2 setup fails
-                shared_httpx_client = httpx.AsyncClient(
-                    http2=False,
-                    timeout=httpx.Timeout(
-                        connect=10.0, read=60.0, write=60.0, pool=60.0
-                    ),
-                    limits=httpx.Limits(
-                        max_connections=100, max_keepalive_connections=20
-                    ),
-                    trust_env=False,
-                )
+        if shared_httpx_client is None:
+            raise RuntimeError("Failed to create shared HTTP client")
 
-            if shared_httpx_client is None:
-                raise RuntimeError("Failed to create shared HTTP client")
+        self._http_client = shared_httpx_client
 
-            self._http_client = shared_httpx_client
+        # Register as singleton instance
+        try:
+            services.add_instance(httpx.AsyncClient, shared_httpx_client)
+        except (TypeError, ValueError, RuntimeError) as err:
+            # Registration failed - clean up and rethrow
+            self._schedule_http_client_cleanup(shared_httpx_client)
+            self._http_client = None
+            raise err
 
-            # Register as singleton instance
-            try:
-                services.add_instance(httpx.AsyncClient, shared_httpx_client)
-            except (TypeError, ValueError, RuntimeError) as err:
-                # Registration failed - clean up and rethrow
-                self._schedule_http_client_cleanup(shared_httpx_client)
-                self._http_client = None
-                raise err
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered shared HTTP client")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register HTTP client: %s", e, exc_info=True)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered shared HTTP client")
 
     def _register_rate_limiter(self, services: ServiceCollection) -> None:
         """Register rate limiter service."""
-        try:
-            from src.core.services.rate_limiter import RateLimiter
+        from src.core.services.rate_limiter import RateLimiter
 
-            # Register as singleton (no dependencies)
-            services.add_singleton(RateLimiter)
+        # Register as singleton (no dependencies)
+        services.add_singleton(RateLimiter)
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered rate limiter service")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register rate limiter: %s", e, exc_info=True)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered rate limiter service")
 
     def _register_loop_detector(self, services: ServiceCollection) -> None:
         """Register loop detector service."""
-        try:
-            import os
-            from typing import cast
+        import os
+        from typing import cast
 
-            from src.core.interfaces.di_interface import IServiceProvider
-            from src.core.interfaces.loop_detector_interface import ILoopDetector
-            from src.loop_detection.config import InternalLoopDetectionConfig
-            from src.loop_detection.hybrid_detector import HybridLoopDetector
+        from src.core.interfaces.di_interface import IServiceProvider
+        from src.core.interfaces.loop_detector_interface import ILoopDetector
+        from src.loop_detection.config import InternalLoopDetectionConfig
+        from src.loop_detection.hybrid_detector import HybridLoopDetector
 
-            # Check if loop detection is enabled in config (read from environment)
-            config = InternalLoopDetectionConfig.from_env_vars(dict(os.environ))
+        # Check if loop detection is enabled in config (read from environment)
+        config = InternalLoopDetectionConfig.from_env_vars(dict(os.environ))
 
-            if config.enabled:
+        if config.enabled:
 
-                def _create_hybrid_loop_detector() -> HybridLoopDetector:
-                    """Build a HybridLoopDetector using legacy config defaults."""
-                    short_config = {
-                        "content_loop_threshold": config.content_loop_threshold,
-                        "content_chunk_size": config.content_chunk_size,
-                        "max_history_length": config.max_history_length,
-                    }
+            def _create_hybrid_loop_detector() -> HybridLoopDetector:
+                """Build a HybridLoopDetector using legacy config defaults."""
+                short_config = {
+                    "content_loop_threshold": config.content_loop_threshold,
+                    "content_chunk_size": config.content_chunk_size,
+                    "max_history_length": config.max_history_length,
+                }
 
-                    long_threshold = config.long_pattern_threshold
-                    if long_threshold is None:
-                        raise ValueError(
-                            "LoopDetectionConfig.long_pattern_threshold must be set"
-                        )
-
-                    min_repetitions = max(long_threshold.min_repetitions, 1)
-                    min_pattern_length = max(
-                        long_threshold.min_total_length // min_repetitions,
-                        60,
+                long_threshold = config.long_pattern_threshold
+                if long_threshold is None:
+                    raise ValueError(
+                        "LoopDetectionConfig.long_pattern_threshold must be set"
                     )
 
-                    long_config = {
-                        "min_pattern_length": min(
-                            min_pattern_length, config.max_pattern_length
-                        ),
-                        "max_pattern_length": config.max_pattern_length,
-                        "min_repetitions": long_threshold.min_repetitions,
-                        "max_history": config.max_history_length,
-                    }
-
-                    return HybridLoopDetector(
-                        short_detector_config=short_config,
-                        long_detector_config=long_config,
-                    )
-
-                def loop_detector_factory(
-                    provider: IServiceProvider,
-                ) -> HybridLoopDetector:
-                    return _create_hybrid_loop_detector()
-
-                services.add_transient(
-                    HybridLoopDetector, implementation_factory=loop_detector_factory
-                )
-                services.add_transient(
-                    cast(type, ILoopDetector),
-                    implementation_factory=loop_detector_factory,
+                min_repetitions = max(long_threshold.min_repetitions, 1)
+                min_pattern_length = max(
+                    long_threshold.min_total_length // min_repetitions,
+                    60,
                 )
 
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Registered HybridLoopDetector with DI container")
-            else:
-                # Register no-op detector when loop detection is disabled
-                from src.loop_detection.detector import NoOpLoopDetector
+                long_config = {
+                    "min_pattern_length": min(
+                        min_pattern_length, config.max_pattern_length
+                    ),
+                    "max_pattern_length": config.max_pattern_length,
+                    "min_repetitions": long_threshold.min_repetitions,
+                    "max_history": config.max_history_length,
+                }
 
-                def noop_detector_factory(
-                    provider: IServiceProvider,
-                ) -> NoOpLoopDetector:
-                    return NoOpLoopDetector()
-
-                services.add_transient(
-                    cast(type, ILoopDetector),
-                    implementation_factory=noop_detector_factory,
+                return HybridLoopDetector(
+                    short_detector_config=short_config,
+                    long_detector_config=long_config,
                 )
 
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Loop detection disabled, registered NoOpLoopDetector")
+            def loop_detector_factory(
+                provider: IServiceProvider,
+            ) -> HybridLoopDetector:
+                return _create_hybrid_loop_detector()
 
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register loop detector: %s", e, exc_info=True)
+            services.add_transient(
+                HybridLoopDetector, implementation_factory=loop_detector_factory
+            )
+            services.add_transient(
+                cast(type, ILoopDetector),
+                implementation_factory=loop_detector_factory,
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Registered HybridLoopDetector with DI container")
+        else:
+            # Register no-op detector when loop detection is disabled
+            from src.loop_detection.detector import NoOpLoopDetector
+
+            def noop_detector_factory(
+                provider: IServiceProvider,
+            ) -> NoOpLoopDetector:
+                return NoOpLoopDetector()
+
+            services.add_transient(
+                cast(type, ILoopDetector),
+                implementation_factory=noop_detector_factory,
+            )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Loop detection disabled, registered NoOpLoopDetector")
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that infrastructure services can be registered."""
-        try:
-            # Check that required modules are available
-
-            return True
-        except ImportError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Infrastructure services validation failed: %s", e, exc_info=True
-                )
-            return False
+        # Check that required modules are available
+        return True
 
     async def _cleanup_http_client(self) -> None:
         if self._http_client is not None:

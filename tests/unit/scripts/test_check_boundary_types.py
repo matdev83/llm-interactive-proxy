@@ -1,6 +1,8 @@
 """Tests for check_boundary_types.py script."""
 
+import json
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Add dev/scripts to path for imports
@@ -8,8 +10,14 @@ dev_scripts_path = Path(__file__).parent.parent.parent.parent / "dev" / "scripts
 sys.path.insert(0, str(dev_scripts_path))
 
 from check_boundary_types import (
+    AllowlistEntry,
     BoundaryTypeChecker,
+    Violation,
     check_boundary_types,
+    is_in_scope,
+    is_violation_allowlisted,
+    load_allowlist,
+    load_scope_config,
 )
 
 
@@ -208,6 +216,18 @@ def process(request: CanonicalChatRequest) -> None:
 
     def test_returns_one_exit_code_when_violations_found(self, tmp_path):
         """Test that violations return exit code 1."""
+        # Create scope config
+        scope_file = tmp_path / "scope.json"
+        scope_file.write_text(
+            json.dumps(
+                {
+                    "explicit_files": ["src/core/interfaces/processor.py"],
+                    "include_globs": [],
+                    "exclude_globs": [],
+                }
+            )
+        )
+
         # Create boundary module directory
         boundary_dir = tmp_path / "src" / "core" / "interfaces"
         boundary_dir.mkdir(parents=True)
@@ -221,7 +241,8 @@ def process(request: Any) -> None:
 """
         )
 
-        exit_code = check_boundary_types([str(tmp_path)])
+        scope_config = load_scope_config(scope_file)
+        exit_code = check_boundary_types([str(tmp_path)], scope_config=scope_config)
         assert exit_code == 1
 
     def test_ignores_non_boundary_modules(self, tmp_path):
@@ -241,4 +262,328 @@ def process(request: Any) -> None:
 
         exit_code = check_boundary_types([str(tmp_path)])
         # Should not find violations in non-boundary modules
+        assert exit_code == 0
+
+
+class TestScopeFiltering:
+    """Test scope-based file filtering."""
+
+    def test_explicit_files_in_scope(self, tmp_path):
+        """Test that explicit files are always in scope."""
+        scope_config = {
+            "explicit_files": ["src/core/interfaces/test.py"],
+            "include_globs": [],
+            "exclude_globs": [],
+        }
+
+        file_path = tmp_path / "src" / "core" / "interfaces" / "test.py"
+        file_path.parent.mkdir(parents=True)
+        file_path.touch()
+
+        assert is_in_scope(file_path, scope_config) is True
+
+    def test_explicit_files_override_excludes(self, tmp_path):
+        """Test that explicit files override exclude globs."""
+        scope_config = {
+            "explicit_files": ["src/core/interfaces/test.py"],
+            "include_globs": [],
+            "exclude_globs": ["src/core/interfaces/*.py"],
+        }
+
+        file_path = tmp_path / "src" / "core" / "interfaces" / "test.py"
+        file_path.parent.mkdir(parents=True)
+        file_path.touch()
+
+        assert is_in_scope(file_path, scope_config) is True
+
+    def test_include_globs_match(self, tmp_path):
+        """Test that include globs match files."""
+        scope_config = {
+            "explicit_files": [],
+            "include_globs": ["src/core/interfaces/*.py"],
+            "exclude_globs": [],
+        }
+
+        file_path = tmp_path / "src" / "core" / "interfaces" / "test.py"
+        file_path.parent.mkdir(parents=True)
+        file_path.touch()
+
+        assert is_in_scope(file_path, scope_config) is True
+
+    def test_exclude_globs_filter_out(self, tmp_path):
+        """Test that exclude globs filter out files."""
+        scope_config = {
+            "explicit_files": [],
+            "include_globs": ["src/core/**/*.py"],
+            "exclude_globs": ["src/core/internal/*.py"],
+        }
+
+        included_file = tmp_path / "src" / "core" / "interfaces" / "test.py"
+        excluded_file = tmp_path / "src" / "core" / "internal" / "test.py"
+        included_file.parent.mkdir(parents=True)
+        excluded_file.parent.mkdir(parents=True)
+        included_file.touch()
+        excluded_file.touch()
+
+        assert is_in_scope(included_file, scope_config) is True
+        assert is_in_scope(excluded_file, scope_config) is False
+
+    def test_empty_include_globs_only_explicit(self, tmp_path):
+        """Test that empty include_globs means only explicit files are in scope."""
+        scope_config = {
+            "explicit_files": ["src/core/interfaces/test.py"],
+            "include_globs": [],
+            "exclude_globs": [],
+        }
+
+        explicit_file = tmp_path / "src" / "core" / "interfaces" / "test.py"
+        other_file = tmp_path / "src" / "core" / "interfaces" / "other.py"
+        explicit_file.parent.mkdir(parents=True)
+        explicit_file.touch()
+        other_file.touch()
+
+        assert is_in_scope(explicit_file, scope_config) is True
+        assert is_in_scope(other_file, scope_config) is False
+
+    def test_load_scope_config(self, tmp_path):
+        """Test loading scope configuration from JSON."""
+        scope_file = tmp_path / "scope.json"
+        scope_file.write_text(
+            json.dumps(
+                {
+                    "explicit_files": ["src/test.py"],
+                    "include_globs": ["src/**/*.py"],
+                    "exclude_globs": ["src/tests/*.py"],
+                }
+            )
+        )
+
+        config = load_scope_config(scope_file)
+        assert config["explicit_files"] == ["src/test.py"]
+        assert config["include_globs"] == ["src/**/*.py"]
+        assert config["exclude_globs"] == ["src/tests/*.py"]
+
+
+class TestAllowlist:
+    """Test allowlist mechanism."""
+
+    def test_allowlist_entry_matches_violation(self):
+        """Test that allowlist entry matches violations correctly."""
+        entry = AllowlistEntry(
+            file="src/core/interfaces/test.py",
+            symbol="process_request",
+            violation="Any-in-signature",
+            reason="Test",
+            expires_at="2025-12-31T00:00:00Z",
+            tracking="test-123",
+        )
+
+        violation = Violation(
+            file_path="src/core/interfaces/test.py",
+            line=10,
+            column=0,
+            message="Function 'process_request' parameter 'request' uses 'Any' in signature",
+            symbol="process_request",
+        )
+
+        is_allowed, matched_entry = is_violation_allowlisted(
+            violation, "Any-in-signature", [entry]
+        )
+        assert is_allowed is True
+        assert matched_entry == entry
+
+    def test_allowlist_entry_without_symbol_matches(self):
+        """Test that allowlist entry without symbol matches any symbol."""
+        entry = AllowlistEntry(
+            file="src/core/interfaces/test.py",
+            symbol=None,
+            violation="Any-in-signature",
+            reason="Test",
+            expires_at="2025-12-31T00:00:00Z",
+            tracking="test-123",
+        )
+
+        violation = Violation(
+            file_path="src/core/interfaces/test.py",
+            line=10,
+            column=0,
+            message="Function 'other_func' parameter 'request' uses 'Any' in signature",
+            symbol="other_func",
+        )
+
+        is_allowed, matched_entry = is_violation_allowlisted(
+            violation, "Any-in-signature", [entry]
+        )
+        assert is_allowed is True
+
+    def test_allowlist_entry_expired(self):
+        """Test that expired allowlist entries are detected."""
+        past_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        entry = AllowlistEntry(
+            file="src/core/interfaces/test.py",
+            symbol="process_request",
+            violation="Any-in-signature",
+            reason="Test",
+            expires_at=past_date,
+            tracking="test-123",
+        )
+
+        assert entry.is_expired() is True
+
+    def test_allowlist_entry_not_expired(self):
+        """Test that non-expired allowlist entries are valid."""
+        future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        entry = AllowlistEntry(
+            file="src/core/interfaces/test.py",
+            symbol="process_request",
+            violation="Any-in-signature",
+            reason="Test",
+            expires_at=future_date,
+            tracking="test-123",
+        )
+
+        assert entry.is_expired() is False
+
+    def test_load_allowlist_filters_expired(self, tmp_path):
+        """Test that loading allowlist filters out expired entries."""
+        future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        past_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+
+        allowlist_file = tmp_path / "allowlist.json"
+        allowlist_file.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "entries": [
+                        {
+                            "file": "src/core/interfaces/valid.py",
+                            "symbol": "func1",
+                            "violation": "Any-in-signature",
+                            "reason": "Valid entry",
+                            "expires_at": future_date,
+                            "tracking": "test-1",
+                        },
+                        {
+                            "file": "src/core/interfaces/expired.py",
+                            "symbol": "func2",
+                            "violation": "Any-in-signature",
+                            "reason": "Expired entry",
+                            "expires_at": past_date,
+                            "tracking": "test-2",
+                        },
+                    ],
+                }
+            )
+        )
+
+        entries, has_expired = load_allowlist(allowlist_file)
+        assert len(entries) == 1
+        assert entries[0].file == "src/core/interfaces/valid.py"
+        assert has_expired is True
+
+    def test_allowlist_matches_dict_violation(self):
+        """Test that allowlist matches dict[str, Any] violations."""
+        entry = AllowlistEntry(
+            file="src/core/interfaces/test.py",
+            symbol="process_request",
+            violation="dict[str, Any]",
+            reason="Test",
+            expires_at="2025-12-31T00:00:00Z",
+            tracking="test-123",
+        )
+
+        violation = Violation(
+            file_path="src/core/interfaces/test.py",
+            line=10,
+            column=0,
+            message="Function 'process_request' parameter 'request' uses 'dict[str, Any]' in signature",
+            symbol="process_request",
+        )
+
+        is_allowed, matched_entry = is_violation_allowlisted(
+            violation, "dict[str, Any]", [entry]
+        )
+        assert is_allowed is True
+        assert matched_entry == entry
+
+    def test_allowlist_no_match_wrong_file(self):
+        """Test that allowlist doesn't match wrong file."""
+        entry = AllowlistEntry(
+            file="src/core/interfaces/other.py",
+            symbol="process_request",
+            violation="Any-in-signature",
+            reason="Test",
+            expires_at="2025-12-31T00:00:00Z",
+            tracking="test-123",
+        )
+
+        violation = Violation(
+            file_path="src/core/interfaces/test.py",
+            line=10,
+            column=0,
+            message="Function 'process_request' parameter 'request' uses 'Any' in signature",
+            symbol="process_request",
+        )
+
+        is_allowed, matched_entry = is_violation_allowlisted(
+            violation, "Any-in-signature", [entry]
+        )
+        assert is_allowed is False
+        assert matched_entry is None
+
+    def test_check_boundary_types_with_allowlist(self, tmp_path):
+        """Test that check_boundary_types respects allowlist."""
+        # Create scope config
+        scope_file = tmp_path / "scope.json"
+        scope_file.write_text(
+            json.dumps(
+                {
+                    "explicit_files": ["src/core/interfaces/test.py"],
+                    "include_globs": [],
+                    "exclude_globs": [],
+                }
+            )
+        )
+
+        # Create file with violation
+        test_file = tmp_path / "src" / "core" / "interfaces" / "test.py"
+        test_file.parent.mkdir(parents=True)
+        test_file.write_text(
+            """
+from typing import Any
+
+def process_request(request: Any) -> None:
+    pass
+"""
+        )
+
+        # Create allowlist
+        future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+        allowlist_file = tmp_path / "allowlist.json"
+        allowlist_file.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "entries": [
+                        {
+                            "file": "src/core/interfaces/test.py",
+                            "symbol": "process_request",
+                            "violation": "Any-in-signature",
+                            "reason": "Test allowlist",
+                            "expires_at": future_date,
+                            "tracking": "test-123",
+                        }
+                    ],
+                }
+            )
+        )
+
+        # Load configs
+        scope_config = load_scope_config(scope_file)
+        allowlist, _ = load_allowlist(allowlist_file)
+
+        # Check should pass (violation is allowlisted)
+        exit_code = check_boundary_types(
+            [str(tmp_path)], scope_config=scope_config, allowlist=allowlist
+        )
         assert exit_code == 0

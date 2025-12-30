@@ -53,17 +53,11 @@ def _register_stream_formatting_service(services: ServiceCollection) -> None:
     ) -> StreamFormattingService:
         return provider.get_required_service(StreamFormattingService)
 
-    try:
-        register_singleton_if_absent(
-            services,
-            cast(type, IStreamFormattingService),  # type: ignore[type-abstract]
-            implementation_factory=_istream_formatting_service_factory,  # type: ignore[type-abstract]
-        )
-    except Exception as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                f"Failed to register IStreamFormattingService interface: {e}"
-            )
+    register_singleton_if_absent(
+        services,
+        cast(type, IStreamFormattingService),  # type: ignore[type-abstract]
+        implementation_factory=_istream_formatting_service_factory,  # type: ignore[type-abstract]
+    )
 
 
 def _register_response_parser(services: ServiceCollection) -> None:
@@ -78,12 +72,8 @@ def _register_response_parser(services: ServiceCollection) -> None:
     def _iresponse_parser_factory(provider: IServiceProvider) -> ResponseParser:
         return provider.get_required_service(ResponseParser)
 
-    try:
-        register_singleton_if_absent(
-            services,
-            cast(type, IResponseParser),  # type: ignore[type-abstract]
-            implementation_factory=_iresponse_parser_factory,  # type: ignore[type-abstract]
-        )
-    except Exception as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IResponseParser interface: {e}")
+    register_singleton_if_absent(
+        services,
+        cast(type, IResponseParser),  # type: ignore[type-abstract]
+        implementation_factory=_iresponse_parser_factory,  # type: ignore[type-abstract]
+    )

@@ -44,124 +44,109 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
 
 def _register_identity_service(services: ServiceCollection) -> None:
     """Register identity computation service and interface."""
-    try:
-        from src.core.interfaces.non_forwardable_interface import (
-            INonForwardableMessageIdentityService,
-        )
-        from src.core.services.non_forwardable_message_identity_service import (
-            NonForwardableMessageIdentityService,
-        )
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageIdentityService,
+    )
+    from src.core.services.non_forwardable_message_identity_service import (
+        NonForwardableMessageIdentityService,
+    )
 
-        # Register as singleton (stateless service)
-        register_singleton_if_absent(services, NonForwardableMessageIdentityService)
+    # Register as singleton (stateless service)
+    register_singleton_if_absent(services, NonForwardableMessageIdentityService)
 
-        # Register interface binding
-        register_interface_and_implementation(
-            services,
-            cast(type, INonForwardableMessageIdentityService),
-            NonForwardableMessageIdentityService,
-        )
+    # Register interface binding
+    register_interface_and_implementation(
+        services,
+        cast(type, INonForwardableMessageIdentityService),
+        NonForwardableMessageIdentityService,
+    )
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Registered NonForwardableMessageIdentityService")
-    except ImportError as e:
-        logger.warning(
-            "Could not register non-forwardable identity service: %s", e, exc_info=True
-        )
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Registered NonForwardableMessageIdentityService")
 
 
 def _register_registry_service(
     services: ServiceCollection, app_config: AppConfig | None
 ) -> None:
     """Register tag registry service and interface."""
-    try:
-        from src.core.interfaces.non_forwardable_interface import (
-            INonForwardableMessageRegistry,
-        )
-        from src.core.services.non_forwardable_message_registry import (
-            NonForwardableMessageRegistry,
-        )
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageRegistry,
+    )
+    from src.core.services.non_forwardable_message_registry import (
+        NonForwardableMessageRegistry,
+    )
 
-        def registry_factory(
-            provider: IServiceProvider,
-        ) -> NonForwardableMessageRegistry:
-            """Factory function for creating registry with config dependency."""
-            # Get AppConfig from provider
-            config: AppConfig = provider.get_required_service(AppConfig)
-            return NonForwardableMessageRegistry(config)
+    def registry_factory(
+        provider: IServiceProvider,
+    ) -> NonForwardableMessageRegistry:
+        """Factory function for creating registry with config dependency."""
+        # Get AppConfig from provider
+        config: AppConfig = provider.get_required_service(AppConfig)
+        return NonForwardableMessageRegistry(config)
 
-        # Register as singleton with factory
-        register_singleton_if_absent(
-            services,
-            NonForwardableMessageRegistry,
-            implementation_factory=registry_factory,
-        )
+    # Register as singleton with factory
+    register_singleton_if_absent(
+        services,
+        NonForwardableMessageRegistry,
+        implementation_factory=registry_factory,
+    )
 
-        # Register interface binding
-        register_interface_and_implementation(
-            services,
-            cast(type, INonForwardableMessageRegistry),
-            NonForwardableMessageRegistry,
-            implementation_factory=registry_factory,
-        )
+    # Register interface binding
+    register_interface_and_implementation(
+        services,
+        cast(type, INonForwardableMessageRegistry),
+        NonForwardableMessageRegistry,
+        implementation_factory=registry_factory,
+    )
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Registered NonForwardableMessageRegistry")
-    except ImportError as e:
-        logger.warning(
-            "Could not register non-forwardable registry service: %s", e, exc_info=True
-        )
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Registered NonForwardableMessageRegistry")
 
 
 def _register_enforcer_service(services: ServiceCollection) -> None:
     """Register enforcer service and interface."""
-    try:
-        from src.core.interfaces.non_forwardable_interface import (
-            INonForwardableMessageEnforcer,
-            INonForwardableMessageIdentityService,
-            INonForwardableMessageRegistry,
-        )
-        from src.core.services.non_forwardable_message_enforcer import (
-            NonForwardableMessageEnforcer,
-        )
+    from src.core.interfaces.non_forwardable_interface import (
+        INonForwardableMessageEnforcer,
+        INonForwardableMessageIdentityService,
+        INonForwardableMessageRegistry,
+    )
+    from src.core.services.non_forwardable_message_enforcer import (
+        NonForwardableMessageEnforcer,
+    )
 
-        def enforcer_factory(
-            provider: IServiceProvider,
-        ) -> NonForwardableMessageEnforcer:
-            """Factory function for creating enforcer with dependencies."""
-            # Get dependencies from provider
-            from typing import cast
+    def enforcer_factory(
+        provider: IServiceProvider,
+    ) -> NonForwardableMessageEnforcer:
+        """Factory function for creating enforcer with dependencies."""
+        # Get dependencies from provider
+        from typing import cast
 
-            identity_service: INonForwardableMessageIdentityService = (
-                provider.get_required_service(
-                    cast(type, INonForwardableMessageIdentityService)
-                )
+        identity_service: INonForwardableMessageIdentityService = (
+            provider.get_required_service(
+                cast(type, INonForwardableMessageIdentityService)
             )
-            registry: INonForwardableMessageRegistry = provider.get_required_service(
-                cast(type, INonForwardableMessageRegistry)
-            )
-            return NonForwardableMessageEnforcer(
-                identity_service=identity_service, registry=registry
-            )
-
-        # Register as singleton with factory
-        register_singleton_if_absent(
-            services,
-            NonForwardableMessageEnforcer,
-            implementation_factory=enforcer_factory,
+        )
+        registry: INonForwardableMessageRegistry = provider.get_required_service(
+            cast(type, INonForwardableMessageRegistry)
+        )
+        return NonForwardableMessageEnforcer(
+            identity_service=identity_service, registry=registry
         )
 
-        # Register interface binding
-        register_interface_and_implementation(
-            services,
-            cast(type, INonForwardableMessageEnforcer),
-            NonForwardableMessageEnforcer,
-            implementation_factory=enforcer_factory,
-        )
+    # Register as singleton with factory
+    register_singleton_if_absent(
+        services,
+        NonForwardableMessageEnforcer,
+        implementation_factory=enforcer_factory,
+    )
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Registered NonForwardableMessageEnforcer")
-    except ImportError as e:
-        logger.warning(
-            "Could not register non-forwardable enforcer service: %s", e, exc_info=True
-        )
+    # Register interface binding
+    register_interface_and_implementation(
+        services,
+        cast(type, INonForwardableMessageEnforcer),
+        NonForwardableMessageEnforcer,
+        implementation_factory=enforcer_factory,
+    )
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Registered NonForwardableMessageEnforcer")

@@ -79,6 +79,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 | Test (Integration) | `./.venv/Scripts/python.exe -m pytest tests/integration` |
 | **Lint/Fix** | `./.venv/Scripts/python.exe -m ruff check --fix .` |
 | **Format** | `./.venv/Scripts/python.exe -m black .` |
+| **Boundary Type Check** | `./.venv/Scripts/python.exe dev/scripts/check_boundary_types.py` |
 | **Inspect CBOR wire captures** | `./.venv/Scripts/python.exe scripts/inspect_cbor_capture.py <file> --detect-issues` |
 
 ## Quality & Testing Standards

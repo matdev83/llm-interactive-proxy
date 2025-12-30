@@ -21,9 +21,7 @@ import httpx
 from src.core.common.exceptions import InitializationError, ServiceResolutionError
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
-from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
-from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
@@ -70,18 +68,14 @@ class BackendStage(InitializationStage):
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Initializing backend services...")
 
-            try:
-                # Import connectors package to trigger backend registrations via side effects
-                import importlib
+            # Import connectors package to trigger backend registrations via side effects
+            import importlib
 
-                importlib.import_module("src.connectors")
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
-                    )
-            except ImportError as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to import connectors: %s", e, exc_info=True)
+            importlib.import_module("src.connectors")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
+                )
 
             # Validate static_route backend early - fail fast if invalid
             self._validate_static_route_backend(config)
@@ -102,179 +96,6 @@ class BackendStage(InitializationStage):
             # Ensure validation client is cleaned up if stage fails
             await self._cleanup_validation_client()
 
-    def _register_backend_registry(self, services: ServiceCollection) -> None:
-        """Register backend registry as singleton instance."""
-        try:
-            from src.core.services.backend_registry import (
-                BackendRegistry,
-                backend_registry,
-            )
-
-            services.add_instance(BackendRegistry, backend_registry)
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered backend registry instance")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register backend registry: %s", e, exc_info=True)
-
-    def _register_backend_factory(self, services: ServiceCollection) -> None:
-        """Register backend factory with HTTP client dependency."""
-        try:
-            import httpx
-
-            from src.core.services.backend_factory import BackendFactory
-
-            def backend_factory_factory(provider: IServiceProvider) -> BackendFactory:
-                """Factory function for creating BackendFactory with dependencies."""
-                from src.core.services.backend_registry import BackendRegistry
-
-                httpx_client: httpx.AsyncClient = provider.get_required_service(
-                    httpx.AsyncClient
-                )
-                backend_registry_instance: BackendRegistry = (
-                    provider.get_required_service(BackendRegistry)
-                )
-                app_config: AppConfig = provider.get_required_service(AppConfig)
-                translation_service: TranslationService = provider.get_required_service(
-                    TranslationService
-                )
-
-                # Get endpoint registry if available (for health checks)
-                endpoint_registry = None
-                try:
-                    from src.core.services.health.endpoint_registry import (
-                        EndpointRegistry,
-                    )
-
-                    endpoint_registry = provider.get_service(EndpointRegistry)
-                except Exception as e:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "EndpointRegistry not available: %s", e, exc_info=True
-                        )
-
-                # Get backend notifier if available (for health notifications)
-                backend_notifier = None
-                try:
-                    from src.core.services.health.backend_notifier import (
-                        BackendHealthNotifier,
-                    )
-
-                    backend_notifier = provider.get_service(BackendHealthNotifier)
-                except Exception as e:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "BackendHealthNotifier not available: %s", e, exc_info=True
-                        )
-
-                # Get activity tracker if available (for connection monitoring)
-                activity_tracker = None
-                try:
-                    from src.core.services.connection_activity_tracker import (
-                        ConnectionActivityTracker,
-                    )
-
-                    activity_tracker = provider.get_service(ConnectionActivityTracker)
-                except Exception as e:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "ConnectionActivityTracker not available: %s",
-                            e,
-                            exc_info=True,
-                        )
-
-                return BackendFactory(  # noqa: DI-bypass (factory construction)
-                    httpx_client,
-                    backend_registry_instance,
-                    app_config,
-                    translation_service,
-                    endpoint_registry,
-                    backend_notifier,
-                    activity_tracker,
-                )
-
-            services.add_singleton(
-                BackendFactory, implementation_factory=backend_factory_factory
-            )
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered backend factory with dependencies")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register backend factory: %s", e, exc_info=True)
-
-    def _register_translation_service(self, services: ServiceCollection) -> None:
-        """Register translation service."""
-        try:
-            from src.core.domain.translators.defaults import (
-                ensure_default_translator_factories_registered,
-            )
-            from src.core.domain.translators.registry import (
-                TranslatorRegistry,
-                get_global_translator_registry,
-            )
-            from src.core.interfaces.translation_service_interface import (
-                ITranslationService,
-            )
-            from src.core.services.translation_service import TranslationService
-
-            def _translator_registry_factory(
-                provider: IServiceProvider,
-            ) -> TranslatorRegistry:
-                registry = get_global_translator_registry()
-                ensure_default_translator_factories_registered(registry)
-                return registry
-
-            services.add_singleton(
-                TranslatorRegistry, implementation_factory=_translator_registry_factory
-            )
-
-            services.add_singleton(TranslationService)
-
-            # Ensure interface resolves to the same singleton instance via factory
-            def _translation_service_alias_factory(
-                provider: IServiceProvider,
-            ) -> TranslationService:
-                return provider.get_required_service(TranslationService)
-
-            services.add_singleton(
-                cast(type, ITranslationService),
-                implementation_factory=_translation_service_alias_factory,
-            )
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered translation service")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register translation service: %s", e, exc_info=True)
-
-    def _register_backend_config_provider(self, services: ServiceCollection) -> None:
-        """Register backend configuration provider."""
-        try:
-            from src.core.interfaces.backend_config_provider_interface import (
-                IBackendConfigProvider,
-            )
-            from src.core.services.backend_config_provider import BackendConfigProvider
-
-            def backend_config_provider_factory(
-                provider: IServiceProvider,
-            ) -> BackendConfigProvider:
-                """Factory function for creating BackendConfigProvider."""
-                app_config = provider.get_required_service(AppConfig)
-                return BackendConfigProvider(app_config)
-
-            services.add_singleton(
-                cast(type, IBackendConfigProvider),
-                implementation_factory=backend_config_provider_factory,
-            )
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered backend config provider")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register backend config provider: %s", e, exc_info=True)
-
     def _register_backend_service(self, services: ServiceCollection) -> None:
         """Register main backend service with all dependencies."""
         # CoreServicesStage calls `register_core_services(...)`, which registers
@@ -286,15 +107,9 @@ class BackendStage(InitializationStage):
         if BackendFactory in descriptors:
             # BackendFactory is frequently (re)registered by this stage; do not treat
             # it as a signal for BackendService wiring.
-            pass
 
-        try:
-            from src.core.interfaces.backend_config_provider_interface import (
-                IBackendConfigProvider,
-            )
             from src.core.interfaces.backend_service_interface import IBackendService
             from src.core.services.backend_service import BackendService
-            from src.core.services.rate_limiter import RateLimiter
 
             # If BackendService / IBackendService is already registered, do not override.
             if (
@@ -307,243 +122,16 @@ class BackendStage(InitializationStage):
                     )
                 return
 
-            def backend_service_factory(provider: IServiceProvider) -> BackendService:
-                """Factory function for creating BackendService with all dependencies.
-
-                This factory mirrors the dependency resolution pattern from
-                register_core_services._backend_service_factory to ensure
-                consistent wiring across composition roots (Requirement 2.4).
-                """
-                import contextlib
-                from typing import cast
-
-                from src.core.config.app_config import AppConfig
-                from src.core.interfaces.backend_completion_flow_interface import (
-                    IBackendCompletionFlow,
-                )
-                from src.core.interfaces.backend_lifecycle_manager_interface import (
-                    IBackendLifecycleManager,
-                )
-                from src.core.interfaces.backend_model_resolver_interface import (
-                    IBackendModelResolver,
-                )
-                from src.core.interfaces.exception_normalizer_interface import (
-                    IExceptionNormalizer,
-                )
-                from src.core.interfaces.failover_interface import (
-                    IFailoverCoordinator,
-                    IFailoverStrategy,
-                )
-                from src.core.interfaces.failover_planner_interface import (
-                    IFailoverPlanner,
-                )
-                from src.core.interfaces.failure_strategy_interface import (
-                    IFailureHandlingStrategy,
-                )
-                from src.core.interfaces.model_alias_resolver_interface import (
-                    IModelAliasResolver,
-                )
-                from src.core.interfaces.planning_phase_manager_interface import (
-                    IPlanningPhaseManager,
-                )
-                from src.core.interfaces.reasoning_config_applicator_interface import (
-                    IReasoningConfigApplicator,
-                )
-                from src.core.interfaces.stream_formatting_interface import (
-                    IStreamFormattingService,
-                )
-                from src.core.interfaces.stream_session_id_resolver_interface import (
-                    IStreamSessionIdResolver,
-                )
-                from src.core.interfaces.uri_parameter_applicator_interface import (
-                    IURIParameterApplicator,
-                )
-                from src.core.interfaces.usage_tracking_interface import (
-                    IUsageTrackingService,
-                )
-                from src.core.interfaces.usage_tracking_wrapper_interface import (
-                    IUsageTrackingWrapper,
-                )
-                from src.core.interfaces.wire_capture_interface import IWireCapture
-                from src.core.services.backend_factory import BackendFactory
-                from src.core.services.backend_routing_service import (
-                    BackendRoutingService,
-                )
-                from src.core.services.resilience.coordinator import (
-                    ResilienceCoordinator,
-                )
-
-                # Required services
-                backend_factory: BackendFactory = provider.get_required_service(
-                    BackendFactory
-                )
-                rate_limiter: RateLimiter = provider.get_required_service(RateLimiter)
-                app_config: AppConfig = provider.get_required_service(AppConfig)
-                backend_config_provider: IBackendConfigProvider = (
-                    provider.get_required_service(cast(type, IBackendConfigProvider))
-                )
-                session_service: ISessionService = provider.get_required_service(
-                    cast(type, ISessionService)
-                )
-                app_state: IApplicationState = provider.get_required_service(
-                    cast(type, IApplicationState)
-                )
-
-                # Optional failover services
-                failover_coordinator: IFailoverCoordinator | None = None
-                with contextlib.suppress(Exception):
-                    failover_coordinator = provider.get_service(
-                        cast(type, IFailoverCoordinator)
-                    )
-
-                failover_strategy: IFailoverStrategy | None = None
-                try:
-                    if (
-                        app_state.get_use_failover_strategy()
-                        and failover_coordinator is not None
-                    ):
-                        from src.core.services.failover_strategy import (
-                            DefaultFailoverStrategy,
-                        )
-
-                        failover_strategy = DefaultFailoverStrategy(
-                            failover_coordinator
-                        )
-                except (AttributeError, ImportError, TypeError) as e:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Failed to enable failover strategy: %s", e, exc_info=True
-                        )
-
-                # Optional infrastructure services
-                wire_capture: IWireCapture | None = provider.get_service(
-                    cast(type, IWireCapture)
-                )
-                routing_service: BackendRoutingService | None = provider.get_service(
-                    BackendRoutingService
-                )
-                resilience_coordinator: ResilienceCoordinator | None = (
-                    provider.get_service(ResilienceCoordinator)
-                )
-                # Resolve failure handling strategy from DI or construct from config
-                from src.core.di.registration_helpers.failure_handling import (
-                    resolve_failure_strategy,
-                )
-
-                failure_handling_strategy: IFailureHandlingStrategy | None = (
-                    resolve_failure_strategy(provider, app_config, routing_service)
-                )
-                usage_tracking_service: IUsageTrackingService | None = (
-                    provider.get_service(cast(type, IUsageTrackingService))
-                )
-
-                # Required extracted services (Phase 1-3 collaborators)
-                stream_formatting_service: IStreamFormattingService = (
-                    provider.get_required_service(cast(type, IStreamFormattingService))
-                )
-                usage_tracking_wrapper: IUsageTrackingWrapper = (
-                    provider.get_required_service(cast(type, IUsageTrackingWrapper))
-                )
-                model_alias_resolver: IModelAliasResolver = (
-                    provider.get_required_service(cast(type, IModelAliasResolver))
-                )
-                exception_normalizer: IExceptionNormalizer = (
-                    provider.get_required_service(cast(type, IExceptionNormalizer))
-                )
-                backend_lifecycle_manager: IBackendLifecycleManager = (
-                    provider.get_required_service(cast(type, IBackendLifecycleManager))
-                )
-                planning_phase_manager: IPlanningPhaseManager = (
-                    provider.get_required_service(cast(type, IPlanningPhaseManager))
-                )
-                reasoning_config_applicator: IReasoningConfigApplicator = (
-                    provider.get_required_service(
-                        cast(type, IReasoningConfigApplicator)
-                    )
-                )
-                uri_parameter_applicator: IURIParameterApplicator = (
-                    provider.get_required_service(cast(type, IURIParameterApplicator))
-                )
-                stream_session_id_resolver: IStreamSessionIdResolver = (
-                    provider.get_required_service(cast(type, IStreamSessionIdResolver))
-                )
-                backend_model_resolver: IBackendModelResolver = (
-                    provider.get_required_service(cast(type, IBackendModelResolver))
-                )
-                failover_planner: IFailoverPlanner = provider.get_required_service(
-                    cast(type, IFailoverPlanner)
-                )
-                backend_completion_flow: IBackendCompletionFlow = (
-                    provider.get_required_service(cast(type, IBackendCompletionFlow))
-                )
-
-                # Get cancellation coordinator (optional, registered in streaming phase)
-                cancellation_coordinator = None
-                try:
-                    from src.core.interfaces.session_cancellation_coordinator_interface import (
-                        ISessionCancellationCoordinator,
-                    )
-
-                    if provider.has_service(
-                        cast(type, ISessionCancellationCoordinator)
-                    ):
-                        cancellation_coordinator = provider.get_service(
-                            cast(type, ISessionCancellationCoordinator)
-                        )
-                except Exception as err:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Failed to resolve cancellation coordinator: %s",
-                            err,
-                            exc_info=True,
-                        )
-
-                # Construct BackendService with all explicit dependencies (Requirement 2.4)
-                return BackendService(  # noqa: DI-bypass (factory construction)
-                    backend_factory,
-                    rate_limiter,
-                    app_config,
-                    session_service,
-                    app_state,
-                    backend_config_provider=backend_config_provider,
-                    failover_coordinator=failover_coordinator,
-                    failover_strategy=failover_strategy,
-                    wire_capture=wire_capture,
-                    routing_service=routing_service,
-                    resilience_coordinator=resilience_coordinator,
-                    failure_handling_strategy=failure_handling_strategy,
-                    usage_tracking_service=usage_tracking_service,
-                    stream_formatting_service=stream_formatting_service,
-                    usage_tracking_wrapper=usage_tracking_wrapper,
-                    model_alias_resolver=model_alias_resolver,
-                    exception_normalizer=exception_normalizer,
-                    backend_lifecycle_manager=backend_lifecycle_manager,
-                    planning_phase_manager=planning_phase_manager,
-                    reasoning_config_applicator=reasoning_config_applicator,
-                    uri_parameter_applicator=uri_parameter_applicator,
-                    stream_session_id_resolver=stream_session_id_resolver,
-                    backend_model_resolver=backend_model_resolver,
-                    failover_planner=failover_planner,
-                    backend_completion_flow=backend_completion_flow,
-                    cancellation_coordinator=cancellation_coordinator,
-                )
-
-            services.add_singleton(
-                BackendService, implementation_factory=backend_service_factory
+            # BackendService registration is handled by centralized registration
+            # Import and use the centralized registration function
+            from src.core.di.registrations._backend.main_service import (
+                register_backend_service,
             )
 
-            services.add_singleton_factory(
-                cast(type, IBackendService),
-                implementation_factory=lambda provider: provider.get_required_service(
-                    BackendService
-                ),
-            )
+            register_backend_service(services)
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Registered backend service with all dependencies")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register backend service: %s", e, exc_info=True)
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that backend services can be registered and backends are functional."""
@@ -711,20 +299,22 @@ class BackendStage(InitializationStage):
                     self._register_validation_http_client(services)
                     provider = services.build_service_provider()
                 provider.get_required_service(AppConfig)
-                from src.core.app.controllers.models_controller import (
-                    _resolve_backend_factory_from_provider,
-                )
-
-                backend_factory_service = _resolve_backend_factory_from_provider(
-                    provider
-                )
-
-            if backend_factory_service is None:
-                if logger.isEnabledFor(logging.ERROR):
-                    logger.error(
-                        "Could not create or resolve BackendFactory for validation."
+                try:
+                    from src.core.app.controllers.models_controller import (
+                        _resolve_backend_factory_from_provider,  # type: ignore[private]
                     )
-                return functional_backends
+
+                    backend_factory_service = _resolve_backend_factory_from_provider(
+                        provider  # type: ignore[arg-type]
+                    )
+                except ServiceResolutionError as e:
+                    if logger.isEnabledFor(logging.ERROR):
+                        logger.error(
+                            "Could not create or resolve BackendFactory for validation: %s",
+                            e,
+                            exc_info=True,
+                        )
+                    return functional_backends
 
             for backend_name in configured_backends:
                 try:
@@ -900,7 +490,10 @@ class BackendStage(InitializationStage):
                             logger.warning(
                                 f"Could not resolve TranslationService from container, creating temporary instance: {e}"
                             )
-                        translation_service = TranslationService()  # noqa: DI-bypass
+                        provider = services.build_service_provider()
+                        translation_service = provider.get_required_service(
+                            TranslationService
+                        )  # Use DI container
 
                     try:
                         backend = backend_factory_func(
@@ -1029,7 +622,13 @@ class BackendStage(InitializationStage):
                     ),
                     trust_env=False,
                 )
-            except (ValueError, RuntimeError, OSError, ImportError, httpx.UnsupportedProtocol) as e:
+            except (
+                ValueError,
+                RuntimeError,
+                OSError,
+                ImportError,
+                httpx.UnsupportedProtocol,
+            ) as e:
                 # Fallback to HTTP/1.1 if HTTP/2 setup fails
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -1058,7 +657,7 @@ class BackendStage(InitializationStage):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Registered temporary HTTP client for backend validation before infrastructure stage"
-            )
+                )
         except Exception as e:
             # If exception occurs after client creation but before assignment/registration,
             # ensure client is cleaned up to prevent leak

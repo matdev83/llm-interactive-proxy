@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "description": "Phase 0/1 boundary surface enforcement scope - signature-first, explicit file pinning. Phase 1 adds connector contracts.",
+  "explicit_files": [
+    "src/connectors/base.py",
+    "src/core/interfaces/response_processor_interface.py",
+    "src/core/transport/fastapi/adapters/protocols.py",
+    "src/core/domain/responses.py",
+    "src/core/domain/request_context.py",
+    "src/core/domain/backend_target.py",
+    "src/core/domain/usage_summary.py",
+    "src/core/domain/streaming/contracts.py"
+  ],
+  "include_globs": [
+    "src/connectors/contracts/**/*.py"
+  ],
+  "exclude_globs": []
+}

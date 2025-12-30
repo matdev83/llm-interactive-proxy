@@ -74,6 +74,8 @@ def create_test_backend_completion_flow(deps: dict[str, Any]) -> BackendCompleti
         backend_lifecycle_manager=deps["backend_lifecycle_manager"],
     )
 
+    connector_invoker = ConnectorInvoker()
+
     return BackendCompletionFlow(
         availability_checker=availability_checker,
         request_preparer=request_preparer,
@@ -84,5 +86,6 @@ def create_test_backend_completion_flow(deps: dict[str, Any]) -> BackendCompleti
         usage_accounting_orchestrator=usage_accounting,
         exception_normalizer=deps["exception_normalizer"],
         stream_formatting_service=deps["stream_formatting_service"],
+        connector_invoker=connector_invoker,
         resilience_coordinator=deps.get("resilience_coordinator"),
     )

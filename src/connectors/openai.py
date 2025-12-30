@@ -18,9 +18,14 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+    ICanonicalChatCompletionsBackend,
+)
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.models_listing import ModelsListingResponse
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -367,41 +372,81 @@ class OpenAIConnector(LLMBackend):
 
         return None
 
-    async def chat_completions(
+    def _get_log_extra(
+        self, context: ConnectorRequestContext | None
+    ) -> dict[str, str]:
+        """Extract correlation identifiers from context for logging.
+        
+        Args:
+            context: Connector request context, may be None
+            
+        Returns:
+            Dictionary with request_id, session_id, client_host if available
+        """
+        log_extra: dict[str, str] = {}
+        if context:
+            if context.request_id:
+                log_extra["request_id"] = context.request_id
+            if context.session_id:
+                log_extra["session_id"] = context.session_id
+            if context.client_host:
+                log_extra["client_host"] = context.client_host
+        return log_extra
+
+    async def _chat_completions_canonical(
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: Any | None = None,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Canonical connector API implementation.
+        
+        Extracts fields from ConnectorChatCompletionsRequest and delegates
+        to the existing implementation logic.
+        
+        Uses request.context for logging correlation identifiers (request_id,
+        session_id, client_host) when available.
+        """
+        # Extract fields from canonical request
+        domain_request = request.request
+        processed_messages = list(request.processed_messages)
+        effective_model = request.effective_model
+        identity = request.identity
+        cancellation_token = request.cancellation_token
+        cancellation_coordinator = request.cancellation_coordinator
+        context = request.context
+        
+        # Prepare context for logging correlation
+        log_extra = self._get_log_extra(context)
+        
+        # Extract provider-specific options from request.options (JSON-safe)
+        options = request.options
+        openai_url = options.get("openai_url")
+        if not isinstance(openai_url, str):
+            openai_url = None
+        
+        headers_override = options.get("headers_override")
+        if isinstance(headers_override, dict):
+            headers_override = {str(k): str(v) for k, v in headers_override.items()}
+        else:
+            headers_override = None
+        
         # Perform health check if enabled (for subclasses that support it)
         await self._ensure_healthy()
 
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
-        # (the frontend controller converts from frontend-specific format to domain format)
-        # Backends should ONLY convert FROM domain TO backend-specific format
-        # Type assertion: we know from architectural design that request_data is ChatRequest-like
-        from typing import cast
-
-        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
-
-        if not isinstance(request_data, ChatRequest):
+        if not isinstance(domain_request, ChatRequest):
             raise TypeError(
-                f"Expected ChatRequest or CanonicalChatRequest, got {type(request_data).__name__}. "
+                f"Expected ChatRequest or CanonicalChatRequest, got {type(domain_request).__name__}. "
                 "Backend connectors should only receive domain-format requests."
             )
         # Cast to CanonicalChatRequest for mypy compatibility with _prepare_payload signature
-        domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
+        from typing import cast
+        domain_request = cast(CanonicalChatRequest, domain_request)
 
         # Prepare the payload using a helper so subclasses and tests can
         # override or patch payload construction logic easily.
         payload = await self._prepare_payload(
             domain_request, processed_messages, effective_model
         )
-        headers_override = kwargs.pop("headers_override", None)
         headers: dict[str, str] | None = None
 
         base_headers: dict[str, str] | None
@@ -413,13 +458,15 @@ class OpenAIConnector(LLMBackend):
                     "Failed to get base headers for chat_completions request: %s",
                     e,
                     exc_info=True,
+                    extra=log_extra if log_extra else None,
                 )
             base_headers = None
 
         if headers_override is not None:
             # Avoid mutating the caller-provided mapping while preserving any
             # Authorization header we compute from the configured API key.
-            headers = dict(headers_override)
+            # headers_override is already dict[str, str] from line 428
+            headers = dict(headers_override)  # type: ignore[arg-type]
             if base_headers:
                 merged_headers = dict(base_headers)
                 merged_headers.update(headers)
@@ -427,7 +474,7 @@ class OpenAIConnector(LLMBackend):
         else:
             headers = base_headers
 
-        api_base = kwargs.get("openai_url") or self.api_base_url
+        api_base = openai_url or self.api_base_url
         url = f"{api_base.rstrip('/')}/chat/completions"
 
         if domain_request.stream:
@@ -448,7 +495,7 @@ class OpenAIConnector(LLMBackend):
                     prompt_text = extract_prompt_text(processed_messages)
                     prompt_tokens = count_tokens(prompt_text, model=effective_model)
                 except (ImportError, AttributeError, TypeError, KeyError, ValueError):
-                    logger.warning("Failed to calculate prompt tokens", exc_info=True)
+                    logger.warning("Failed to calculate prompt tokens", exc_info=True, extra=log_extra if log_extra else None)
 
                 # Integrate with streaming pipeline
                 from src.core.ports.streaming_integration import (
@@ -471,8 +518,18 @@ class OpenAIConnector(LLMBackend):
         else:
             # Return a domain ResponseEnvelope for non-streaming
             return await self._handle_non_streaming_response(
-                url, payload, headers, domain_request.session_id or ""
+                url, payload, headers, domain_request.session_id or "", context
             )
+
+    async def chat_completions(  # type: ignore[override]
+        self,
+        request: ConnectorChatCompletionsRequest,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Canonical connector API implementation.
+        
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        """
+        return await self._chat_completions_canonical(request)
 
     async def _prepare_payload(
         self,
@@ -637,18 +694,20 @@ class OpenAIConnector(LLMBackend):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: ConnectorRequestContext | None = None,
     ) -> ResponseEnvelope:
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
         guarded_headers = ensure_loop_guard_header(headers)
+        log_extra = self._get_log_extra(context)
 
         try:
             response = await self.client.post(
                 url, json=payload, headers=guarded_headers
             )
         except httpx.RequestError as e:
-            logger.error(f"DEBUG: Request failed to {url}. Error: {e}")
+            logger.error(f"DEBUG: Request failed to {url}. Error: {e}", extra=log_extra if log_extra else None)
             raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
 
         if int(response.status_code) >= 400:
@@ -662,6 +721,7 @@ class OpenAIConnector(LLMBackend):
                         "Failed to parse error response as JSON, using raw text: %s",
                         e,
                         exc_info=True,
+                        extra=log_extra if log_extra else None,
                     )
                 err = response.text
             except Exception as e:
@@ -670,6 +730,7 @@ class OpenAIConnector(LLMBackend):
                         "Unexpected error parsing error response, using raw text: %s",
                         e,
                         exc_info=True,
+                        extra=log_extra if log_extra else None,
                     )
                 err = response.text
             raise HTTPException(status_code=response.status_code, detail=err)
@@ -686,11 +747,13 @@ class OpenAIConnector(LLMBackend):
                 response_id,
                 response_model,
                 choices_count,
+                extra=log_extra if log_extra else None,
             )
             if choices_count == 0:
                 logger.debug(
                     "Empty choices in non-streaming response - raw response: %s",
                     str(response_json)[:500],
+                    extra=log_extra if log_extra else None,
                 )
 
         domain_response = self.translation_service.to_domain_response(
@@ -708,6 +771,7 @@ class OpenAIConnector(LLMBackend):
                     "Failed to extract response.headers, trying fallback: %s",
                     e,
                     exc_info=True,
+                    extra=log_extra if log_extra else None,
                 )
             try:
                 response_headers = dict(getattr(response, "headers", {}) or {})
@@ -717,6 +781,7 @@ class OpenAIConnector(LLMBackend):
                         "Failed to extract response headers from fallback: %s",
                         e,
                         exc_info=True,
+                        extra=log_extra if log_extra else None,
                     )
                 response_headers = {}
 
@@ -734,8 +799,11 @@ class OpenAIConnector(LLMBackend):
         headers: dict[str, str] | None,
         session_id: str,
         stream_format: str,
+        context: ConnectorRequestContext | None = None,
     ) -> StreamingResponseHandle:
         """Return a streaming handle with iterator and cancellation callback."""
+        
+        log_extra = self._get_log_extra(context)
 
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
@@ -767,6 +835,7 @@ class OpenAIConnector(LLMBackend):
                         "Failed to read error response body: %s",
                         e,
                         exc_info=True,
+                        extra=log_extra if log_extra else None,
                     )
                 fallback: str = str(getattr(response, "text", ""))
                 body = fallback() if callable(fallback) else fallback
@@ -779,6 +848,7 @@ class OpenAIConnector(LLMBackend):
                             "Failed to decode error response body: %s",
                             e,
                             exc_info=True,
+                            extra=log_extra if log_extra else None,
                         )
                     fallback_text: str = str(getattr(response, "text", ""))
                     body = fallback_text() if callable(fallback_text) else fallback_text
@@ -791,12 +861,14 @@ class OpenAIConnector(LLMBackend):
                             "Failed to close error response: %s",
                             e,
                             exc_info=True,
+                            extra=log_extra if log_extra else None,
                         )
 
             if not isinstance(body, str):
                 body = str(body)
             logger.warning(
-                "Backend %s returned HTTP %s with body: %s", url, status_code, body
+                "Backend %s returned HTTP %s with body: %s", url, status_code, body,
+                extra=log_extra if log_extra else None,
             )
             raise HTTPException(
                 status_code=status_code,
@@ -840,6 +912,7 @@ class OpenAIConnector(LLMBackend):
                     headers=cancel_headers,
                     response_id=target_id,
                     session_id=session_id,
+                    context=context,
                 )
 
             try:
@@ -850,6 +923,7 @@ class OpenAIConnector(LLMBackend):
                         "Failed to close response during stream cancellation: %s",
                         e,
                         exc_info=True,
+                        extra=log_extra if log_extra else None,
                     )
 
         async def gen() -> AsyncGenerator[ProcessedResponse, None]:
@@ -879,6 +953,7 @@ class OpenAIConnector(LLMBackend):
                                 type(e).__name__,
                                 e,
                                 exc_info=True,
+                                extra=log_extra if log_extra else None,
                             )
                         return None
                     except Exception as e:
@@ -888,6 +963,7 @@ class OpenAIConnector(LLMBackend):
                                 "Unexpected error extracting chunk ID from model_dump: %s",
                                 e,
                                 exc_info=True,
+                                extra=log_extra if log_extra else None,
                             )
                         return None
                     if isinstance(chunk_id, str) and chunk_id:
@@ -910,7 +986,8 @@ class OpenAIConnector(LLMBackend):
                             # DoS protection: Limit buffer size to prevent memory exhaustion
                             if len(buffer) + len(chunk_text) > MAX_SSE_BUFFER_SIZE:
                                 logger.warning(
-                                    "SSE buffer overflow: truncating to prevent DoS"
+                                    "SSE buffer overflow: truncating to prevent DoS",
+                                    extra=log_extra if log_extra else None,
                                 )
                                 buffer = buffer[-MAX_SSE_BUFFER_SIZE:] if buffer else ""
                             buffer += chunk_text
@@ -959,12 +1036,14 @@ class OpenAIConnector(LLMBackend):
                                                 if isinstance(message, str)
                                                 else str(message)
                                             ),
+                                            extra=log_extra if log_extra else None,
                                         )
                                 except Exception:
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
                                             "Streaming chunk translation returned error but raw chunk not serializable",
                                             exc_info=True,
+                                            extra=log_extra if log_extra else None,
                                         )
                             yield domain_chunk
                     else:
@@ -984,12 +1063,14 @@ class OpenAIConnector(LLMBackend):
                                         "Streaming chunk translation returned error=%s raw=%s",
                                         domain_chunk.get("error"),
                                         chunk[:500],
+                                        extra=log_extra if log_extra else None,
                                     )
                                 except Exception:
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
                                             "Streaming chunk translation returned error but raw chunk not serializable",
                                             exc_info=True,
+                                            extra=log_extra if log_extra else None,
                                         )
                             yield domain_chunk
                 except httpx.RequestError as exc:
@@ -1020,6 +1101,7 @@ class OpenAIConnector(LLMBackend):
                         logger.debug(
                             "Error closing streaming response during cleanup",
                             exc_info=True,
+                            extra=log_extra if log_extra else None,
                         )
             if pending_error:
                 raise pending_error
@@ -1034,6 +1116,7 @@ class OpenAIConnector(LLMBackend):
                 logger.debug(
                     "Failed to convert response headers to dict, using empty dict",
                     exc_info=True,
+                    extra=log_extra if log_extra else None,
                 )
             response_headers = {}
 
@@ -1049,7 +1132,9 @@ class OpenAIConnector(LLMBackend):
         headers: Mapping[str, str],
         response_id: str,
         session_id: str,
+        context: ConnectorRequestContext | None = None,
     ) -> None:
+        log_extra = self._get_log_extra(context)
         cancel_url = f"{base_url}/{response_id}/cancel"
         try:
             request = self.client.build_request("POST", cancel_url, headers=headers)
@@ -1060,6 +1145,7 @@ class OpenAIConnector(LLMBackend):
                 cancel_url,
                 exc,
                 exc_info=True,
+                extra=log_extra if log_extra else None,
             )
             return
 
@@ -1072,6 +1158,7 @@ class OpenAIConnector(LLMBackend):
                 cancel_url,
                 exc,
                 exc_info=True,
+                extra=log_extra if log_extra else None,
             )
             return
 
@@ -1207,7 +1294,14 @@ class OpenAIConnector(LLMBackend):
         headers: dict[str, str] | None,
         session_id: str,
     ) -> ResponseEnvelope:
-        """Handle non-streaming Responses API responses with proper format conversion."""
+        """Handle non-streaming Responses API responses with proper format conversion.
+        
+        Note: This method is called from responses() API endpoint, which is separate
+        from the canonical chat completions API (Task 2.4 scope). The responses()
+        method doesn't have access to ConnectorRequestContext, so context correlation
+        is not available here. If this method is ever called from the canonical path,
+        it should be updated to accept context parameter.
+        """
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
@@ -1332,6 +1426,10 @@ class OpenAIConnector(LLMBackend):
 
         Yields:
             Raw streaming chunks from the backend (opaque provider-specific data)
+            
+        Note: This protocol method doesn't have access to ConnectorRequestContext.
+        Error logs from this method cannot include context correlation identifiers.
+        Adding context would require a protocol change, which is beyond Task 2.4 scope.
         """
         # Build the request URL and payload
         api_base = getattr(request, "api_base", None) or self.api_base_url

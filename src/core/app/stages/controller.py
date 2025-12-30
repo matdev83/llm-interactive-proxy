@@ -84,27 +84,20 @@ class ControllerStage(InitializationStage):
             from src.core.services.translation_service import (
                 TranslationService as ConcreteTranslationService,
             )
+
             translation_service = provider.get_service(cast(type, ITranslationService))
             if translation_service is None:
                 translation_service = provider.get_service(ConcreteTranslationService)
             # Get wire capture service if available
             wire_capture = provider.get_service(cast(type, IWireCapture))
             # Get session metrics initializer if available
-            metrics_initializer = None
-            try:
-                from src.core.interfaces.session_metrics_initializer_interface import (
-                    ISessionMetricsInitializer,
-                )
-                metrics_initializer = provider.get_service(
-                    cast(type, ISessionMetricsInitializer)
-                )
-            except (AttributeError, KeyError, TypeError):
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to resolve ISessionMetricsInitializer for ChatController; proceeding without metrics initializer",
-                        exc_info=True,
-                    )
-                metrics_initializer = None
+            from src.core.interfaces.session_metrics_initializer_interface import (
+                ISessionMetricsInitializer,
+            )
+
+            metrics_initializer = provider.get_service(
+                cast(type, ISessionMetricsInitializer)
+            )
             return ChatController(
                 request_processor,
                 translation_service=translation_service,
@@ -234,18 +227,9 @@ class ControllerStage(InitializationStage):
             )
 
             # Optional: session metrics initializer for proactive metrics creation
-            metrics_initializer: ISessionMetricsInitializer | None = None
-            try:
-                metrics_initializer = provider.get_service(
-                    cast(type, ISessionMetricsInitializer)
-                )
-            except (AttributeError, KeyError, TypeError):
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Failed to resolve ISessionMetricsInitializer for ResponsesController; proceeding without metrics initializer",
-                        exc_info=True,
-                    )
-                metrics_initializer = None
+            metrics_initializer: ISessionMetricsInitializer | None = (
+                provider.get_service(cast(type, ISessionMetricsInitializer))
+            )
 
             return ResponsesController(
                 request_processor,
@@ -267,17 +251,12 @@ class ControllerStage(InitializationStage):
         try:
             # Check that required modules are available
 
-            # Models and usage controllers are optional
-            try:
-                from src.core.app.controllers.models_controller import ModelsController
-                from src.core.app.controllers.usage_controller import UsageController
+            from src.core.app.controllers.models_controller import ModelsController
+            from src.core.app.controllers.usage_controller import UsageController
 
-                # Use the imports to avoid unused import warnings
-                _ = ModelsController
-                _ = UsageController
-            except ImportError:
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info("Optional controllers (models, usage) not available")
+            # Use the imports to avoid unused import warnings
+            _ = ModelsController
+            _ = UsageController
 
             return True
         except ImportError as e:

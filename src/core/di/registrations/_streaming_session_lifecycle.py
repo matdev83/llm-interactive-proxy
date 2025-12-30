@@ -76,16 +76,10 @@ def _register_end_of_session_service(
 
     def end_of_session_service_factory(
         provider: IServiceProvider,
-    ) -> EndOfSessionService | None:
-        # Try to get dependencies - fail gracefully if not available
-        # This allows unit tests to run without full DI setup
-        event_bus = provider.get_service(cast(type, IEventBus))
-        if event_bus is None:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "IEventBus not available, EndOfSessionService will not be created"
-                )
-            return None
+    ) -> EndOfSessionService:
+        # Get required dependencies - fail fast if not available
+        # EventBus should ALWAYS be registered by CoreServicesStage before this runs
+        event_bus: IEventBus = provider.get_required_service(cast(type, IEventBus))
 
         eos_config: EndOfSessionConfig = app_config.end_of_session
 
@@ -97,14 +91,9 @@ def _register_end_of_session_service(
             SessionMetricsRepository,
         )
 
-        session_repo = provider.get_service(SessionMetricsRepository)
-        if session_repo is None:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "SessionMetricsRepository not available, "
-                    "EndOfSessionService will not be created"
-                )
-            return None
+        session_repo: SessionMetricsRepository = provider.get_required_service(
+            SessionMetricsRepository
+        )
 
         return EndOfSessionService(
             event_bus=event_bus,
@@ -115,12 +104,12 @@ def _register_end_of_session_service(
     register_singleton_if_absent(
         services,
         EndOfSessionService,
-        implementation_factory=end_of_session_service_factory,  # type: ignore[arg-type]
+        implementation_factory=end_of_session_service_factory,
     )
     register_singleton_if_absent(
         services,
         cast(type, IEndOfSessionService),
-        implementation_factory=lambda p: p.get_service(EndOfSessionService),  # type: ignore[arg-type]
+        implementation_factory=lambda p: p.get_required_service(EndOfSessionService),
     )
 
     if logger.isEnabledFor(logging.DEBUG):

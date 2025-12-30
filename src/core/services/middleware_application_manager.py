@@ -37,6 +37,11 @@ class MiddlewareApplicationManager(IMiddlewareApplicationManager):
 
         self._middleware = sorted(middleware, key=_priority, reverse=True)
 
+    @property
+    def middleware(self) -> list[ResponseProcessor]:
+        """Public accessor for the middleware list."""
+        return self._middleware
+
     async def apply_middleware(
         self,
         content: Any,

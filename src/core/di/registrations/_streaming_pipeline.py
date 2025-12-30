@@ -92,52 +92,34 @@ def _register_middleware_application_manager(services: ServiceCollection) -> Non
         cfg: AppConfig = provider.get_required_service(AppConfig)
         features: list[IResponseFeature | IResponseMiddleware] = []
 
-        try:
-            if getattr(cfg.empty_response, "enabled", True):
-                features.append(
-                    EmptyResponseFeature(
-                        enabled=True,
-                        max_retries=getattr(cfg.empty_response, "max_retries", 1),
-                    )
+        if getattr(cfg.empty_response, "enabled", True):
+            features.append(
+                EmptyResponseFeature(
+                    enabled=True,
+                    max_retries=getattr(cfg.empty_response, "max_retries", 1),
                 )
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Error configuring EmptyResponseFeature: %s", e, exc_info=True
-                )
-
-        # Edit-precision response-side detection (optional)
-        try:
-            from src.core.services.edit_precision_response_middleware import (
-                EditPrecisionFeature,
             )
 
-            app_state = provider.get_required_service(ApplicationStateService)
-            features.append(EditPrecisionFeature(app_state))
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Error configuring EditPrecisionFeature: %s", e, exc_info=True
-                )
+        # Edit-precision response-side detection (optional)
+        from src.core.services.edit_precision_response_middleware import (
+            EditPrecisionFeature,
+        )
+
+        app_state = provider.get_required_service(ApplicationStateService)
+        features.append(EditPrecisionFeature(app_state))
 
         # Think tags fix feature (optional)
-        try:
-            if getattr(cfg.session, "fix_think_tags_enabled", False):
-                from src.core.services.think_tags_fix_middleware import (
-                    ThinkTagsFixFeature,
-                )
+        if getattr(cfg.session, "fix_think_tags_enabled", False):
+            from src.core.services.think_tags_fix_middleware import (
+                ThinkTagsFixFeature,
+            )
 
-                buffer_size = getattr(
-                    cfg.session, "fix_think_tags_streaming_buffer_size", 4096
-                )
-                features.append(
-                    ThinkTagsFixFeature(enabled=True, streaming_buffer_size=buffer_size)
-                )
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Error configuring ThinkTagsFixFeature: %s", e, exc_info=True
-                )
+            buffer_size = getattr(
+                cfg.session, "fix_think_tags_streaming_buffer_size", 4096
+            )
+            features.append(
+                ThinkTagsFixFeature(enabled=True, streaming_buffer_size=buffer_size)
+            )
 
         if getattr(cfg.session, "json_repair_enabled", False):
             json_service: JsonRepairService | None = None
@@ -158,47 +140,41 @@ def _register_middleware_application_manager(services: ServiceCollection) -> Non
             )
 
         # Add tool call reactor feature (optional - only if services are available)
-        try:
-            from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
-                IToolCallReactorOrchestrator,
-            )
-            from src.core.interfaces.tool_call_stream_context_resolver_interface import (
-                IToolCallStreamContextResolver,
-            )
-            from src.core.services.tool_call_reactor_middleware import (
-                ToolCallReactorFeature,
-            )
-            from src.core.services.tool_call_reactor_service import (
-                ToolCallReactorService,
+        from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
+            IToolCallReactorOrchestrator,
+        )
+        from src.core.interfaces.tool_call_stream_context_resolver_interface import (
+            IToolCallStreamContextResolver,
+        )
+        from src.core.services.tool_call_reactor_middleware import (
+            ToolCallReactorFeature,
+        )
+        from src.core.services.tool_call_reactor_service import (
+            ToolCallReactorService,
+        )
+
+        tool_call_reactor = provider.get_service(ToolCallReactorService)
+        orchestrator = provider.get_service(cast(type, IToolCallReactorOrchestrator))  # type: ignore[type-abstract]
+        stream_context_resolver = provider.get_service(cast(type, IToolCallStreamContextResolver))  # type: ignore[type-abstract]
+
+        if (
+            tool_call_reactor is not None
+            and orchestrator is not None
+            and stream_context_resolver is not None
+        ):
+            enabled = getattr(cfg.session, "tool_call_reactor", None)
+            enabled = (
+                getattr(enabled, "enabled", False) if enabled is not None else False
             )
 
-            tool_call_reactor = provider.get_service(ToolCallReactorService)
-            orchestrator = provider.get_service(cast(type, IToolCallReactorOrchestrator))  # type: ignore[type-abstract]
-            stream_context_resolver = provider.get_service(cast(type, IToolCallStreamContextResolver))  # type: ignore[type-abstract]
-
-            if (
-                tool_call_reactor is not None
-                and orchestrator is not None
-                and stream_context_resolver is not None
-            ):
-                enabled = getattr(cfg.session, "tool_call_reactor", None)
-                enabled = (
-                    getattr(enabled, "enabled", False) if enabled is not None else False
+            features.append(
+                ToolCallReactorFeature(
+                    orchestrator=orchestrator,
+                    stream_context_resolver=stream_context_resolver,
+                    tool_call_reactor=tool_call_reactor,
+                    enabled=enabled,
                 )
-
-                features.append(
-                    ToolCallReactorFeature(
-                        orchestrator=orchestrator,
-                        stream_context_resolver=stream_context_resolver,
-                        tool_call_reactor=tool_call_reactor,
-                        enabled=enabled,
-                    )
-                )
-        except Exception as e:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Tool call reactor feature not available: %s", e, exc_info=True
-                )
+            )
 
         return MiddlewareApplicationManager(features)
 
@@ -254,7 +230,7 @@ def _register_middleware_application_processor(services: ServiceCollection) -> N
         )
 
         return MiddlewareApplicationProcessor(
-            manager._middleware,
+            manager.middleware,
             default_loop_config=loop_config,
             app_state=app_state,
             registry=registry,
@@ -366,133 +342,118 @@ def _register_stream_normalizer(services: ServiceCollection) -> None:
         StreamNormalizer,
         implementation_factory=_stream_normalizer_factory,
     )
-    try:
-        # Bind interface to concrete type by resolving it from provider
-        def _istream_normalizer_factory(
-            provider: IServiceProvider,
-        ) -> StreamNormalizer:
-            return provider.get_required_service(StreamNormalizer)
 
-        # Register IStreamNormalizer interface (primary interface)
-        register_singleton_if_absent(
-            services,
-            cast(type, IStreamNormalizer),  # type: ignore[type-abstract]
-            implementation_factory=_istream_normalizer_factory,  # type: ignore[type-abstract]
-        )
-        # Also register IProcessingStreamNormalizer alias for backward compatibility
-        register_singleton_if_absent(
-            services,
-            cast(type, IProcessingStreamNormalizer),  # type: ignore[type-abstract]
-            implementation_factory=_istream_normalizer_factory,  # type: ignore[type-abstract]
-        )
-    except Exception as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                f"Failed to register IStreamNormalizer/IProcessingStreamNormalizer interface: {e}"
-            )
+    # Bind interface to concrete type by resolving it from provider
+    def _istream_normalizer_factory(
+        provider: IServiceProvider,
+    ) -> StreamNormalizer:
+        return provider.get_required_service(StreamNormalizer)
+
+    # Register IStreamNormalizer interface (primary interface)
+    register_singleton_if_absent(
+        services,
+        cast(type, IStreamNormalizer),  # type: ignore[type-abstract]
+        implementation_factory=_istream_normalizer_factory,  # type: ignore[type-abstract]
+    )
+    # Also register IProcessingStreamNormalizer alias for backward compatibility
+    register_singleton_if_absent(
+        services,
+        cast(type, IProcessingStreamNormalizer),  # type: ignore[type-abstract]
+        implementation_factory=_istream_normalizer_factory,  # type: ignore[type-abstract]
+    )
 
 
 def _register_tool_call_reactor_middleware_legacy(services: ServiceCollection) -> None:
     """Register legacy ToolCallReactorMiddleware for backward compatibility."""
-    try:
-        from src.core.services.tool_call_reactor_middleware import (
-            ToolCallReactorMiddleware,
+    from src.core.services.tool_call_reactor_middleware import (
+        ToolCallReactorMiddleware,
+    )
+
+    def tool_call_reactor_middleware_factory(
+        provider: IServiceProvider,
+    ) -> ToolCallReactorMiddleware:
+        """Factory for creating legacy ToolCallReactorMiddleware."""
+        from src.core.config.app_config import AppConfig
+        from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
+            IToolCallReactorOrchestrator,
+        )
+        from src.core.interfaces.tool_call_stream_context_resolver_interface import (
+            IToolCallStreamContextResolver,
+        )
+        from src.core.services.tool_call_reactor_service import (
+            ToolCallReactorService,
         )
 
-        def tool_call_reactor_middleware_factory(
-            provider: IServiceProvider,
-        ) -> ToolCallReactorMiddleware:
-            """Factory for creating legacy ToolCallReactorMiddleware."""
-            from src.core.config.app_config import AppConfig
-            from src.core.interfaces.tool_call_reactor_orchestrator_interface import (
-                IToolCallReactorOrchestrator,
-            )
-            from src.core.interfaces.tool_call_stream_context_resolver_interface import (
-                IToolCallStreamContextResolver,
-            )
-            from src.core.services.tool_call_reactor_service import (
-                ToolCallReactorService,
-            )
+        config = provider.get_service(AppConfig)
+        tool_call_reactor = provider.get_service(ToolCallReactorService)
+        orchestrator = provider.get_service(cast(type, IToolCallReactorOrchestrator))  # type: ignore[type-abstract]
+        stream_context_resolver = provider.get_service(cast(type, IToolCallStreamContextResolver))  # type: ignore[type-abstract]
 
-            config = provider.get_service(AppConfig)
-            tool_call_reactor = provider.get_service(ToolCallReactorService)
-            orchestrator = provider.get_service(cast(type, IToolCallReactorOrchestrator))  # type: ignore[type-abstract]
-            stream_context_resolver = provider.get_service(cast(type, IToolCallStreamContextResolver))  # type: ignore[type-abstract]
+        enabled = False
+        if config is not None:
+            reactor_config = getattr(config.session, "tool_call_reactor", None)
+            if reactor_config is not None:
+                enabled = getattr(reactor_config, "enabled", False)
 
-            enabled = False
-            if config is not None:
-                reactor_config = getattr(config.session, "tool_call_reactor", None)
-                if reactor_config is not None:
-                    enabled = getattr(reactor_config, "enabled", False)
-
-            # Create middleware only if all services are available
-            # If not available, create a disabled instance with None dependencies
-            # This allows tests to resolve the service even if dependencies aren't ready
-            if (
-                tool_call_reactor is not None
-                and orchestrator is not None
-                and stream_context_resolver is not None
-            ):
-                return ToolCallReactorMiddleware(
-                    orchestrator=orchestrator,
-                    stream_context_resolver=stream_context_resolver,
-                    tool_call_reactor=tool_call_reactor,
-                    enabled=enabled,
-                )
-
-            # Create disabled instance for backward compatibility
-            # Use mock objects if needed - but this should only happen in tests
-            # In production, all dependencies should be available
-            from unittest.mock import MagicMock
-
+        # Create middleware only if all services are available
+        # If not available, create a disabled instance with None dependencies
+        # This allows tests to resolve the service even if dependencies aren't ready
+        if (
+            tool_call_reactor is not None
+            and orchestrator is not None
+            and stream_context_resolver is not None
+        ):
             return ToolCallReactorMiddleware(
-                orchestrator=orchestrator or MagicMock(),  # type: ignore[arg-type]
-                stream_context_resolver=stream_context_resolver or MagicMock(),  # type: ignore[arg-type]
-                tool_call_reactor=tool_call_reactor or MagicMock(),  # type: ignore[arg-type]
-                enabled=False,
+                orchestrator=orchestrator,
+                stream_context_resolver=stream_context_resolver,
+                tool_call_reactor=tool_call_reactor,
+                enabled=enabled,
             )
 
-        register_singleton_if_absent(
-            services,
-            ToolCallReactorMiddleware,
-            implementation_factory=tool_call_reactor_middleware_factory,
+        # Create disabled instance for backward compatibility
+        # Use mock objects if needed - but this should only happen in tests
+        # In production, all dependencies should be available
+        from unittest.mock import MagicMock
+
+        return ToolCallReactorMiddleware(
+            orchestrator=orchestrator or MagicMock(),  # type: ignore[arg-type]
+            stream_context_resolver=stream_context_resolver or MagicMock(),  # type: ignore[arg-type]
+            tool_call_reactor=tool_call_reactor or MagicMock(),  # type: ignore[arg-type]
+            enabled=False,
         )
-    except ImportError as e:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Could not register ToolCallReactorMiddleware: {e}")
+
+    register_singleton_if_absent(
+        services,
+        ToolCallReactorMiddleware,
+        implementation_factory=tool_call_reactor_middleware_factory,
+    )
 
 
 def _register_loop_detection_processor(services: ServiceCollection) -> None:
     """Register LoopDetectionProcessor if ILoopDetector is available."""
-    try:
-        from src.core.domain.streaming_response_processor import (
-            LoopDetectionProcessor,
+    from src.core.domain.streaming_response_processor import (
+        LoopDetectionProcessor,
+    )
+    from src.core.interfaces.loop_detector_interface import ILoopDetector
+
+    def loop_detection_processor_factory(
+        provider: IServiceProvider,
+    ) -> LoopDetectionProcessor:
+        """Factory for creating LoopDetectionProcessor if loop detector is available."""
+        loop_detector = provider.get_service(cast(type, ILoopDetector))  # type: ignore[type-abstract]
+        if loop_detector is not None:
+            return LoopDetectionProcessor(loop_detector_factory=lambda: loop_detector)
+        # If loop detector is not available, create processor with a no-op factory
+        # This ensures the service is always registered for tests
+        from src.loop_detection.hybrid_detector import HybridLoopDetector
+
+        return LoopDetectionProcessor(
+            loop_detector_factory=lambda: HybridLoopDetector()
         )
-        from src.core.interfaces.loop_detector_interface import ILoopDetector
 
-        def loop_detection_processor_factory(
-            provider: IServiceProvider,
-        ) -> LoopDetectionProcessor:
-            """Factory for creating LoopDetectionProcessor if loop detector is available."""
-            loop_detector = provider.get_service(cast(type, ILoopDetector))  # type: ignore[type-abstract]
-            if loop_detector is not None:
-                return LoopDetectionProcessor(
-                    loop_detector_factory=lambda: loop_detector
-                )
-            # If loop detector is not available, create processor with a no-op factory
-            # This ensures the service is always registered for tests
-            from src.loop_detection.hybrid_detector import HybridLoopDetector
-
-            return LoopDetectionProcessor(
-                loop_detector_factory=lambda: HybridLoopDetector()
-            )
-
-        # Register as singleton - always creates an instance
-        register_singleton_if_absent(
-            services,
-            LoopDetectionProcessor,
-            implementation_factory=loop_detection_processor_factory,
-        )
-    except ImportError as e:
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Could not register LoopDetectionProcessor: {e}")
+    # Register as singleton - always creates an instance
+    register_singleton_if_absent(
+        services,
+        LoopDetectionProcessor,
+        implementation_factory=loop_detection_processor_factory,
+    )

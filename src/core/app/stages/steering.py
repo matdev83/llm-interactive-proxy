@@ -79,127 +79,91 @@ class SteeringStage(InitializationStage):
         self, services: ServiceCollection, config: AppConfig
     ) -> None:
         """Register session state store as singleton."""
-        try:
-            from src.services.steering import SessionStateStore
+        from src.services.steering import SessionStateStore
 
-            reactor_config = config.session.tool_call_reactor
+        reactor_config = config.session.tool_call_reactor
 
-            # Use configured settings or legacy-compatible defaults
-            ttl_seconds = getattr(reactor_config, "steering_session_ttl_seconds", 1800)
-            max_sessions = getattr(reactor_config, "steering_max_sessions", 1024)
+        # Use configured settings or legacy-compatible defaults
+        ttl_seconds = getattr(reactor_config, "steering_session_ttl_seconds", 1800)
+        max_sessions = getattr(reactor_config, "steering_max_sessions", 1024)
 
-            services.add_singleton(
-                SessionStateStore,
-                implementation_factory=lambda provider: SessionStateStore(
-                    ttl_seconds=ttl_seconds, max_sessions=max_sessions
-                ),
+        services.add_singleton(
+            SessionStateStore,
+            implementation_factory=lambda provider: SessionStateStore(
+                ttl_seconds=ttl_seconds, max_sessions=max_sessions
+            ),
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Registered SessionStateStore (ttl=%ds, max=%d)",
+                ttl_seconds,
+                max_sessions,
             )
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Registered SessionStateStore (ttl=%ds, max=%d)",
-                    ttl_seconds,
-                    max_sessions,
-                )
-        except (ImportError, AttributeError, TypeError, RuntimeError, ValueError) as e:
-            # Expected exceptions: import failures, config access errors, type mismatches,
-            # service registration failures, invalid values
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Could not register SessionStateStore: {e}", exc_info=True
-                )
-        except Exception as e:
-            # Unexpected exceptions - log with full context for debugging
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Unexpected error registering SessionStateStore: {e}",
-                    exc_info=True,
-                )
 
     def _register_steering_policies(
         self, services: ServiceCollection, config: AppConfig
     ) -> None:
         """Register steering policies as singletons."""
-        try:
-            from src.services.steering.policies import (
-                BinaryFileEditPolicy,
-                InlinePythonPolicy,
-                PytestFullSuitePolicy,
-            )
+        from src.services.steering.policies import (
+            BinaryFileEditPolicy,
+            InlinePythonPolicy,
+            PytestFullSuitePolicy,
+        )
 
-            reactor_config = config.session.tool_call_reactor
+        reactor_config = config.session.tool_call_reactor
 
-            # Register InlinePythonPolicy
-            services.add_singleton(
-                InlinePythonPolicy,
-                implementation_factory=lambda provider: InlinePythonPolicy(
-                    message=getattr(
-                        reactor_config, "inline_python_steering_message", None
-                    ),
-                    enabled=getattr(
-                        reactor_config, "inline_python_steering_enabled", True
-                    ),
-                    prompt_override_path=Path(
-                        "config/prompts/steering_inline_python.md"
-                    ),
+        # Register InlinePythonPolicy
+        services.add_singleton(
+            InlinePythonPolicy,
+            implementation_factory=lambda provider: InlinePythonPolicy(
+                message=getattr(reactor_config, "inline_python_steering_message", None),
+                enabled=getattr(reactor_config, "inline_python_steering_enabled", True),
+                prompt_override_path=Path("config/prompts/steering_inline_python.md"),
+            ),
+        )
+
+        # Register BinaryFileEditPolicy
+        services.add_singleton(
+            BinaryFileEditPolicy,
+            implementation_factory=lambda provider: BinaryFileEditPolicy(
+                message=getattr(
+                    reactor_config, "binary_file_edit_steering_message", None
                 ),
-            )
-
-            # Register BinaryFileEditPolicy
-            services.add_singleton(
-                BinaryFileEditPolicy,
-                implementation_factory=lambda provider: BinaryFileEditPolicy(
-                    message=getattr(
-                        reactor_config, "binary_file_edit_steering_message", None
-                    ),
-                    enabled=getattr(
-                        reactor_config, "binary_file_edit_steering_enabled", True
-                    ),
-                    prompt_override_path=Path(
-                        "config/prompts/steering_binary_file_edit.md"
-                    ),
+                enabled=getattr(
+                    reactor_config, "binary_file_edit_steering_enabled", True
                 ),
-            )
-
-            # Register PytestFullSuitePolicy
-            from src.services.steering import SessionStateStore
-
-            services.add_singleton(
-                PytestFullSuitePolicy,
-                implementation_factory=lambda provider: PytestFullSuitePolicy(
-                    session_store=provider.get_required_service(SessionStateStore),
-                    message=reactor_config.pytest_full_suite_steering_message,
-                    enabled=reactor_config.pytest_full_suite_steering_enabled,
-                    prompt_override_path=Path(
-                        "config/prompts/steering_pytest_full_suite.md"
-                    ),
+                prompt_override_path=Path(
+                    "config/prompts/steering_binary_file_edit.md"
                 ),
-            )
+            ),
+        )
 
-            # Register ConfiguredRulesPolicy
-            services.add_singleton(
-                ConfiguredRulesPolicy,
-                implementation_factory=lambda provider: self._create_configured_rules_policy(
-                    provider, reactor_config
+        # Register PytestFullSuitePolicy
+        from src.services.steering import SessionStateStore
+
+        services.add_singleton(
+            PytestFullSuitePolicy,
+            implementation_factory=lambda provider: PytestFullSuitePolicy(
+                session_store=provider.get_required_service(SessionStateStore),
+                message=reactor_config.pytest_full_suite_steering_message,
+                enabled=reactor_config.pytest_full_suite_steering_enabled,
+                prompt_override_path=Path(
+                    "config/prompts/steering_pytest_full_suite.md"
                 ),
-            )
+            ),
+        )
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered steering policies")
-        except (ImportError, AttributeError, TypeError, RuntimeError, ValueError) as e:
-            # Expected exceptions: import failures, config access errors, type mismatches,
-            # service registration failures, invalid values
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Could not register steering policies: {e}", exc_info=True
-                )
-        except Exception as e:
-            # Unexpected exceptions - log with full context for debugging
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Unexpected error registering steering policies: {e}",
-                    exc_info=True,
-                )
+        # Register ConfiguredRulesPolicy
+        services.add_singleton(
+            ConfiguredRulesPolicy,
+            implementation_factory=lambda provider: self._create_configured_rules_policy(
+                provider, reactor_config
+            ),
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered steering policies")
 
     def _create_configured_rules_policy(
         self, provider: IServiceProvider, reactor_config: Any
@@ -233,31 +197,12 @@ class SteeringStage(InitializationStage):
                 override_path = Path("config/prompts/steering_apply_diff.md")
 
                 if not apply_diff_msg and override_path.is_file():
-                    try:
-                        apply_diff_msg = override_path.read_text(encoding="utf-8")
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "Loaded apply_diff steering prompt from %s",
-                                override_path,
-                            )
-                    except (OSError, UnicodeDecodeError) as e:
-                        # Expected exceptions: file not found, permission errors, encoding errors
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Failed to read apply_diff steering prompt from %s, using default: %s",
-                                override_path,
-                                e,
-                                exc_info=True,
-                            )
-                    except Exception as e:
-                        # Unexpected exceptions - log with full context for debugging
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Unexpected error reading apply_diff steering prompt from %s, using default: %s",
-                                override_path,
-                                e,
-                                exc_info=True,
-                            )
+                    apply_diff_msg = override_path.read_text(encoding="utf-8")
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Loaded apply_diff steering prompt from %s",
+                            override_path,
+                        )
 
                 effective_rules.append(
                     SteeringRule(
@@ -292,55 +237,40 @@ class SteeringStage(InitializationStage):
         self, services: ServiceCollection, config: AppConfig
     ) -> None:
         """Register unified steering handler with policies."""
-        try:
-            from src.services.steering import UnifiedSteeringHandler
-            from src.services.steering.policies import (
-                BinaryFileEditPolicy,
-                InlinePythonPolicy,
-                PytestFullSuitePolicy,
+        from src.services.steering import UnifiedSteeringHandler
+        from src.services.steering.policies import (
+            BinaryFileEditPolicy,
+            InlinePythonPolicy,
+            PytestFullSuitePolicy,
+        )
+
+        def handler_factory(provider: IServiceProvider) -> UnifiedSteeringHandler:
+            """Factory for creating unified steering handler with policies."""
+            policies = [
+                provider.get_required_service(InlinePythonPolicy),
+                provider.get_required_service(BinaryFileEditPolicy),
+                provider.get_required_service(PytestFullSuitePolicy),
+                provider.get_required_service(ConfiguredRulesPolicy),
+            ]
+
+            reactor_config = config.session.tool_call_reactor
+            priority_overrides = getattr(
+                reactor_config, "steering_policy_priorities", None
+            )
+            emit_legacy_log_enabled = getattr(
+                reactor_config, "emit_legacy_steering_log", False
             )
 
-            def handler_factory(provider: IServiceProvider) -> UnifiedSteeringHandler:
-                """Factory for creating unified steering handler with policies."""
-                policies = [
-                    provider.get_required_service(InlinePythonPolicy),
-                    provider.get_required_service(BinaryFileEditPolicy),
-                    provider.get_required_service(PytestFullSuitePolicy),
-                    provider.get_required_service(ConfiguredRulesPolicy),
-                ]
-
-                reactor_config = config.session.tool_call_reactor
-                priority_overrides = getattr(
-                    reactor_config, "steering_policy_priorities", None
-                )
-                emit_legacy_log_enabled = getattr(
-                    reactor_config, "emit_legacy_steering_log", False
-                )
-
-                return UnifiedSteeringHandler(
-                    policies=policies,
-                    enabled=True,
-                    priority_overrides=priority_overrides,
-                    emit_legacy_log_enabled=emit_legacy_log_enabled,
-                )
-
-            services.add_singleton(
-                UnifiedSteeringHandler, implementation_factory=handler_factory
+            return UnifiedSteeringHandler(
+                policies=policies,
+                enabled=True,
+                priority_overrides=priority_overrides,
+                emit_legacy_log_enabled=emit_legacy_log_enabled,
             )
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered UnifiedSteeringHandler")
-        except (ImportError, AttributeError, TypeError, RuntimeError, ValueError) as e:
-            # Expected exceptions: import failures, config access errors, type mismatches,
-            # service registration failures, invalid values
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Could not register UnifiedSteeringHandler: {e}", exc_info=True
-                )
-        except Exception as e:
-            # Unexpected exceptions - log with full context for debugging
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Unexpected error registering UnifiedSteeringHandler: {e}",
-                    exc_info=True,
-                )
+        services.add_singleton(
+            UnifiedSteeringHandler, implementation_factory=handler_factory
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered UnifiedSteeringHandler")

@@ -331,13 +331,14 @@ def _register_memory_subsystem(
     )
 
     # Register ProxyMemEosSubscriber
+    from src.core.memory.eos_subscriber import ProxyMemEosSubscriber
+
     def proxymem_eos_subscriber_factory(
         provider: IServiceProvider,
     ) -> ProxyMemEosSubscriber:
         """Factory to create ProxyMemEosSubscriber."""
         from src.core.interfaces.event_bus_interface import IEventBus
         from src.core.interfaces.memory_service_interface import IMemoryService
-        from src.core.memory.eos_subscriber import ProxyMemEosSubscriber
 
         event_bus: IEventBus = provider.get_required_service(cast(type, IEventBus))
         memory_service: IMemoryService = provider.get_required_service(
@@ -345,15 +346,8 @@ def _register_memory_subsystem(
         )
         return ProxyMemEosSubscriber(event_bus=event_bus, memory_service=memory_service)
 
-    try:
-        from src.core.memory.eos_subscriber import ProxyMemEosSubscriber
-
-        register_singleton_if_absent(
-            services,
-            ProxyMemEosSubscriber,
-            implementation_factory=proxymem_eos_subscriber_factory,
-        )
-    except ImportError:
-        # ProxyMemEosSubscriber not available (memory disabled or module not found)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("ProxyMemEosSubscriber not available, skipping registration")
+    register_singleton_if_absent(
+        services,
+        ProxyMemEosSubscriber,
+        implementation_factory=proxymem_eos_subscriber_factory,
+    )

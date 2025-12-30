@@ -1,0 +1,142 @@
+{
+  "version": "1.0",
+  "description": "Time-bounded exceptions for boundary type violations. Entries expire and must be renewed or violations fixed.",
+  "entries": [
+    {
+      "file": "src/connectors/base.py",
+      "symbol": "chat_completions",
+      "violation": "dict[str, Any]",
+      "reason": "Legacy connector API compatibility. Will be hardened in Phase 1 with canonical connector API.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 1"
+    },
+    {
+      "file": "src/connectors/base.py",
+      "symbol": "chat_completions",
+      "violation": "Any-in-signature",
+      "reason": "Legacy connector cancellation coordinator. Will be hardened in Phase 1 with typed ISessionCancellationCoordinator.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 1"
+    },
+    {
+      "file": "src/core/interfaces/response_processor_interface.py",
+      "symbol": "process_response",
+      "violation": "Any-in-signature",
+      "reason": "Accepts raw provider-specific LLM responses before normalization. This is internal processing, not boundary-carried data.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/interfaces/response_processor_interface.py",
+      "symbol": "process",
+      "violation": "Any-in-signature",
+      "reason": "Middleware interface accepts raw responses/chunks for processing. Internal processing boundary, not cross-layer contract exchange.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/interfaces/response_processor_interface.py",
+      "symbol": "process_non_streaming",
+      "violation": "Any-in-signature",
+      "reason": "Feature middleware accepts raw responses for processing. Internal processing boundary.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/interfaces/response_processor_interface.py",
+      "symbol": "process_streaming",
+      "violation": "Any-in-signature",
+      "reason": "Feature middleware accepts raw chunks for processing. Internal processing boundary.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/domain/usage_summary.py",
+      "symbol": "from_dict",
+      "violation": "dict[str, Any]",
+      "reason": "JSON deserialization method. Accepts dict[str, Any] from JSON parsing, validates and converts to typed contract.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening - serialization methods"
+    },
+    {
+      "file": "src/core/domain/usage_summary.py",
+      "symbol": "to_dict",
+      "violation": "dict[str, Any]",
+      "reason": "JSON serialization method. Returns dict[str, Any] for JSON serialization compatibility.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening - serialization methods"
+    },
+    {
+      "file": "src/core/domain/usage_summary.py",
+      "symbol": "to_legacy_dict",
+      "violation": "dict[str, Any]",
+      "reason": "Legacy serialization method for backward compatibility. Returns dict[str, Any] for JSON serialization.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening - serialization methods"
+    },
+    {
+      "file": "src/core/domain/request_context.py",
+      "symbol": "get_modification_summary",
+      "violation": "dict[str, Any]",
+      "reason": "Returns summary dict for logging/debugging. Internal diagnostic method, not cross-layer contract.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening - diagnostic methods"
+    },
+    {
+      "file": "src/core/transport/fastapi/adapters/protocols.py",
+      "symbol": "normalize",
+      "violation": "dict[str, Any]",
+      "reason": "Accepts provider-specific usage formats before normalization. Internal processing, converts to canonical format.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/transport/fastapi/adapters/protocols.py",
+      "symbol": "merge_streaming_usage",
+      "violation": "dict[str, Any]",
+      "reason": "Accepts provider-specific usage formats for merging. Internal processing, converts to canonical format.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/transport/fastapi/adapters/protocols.py",
+      "symbol": "inject_reasoning",
+      "violation": "Any-in-signature",
+      "reason": "Accepts provider-specific content formats before normalization. Internal processing boundary.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/transport/fastapi/adapters/protocols.py",
+      "symbol": "build_streaming_payload",
+      "violation": "Any-in-signature",
+      "reason": "Accepts provider-specific content formats before normalization. Internal processing boundary.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/transport/fastapi/adapters/protocols.py",
+      "symbol": "inject_headers",
+      "violation": "Any-in-signature",
+      "reason": "Accepts canonical_usage as Any for backward compatibility. Will be hardened to UsageSummary in Phase 2.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/transport/fastapi/adapters/protocols.py",
+      "symbol": "sanitize",
+      "violation": "Any-in-signature",
+      "reason": "JSON sanitization accepts any content type for conversion. Internal processing boundary.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/core/transport/fastapi/adapters/protocols.py",
+      "symbol": "schedule_capture",
+      "violation": "Any-in-signature",
+      "reason": "Accepts raw response content and context for capture. Internal capture boundary, not cross-layer contract exchange.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 2"
+    }
+  ]
+}

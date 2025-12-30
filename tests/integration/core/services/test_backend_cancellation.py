@@ -220,6 +220,8 @@ async def test_cancellation_gate_prevents_backend_call(
     mock_stream_formatting = MagicMock(spec=IStreamFormattingService)
 
     # Create BackendCompletionFlow with cancellation coordinator
+    from src.core.services.connector_invoker import ConnectorInvoker
+
     flow = BackendCompletionFlow(
         availability_checker=mock_availability_checker,
         request_preparer=mock_request_preparer,
@@ -230,6 +232,7 @@ async def test_cancellation_gate_prevents_backend_call(
         usage_accounting_orchestrator=mock_usage_accounting,
         exception_normalizer=mock_exception_normalizer,
         stream_formatting_service=mock_stream_formatting,
+        connector_invoker=ConnectorInvoker(),
         cancellation_coordinator=cancellation_coordinator,
     )
 
@@ -417,6 +420,8 @@ async def test_non_deliverable_result_after_cancellation(
     mock_stream_formatting = MagicMock(spec=IStreamFormattingService)
 
     # Create BackendCompletionFlow with cancellation coordinator
+    from src.core.services.connector_invoker import ConnectorInvoker
+
     flow = BackendCompletionFlow(
         availability_checker=mock_availability_checker,
         request_preparer=mock_request_preparer,
@@ -427,6 +432,7 @@ async def test_non_deliverable_result_after_cancellation(
         usage_accounting_orchestrator=mock_usage_accounting,
         exception_normalizer=mock_exception_normalizer,
         stream_formatting_service=mock_stream_formatting,
+        connector_invoker=ConnectorInvoker(),
         cancellation_coordinator=cancellation_coordinator,
     )
 
@@ -442,6 +448,7 @@ async def test_non_deliverable_result_after_cancellation(
 
     # Cancel session while backend call is in progress
     from tests.utils.fake_clock import FakeClockContext
+
     async with FakeClockContext() as clock:
         sleep_task1 = asyncio.create_task(asyncio.sleep(0.02))
         clock.advance(0.02)  # Small delay to let call start

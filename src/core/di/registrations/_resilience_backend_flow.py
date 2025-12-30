@@ -279,44 +279,13 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             config: IConfig = provider.get_required_service(cast(type, IConfig))
 
             # Get cancellation coordinator (optional, registered in streaming phase)
-            cancellation_coordinator = None
-            try:
-                from src.core.interfaces.session_cancellation_coordinator_interface import (
-                    ISessionCancellationCoordinator,
-                )
+            from src.core.interfaces.session_cancellation_coordinator_interface import (
+                ISessionCancellationCoordinator,
+            )
 
-                cancellation_coordinator = provider.get_service(
-                    cast(type, ISessionCancellationCoordinator)
-                )
-            except ImportError:
-                # Cancellation coordinator interface not available (optional dependency)
-                # This is expected when the module doesn't exist
-                pass
-            except (
-                RuntimeError,
-                AttributeError,
-                TypeError,
-                ValueError,
-                LookupError,
-            ) as exc:
-                # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies, missing keys)
-                # Log with full context but continue with None to allow service construction
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Error resolving ISessionCancellationCoordinator for FailureRecoveryExecutor: %s",
-                        exc,
-                        exc_info=True,
-                    )
-                cancellation_coordinator = None
-            except Exception:
-                # Unexpected error during service resolution (defensive guard for truly unexpected errors)
-                # Log with full context but continue with None to allow service construction
-                # Use WARNING level so errors are visible in production (not just DEBUG)
-                logger.warning(
-                    "Unexpected error resolving ISessionCancellationCoordinator for FailureRecoveryExecutor",
-                    exc_info=True,
-                )
-                cancellation_coordinator = None
+            cancellation_coordinator = provider.get_service(
+                cast(type, ISessionCancellationCoordinator)
+            )
 
             return FailureRecoveryExecutor(
                 failover_planner=failover_planner,
@@ -433,6 +402,15 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             ),
         )
 
+        # Register ConnectorInvoker as singleton (no dependencies)
+        from src.core.services.connector_invoker import ConnectorInvoker
+
+        register_singleton_if_absent(
+            services,
+            ConnectorInvoker,
+            implementation_factory=lambda p: ConnectorInvoker(),
+        )
+
         def _backend_completion_flow_factory(
             provider: IServiceProvider,
         ) -> BackendCompletionFlow:
@@ -463,87 +441,31 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             stream_formatting_service: IStreamFormattingService = (
                 provider.get_required_service(cast(type, IStreamFormattingService))
             )
+            connector_invoker: ConnectorInvoker = provider.get_required_service(
+                ConnectorInvoker
+            )
             resilience_coordinator = provider.get_service(
                 cast(type, IResilienceCoordinator)
             )
             eos_adapter = _create_eos_adapter(provider)
 
             # Get cancellation coordinator (optional, registered in streaming phase)
-            cancellation_coordinator = None
-            try:
-                from src.core.interfaces.session_cancellation_coordinator_interface import (
-                    ISessionCancellationCoordinator,
-                )
+            from src.core.interfaces.session_cancellation_coordinator_interface import (
+                ISessionCancellationCoordinator,
+            )
 
-                cancellation_coordinator = provider.get_service(
-                    cast(type, ISessionCancellationCoordinator)
-                )
-            except ImportError:
-                # Cancellation coordinator interface not available (optional dependency)
-                # This is expected when the module doesn't exist
-                pass
-            except (
-                RuntimeError,
-                AttributeError,
-                TypeError,
-                ValueError,
-                LookupError,
-            ) as exc:
-                # Expected exceptions from service resolution (factory errors, type mismatches, circular dependencies, missing keys)
-                # Log with full context but continue with None to allow service construction
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Error resolving ISessionCancellationCoordinator for BackendCompletionFlow: %s",
-                        exc,
-                        exc_info=True,
-                    )
-                cancellation_coordinator = None
-            except Exception:
-                # Unexpected error during service resolution (defensive guard for truly unexpected errors)
-                # Log with full context but continue with None to allow service construction
-                # Use WARNING level so errors are visible in production (not just DEBUG)
-                logger.warning(
-                    "Unexpected error resolving ISessionCancellationCoordinator for BackendCompletionFlow",
-                    exc_info=True,
-                )
-                cancellation_coordinator = None
+            cancellation_coordinator = provider.get_service(
+                cast(type, ISessionCancellationCoordinator)
+            )
 
             # Get non-forwardable enforcer (optional, registered in core services stage)
-            non_forwardable_enforcer = None
-            try:
-                from src.core.interfaces.non_forwardable_interface import (
-                    INonForwardableMessageEnforcer,
-                )
+            from src.core.interfaces.non_forwardable_interface import (
+                INonForwardableMessageEnforcer,
+            )
 
-                non_forwardable_enforcer = provider.get_service(
-                    cast(type, INonForwardableMessageEnforcer)
-                )
-            except ImportError:
-                # Non-forwardable enforcer interface not available (optional dependency)
-                # This is expected when the module doesn't exist
-                pass
-            except (
-                RuntimeError,
-                AttributeError,
-                TypeError,
-                ValueError,
-                LookupError,
-            ) as exc:
-                # Expected exceptions from service resolution
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Error resolving INonForwardableMessageEnforcer for BackendCompletionFlow: %s",
-                        exc,
-                        exc_info=True,
-                    )
-                non_forwardable_enforcer = None
-            except Exception:
-                # Unexpected error during service resolution
-                logger.warning(
-                    "Unexpected error resolving INonForwardableMessageEnforcer for BackendCompletionFlow",
-                    exc_info=True,
-                )
-                non_forwardable_enforcer = None
+            non_forwardable_enforcer = provider.get_service(
+                cast(type, INonForwardableMessageEnforcer)
+            )
 
             return BackendCompletionFlow(
                 availability_checker=availability_checker,
@@ -555,6 +477,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 usage_accounting_orchestrator=usage_accounting_orchestrator,
                 exception_normalizer=exception_normalizer,
                 stream_formatting_service=stream_formatting_service,
+                connector_invoker=connector_invoker,
                 resilience_coordinator=resilience_coordinator,
                 eos_adapter=eos_adapter,
                 cancellation_coordinator=cancellation_coordinator,

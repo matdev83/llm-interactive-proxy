@@ -202,6 +202,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
             usage_accounting_orchestrator=mock_usage_accounting,
             exception_normalizer=mock_exception_normalizer,
             stream_formatting_service=mock_stream_formatting,
+            connector_invoker=ConnectorInvoker(),
             cancellation_coordinator=cancellation_coordinator,
         )
 
@@ -406,6 +407,7 @@ class TestBackendCompletionCancellationTaskLeakRegression:
             usage_accounting_orchestrator=mock_usage_accounting,
             exception_normalizer=mock_exception_normalizer,
             stream_formatting_service=mock_stream_formatting,
+            connector_invoker=ConnectorInvoker(),
             cancellation_coordinator=cancellation_coordinator,
         )
 

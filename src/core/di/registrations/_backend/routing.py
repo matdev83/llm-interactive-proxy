@@ -46,6 +46,6 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
             BackendRoutingService,
             implementation_factory=_routing_service_factory,
         )
-    except ImportError as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Could not register BackendRoutingService: %s", e)
+    except Exception:
+        logger.exception("Failed to register BackendRoutingService")
+        raise

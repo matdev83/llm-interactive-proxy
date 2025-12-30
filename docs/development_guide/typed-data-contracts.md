@@ -515,9 +515,13 @@ Run the boundary type checker before submitting PRs:
 ```
 
 This script checks for:
-- `Any` in function signatures in boundary modules
-- `dict[str, Any]` for contract-shaped data
-- New `type: ignore` comments in boundary code
+- `Any` in function signatures in boundary modules (within the declared enforcement scope)
+- `dict[str, Any]` for contract-shaped data in boundary signatures
+- Violations are checked only for files in the boundary enforcement scope (see `dev/boundary_types_scope.json`)
+
+**Enforcement Scope**: The boundary type checker uses a scope configuration file (`dev/boundary_types_scope.json`) that defines which files are subject to boundary type enforcement. Phase 0 scope includes explicit file pinning for the highest-leverage seams (connector base API, response processor interfaces, transport adapter protocols, and canonical contract carriers).
+
+**Phase 0 Enforcement Status**: Phase 0 scope is **enforced**; violations in Phase 0 scope files will cause the boundary type check to fail. Other areas outside Phase 0 scope are **advisory** until the scope is expanded in later phases. The Phase 0 scope focuses on signature-first enforcement of the highest-leverage boundary surfaces.
 
 ### If Violations Are Necessary
 
@@ -525,14 +529,25 @@ If you must introduce a violation (e.g., legacy compatibility):
 
 1. **Document rationale** in code comments explaining why the violation is necessary
 2. **Add follow-up task** to remove the violation in a future PR
-3. **Use allowlist** in `check_boundary_types.py` if the violation is in a legitimate internal context
+3. **Add time-bounded allowlist entry** in `dev/boundary_types_allowlist.json` with:
+   - File path and optional symbol name
+   - Violation type (`Any-in-signature` or `dict[str, Any]`)
+   - Rationale and tracking reference (issue/spec)
+   - Expiration date (RFC3339 timestamp)
 
-Example:
-```python
-# TODO: Remove Any after migrating legacy callers (tracked in #1234)
-def legacy_compat_method(request: Any) -> ResponseEnvelope:  # type: ignore[no-untyped-def]
-    ...
+Example allowlist entry:
+```json
+{
+  "file": "src/core/interfaces/legacy_adapter.py",
+  "symbol": "legacy_compat_method",
+  "violation": "Any-in-signature",
+  "reason": "Legacy compatibility shim, will be removed after migration",
+  "expires_at": "2025-06-30T00:00:00Z",
+  "tracking": "typed-contracts-boundary-hardening Phase 1"
+}
 ```
+
+**Important**: Allowlist entries expire. Expired entries cause the boundary type check to fail, requiring either renewal or fixing the violation.
 
 ## Related Documentation
 
@@ -543,7 +558,8 @@ def legacy_compat_method(request: Any) -> ResponseEnvelope:  # type: ignore[no-u
 
 ## References
 
-- **Specification**: `.kiro/specs/cross-layer-typed-data-contracts/`
-- **Design Document**: `.kiro/specs/cross-layer-typed-data-contracts/design.md`
-- **Requirements**: `.kiro/specs/cross-layer-typed-data-contracts/requirements.md`
+- **Specification**: `.kiro/specs/typed-contracts-boundary-hardening/`
+- **Design Document**: `.kiro/specs/typed-contracts-boundary-hardening/design.md`
+- **Requirements**: `.kiro/specs/typed-contracts-boundary-hardening/requirements.md`
+- **Previous Spec**: `.kiro/specs/cross-layer-typed-data-contracts/` (this spec is a follow-up)
 

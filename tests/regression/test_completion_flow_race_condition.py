@@ -22,6 +22,7 @@ def orchestrator():
         usage_accounting_orchestrator=None,
         exception_normalizer=None,
         stream_formatting_service=None,
+        connector_invoker=ConnectorInvoker(),
     )
 
 

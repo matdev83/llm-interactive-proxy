@@ -33,16 +33,11 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
             logger.debug("Model replacement disabled; skipping service registration")
         return
 
-    try:
-        from src.core.interfaces.model_replacement_service_interface import (
-            IModelReplacementService,
-        )
-        from src.core.services.backend_registry import BackendRegistry
-        from src.core.services.model_replacement_service import ModelReplacementService
-    except ImportError as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Could not register model replacement services: {e}")
-        return
+    from src.core.interfaces.model_replacement_service_interface import (
+        IModelReplacementService,
+    )
+    from src.core.services.backend_registry import BackendRegistry
+    from src.core.services.model_replacement_service import ModelReplacementService
 
     def _replacement_service_factory(
         provider: IServiceProvider,
@@ -56,19 +51,13 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
         ModelReplacementService,
         implementation_factory=_replacement_service_factory,
     )
-    try:
-        register_singleton_if_absent(
-            services,
-            cast(type, IModelReplacementService),
-            implementation_factory=lambda provider: provider.get_required_service(
-                ModelReplacementService
-            ),
-        )
-    except Exception as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                f"Failed to register IModelReplacementService interface: {e}"
-            )
+    register_singleton_if_absent(
+        services,
+        cast(type, IModelReplacementService),
+        implementation_factory=lambda provider: provider.get_required_service(
+            ModelReplacementService
+        ),
+    )
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Registered model replacement services")

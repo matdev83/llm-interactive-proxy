@@ -61,192 +61,173 @@ class CommandStage(InitializationStage):
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that command services can be registered."""
-        try:
-            # Check that required modules are available
+        # Check that required modules are available
 
-            # Validate config has command settings
-            if not hasattr(config, "command_prefix") and logger.isEnabledFor(
-                logging.WARNING
-            ):
-                logger.warning("Config missing command_prefix")
+        # Validate config has command settings
+        if not hasattr(config, "command_prefix") and logger.isEnabledFor(
+            logging.WARNING
+        ):
+            logger.warning("Config missing command_prefix")
 
-            return True
-        except ImportError as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error("Command services validation failed: %s", e)
-            return False
+        return True
 
     def _register_command_settings_service(
         self, services: ServiceCollection, config: AppConfig
     ) -> None:
         """Register command settings service with configuration."""
-        try:
-            from src.core.interfaces.command_settings_interface import (
-                ICommandSettingsService,
-            )
-            from src.core.services.command_settings_service import (
-                CommandSettingsService,
-            )
+        from src.core.interfaces.command_settings_interface import (
+            ICommandSettingsService,
+        )
+        from src.core.services.command_settings_service import (
+            CommandSettingsService,
+        )
 
-            # Create instance with config values
-            cmd_settings = CommandSettingsService(
-                default_command_prefix=config.command_prefix,
-                default_api_key_redaction=config.auth.redact_api_keys_in_prompts,
-            )
+        # Create instance with config values
+        cmd_settings = CommandSettingsService(
+            default_command_prefix=config.command_prefix,
+            default_api_key_redaction=config.auth.redact_api_keys_in_prompts,
+        )
 
-            # Register as singleton instance
-            services.add_instance(CommandSettingsService, cmd_settings)
-            services.add_instance(ICommandSettingsService, cmd_settings)  # type: ignore[type-abstract] # Mypy incorrectly flags interface as abstract for instance registration
+        # Register as singleton instance
+        services.add_instance(CommandSettingsService, cmd_settings)
+        services.add_instance(ICommandSettingsService, cmd_settings)  # type: ignore[type-abstract] # Mypy incorrectly flags interface as abstract for instance registration
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered command settings service")
-        except ImportError as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register command settings service: %s", e)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered command settings service")
 
     def _register_command_support_services(self, services: ServiceCollection) -> None:
         """Register policy, state, and pipeline helpers used by command execution."""
         from typing import cast
 
-        try:
-            from src.core.commands.pipeline import (
-                CommandMatchFilter,
-                CommandTailExtractor,
-            )
-            from src.core.interfaces.command_policy_service_interface import (
-                ICommandPolicyService,
-            )
-            from src.core.interfaces.command_state_service_interface import (
-                ICommandStateService,
-            )
-            from src.core.services.command_policy_service import CommandPolicyService
-            from src.core.services.command_state_service import CommandStateService
-            from src.core.services.session_service_impl import SessionService
+        from src.core.commands.pipeline import (
+            CommandMatchFilter,
+            CommandTailExtractor,
+        )
+        from src.core.interfaces.command_policy_service_interface import (
+            ICommandPolicyService,
+        )
+        from src.core.interfaces.command_state_service_interface import (
+            ICommandStateService,
+        )
+        from src.core.services.command_policy_service import CommandPolicyService
+        from src.core.services.command_state_service import CommandStateService
+        from src.core.services.session_service_impl import SessionService
 
-            services.add_singleton(CommandTailExtractor)
-            services.add_singleton(CommandMatchFilter)
+        services.add_singleton(CommandTailExtractor)
+        services.add_singleton(CommandMatchFilter)
 
-            services.add_singleton(
-                CommandStateService,
-                implementation_factory=lambda provider: CommandStateService(
-                    provider.get_required_service(SessionService)
-                ),
-            )
-            services.add_singleton(
-                cast(type, ICommandStateService),
-                implementation_factory=lambda provider: provider.get_required_service(
-                    CommandStateService
-                ),
-            )  # type: ignore[type-abstract]
+        services.add_singleton(
+            CommandStateService,
+            implementation_factory=lambda provider: CommandStateService(
+                provider.get_required_service(SessionService)
+            ),
+        )
+        services.add_singleton(
+            cast(type, ICommandStateService),
+            implementation_factory=lambda provider: provider.get_required_service(
+                CommandStateService
+            ),
+        )  # type: ignore[type-abstract]
 
-            services.add_singleton(
-                CommandPolicyService,
-                implementation_factory=lambda provider: CommandPolicyService(
-                    provider.get_required_service(AppConfig),
-                    provider.get_service(cast(type, IApplicationState)),
-                ),
-            )
-            services.add_singleton(
-                cast(type, ICommandPolicyService),
-                implementation_factory=lambda provider: provider.get_required_service(
-                    CommandPolicyService
-                ),
-            )  # type: ignore[type-abstract]
+        services.add_singleton(
+            CommandPolicyService,
+            implementation_factory=lambda provider: CommandPolicyService(
+                provider.get_required_service(AppConfig),
+                provider.get_service(cast(type, IApplicationState)),
+            ),
+        )
+        services.add_singleton(
+            cast(type, ICommandPolicyService),
+            implementation_factory=lambda provider: provider.get_required_service(
+                CommandPolicyService
+            ),
+        )  # type: ignore[type-abstract]
 
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Registered command policy/state services")
-        except Exception as exc:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register command support services: %s", exc)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered command policy/state services")
 
     def _register_command_service(self, services: ServiceCollection) -> None:
         """Register command service with dependencies."""
-        try:
-            from typing import cast
+        from typing import cast
 
-            from src.core.commands.parser import CommandParser
-            from src.core.commands.pipeline import (
-                CommandMatchFilter,
-                CommandTailExtractor,
+        from src.core.commands.parser import CommandParser
+        from src.core.commands.pipeline import (
+            CommandMatchFilter,
+            CommandTailExtractor,
+        )
+        from src.core.commands.service import NewCommandService
+        from src.core.interfaces.command_parser_interface import ICommandParser
+        from src.core.interfaces.command_policy_service_interface import (
+            ICommandPolicyService,
+        )
+        from src.core.interfaces.command_service_interface import ICommandService
+        from src.core.interfaces.command_state_service_interface import (
+            ICommandStateService,
+        )
+
+        def command_service_factory(
+            provider: IServiceProvider,
+        ) -> NewCommandService:
+            """Factory function for creating CommandService with dependencies."""
+            from src.core.interfaces.non_forwardable_interface import (
+                INonForwardableMessageIdentityService,
+                INonForwardableMessageRegistry,
             )
-            from src.core.commands.service import NewCommandService
-            from src.core.interfaces.command_parser_interface import ICommandParser
-            from src.core.interfaces.command_policy_service_interface import (
-                ICommandPolicyService,
+            from src.core.services.session_service_impl import SessionService
+
+            session_service = provider.get_required_service(SessionService)
+            command_parser = provider.get_required_service(CommandParser)
+            app_config = provider.get_required_service(AppConfig)
+            state_service: ICommandStateService = provider.get_required_service(
+                cast(type, ICommandStateService)
             )
-            from src.core.interfaces.command_service_interface import ICommandService
-            from src.core.interfaces.command_state_service_interface import (
-                ICommandStateService,
+            policy_service: ICommandPolicyService = provider.get_required_service(
+                cast(type, ICommandPolicyService)
             )
-
-            def command_service_factory(
-                provider: IServiceProvider,
-            ) -> NewCommandService:
-                """Factory function for creating CommandService with dependencies."""
-                from src.core.interfaces.non_forwardable_interface import (
-                    INonForwardableMessageIdentityService,
-                    INonForwardableMessageRegistry,
-                )
-                from src.core.services.session_service_impl import SessionService
-
-                session_service = provider.get_required_service(SessionService)
-                command_parser = provider.get_required_service(CommandParser)
-                app_config = provider.get_required_service(AppConfig)
-                state_service: ICommandStateService = provider.get_required_service(
-                    cast(type, ICommandStateService)
-                )
-                policy_service: ICommandPolicyService = provider.get_required_service(
-                    cast(type, ICommandPolicyService)
-                )
-                tail_extractor = provider.get_required_service(CommandTailExtractor)
-                match_filter = provider.get_required_service(CommandMatchFilter)
-                app_state = None
-                with contextlib.suppress(RuntimeError):
-                    # Optional service not registered
-                    app_state = provider.get_service(cast(type, IApplicationState))
-                # Get non-forwardable services (optional - may not be registered)
-                non_forwardable_registry = None
-                non_forwardable_identity_service = None
-                with contextlib.suppress(RuntimeError):
-                    non_forwardable_registry = provider.get_service(
-                        cast(type, INonForwardableMessageRegistry)
-                    )
-
-                with contextlib.suppress(RuntimeError):
-                    non_forwardable_identity_service = provider.get_service(
-                        cast(type, INonForwardableMessageIdentityService)
-                    )
-                return NewCommandService(
-                    session_service,
-                    command_parser,
-                    strict_command_detection=app_config.strict_command_detection,
-                    app_state=app_state,
-                    tail_extractor=tail_extractor,
-                    match_filter=match_filter,
-                    command_state_service=state_service,
-                    command_policy_service=policy_service,
-                    config=app_config,
-                    non_forwardable_registry=non_forwardable_registry,
-                    non_forwardable_identity_service=non_forwardable_identity_service,
+            tail_extractor = provider.get_required_service(CommandTailExtractor)
+            match_filter = provider.get_required_service(CommandMatchFilter)
+            app_state = None
+            with contextlib.suppress(RuntimeError):
+                # Optional service not registered
+                app_state = provider.get_service(cast(type, IApplicationState))
+            # Get non-forwardable services (optional - may not be registered)
+            non_forwardable_registry = None
+            non_forwardable_identity_service = None
+            with contextlib.suppress(RuntimeError):
+                non_forwardable_registry = provider.get_service(
+                    cast(type, INonForwardableMessageRegistry)
                 )
 
-            services.add_singleton(
-                NewCommandService, implementation_factory=command_service_factory
-            )
-            services.add_singleton(
-                cast(type, ICommandService),
-                implementation_factory=lambda sp: sp.get_required_service(
-                    NewCommandService
-                ),
-            )
-
-            services.add_singleton(CommandParser)
-            services.add_singleton(cast(type, ICommandParser), CommandParser)
-
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Registered new command service and parser with dependencies"
+            with contextlib.suppress(RuntimeError):
+                non_forwardable_identity_service = provider.get_service(
+                    cast(type, INonForwardableMessageIdentityService)
                 )
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not register command service or parser: %s", e)
+            return NewCommandService(
+                session_service,
+                command_parser,
+                strict_command_detection=app_config.strict_command_detection,
+                app_state=app_state,
+                tail_extractor=tail_extractor,
+                match_filter=match_filter,
+                command_state_service=state_service,
+                command_policy_service=policy_service,
+                config=app_config,
+                non_forwardable_registry=non_forwardable_registry,
+                non_forwardable_identity_service=non_forwardable_identity_service,
+            )
+
+        services.add_singleton(
+            NewCommandService, implementation_factory=command_service_factory
+        )
+        services.add_singleton(
+            cast(type, ICommandService),
+            implementation_factory=lambda sp: sp.get_required_service(
+                NewCommandService
+            ),
+        )
+
+        services.add_singleton(CommandParser)
+        services.add_singleton(cast(type, ICommandParser), CommandParser)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered new command service and parser with dependencies")

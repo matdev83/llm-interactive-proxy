@@ -35,80 +35,76 @@ def register_gemini_coordinator_services(services: ServiceCollection) -> None:
     Args:
         services: The service collection to register into
     """
-    try:
-        from src.connectors.gemini_base.credential_coordinator import (
-            GeminiCredentialCoordinator,
-        )
-        from src.connectors.gemini_base.error_mapper import GeminiErrorMapper
-        from src.connectors.gemini_base.file_watcher import FileWatcherState
-        from src.connectors.gemini_base.interfaces import (
-            ICredentialCoordinator,
-            IErrorMapper,
-        )
-        from src.connectors.gemini_base.token_manager import TokenManager
+    from src.connectors.gemini_base.credential_coordinator import (
+        GeminiCredentialCoordinator,
+    )
+    from src.connectors.gemini_base.error_mapper import GeminiErrorMapper
+    from src.connectors.gemini_base.file_watcher import FileWatcherState
+    from src.connectors.gemini_base.interfaces import (
+        ICredentialCoordinator,
+        IErrorMapper,
+    )
+    from src.connectors.gemini_base.token_manager import TokenManager
 
-        # Register credential coordinator (transient - per connector instance)
-        # This service handles credential validation, refresh, and file watching.
-        # It's generic enough to be registered via DI, as it relies on TokenManager
-        # and FileWatcherState which are also DI services.
-        def _credential_coordinator_factory(
-            provider: IServiceProvider,
-        ) -> GeminiCredentialCoordinator:
-            """Factory for credential coordinator."""
-            token_manager = provider.get_service(TokenManager)
-            file_watcher_state = provider.get_service(FileWatcherState)
-            return GeminiCredentialCoordinator(
-                token_manager=token_manager,
-                file_watcher_state=file_watcher_state,
-            )
-
-        register_transient_if_absent(
-            services,
-            GeminiCredentialCoordinator,
-            implementation_factory=_credential_coordinator_factory,
-        )
-        register_transient_if_absent(
-            services,
-            ICredentialCoordinator,
-            implementation_factory=lambda p: p.get_required_service(
-                GeminiCredentialCoordinator
-            ),
+    # Register credential coordinator (transient - per connector instance)
+    # This service handles credential validation, refresh, and file watching.
+    # It's generic enough to be registered via DI, as it relies on TokenManager
+    # and FileWatcherState which are also DI services.
+    def _credential_coordinator_factory(
+        provider: IServiceProvider,
+    ) -> GeminiCredentialCoordinator:
+        """Factory for credential coordinator."""
+        token_manager = provider.get_service(TokenManager)
+        file_watcher_state = provider.get_service(FileWatcherState)
+        return GeminiCredentialCoordinator(
+            token_manager=token_manager,
+            file_watcher_state=file_watcher_state,
         )
 
-        # Register error mapper (transient - per connector instance)
-        # This service normalizes exceptions and is stateless/generic.
-        register_transient_if_absent(services, GeminiErrorMapper)
-        register_transient_if_absent(
-            services,
-            IErrorMapper,
-            implementation_factory=lambda p: p.get_required_service(GeminiErrorMapper),
-        )
+    register_transient_if_absent(
+        services,
+        GeminiCredentialCoordinator,
+        implementation_factory=_credential_coordinator_factory,
+    )
+    register_transient_if_absent(
+        services,
+        ICredentialCoordinator,
+        implementation_factory=lambda p: p.get_required_service(
+            GeminiCredentialCoordinator
+        ),
+    )
 
-        # Note: Connector-specific services are NOT registered here by default:
-        # - IModelRegistry / GeminiModelRegistry
-        # - IHealthCheckService / GeminiHealthCheckService
-        # - IVtcWrapperBuilder / GeminiVtcWrapperBuilder
-        #
-        # These services require connector-specific configuration (public_to_internal_map,
-        # backend_name, disable_health_checks, etc.) that varies by connector instance.
-        # Registering them here with default values would cause the connector to inject
-        # incorrect instances instead of creating its own correctly configured ones.
-        #
-        # The connector will automatically instantiate these services locally if they
-        # are not found in the DI container.
+    # Register error mapper (transient - per connector instance)
+    # This service normalizes exceptions and is stateless/generic.
+    register_transient_if_absent(services, GeminiErrorMapper)
+    register_transient_if_absent(
+        services,
+        IErrorMapper,
+        implementation_factory=lambda p: p.get_required_service(GeminiErrorMapper),
+    )
 
-        # Register supporting services that coordinators depend on
+    # Note: Connector-specific services are NOT registered here by default:
+    # - IModelRegistry / GeminiModelRegistry
+    # - IHealthCheckService / GeminiHealthCheckService
+    # - IVtcWrapperBuilder / GeminiVtcWrapperBuilder
+    #
+    # These services require connector-specific configuration (public_to_internal_map,
+    # backend_name, disable_health_checks, etc.) that varies by connector instance.
+    # Registering them here with default values would cause the connector to inject
+    # incorrect instances instead of creating its own correctly configured ones.
+    #
+    # The connector will automatically instantiate these services locally if they
+    # are not found in the DI container.
 
-        # Note: ChatCompletionCoordinator is not registered here because it requires
-        # connector-specific dependencies (ChatRequestPreparer, orchestrator, etc.)
-        # that are created per-connector instance. The connector creates it lazily.
+    # Register supporting services that coordinators depend on
 
-        # Register supporting services that coordinators depend on
-        register_transient_if_absent(services, TokenManager)
-        register_transient_if_absent(services, FileWatcherState)
+    # Note: ChatCompletionCoordinator is not registered here because it requires
+    # connector-specific dependencies (ChatRequestPreparer, orchestrator, etc.)
+    # that are created per-connector instance. The connector creates it lazily.
 
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Registered Gemini connector coordinator services")
-    except ImportError as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Could not register Gemini coordinator services: %s", e)
+    # Register supporting services that coordinators depend on
+    register_transient_if_absent(services, TokenManager)
+    register_transient_if_absent(services, FileWatcherState)
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Registered Gemini connector coordinator services")
