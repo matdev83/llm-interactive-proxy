@@ -21,6 +21,21 @@ Scope and limits
 - Avoid scanning dot/underscore directories (folders starting with `.` or `_`) to skip caches and generated content.
 - Fix up to THREE (3) high-impact cases total in this session.
 
+Performance measurement protocol (required)
+- You MUST create a temporary measurement script and use it to measure baseline performance before making changes.
+  - Put it under `dev/scripts/_tmp/` (create the folder if missing), e.g. `dev/scripts/_tmp/perf_measure_<topic>.py`.
+  - Do NOT commit this script. You MUST delete it before finishing (success or abort).
+- The script must exercise the suspect code path with representative inputs and run it in a loop:
+  - Warm up first (e.g., 1-2 short warmup runs) to avoid first-run noise.
+  - Use a reasonable iteration count (choose `iterations` so the timed portion takes ~2-10 seconds).
+  - Measure with `time.perf_counter()` and print total time and per-iteration time.
+  - Avoid external I/O (network/disk). If the hot path normally does I/O, stub/mock it so you measure CPU/alloc work.
+- Run the script twice at baseline (pre-change) and record the outputs.
+- After EACH optimization attempt, re-run the same script twice and compare against baseline (use the best or median run).
+  - Treat tiny deltas as noise; target a clearly measurable improvement (rule of thumb: >5%).
+- If you cannot achieve any measurable improvement after up to THREE (3) optimization attempts for a target, you MUST undo
+  all changes for that target and move on (do not commit regressions or no-gain changes).
+
 What counts as "performance issues" (examples)
 Prioritize cases that are likely on hot paths (per-request, per-stream chunk/token, or loops over large data) and that have a clear, low-risk improvement:
 1) Unnecessary copying or serialization:
@@ -87,6 +102,11 @@ Completion gates (must be satisfied before reporting success)
 - Branch/remote safety (required): Do NOT create branches, switch branches, detach HEAD, or do any operations on remotes.
   - Confirm you are on a normal branch (not detached): `git rev-parse --abbrev-ref HEAD` must NOT return `HEAD`.
   - Forbidden examples: `git checkout -b`, `git switch -c`, `git checkout <branch>`, `git switch <branch>`, `git pull`, `git push`, `git fetch`, `git remote ...`, `git submodule ...`, `git tag ...`.
+- Performance measurement (required):
+  - Baseline: run the temporary measurement script twice BEFORE editing any file; record output.
+  - Post-change: re-run the same script twice after your change(s); record output and compute the delta.
+  - Keep iterating up to 3 attempts if there is no measurable improvement; if still no improvement, revert your code changes for that target.
+  - Cleanup: delete the temporary measurement script(s) you created and ensure `git status --porcelain` does not include them (tracked or untracked).
 - Tests (required): Identify ALL test files directly related to the files you plan to change, then run them at baseline (pre-change) and again after your changes.
   - Find related tests by searching `tests/` for imports/references to the changed module(s) and key symbols.
   - Baseline (pre-change): run BEFORE editing any file; they must be green. If they fail at baseline, do NOT proceed on this target; pick a different target or STOP and report.
@@ -96,7 +116,10 @@ Completion gates (must be satisfied before reporting success)
     - If needed: `git restore --staged -- <file>` then `git restore --source=HEAD -- <file>`
 - Git safety (required): Do NOT use git operations that can discard/rewrite/hide other agents' work (examples: `git reset --hard`, `git reset`, `git checkout .`, `git restore .`, `git clean -fd`, `git stash`, `git commit --amend`, `git rebase`, `git merge`).
   - If you must undo a broken change or abort the session, only restore files YOU modified, one-by-one with explicit paths: `git restore --source=HEAD -- <file>` (or `git checkout -- <file>`). No globs and never `.`.
-- Commit (required if you changed any files): Create exactly ONE commit for this session at the end, after baseline + post-change related tests are green; commit ONLY the files you changed for this session.
+- Commit (required only when you keep a performance-improving change): Create exactly ONE commit for this session at the end, after:
+  - baseline + post-change related tests are green, AND
+  - baseline + post-change measurement shows a clear improvement.
+  Commit ONLY the files you changed for this session (never include temporary measurement scripts).
   - Do NOT create multiple commits. Do NOT commit early.
   - Forbidden: `git add .`, `git add -A`, `git add --all`, `git add -u`, `git commit -am`, `git commit -a`, `git stash`.
   - Stage explicitly: `git add <file1> <file2> ...`, then verify: `git diff --cached --name-only`.
@@ -106,9 +129,13 @@ Deliverables / reporting (in your final response)
 1) Short summary of the up to 3 fixes (file/symbol, old pattern -> new pattern, why it is materially faster/less alloc-heavy).
 2) List of files changed.
 3) Notes on any behavior-sensitive edge cases you verified (ordering, exceptions, streaming/cancellation).
-4) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
-5) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`).
-6) Post-commit `git status --porcelain` output (may be non-empty if other agents are working); confirm none of the files you touched remain uncommitted.
+4) Measurement script details:
+   - Path of the temporary script you created (and confirmation it was deleted before finishing).
+   - Baseline results (2 runs): iterations, total time, per-iteration time.
+   - Post-change results (2 runs): same metrics and the percent delta.
+5) Tests you ran (commands + PASS result): include baseline (pre-change) and post-change runs.
+6) Commit created (hash + message) and committed files (output of `git show --name-only --pretty=oneline <commit_hash>`), or explicitly state that you reverted changes due to no measurable gain.
+7) Post-commit `git status --porcelain` output (may be non-empty if other agents are working); confirm none of the files you touched remain uncommitted and no temporary measurement scripts remain.
 
 Already fixed files (do not modify):
 {list-of-fixed-files}
@@ -128,6 +155,9 @@ Per-iteration checklist (for i = 1..50)
 4) After the subagent reports back, verify (read-only checks + report review):
    - Branch/HEAD safety: `git rev-parse --abbrev-ref HEAD` is unchanged and not `HEAD`.
    - If the subagent changed any files:
+     - Performance: it ran the temporary measurement script at baseline and post-change, reported the results and delta,
+       and confirmed it deleted all temporary measurement scripts before finishing.
+       - Optional read-only verification: `git status --porcelain -- dev/scripts/_tmp`
      - Tests: it ran baseline (pre-change) and post-change runs of ALL directly related tests and they passed (commands + PASS result are required).
      - Git: it reported exactly ONE commit hash for its work.
        - Verify the commit exists: `git cat-file -t <commit_hash>` returns `commit`.

@@ -21,18 +21,16 @@ from fastapi import HTTPException
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
-    ICanonicalChatCompletionsBackend,
 )
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.models_listing import ModelsListingResponse
 from src.core.domain.responses import (
     ResponseEnvelope,
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
-from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import (
@@ -372,14 +370,12 @@ class OpenAIConnector(LLMBackend):
 
         return None
 
-    def _get_log_extra(
-        self, context: ConnectorRequestContext | None
-    ) -> dict[str, str]:
+    def _get_log_extra(self, context: ConnectorRequestContext | None) -> dict[str, str]:
         """Extract correlation identifiers from context for logging.
-        
+
         Args:
             context: Connector request context, may be None
-            
+
         Returns:
             Dictionary with request_id, session_id, client_host if available
         """
@@ -398,10 +394,10 @@ class OpenAIConnector(LLMBackend):
         request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Canonical connector API implementation.
-        
+
         Extracts fields from ConnectorChatCompletionsRequest and delegates
         to the existing implementation logic.
-        
+
         Uses request.context for logging correlation identifiers (request_id,
         session_id, client_host) when available.
         """
@@ -413,22 +409,22 @@ class OpenAIConnector(LLMBackend):
         cancellation_token = request.cancellation_token
         cancellation_coordinator = request.cancellation_coordinator
         context = request.context
-        
+
         # Prepare context for logging correlation
         log_extra = self._get_log_extra(context)
-        
+
         # Extract provider-specific options from request.options (JSON-safe)
         options = request.options
         openai_url = options.get("openai_url")
         if not isinstance(openai_url, str):
             openai_url = None
-        
+
         headers_override = options.get("headers_override")
         if isinstance(headers_override, dict):
             headers_override = {str(k): str(v) for k, v in headers_override.items()}
         else:
             headers_override = None
-        
+
         # Perform health check if enabled (for subclasses that support it)
         await self._ensure_healthy()
 
@@ -440,12 +436,13 @@ class OpenAIConnector(LLMBackend):
             )
         # Cast to CanonicalChatRequest for mypy compatibility with _prepare_payload signature
         from typing import cast
+
         domain_request = cast(CanonicalChatRequest, domain_request)
 
         # Prepare the payload using a helper so subclasses and tests can
         # override or patch payload construction logic easily.
         payload = await self._prepare_payload(
-            domain_request, processed_messages, effective_model
+            domain_request, processed_messages, effective_model, context
         )
         headers: dict[str, str] | None = None
 
@@ -495,7 +492,11 @@ class OpenAIConnector(LLMBackend):
                     prompt_text = extract_prompt_text(processed_messages)
                     prompt_tokens = count_tokens(prompt_text, model=effective_model)
                 except (ImportError, AttributeError, TypeError, KeyError, ValueError):
-                    logger.warning("Failed to calculate prompt tokens", exc_info=True, extra=log_extra if log_extra else None)
+                    logger.warning(
+                        "Failed to calculate prompt tokens",
+                        exc_info=True,
+                        extra=log_extra if log_extra else None,
+                    )
 
                 # Integrate with streaming pipeline
                 from src.core.ports.streaming_integration import (
@@ -526,7 +527,7 @@ class OpenAIConnector(LLMBackend):
         request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Canonical connector API implementation.
-        
+
         This method implements ICanonicalChatCompletionsBackend protocol.
         """
         return await self._chat_completions_canonical(request)
@@ -536,6 +537,7 @@ class OpenAIConnector(LLMBackend):
         request_data: CanonicalChatRequest,
         processed_messages: list[Any],
         effective_model: str,
+        context: ConnectorRequestContext | None = None,
     ) -> dict[str, Any]:
         """
         Default payload preparation for OpenAI-compatible backends.
@@ -649,8 +651,10 @@ class OpenAIConnector(LLMBackend):
         # the model value coming from the domain request. Many tests expect
         # the provider payload to use the effective_model.
         if effective_model:
+            log_extra_payload = self._get_log_extra(context) if context else None
             logger.info(
-                f"OpenAI DEBUG: Overriding model in payload from '{payload.get('model')}' to '{effective_model}'"
+                f"OpenAI DEBUG: Overriding model in payload from '{payload.get('model')}' to '{effective_model}'",
+                extra=log_extra_payload if log_extra_payload else None,
             )
             payload["model"] = effective_model
 
@@ -707,7 +711,10 @@ class OpenAIConnector(LLMBackend):
                 url, json=payload, headers=guarded_headers
             )
         except httpx.RequestError as e:
-            logger.error(f"DEBUG: Request failed to {url}. Error: {e}", extra=log_extra if log_extra else None)
+            logger.error(
+                f"DEBUG: Request failed to {url}. Error: {e}",
+                extra=log_extra if log_extra else None,
+            )
             raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
 
         if int(response.status_code) >= 400:
@@ -802,7 +809,7 @@ class OpenAIConnector(LLMBackend):
         context: ConnectorRequestContext | None = None,
     ) -> StreamingResponseHandle:
         """Return a streaming handle with iterator and cancellation callback."""
-        
+
         log_extra = self._get_log_extra(context)
 
         if not headers or not headers.get("Authorization"):
@@ -867,7 +874,10 @@ class OpenAIConnector(LLMBackend):
             if not isinstance(body, str):
                 body = str(body)
             logger.warning(
-                "Backend %s returned HTTP %s with body: %s", url, status_code, body,
+                "Backend %s returned HTTP %s with body: %s",
+                url,
+                status_code,
+                body,
                 extra=log_extra if log_extra else None,
             )
             raise HTTPException(
@@ -1295,7 +1305,7 @@ class OpenAIConnector(LLMBackend):
         session_id: str,
     ) -> ResponseEnvelope:
         """Handle non-streaming Responses API responses with proper format conversion.
-        
+
         Note: This method is called from responses() API endpoint, which is separate
         from the canonical chat completions API (Task 2.4 scope). The responses()
         method doesn't have access to ConnectorRequestContext, so context correlation
@@ -1426,7 +1436,7 @@ class OpenAIConnector(LLMBackend):
 
         Yields:
             Raw streaming chunks from the backend (opaque provider-specific data)
-            
+
         Note: This protocol method doesn't have access to ConnectorRequestContext.
         Error logs from this method cannot include context correlation identifiers.
         Adding context would require a protocol change, which is beyond Task 2.4 scope.
@@ -1457,8 +1467,10 @@ class OpenAIConnector(LLMBackend):
         processed_messages = getattr(request, "messages", [])
         effective_model = getattr(request, "model", "gpt-3.5-turbo")
 
+        # Note: stream_completion is a protocol method and doesn't have context access
+        # Context correlation would require protocol change
         payload = await self._prepare_payload(
-            request, processed_messages, effective_model
+            request, processed_messages, effective_model, context=None
         )
 
         # Ensure streaming is enabled

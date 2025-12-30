@@ -8,7 +8,7 @@ import asyncio
 import contextlib
 import json
 import logging
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from typing import Any, cast
 
 import httpx
@@ -31,9 +31,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
-from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
@@ -143,14 +141,12 @@ class AnthropicBackend(LLMBackend):
     # -----------------------------------------------------------
     # Core entry - called by proxy
     # -----------------------------------------------------------
-    def _get_log_extra(
-        self, context: ConnectorRequestContext | None
-    ) -> dict[str, str]:
+    def _get_log_extra(self, context: ConnectorRequestContext | None) -> dict[str, str]:
         """Extract correlation identifiers from context for logging.
-        
+
         Args:
             context: Connector request context, may be None
-            
+
         Returns:
             Dictionary with request_id, session_id, client_host if available
         """
@@ -169,10 +165,10 @@ class AnthropicBackend(LLMBackend):
         request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Canonical connector API implementation.
-        
+
         Extracts fields from ConnectorChatCompletionsRequest and delegates
         to the existing implementation logic.
-        
+
         Uses request.context for logging correlation identifiers (request_id,
         session_id, client_host) when available.
         """
@@ -184,39 +180,39 @@ class AnthropicBackend(LLMBackend):
         cancellation_token = request.cancellation_token
         cancellation_coordinator = request.cancellation_coordinator
         context = request.context
-        
+
         # Extract provider-specific options from request.options (JSON-safe)
         options = request.options
         openrouter_api_base_url = options.get("openrouter_api_base_url")
         if not isinstance(openrouter_api_base_url, str):
             openrouter_api_base_url = None
-        
+
         key_name = options.get("key_name")
         if not isinstance(key_name, str):
             key_name = None
-        
+
         api_key = options.get("api_key")
         if not isinstance(api_key, str):
             api_key = None
-        
+
         project = options.get("project")
         if not isinstance(project, str):
             project = None
-        
+
         agent = options.get("agent")
         if not isinstance(agent, str):
             agent = None
-        
+
         headers = options.get("headers")
         if isinstance(headers, dict):
             headers = {str(k): str(v) for k, v in headers.items()}
         else:
             headers = None
-        
+
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if cancellation_coordinator is not None and cancellation_token is not None:
             cancellation_coordinator.ensure_not_cancelled(cancellation_token)
-        
+
         # Continue with existing implementation logic
         # Strip vendor prefix (e.g., "anthropic/") for unified model naming
         effective_model = strip_vendor_prefix(effective_model, ANTHROPIC_VENDOR_PREFIX)
@@ -297,7 +293,9 @@ class AnthropicBackend(LLMBackend):
             )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "Anthropic payload: %s", json.dumps(anthropic_payload, indent=2), extra=log_extra if log_extra else None
+                "Anthropic payload: %s",
+                json.dumps(anthropic_payload, indent=2),
+                extra=log_extra if log_extra else None,
             )
 
         if domain_request.stream:
@@ -329,7 +327,10 @@ class AnthropicBackend(LLMBackend):
                     # AttributeError/TypeError/KeyError/ValueError: data structure issues
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to calculate prompt tokens: %s", e, exc_info=True, extra=log_extra if log_extra else None
+                            "Failed to calculate prompt tokens: %s",
+                            e,
+                            exc_info=True,
+                            extra=log_extra if log_extra else None,
                         )
                 except Exception as e:
                     # Fallback for truly unexpected errors
@@ -371,7 +372,7 @@ class AnthropicBackend(LLMBackend):
         request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Canonical connector API implementation.
-        
+
         This method implements ICanonicalChatCompletionsBackend protocol.
         """
         return await self._chat_completions_canonical(request)
@@ -414,8 +415,14 @@ class AnthropicBackend(LLMBackend):
 
             if not role:
                 if logger.isEnabledFor(logging.DEBUG):
-                    # Note: context not available in this helper method
-                    logger.debug("Skipping message without role: %r", msg)
+                    log_extra_payload = (
+                        self._get_log_extra(context) if context else None
+                    )
+                    logger.debug(
+                        "Skipping message without role: %r",
+                        msg,
+                        extra=log_extra_payload if log_extra_payload else None,
+                    )
                 continue
 
             if role == "system":
@@ -474,8 +481,13 @@ class AnthropicBackend(LLMBackend):
                                     if logger.isEnabledFor(logging.WARNING):
                                         log_extra_payload = self._get_log_extra(context)
                                         logger.warning(
-                                            "Invalid data URI format: %s", url[:50],
-                                            extra=log_extra_payload if log_extra_payload else None,
+                                            "Invalid data URI format: %s",
+                                            url[:50],
+                                            extra=(
+                                                log_extra_payload
+                                                if log_extra_payload
+                                                else None
+                                            ),
                                         )
                             elif url.startswith(("http://", "https://")):
                                 # URL source
@@ -538,7 +550,10 @@ class AnthropicBackend(LLMBackend):
         # Unsupported parameters
         log_extra = self._get_log_extra(context)
         if request_data.seed is not None and logger.isEnabledFor(logging.WARNING):
-            logger.warning("AnthropicBackend does not support the 'seed' parameter.", extra=log_extra if log_extra else None)
+            logger.warning(
+                "AnthropicBackend does not support the 'seed' parameter.",
+                extra=log_extra if log_extra else None,
+            )
         if request_data.presence_penalty is not None and logger.isEnabledFor(
             logging.WARNING
         ):
@@ -604,7 +619,12 @@ class AnthropicBackend(LLMBackend):
     # Non-streaming handling
     # -----------------------------------------------------------
     async def _handle_non_streaming_response(
-        self, url: str, payload: dict, headers: dict, original_model: str, context: ConnectorRequestContext | None = None
+        self,
+        url: str,
+        payload: dict,
+        headers: dict,
+        original_model: str,
+        context: ConnectorRequestContext | None = None,
     ) -> ResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         log_extra = self._get_log_extra(context)
@@ -652,10 +672,15 @@ class AnthropicBackend(LLMBackend):
     # Streaming handling
     # -----------------------------------------------------------
     async def _handle_streaming_response(
-        self, url: str, payload: dict[str, Any], headers: dict[str, str], model: str, context: ConnectorRequestContext | None = None
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        model: str,
+        context: ConnectorRequestContext | None = None,
     ) -> StreamingResponseHandle:
         """Handle a streaming response from Anthropic and provide cancellation support."""
-        
+
         log_extra = self._get_log_extra(context)
         request_headers = ensure_loop_guard_header(headers)
         request = self.client.build_request(
@@ -702,7 +727,8 @@ class AnthropicBackend(LLMBackend):
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to read Anthropic error response body: %s", e,
+                        "Failed to read Anthropic error response body: %s",
+                        e,
                         extra=log_extra if log_extra else None,
                     )
                 body_text = ""
@@ -757,7 +783,11 @@ class AnthropicBackend(LLMBackend):
             except (json.JSONDecodeError, KeyError, AttributeError) as e:
                 # Best effort capture; ignore expected parsing errors
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Failed to parse message ID from chunk: %s", e, extra=log_extra if log_extra else None)
+                    logger.debug(
+                        "Failed to parse message ID from chunk: %s",
+                        e,
+                        extra=log_extra if log_extra else None,
+                    )
                 return
 
         async def cancel_stream() -> None:
@@ -820,7 +850,11 @@ class AnthropicBackend(LLMBackend):
 
                     # Log raw chunk for debugging
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("Raw Anthropic chunk: %s", chunk[:200], extra=log_extra if log_extra else None)
+                        logger.debug(
+                            "Raw Anthropic chunk: %s",
+                            chunk[:200],
+                            extra=log_extra if log_extra else None,
+                        )
 
                     # Check for error events from backend
                     if (
@@ -854,7 +888,11 @@ class AnthropicBackend(LLMBackend):
                                         )
                         except (json.JSONDecodeError, KeyError) as e:
                             if logger.isEnabledFor(logging.WARNING):
-                                logger.warning("Failed to parse error event: %s", e, extra=log_extra if log_extra else None)
+                                logger.warning(
+                                    "Failed to parse error event: %s",
+                                    e,
+                                    extra=log_extra if log_extra else None,
+                                )
 
                     # Translate Anthropic SSE chunk to domain format
                     # The translation function handles both SSE format (with event:/data: lines)
@@ -997,7 +1035,7 @@ class AnthropicBackend(LLMBackend):
 
     async def _cancel_message(self, message_id: str) -> None:
         """Cancel an in-progress message.
-        
+
         Note: This method appears to be unused. Cancellation is handled by
         the cancel_stream callback in _handle_streaming_response, which has
         access to context via closure. If this method is ever called, it
