@@ -120,6 +120,11 @@
             "target_type": "glob",
             "target": "tests/unit/test_pyright_validation.py",
             "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks. Cache expiration is a real-world concern that should expire after actual wall-clock time, not test-controlled time."
+          },
+          {
+            "target_type": "glob",
+            "target": "tests/regression/test_gemini_request_counter_race_fix.py",
+            "reason": "Helper function uses datetime.now() but is always called from within freeze_time contexts in the actual test methods. The helper provides timezone conversion logic that is properly guarded by freeze_time at the call sites."
           }
   ]
 }
