@@ -197,6 +197,11 @@ sequenceDiagram
   - Describe `dev/boundary_types_scope.json` as the source of truth (3.1, 8.1).
   - Provide the canonical command to run the check (3.3).
 
+**Guardrail capability (clarification)**:
+- Phase 0 enforcement is intentionally **signature-first**: the checker primarily targets `Any` / `dict[str, Any]` in function/method signatures and Protocol definitions (the highest-leverage boundary surfaces).
+- Phase 0 does **not** attempt to fully enforce Pydantic model field types or prevent all possible “extension sprawl” mechanically; that is handled by the explicit extension policy, review, and targeted tests.
+- Phase 1+ may optionally expand the checker to inspect class-level annotations for a small, explicitly pinned set of boundary-carried contract classes (starting with response-processing and adapter-layer contracts) if signature-only enforcement proves insufficient.
+
 **Exception / allowlist mechanism (2.7, 3.5)**:
 - Create a dedicated allowlist file at `dev/boundary_types_allowlist.json` with entries:
   - `file`: exact path
@@ -242,6 +247,21 @@ sequenceDiagram
 - Treat `LLMBackend` as a *stable plugin boundary* for this project: connectors are auto-discovered/imported and are likely to be customized. Avoid hard breaking changes to `LLMBackend` signatures in the near term.
 - Achieve hardening by controlling what *core passes into connectors* (canonical inputs + typed messages + typed cancellation + JSON-safe options) and by containing legacy behavior behind a single, explicitly named adapter/invoker.
 
+#### Connector Context Contract (Minimal, Stable)
+
+**Decision**: Define a minimal connector-facing context contract that carries only stable, transport-agnostic data needed for logging/diagnostics/correlation, without exposing raw transport details (headers/cookies) or core-internal objects.
+
+**Contract**: `ConnectorRequestContext` (dataclass/InternalDTO)
+- `request_id: str | None`
+- `session_id: str | None`
+- `client_host: str | None`
+- `extensions: dict[str, JsonValue]` (JSON-safe; for cross-layer correlation/debug metadata)
+
+**Rationale**
+- Satisfies the intent of requirement 2.3 (“request and context contracts”) without forcing `RequestContext` to become a connector dependency.
+- Keeps the connector seam stable and avoids leaking transport details or dynamic core state across the boundary.
+ - Mapping is performed by core orchestration (`ConnectorInvoker`) as a shallow projection: `RequestContext` → `ConnectorRequestContext`.
+
 **Canonical connector API (4.1–4.3, 2.3)**:
 - Define a canonical connector-facing request contract:
   - `ConnectorChatCompletionsRequest` (dataclass/InternalDTO) with:
@@ -251,6 +271,7 @@ sequenceDiagram
     - `identity: IAppIdentityConfig | None`
     - `cancellation_token: SessionKey | None`
     - `cancellation_coordinator: ISessionCancellationCoordinator | None`
+    - `context: ConnectorRequestContext | None`
     - `options: dict[str, JsonValue]` (connector options; replaces `**kwargs`)
 - Define a canonical connector protocol/interface:
   - `ICanonicalChatCompletionsBackend.chat_completions(request: ConnectorChatCompletionsRequest) -> ResponseEnvelope | StreamingResponseEnvelope`
@@ -265,6 +286,7 @@ sequenceDiagram
      - `effective_model=effective_model`
      - `**kwargs` expanded from `options` (legacy-only escape hatch)
 - This is the only permitted location where `options` are re-expanded into `**kwargs`, and it must be treated as a documented boundary exception under 2.7/3.5 with a deprecation plan.
+- Connector context forwarding to legacy connectors is not guaranteed: legacy connectors may accept arbitrary `**kwargs` but may also forward them to HTTP clients. To avoid accidental breakage, connector context is guaranteed only for the canonical connector API; if a legacy connector needs context, it should be migrated to the canonical API (4.4).
 
 **Migration plan (phased)**
 - Phase 1: Add the canonical protocol + invoker; migrate first-party connectors to implement `ICanonicalChatCompletionsBackend`.
@@ -361,8 +383,9 @@ sequenceDiagram
 - **Risk**: Streaming regressions due to increased per-chunk processing.  
   **Mitigation**: Prefer shallow coercion and JSON-safe metadata; avoid per-chunk deep validation; add streaming regression tests (NFR1.2).
 
-## Open Questions (for design review)
+## Implementation Defaults (to remove ambiguity)
 
-1. Which domain modules, if any, should be treated as boundary surfaces beyond the “canonical contract carriers” list (e.g., translation facade)? (3.1)
-2. Which currently permissive request/streaming extension surfaces should be treated as “legacy extension mechanisms” in Phase 0/1 vs promoted during this effort? (2.6, 2.7)
-3. What is the target long-term stance on third-party connector compatibility: fully supported plugin API, or “best effort”? (4.4)
+These defaults are chosen to minimize risk and maximize practical value for this repo’s shape (many protocols, streaming, capture/replay, connector auto-discovery).
+
+1. **Boundary scope default**: Treat `src/core/domain/**` as internal-only for guardrail enforcement, except for explicitly pinned canonical contract carriers (context/target/usage/envelopes/streaming typed contracts). Do not treat translation modules as “boundary surfaces” in Phase 0/1. (3.1)
+2. **Legacy extension default**: Treat the explicitly listed legacy extension mechanisms (`ChatRequest.extra_body`, `ToolCall.extra_content`, `StreamingChunk.payload.opaque_json_dict`) as allowed for compatibility, but forbid introducing new ones. Promotion into typed fields or approved JSON-safe extension mechanisms is deferred unless a field is clearly stable and low-risk to promote. (2.6, 2.7)

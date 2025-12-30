@@ -3,6 +3,7 @@
 - [ ] 1. Boundary type guardrails: scope, allowlist, and CI wiring
 - [ ] 1.1 (P) Define an explicit boundary surface enforcement scope
   - Introduce a scope configuration that declares which modules are “boundary surfaces” vs internal-only.
+  - Start with a Phase 0 scope that uses explicit file pinning for the highest-leverage seams (signature-first), then expand via include globs in later phases.
   - Ensure the scope includes transport adapters, core interfaces, and the connector boundary API without pulling in all connector implementations.
   - Ensure canonical contract carriers remain in-scope even when broader internal modules are excluded.
   - _Requirements: 3.1, 3.2_
@@ -11,6 +12,7 @@
   - Load the scope configuration and compute the effective file set deterministically.
   - Preserve actionable violation output including file path, line/column, and a human-readable message.
   - Ensure the check exits with code 0 for a compliant codebase and non-zero when violations exist.
+  - Clarify/document Phase 0 capability as signature-first; do not claim full model-field enforcement until explicitly implemented.
   - _Requirements: 3.3, 3.4_
 
 - [ ] 1.3 Implement a time-bounded allowlist mechanism for boundary exceptions
@@ -31,7 +33,8 @@
 
 - [ ] 2. Connector seam hardening: canonical API, invoker, and migration
 - [ ] 2.1 (P) Introduce canonical connector-facing contracts and protocol
-  - Add `ConnectorChatCompletionsRequest` as the canonical connector request payload.
+  - Add `ConnectorRequestContext` as the minimal connector-facing context contract (request/session ids + JSON-safe extensions).
+  - Add `ConnectorChatCompletionsRequest` as the canonical connector request payload (includes request + processed messages + context).
   - Add `ICanonicalChatCompletionsBackend` (or equivalent) to define the canonical connector entry point.
   - Ensure connector-facing options and extension values are constrained to JSON-serializable typed values.
   - Ensure connector cancellation uses a stable typed interface (e.g., `ISessionCancellationCoordinator | None`) rather than `Any`.
@@ -40,8 +43,10 @@
 
 - [ ] 2.2 Implement `ConnectorInvoker` with canonical-first dispatch and legacy fallback
   - Build the canonical connector request payload from core orchestration inputs.
+  - Project `RequestContext` into `ConnectorRequestContext` as a shallow, JSON-safe mapping (`request_id`, `session_id`, `client_host`, `extensions`) and pass it only via the canonical connector API.
   - Prefer the canonical connector API when available; otherwise call legacy connector code without converting canonical request/context into dict payloads.
   - Confine any legacy-only kwargs expansion to this invoker and emit structured logs when the legacy path is exercised.
+  - Do not require legacy connectors to accept connector context via `**kwargs`; guarantee connector context only on the canonical connector API.
   - _Requirements: 4.4, 2.3, 5.1, 5.3, NFR3.1_
 
 - [ ] 2.3 Wire connector invocation through the invoker without behavior changes
@@ -151,6 +156,7 @@
 
 - [ ] 6.2 Document extension container and connector options policy with promotion guidance
   - Document how vendor/protocol-specific data crosses boundaries via the extension container and JSON-safe values.
+  - Define “approved extension mechanisms” vs “legacy extension mechanisms” and forbid new ad hoc boundary extension fields.
   - Document how connector option keys are promoted from permissive surfaces into typed fields/contracts over time.
   - _Requirements: 8.2, 2.6, 2.7_
 
