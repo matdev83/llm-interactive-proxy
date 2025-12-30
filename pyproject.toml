@@ -8,7 +8,7 @@ authors = [
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
-    "httpx",
+    "httpx[http2]",
     "python-dotenv",
     "pydantic>=2",
     "openai==1.84.0",
@@ -163,7 +163,7 @@ markers = [
     "multimodal: marks tests related to multimodal content",
     "quality: Tests that check code quality (linting, formatting)",
     "slow: marks tests that are slow to run and should be excluded by default",
-    "codex: marks tests for Codex backend (development only, excluded by default)",
+    "codex: marks tests for Codex backend (included by default)",
     "testmon_cache: marks tests that should disable testmon cache",
     "real_time: marks tests that legitimately require real system wall-clock time (requires reason parameter)",
 ]

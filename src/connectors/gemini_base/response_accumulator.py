@@ -449,4 +449,8 @@ def response_envelope_to_stream_chunk(
     if response.usage:
         metadata["usage"] = response.usage.to_legacy_dict()
 
-    return ProcessedResponse(content=payload, metadata=metadata, usage=response.usage)
+    from pydantic.types import JsonValue
+    from typing import cast
+    # Cast payload to ProcessedChunkContent (dict[str, JsonValue] is valid)
+    payload_content: dict[str, JsonValue] = cast(dict[str, JsonValue], payload)
+    return ProcessedResponse(content=payload_content, metadata=metadata, usage=response.usage)

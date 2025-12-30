@@ -172,6 +172,7 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: Any | None = None,
     ) -> ResponseEnvelope:
         """
         Override to handle Cline's non-standard response format.
@@ -258,7 +259,7 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
             usage=domain_response.usage,
         )
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],

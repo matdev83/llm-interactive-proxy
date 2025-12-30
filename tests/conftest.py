@@ -122,19 +122,17 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
     integration_marker = pytest.mark.integration
     integration_path_str = "integration"
 
-    # Default-deselect slow/codex tests without using `-m ...` (pytest-testmon
+    # Default-deselect slow tests without using `-m ...` (pytest-testmon
     # disables selection when `-m` is used).
+    # Note: Codex tests are now included by default as they are stable and fast.
     markexpr = getattr(config.option, "markexpr", "")
     need_deselection = False
     run_slow = False
-    run_codex = False
-    codex_path_marker = "/tests/codex/"
     deselected: list[pytest.Item] = []
     selected: list[pytest.Item] = []
 
     if not markexpr:
         run_slow = config.getoption("run_slow")
-        run_codex = config.getoption("run_codex")
         need_deselection = True
 
     # Single loop through all items
@@ -157,17 +155,13 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
         ):
             item.add_marker(integration_marker)
 
-        # Check for slow/codex deselection
+        # Check for slow deselection (codex tests are now included by default)
         if need_deselection:
-            # Cache path string conversion and normalization
-            item_path = item_path_str.replace("\\", "/")
             # Cache marker lookups
-            codex_marker = item.get_closest_marker("codex")
             slow_marker = item.get_closest_marker("slow")
-            is_codex = codex_marker is not None or codex_path_marker in f"/{item_path}/"
             is_slow = slow_marker is not None
 
-            if (is_slow and not run_slow) or (is_codex and not run_codex):
+            if is_slow and not run_slow:
                 deselected.append(item)
             else:
                 selected.append(item)

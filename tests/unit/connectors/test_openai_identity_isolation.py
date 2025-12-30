@@ -33,6 +33,7 @@ async def test_openai_connector_identity_headers_isolated_per_request() -> None:
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: Any | None = None,
     ) -> ResponseEnvelope:
         captured_headers[session_id] = dict(headers or {})
         return ResponseEnvelope(content={}, status_code=200, headers={})

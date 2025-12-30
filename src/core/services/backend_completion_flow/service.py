@@ -43,11 +43,11 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+from src.core.services.connector_invoker import ConnectorInvoker
 from src.core.services.resilience.scope import (
     build_resilience_error_context,
     build_resilience_instance_id,
 )
-from src.core.services.connector_invoker import ConnectorInvoker
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
 )

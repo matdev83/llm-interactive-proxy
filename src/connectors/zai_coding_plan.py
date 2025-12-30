@@ -8,10 +8,15 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from dataclasses import replace
 from typing import Any
 
 from fastapi import HTTPException
 
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+)
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import (
     AuthenticationError,
@@ -21,8 +26,11 @@ from src.core.common.exceptions import (
 from src.core.common.logging_utils import redact_dict
 from src.core.domain.model_utils import parse_model_backend
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
-from src.core.domain.responses import StreamingResponseHandle
-from src.core.domain.session_key import SessionKey
+from src.core.domain.responses import (
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+    StreamingResponseHandle,
+)
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
@@ -274,22 +282,101 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             or "1113" in detail_text
         )
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
-        request_data: Any,
-        processed_messages: Any,
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
         **kwargs: Any,
-    ) -> Any:
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Route chat completions, retrying with legacy Claude when balance errors occur.
+
+        This method implements the interface from LLMBackend with backward compatibility.
+        """
+
+        # Handle legacy API called with keyword arguments only (request_data=...)
+        if request is None and "request_data" in kwargs:
+            request = kwargs.pop("request_data")
+
+        # Check if this is a canonical request - pass it directly to parent
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            # Structural enforcement: check cancellation immediately if coordinator and token provided
+            if (
+                request.cancellation_coordinator is not None
+                and request.cancellation_token is not None
+            ):
+                request.cancellation_coordinator.ensure_not_cancelled(
+                    request.cancellation_token
+                )
+            # Update model in canonical request if needed
+            selected_model = self._select_model(request.effective_model)
+            if request.effective_model != selected_model:
+                # Create a new canonical request with updated model
+                request = replace(request, effective_model=selected_model)
+            # Pass canonical request directly to parent
+            try:
+                return await super().chat_completions(request)
+            except HTTPException as exc:
+                if self._should_retry_with_legacy(exc, selected_model):
+                    legacy_model = self._LEGACY_MODEL
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "ZAI Coding Plan request with model '%s' failed (%s); retrying with legacy model '%s'",
+                            selected_model,
+                            self._detail_to_text(exc.detail),
+                            legacy_model,
+                        )
+                    # Create canonical request with legacy model
+                    legacy_request = replace(request, effective_model=legacy_model)
+                    return await super().chat_completions(legacy_request)
+
+                detail_text = self._detail_to_text(exc.detail)
+                provider_details = {
+                    "provider_error": exc.detail,
+                    "attempted_model": selected_model,
+                }
+                if exc.status_code == 429:
+                    raise RateLimitExceededError(
+                        message=detail_text
+                        or "ZAI Coding Plan reported insufficient quota",
+                        details=provider_details,
+                    ) from exc
+
+                raise BackendError(
+                    message=detail_text or "ZAI Coding Plan request failed",
+                    backend_name=self.backend_type,
+                    details=provider_details,
+                    status_code=getattr(exc, "status_code", 502),
+                    code=f"zai_error_{getattr(exc, 'status_code', 'unknown')}",
+                ) from exc
+            except Exception as exc:
+                # Catch any other exceptions from canonical path and convert to BackendError
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Unexpected error in ZAI Coding Plan backend (canonical path): %s",
+                        exc,
+                        exc_info=True,
+                    )
+                raise BackendError(
+                    message=f"ZAI Coding Plan request failed: {exc!s}",
+                    backend_name=self.backend_type,
+                    details={"attempted_model": selected_model, "error": str(exc)},
+                    status_code=502,
+                    code="zai_error_unexpected",
+                ) from exc
+
+        # Legacy API: extract parameters
+        request_data = request
+        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
+        effective_model = (
+            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        )
+        identity = kwargs.pop("identity", None)
+        cancellation_token = kwargs.pop("cancellation_token", None)
+        cancellation_coordinator = kwargs.pop("cancellation_coordinator", None)
+
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if cancellation_coordinator is not None and cancellation_token is not None:
             cancellation_coordinator.ensure_not_cancelled(cancellation_token)
-        """Route chat completions, retrying with legacy Claude when balance errors occur."""
         selected_model = self._select_model(
             effective_model or getattr(request_data, "model", None)
         )
@@ -303,6 +390,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 processed_messages,
                 selected_model,
                 identity=identity,
+                cancellation_token=cancellation_token,
+                cancellation_coordinator=cancellation_coordinator,
                 **kwargs,
             )
         except HTTPException as exc:
@@ -345,6 +434,21 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 status_code=getattr(exc, "status_code", 502),
                 code=f"zai_error_{getattr(exc, 'status_code', 'unknown')}",
             ) from exc
+        except Exception as exc:
+            # Catch any other exceptions from legacy path and convert to BackendError
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error in ZAI Coding Plan backend (legacy path): %s",
+                    exc,
+                    exc_info=True,
+                )
+            raise BackendError(
+                message=f"ZAI Coding Plan request failed: {exc!s}",
+                backend_name=self.backend_type,
+                details={"error": str(exc)},
+                status_code=502,
+                code="zai_error_unexpected",
+            ) from exc
 
     async def _handle_non_streaming_response(
         self,
@@ -352,7 +456,8 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
-    ) -> Any:
+        context: ConnectorRequestContext | None = None,
+    ) -> ResponseEnvelope:
         """Override to add detailed logging for debugging."""
         # Remove loop guard header for ZAI API (might be causing issues)
         if headers and "x-llmproxy-loop-guard" in headers:
@@ -372,7 +477,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
 
         # Call parent implementation
         return await super()._handle_non_streaming_response(
-            url, payload, headers, session_id
+            url, payload, headers, session_id, context
         )
 
     async def _handle_streaming_response(
@@ -382,6 +487,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         headers: dict[str, str] | None,
         session_id: str,
         stream_format: str,
+        context: ConnectorRequestContext | None = None,
     ) -> StreamingResponseHandle:
         """Override to add detailed logging for debugging.
 
@@ -706,6 +812,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
         request_data: Any,
         processed_messages: Any = None,
         effective_model: str | None = None,
+        context: Any = None,
     ) -> dict[str, Any]:
         """Prepare request payload for ZAI API.
 
@@ -713,6 +820,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             request_data: The request data
             processed_messages: Processed messages (for compatibility)
             effective_model: The effective model name (for compatibility)
+            context: Connector request context (optional, for logging correlation)
         """
         # Extract MCP tool calls from message content before preparing payload
         if processed_messages:
@@ -725,7 +833,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
             effective_model or getattr(request_data, "model", None)
         )
         payload = await super()._prepare_payload(
-            request_data, processed_messages, selected_model
+            request_data, processed_messages, selected_model, context
         )
 
         # Ensure stream flag is preserved for compatibility with Anthropic routing

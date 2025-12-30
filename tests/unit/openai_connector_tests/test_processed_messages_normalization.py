@@ -43,6 +43,7 @@ async def test_prepare_payload_handles_sequence_content(
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: Any = None,
     ) -> ResponseEnvelope:
         observed_payloads.append(payload)
         return ResponseEnvelope(content={}, headers={}, status_code=200)

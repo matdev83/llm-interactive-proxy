@@ -700,8 +700,13 @@ class StreamingExecutor:
                             choices: list[dict[str, Any]] = []
 
                             if isinstance(content, dict):
-                                choices = content.get("choices", [])
-                                if choices and isinstance(choices[0], dict):
+                                choices_raw = content.get("choices", [])
+                                if (
+                                    isinstance(choices_raw, list)
+                                    and choices_raw
+                                    and all(isinstance(item, dict) for item in choices_raw)
+                                ):
+                                    choices = choices_raw  # type: ignore[assignment]
                                     finish_reason = choices[0].get("finish_reason")
                                     if finish_reason is None:
                                         finish_reason = (
@@ -745,10 +750,16 @@ class StreamingExecutor:
                     ):
                         content = processed_chunk.content
                         is_stop_chunk = False
+                        chunk_choices: list[dict[str, Any]] = []
                         if isinstance(content, dict):
-                            choices = content.get("choices", [])
-                            if choices and isinstance(choices[0], dict):
-                                finish_reason = choices[0].get("finish_reason")
+                            choices_raw = content.get("choices", [])
+                            if (
+                                isinstance(choices_raw, list)
+                                and choices_raw
+                                and all(isinstance(item, dict) for item in choices_raw)
+                            ):
+                                chunk_choices = choices_raw  # type: ignore[assignment]
+                                finish_reason = chunk_choices[0].get("finish_reason")
                                 if finish_reason in ("stop", "stop_sequence"):
                                     is_stop_chunk = True
 

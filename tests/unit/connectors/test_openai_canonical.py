@@ -6,13 +6,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from fastapi import HTTPException
-
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
-    ICanonicalChatCompletionsBackend,
 )
 from src.connectors.openai import OpenAIConnector
 from src.core.config.app_config import AppConfig
@@ -128,7 +125,7 @@ class TestOpenAICanonicalAPI:
             )
             
             # Call canonical API
-            result = await openai_connector.chat_completions(canonical_request)
+            await openai_connector.chat_completions(canonical_request)
             
             # Verify it was called with typed contracts
             mock_internal.assert_called_once()
@@ -335,7 +332,6 @@ class TestOpenAICanonicalAPI:
         self, openai_connector, canonical_request
     ):
         """Test that context correlation identifiers appear in error logs."""
-        import logging
         from json import JSONDecodeError
         
         # Set up context with correlation identifiers
@@ -376,7 +372,7 @@ class TestOpenAICanonicalAPI:
                 mock_logger.isEnabledFor.return_value = True
                 
                 # Call should raise an error
-                with pytest.raises(Exception):
+                with pytest.raises(Exception, match="Test error"):
                     await openai_connector.chat_completions(canonical_request)
                 
                 # Verify context was passed to helper method
@@ -394,7 +390,6 @@ class TestOpenAICanonicalAPI:
         self, openai_connector, canonical_request
     ):
         """Test that context correlation identifiers appear in warning logs."""
-        import logging
         
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(

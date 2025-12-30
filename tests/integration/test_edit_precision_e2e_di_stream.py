@@ -47,6 +47,12 @@ async def test_e2e_di_streaming_pipeline_sets_pending_and_next_call_tuned() -> N
     infrastructure = InfrastructureStage()
     await infrastructure.execute(services, prov_cfg)
 
+    # Register core services (includes EventBus which is required by streaming services)
+    from src.core.app.stages.core_services import CoreServicesStage
+
+    core_services_stage = CoreServicesStage()
+    await core_services_stage.execute(services, prov_cfg)
+
     register_core_services(services, prov_cfg)
 
     # Register processor services (includes StreamNormalizer with LoopDetectionProcessor)

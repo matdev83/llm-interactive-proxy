@@ -91,9 +91,12 @@ class SSESerializer:
         if content.content and content.content != "" and not content_is_done_marker:
             if isinstance(content.content, dict) and "choices" in content.content:
                 return self._serialize_openai_chunk_with_done(chunk, content)
+            else:
+                # For non-empty content that's not a dict with choices, serialize normally
+                # but ensure [DONE] is added since chunk.is_done is True
+                return self._serialize_normal_chunk(chunk, content)
         else:
             return b"data: [DONE]\n\n"
-        return self._serialize_normal_chunk(chunk, content)
 
     def serialize(self, content: StreamingContent) -> bytes:
         """Serialize StreamingContent to SSE bytes.
@@ -169,63 +172,36 @@ class SSESerializer:
     def _serialize_openai_chunk_with_done(
         self, chunk: StreamingChunk, content: StreamingContent
     ) -> bytes:
-        """Serialize an OpenAI-formatted chunk with done marker.
-
-        Args:
-            chunk: Typed StreamingChunk contract
-            content: Original StreamingContent for accessing non-typed fields
-        """
-        # Check if tool_calls are "virtual" (extracted from XML content).
-        # Virtual tool calls should NOT be sent to client - they're only
-        # used internally for unified processing. The XML remains in content.
-        # Note: _virtual_tool_calls is not in typed contract, use original metadata
+        """Serialize an OpenAI-formatted chunk with done marker."""
         is_virtual = content.metadata.get("_virtual_tool_calls", False)
-
-        # Make a copy of content to potentially modify
-        # CRITICAL: We must avoid modifying content.content deeply/in-place,
-        # as it might be used elsewhere (e.g. history storage).
-        # Shallow copy of the top object is not enough if we modify nested lists/dicts.
-        # Type safety: caller ensures content.content is a dict with "choices"
         content_copy = dict(
             self._normalize_openai_chat_completion_to_stream_chunk(
                 cast(dict[str, Any], content.content)
             )
         )
 
-        # Sanitize any existing tool_calls in delta/message (remove extra_content)
-        # This is critical for Gemini responses where extra_content contains
-        # a thought_signature that CLI agents like Factory Droid cannot parse.
-        # We must structurally copy the hierarchy we modify.
+        # Sanitize existing tool_calls in delta/message
         existing_choices = content_copy.get("choices", [])
         if isinstance(existing_choices, list) and existing_choices:
             new_choices = []
             choices_modified = False
-
             for choice_item in existing_choices:
                 if not isinstance(choice_item, dict):
                     new_choices.append(choice_item)
                     continue
-
-                # Copy the choice dict so we can safely modify it
-                # (we only modify if we find tool_calls)
                 new_choice: dict[str, Any] = dict(choice_item)
                 choice_modified = False
-
                 for container_key in ("delta", "message"):
                     container = new_choice.get(container_key)
                     if isinstance(container, dict):
                         tc_list = container.get("tool_calls")
-                        # If virtual, we want to remove tool_calls entirely
                         if is_virtual:
                             if "tool_calls" in container:
-                                # Copy container to modify
                                 new_container: dict[str, Any] = dict(container)
                                 del new_container["tool_calls"]
                                 new_choice[container_key] = new_container
                                 choice_modified = True
-                        # If not virtual, we want to sanitize tool_calls
                         elif isinstance(tc_list, list) and tc_list:
-                            # Sanitize internal markers
                             sanitized_calls: list[dict[str, Any]] = [
                                 {
                                     k: v
@@ -237,39 +213,31 @@ class SSESerializer:
                                 for tc in tc_list
                                 if isinstance(tc, dict)
                             ]
-                            # Copy container to modify
                             new_container = dict(container)
                             new_container["tool_calls"] = sanitized_calls
                             new_choice[container_key] = new_container
                             choice_modified = True
-
                 if choice_modified:
                     choices_modified = True
                 new_choices.append(new_choice)
-
             if choices_modified:
                 content_copy["choices"] = new_choices
 
-        # If is_virtual was handled above within the loop (by removing tool_calls),
-        # content_copy is already ready.
+        # If is_virtual was handled above, content_copy is ready
         if is_virtual:
             return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
 
         # Non-virtual: Inject tool_calls from typed metadata into the delta if present
         tool_calls = chunk.metadata.tool_calls
         if tool_calls:
-            # PERFORMANCE: Convert ToolCall objects to dicts and sanitize internal markers
-            # Cache model_dump() result to avoid repeated calls
             sanitized_calls = []
             for tc in tool_calls:
-                # Convert to dict once
                 if hasattr(tc, "model_dump"):
                     tc_dict = tc.model_dump(exclude_none=True)
                 elif isinstance(tc, dict):
                     tc_dict = tc
                 else:
                     continue
-                # Sanitize inline to avoid second iteration
                 sanitized_dict: dict[str, Any] = {
                     k: v
                     for k, v in tc_dict.items()
@@ -281,16 +249,12 @@ class SSESerializer:
                     sanitized_calls.append(sanitized_dict)
 
             if sanitized_calls:
-                # Ensure choices and delta exist
-                choices = content_copy.get("choices", [])
-                if choices and isinstance(choices[0], dict):
-                    inner_delta = choices[0].get("delta", {})
-                    if isinstance(inner_delta, dict):
-                        inner_delta["tool_calls"] = sanitized_calls
-                        choices[0]["delta"] = inner_delta
-                        content_copy["choices"] = choices
+                delta = self._get_first_delta(content_copy)
+                if delta:
+                    delta["tool_calls"] = sanitized_calls
+                    if content_copy.get("choices") and isinstance(content_copy["choices"], list):
+                        content_copy["choices"][0]["delta"] = delta
                 return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
-        # Use dict() to safely convert StopChunkWithUsage to plain dict
         return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
 
     def _sanitize_tool_calls(
@@ -322,44 +286,14 @@ class SSESerializer:
                     if isinstance(tc_list, list) and tc_list:
                         container["tool_calls"] = self._sanitize_tool_calls(tc_list)
 
-    def _handle_virtual_tool_calls(
-        self, content_copy: dict[str, Any]
-    ) -> dict[str, Any]:
-        """Strip virtual tool_calls from delta."""
+    def _get_first_delta(self, content_copy: dict[str, Any]) -> dict[str, Any] | None:
+        """Get first choice delta dict, or None."""
         choices = content_copy.get("choices", [])
-        if (
-            choices
-            and isinstance(choices, list)
-            and choices
-            and isinstance(choices[0], dict)
-        ):
-            inner_delta = choices[0].get("delta", {})
-            if isinstance(inner_delta, dict) and "tool_calls" in inner_delta:
-                choices[0]["delta"] = {
-                    k: v for k, v in inner_delta.items() if k != "tool_calls"
-                }
-                content_copy["choices"] = choices
-        return content_copy
-
-    def _inject_tool_calls_into_chunk(
-        self, content_copy: dict[str, Any], tool_calls: list[dict[str, Any]]
-    ) -> dict[str, Any]:
-        """Inject tool_calls into chunk delta."""
-        sanitized_calls = self._sanitize_tool_calls(tool_calls)
-        if sanitized_calls:
-            choices = content_copy.get("choices", [])
-            if (
-                choices
-                and isinstance(choices, list)
-                and choices
-                and isinstance(choices[0], dict)
-            ):
-                inner_delta = choices[0].get("delta", {})
-                if isinstance(inner_delta, dict):
-                    inner_delta["tool_calls"] = sanitized_calls
-                    choices[0]["delta"] = inner_delta
-                    content_copy["choices"] = choices
-        return content_copy
+        if choices and isinstance(choices, list) and isinstance(choices[0], dict):
+            delta = choices[0].get("delta", {})
+            if isinstance(delta, dict):
+                return delta
+        return None
 
     def _serialize_openai_formatted_dict(
         self,
@@ -367,32 +301,21 @@ class SSESerializer:
         chunk: StreamingChunk,
         content: StreamingContent,
     ) -> bytes:
-        """Serialize an OpenAI-formatted dict chunk.
-
-        Args:
-            working_content: The dict content to serialize
-            chunk: Typed StreamingChunk contract
-            content: Original StreamingContent for accessing non-typed fields
-        """
-        # Note: _virtual_tool_calls is not in typed contract, use original metadata
+        """Serialize an OpenAI-formatted dict chunk."""
         is_virtual_tc = content.metadata.get("_virtual_tool_calls", False)
-
-        # Make a copy and normalize
         content_copy = dict(
             self._normalize_openai_chat_completion_to_stream_chunk(working_content)
         )
-
-        # Sanitize existing tool_calls
         self._sanitize_chunk_tool_calls_in_place(content_copy)
-
-        # Handle virtual vs non-virtual tool_calls
+        delta = self._get_first_delta(content_copy)
         if is_virtual_tc:
-            content_copy = self._handle_virtual_tool_calls(content_copy)
+            if delta and "tool_calls" in delta:
+                delta = {k: v for k, v in delta.items() if k != "tool_calls"}
+                if content_copy.get("choices") and isinstance(content_copy["choices"], list):
+                    content_copy["choices"][0]["delta"] = delta
         else:
-            # Inject tool_calls from typed metadata if present
             tool_calls_to_inject = chunk.metadata.tool_calls
-            if tool_calls_to_inject:
-                # Convert ToolCall objects to dicts efficiently
+            if tool_calls_to_inject and delta:
                 tool_calls_dicts: list[dict[str, Any]] = []
                 for tc in tool_calls_to_inject:
                     if hasattr(tc, "model_dump"):
@@ -400,11 +323,9 @@ class SSESerializer:
                     elif isinstance(tc, dict):
                         tool_calls_dicts.append(tc)
                 if tool_calls_dicts:
-                    content_copy = self._inject_tool_calls_into_chunk(
-                        content_copy, tool_calls_dicts
-                    )
-
-        # Optimized: Avoid string concatenation, use join
+                    delta["tool_calls"] = self._sanitize_tool_calls(tool_calls_dicts)
+                    if content_copy.get("choices") and isinstance(content_copy["choices"], list):
+                        content_copy["choices"][0]["delta"] = delta
         parts = [f"data: {json.dumps(content_copy)}\n\n"]
         if chunk.is_done:
             parts.append("data: [DONE]\n\n")
@@ -413,39 +334,23 @@ class SSESerializer:
     def _build_delta_metadata(
         self, chunk: StreamingChunk, content: StreamingContent, delta: dict[str, Any]
     ) -> None:
-        """Build delta metadata (role, tool_call_id, tool_calls, reasoning).
-
-        Args:
-            chunk: Typed StreamingChunk contract
-            content: Original StreamingContent for accessing non-typed fields
-            delta: Dictionary to populate with delta metadata
-        """
-        # Add role if present (from typed contract)
+        """Build delta metadata (role, tool_call_id, tool_calls, reasoning)."""
         if chunk.metadata.role:
             delta["role"] = chunk.metadata.role
-
-        # Add tool_call_id if present (not in typed contract, use original)
         tool_call_id = content.metadata.get("tool_call_id")
         if isinstance(tool_call_id, str) and tool_call_id:
             delta["tool_call_id"] = tool_call_id
-
-        # Add tool_calls if present and not virtual
-        # Note: _virtual_tool_calls is not in typed contract, use original metadata
         is_virtual = content.metadata.get("_virtual_tool_calls", False)
         tool_calls = chunk.metadata.tool_calls
         if tool_calls and not is_virtual:
-            # PERFORMANCE: Convert ToolCall objects to dicts and sanitize in single pass
-            # to avoid double-iteration (model_dump + sanitize)
             sanitized_calls = []
             for tc in tool_calls:
-                # Convert to dict
                 if hasattr(tc, "model_dump"):
                     tc_dict = tc.model_dump(exclude_none=True)
                 elif isinstance(tc, dict):
                     tc_dict = tc
                 else:
                     continue
-                # Sanitize inline
                 sanitized_dict = {
                     k: v
                     for k, v in tc_dict.items()
@@ -455,8 +360,6 @@ class SSESerializer:
                     sanitized_calls.append(sanitized_dict)
             if sanitized_calls:
                 delta["tool_calls"] = sanitized_calls
-
-        # Add reasoning content if present (from typed contract)
         reasoning_value = chunk.metadata.reasoning_content
         if reasoning_value and reasoning_value.strip():
             delta["reasoning_content"] = reasoning_value
@@ -465,29 +368,19 @@ class SSESerializer:
     def _serialize_normal_chunk(
         self, chunk: StreamingChunk, content: StreamingContent
     ) -> bytes:
-        """Serialize a normal (non-done) chunk.
-
-        Args:
-            chunk: Typed StreamingChunk contract
-            content: Original StreamingContent for accessing non-typed fields
-        """
-        # OPTIMIZATION: Fast path for simple text chunks (most common case)
-        # Avoids dictionary allocation and full object traversal for simple text deltas
+        """Serialize a normal (non-done) chunk."""
+        # Fast path for simple text chunks
         if (
             chunk.payload.kind == "text"
             and chunk.payload.text is not None
             and not chunk.metadata.tool_calls
             and not chunk.metadata.reasoning_content
-            # role is allowed now
             and not chunk.metadata.finish_reason
             and not chunk.metadata.usage
             and not content.usage
             and not content.metadata.get("tool_call_id")
             and not content.metadata.get("_virtual_tool_calls")
         ):
-            # Extract common metadata
-            # Note: We use json.dumps for strings to ensure proper escaping
-            # We explicitly match json.dumps default separators (', ', ': ') to preserve exact output
             parts = ['{"choices": [{"delta": {']
 
             # Add role if present
@@ -499,28 +392,18 @@ class SSESerializer:
             parts.append('"content": ')
             parts.append(json.dumps(chunk.payload.text))
             parts.append("}}]")
-
-            # Add metadata fields in insertion order (matches existing behavior)
-            # id
-            id_val = content.metadata.get("id")
-            if id_val is not None:
-                parts.append(', "id": ')
-                parts.append(json.dumps(id_val))
-
-            # model
-            model_val = content.metadata.get("model")
-            if model_val is not None:
-                parts.append(', "model": ')
-                parts.append(json.dumps(model_val))
-
-            # created
-            created_val = content.metadata.get("created")
-            if created_val is not None:
-                parts.append(', "created": ')
-                parts.append(json.dumps(created_val))
+            # Add metadata fields
+            for key in ("id", "model", "created"):
+                val = content.metadata.get(key)
+                if val is not None:
+                    parts.append(f', "{key}": ')
+                    parts.append(json.dumps(val))
 
             parts.append("}")
-            return f"data: {''.join(parts)}\n\n".encode()
+            sse_data = f"data: {''.join(parts)}\n\n"
+            if chunk.is_done:
+                sse_data += "data: [DONE]\n\n"
+            return sse_data.encode()
 
         # Build delta object
         delta: dict[str, Any] = {}
@@ -550,9 +433,6 @@ class SSESerializer:
             else:
                 delta["content"] = json.dumps(parsed_content)
         elif chunk.payload.kind == "opaque_json" and chunk.payload.opaque_json:
-            # OPTIMIZATION: Check for OpenAI keywords before expensive JSON parsing.
-            # We only need to parse if it looks like an OpenAI chunk or if we need to check for leaks.
-            # Using string search is much faster than full JSON parsing for every chunk.
             json_str = chunk.payload.opaque_json
             is_potential_openai = '"choices"' in json_str or '"usage"' in json_str
             is_leak_check_needed = isinstance(content.content, StopChunkWithUsage)
@@ -560,22 +440,17 @@ class SSESerializer:
             if not is_potential_openai and not is_leak_check_needed:
                 delta["content"] = json_str
             else:
-                # Parse JSON to check if it's OpenAI-formatted
                 try:
                     parsed_content = json.loads(json_str)
                     if isinstance(parsed_content, dict):
-                        # Check if OpenAI-formatted chunk
                         if "choices" in parsed_content or "usage" in parsed_content:
                             return self._serialize_openai_formatted_dict(
                                 parsed_content, chunk, content
                             )
-
-                        # Check for StopChunkWithUsage misuse
                         if is_leak_check_needed:
                             raise UsageChunkLeakError(
                                 chunk_id=parsed_content.get("id") if isinstance(parsed_content, dict) else None  # type: ignore[misc]
                             )
-
                         delta["content"] = json.dumps(parsed_content)
                     else:
                         delta["content"] = json.dumps(parsed_content)
@@ -593,10 +468,9 @@ class SSESerializer:
                     try:
                         delta["content"] = binary_data.decode("latin-1")
                     except UnicodeDecodeError:
-                        # Fallback to string representation if all decode attempts fail
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
-                                "Failed to decode binary content after UTF-8 and latin-1 attempts, using string representation",
+                                "Failed to decode binary content, using string representation",
                                 exc_info=True,
                             )
                         delta["content"] = str(binary_data)
@@ -608,24 +482,16 @@ class SSESerializer:
         # Build response data
         response_data: dict[str, Any] = {"choices": [{"delta": delta}]}
 
-        # Add finish_reason from typed contract
         if chunk.metadata.finish_reason:
             response_data["choices"][0]["finish_reason"] = chunk.metadata.finish_reason  # type: ignore[index]
-
-        # Add metadata fields (use original for non-typed fields like id, model, created)
-        metadata_dict = content.metadata
         for key in ("id", "model", "created"):
-            if key in metadata_dict:
-                response_data[key] = metadata_dict[key]
-
-        # Add usage from typed contract or original
+            if key in content.metadata:
+                response_data[key] = content.metadata[key]
         if chunk.metadata.usage:
             response_data["usage"] = chunk.metadata.usage.model_dump(exclude_none=True)
         elif content.usage:
             to_dict = getattr(content.usage, "to_legacy_dict", None)
             response_data["usage"] = to_dict() if callable(to_dict) else content.usage
-
-        # Optimized: Avoid string concatenation, use join
         parts = [f"data: {json.dumps(response_data)}\n\n"]
         if chunk.is_done:
             parts.append("data: [DONE]\n\n")

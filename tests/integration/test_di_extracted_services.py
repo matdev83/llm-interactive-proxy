@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import MagicMock
 
 from src.core.config.app_config import AppConfig
@@ -8,6 +9,7 @@ from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
 from src.core.interfaces.backend_service_interface import IBackendService
+from src.core.interfaces.event_bus_interface import IEventBus
 from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
 from src.core.interfaces.model_alias_resolver_interface import IModelAliasResolver
 from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
@@ -23,6 +25,7 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.backend_service import BackendService
+from src.core.services.event_bus import EventBus
 from src.core.services.resilience import ResilienceCoordinator
 
 
@@ -63,6 +66,16 @@ class TestDIIntegration:
         )
         collection.add_instance(
             ResilienceCoordinator, MagicMock(spec=ResilienceCoordinator)
+        )
+
+        # Register EventBus (required by some services registered by register_core_services)
+        def event_bus_factory(provider):
+            return EventBus()
+
+        collection.add_singleton(EventBus, implementation_factory=event_bus_factory)
+        collection.add_singleton(
+            cast(type, IEventBus),
+            implementation_factory=lambda p: p.get_required_service(EventBus),
         )
 
         config = AppConfig()

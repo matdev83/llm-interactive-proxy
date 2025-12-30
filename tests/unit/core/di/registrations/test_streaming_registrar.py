@@ -17,7 +17,7 @@ from typing import cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
-from src.core.di.registrations import core, streaming
+from src.core.di.registrations import core, persistence, streaming
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.event_bus_interface import IEventBus
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
@@ -113,6 +113,8 @@ class TestStreamingRegistrar:
         _register_event_bus(services)
         # Register core services first (streaming depends on core)
         core.register(services, config)
+        # Register persistence services (required for SessionMetricsRepository)
+        persistence.register(services, config)
         streaming.register(services, config)
         provider = services.build_service_provider()
 
@@ -142,6 +144,8 @@ class TestStreamingRegistrar:
         _register_event_bus(services)
         # Register core services first (streaming depends on core)
         core.register(services, config)
+        # Register persistence services (required for SessionMetricsRepository)
+        persistence.register(services, config)
         streaming.register(services, config)
         provider = services.build_service_provider()
 
@@ -199,6 +203,8 @@ class TestStreamingRegistrar:
         _register_event_bus(services)
         # Register core services first
         core.register(services, config)
+        # Register persistence services (required for SessionMetricsRepository)
+        persistence.register(services, config)
 
         # Call streaming registrar multiple times
         streaming.register(services, config)

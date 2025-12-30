@@ -1,13 +1,10 @@
 """Pytest configuration for Codex backend tests.
 
 All tests in this directory are automatically marked with @pytest.mark.codex
-and excluded from default test runs to avoid CI/CD resource waste.
+and are now included in default test runs.
 
-To run codex tests:
+To run only codex tests:
     ./.venv/Scripts/python.exe -m pytest -m codex
-
-To run all tests INCLUDING codex:
-    ./.venv/Scripts/python.exe -m pytest -m "not slow"
 """
 
 import pytest

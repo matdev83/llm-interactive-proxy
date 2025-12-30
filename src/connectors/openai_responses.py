@@ -19,7 +19,7 @@ class OpenAIResponsesConnector(OpenAIConnector):
 
     backend_type: str = "openai-responses"
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: Any,
         processed_messages: list[Any],

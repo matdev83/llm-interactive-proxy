@@ -23,16 +23,22 @@ from src.core.app.constants.logging_constants import TRACE_LEVEL
 if TYPE_CHECKING:
     from watchdog.observers.api import BaseObserver
 
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+)
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.session_key import SessionKey
+from src.core.domain.responses import (
+    ResponseEnvelope,
+    StreamingResponseEnvelope,
+    StreamingResponseHandle,
+)
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
@@ -260,11 +266,12 @@ class QwenOAuthConnector(OpenAIConnector):
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        context: ConnectorRequestContext | None = None,
     ) -> dict[str, Any]:
         """Ensure sampling parameters are forwarded to the Qwen API payload."""
 
         payload = await super()._prepare_payload(
-            request_data, processed_messages, effective_model
+            request_data, processed_messages, effective_model, context
         )
 
         def _extract_param(name: str) -> Any | None:
@@ -931,7 +938,17 @@ class QwenOAuthConnector(OpenAIConnector):
             except asyncio.CancelledError:
                 # Re-raise cancellation to allow proper cleanup
                 raise
-            except (AuthenticationError, BackendError, OSError, FileNotFoundError, RuntimeError, AttributeError, ValueError, httpx.RequestError, httpx.HTTPStatusError) as exc:
+            except (
+                AuthenticationError,
+                BackendError,
+                OSError,
+                FileNotFoundError,
+                RuntimeError,
+                AttributeError,
+                ValueError,
+                httpx.RequestError,
+                httpx.HTTPStatusError,
+            ) as exc:
                 # Catch expected exceptions during token refresh to ensure graceful degradation
                 refresh_success = False
                 refresh_exception_occurred = True
@@ -1041,14 +1058,15 @@ class QwenOAuthConnector(OpenAIConnector):
                 _reload(), target_loop
             )
 
-    async def _handle_streaming_response(
+    async def _handle_streaming_response(  # type: ignore[override]
         self,
         url: str,
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
         stream_format: str,
-    ) -> Any:
+        context: ConnectorRequestContext | None = None,
+    ) -> StreamingResponseHandle:
         """Override parent to add chunk deduplication and usage tracking for Qwen API.
 
         The Qwen API sometimes sends duplicate SSE chunks with identical content,
@@ -1127,15 +1145,26 @@ class QwenOAuthConnector(OpenAIConnector):
 
                 # Accumulate content for usage calculation
                 if isinstance(content, dict):
-                    choices = content.get("choices", [])
-                    if choices and len(choices) > 0:
-                        delta = choices[0].get("delta", {})
-                        delta_content = delta.get("content", "")
-                        if delta_content:
-                            accumulated_content.append(delta_content)
+                    choices_raw = content.get("choices", [])
+                    if (
+                        isinstance(choices_raw, list)
+                        and len(choices_raw) > 0
+                        and isinstance(choices_raw[0], dict)
+                    ):
+                        choices = choices_raw  # type: ignore[assignment]
+                        first_choice = choices[0]
+                        finish_reason: str | None = None
+                        if isinstance(first_choice, dict):
+                            delta_raw = first_choice.get("delta", {})
+                            if isinstance(delta_raw, dict):
+                                delta_content = delta_raw.get("content", "")
+                                if isinstance(delta_content, str) and delta_content:
+                                    accumulated_content.append(delta_content)
 
-                        # Check if this is a stop chunk - buffer it for usage merge
-                        finish_reason = choices[0].get("finish_reason")
+                            # Check if this is a stop chunk - buffer it for usage merge
+                            finish_reason_val = first_choice.get("finish_reason")
+                            if isinstance(finish_reason_val, str):
+                                finish_reason = finish_reason_val
                         if finish_reason in ("stop", "stop_sequence", "length"):
                             # Buffer stop chunk, yield after adding usage
                             final_stop_chunk = chunk
@@ -1194,7 +1223,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 final_content = final_stop_chunk.content
                 if isinstance(final_content, dict) and usage:
                     final_content = dict(final_content)  # Copy to avoid mutation
-                    final_content["usage"] = usage
+                    final_content["usage"] = usage  # type: ignore[assignment]
                     # Wrap with StopChunkWithUsage to detect accidental
                     # stringification. If any code tries to str() this dict,
                     # it will raise UsageChunkLeakError with a stack trace.
@@ -1231,33 +1260,79 @@ class QwenOAuthConnector(OpenAIConnector):
             ),
         )
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
-        request_data: (
-            DomainModel | InternalDTO | dict[str, Any]
-        ),  # Revert to original type hint
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: "IAppIdentityConfig | None" = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Canonical connector API implementation with backward compatibility.
+
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        For backward compatibility, also accepts legacy signature:
+        chat_completions(request_data, processed_messages, effective_model, ...)
+        """
+        # Import here to avoid circular imports
+        from src.core.domain.chat import ChatMessage
+
+        # Handle legacy API called with keyword arguments only (request_data=...)
+        if request is None and "request_data" in kwargs:
+            request = kwargs.pop("request_data")
+
+        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            # Structural enforcement: check cancellation immediately if coordinator and token provided
+            if (
+                request.cancellation_coordinator is not None
+                and request.cancellation_token is not None
+            ):
+                request.cancellation_coordinator.ensure_not_cancelled(
+                    request.cancellation_token
+                )
+            return await self._chat_completions_canonical(request)
+
+        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
+        request_data = request
+        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
+        effective_model = (
+            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        )
+        identity = kwargs.get("identity")
+        cancellation_token = kwargs.get("cancellation_token")
+        cancellation_coordinator = kwargs.get("cancellation_coordinator")
+        context = kwargs.get("context")
+
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if cancellation_coordinator is not None and cancellation_token is not None:
             cancellation_coordinator.ensure_not_cancelled(cancellation_token)
-        """Handle chat completions using Qwen OAuth API.
 
-        This overrides the parent class method to ensure credentials are valid before API call.
+        # Ensure processed_messages is a Sequence[ChatMessage]
+        # It may already be ChatMessage objects or dicts
+        if processed_messages and not isinstance(
+            processed_messages[0], ChatMessage
+        ):
+                # Convert dicts to ChatMessage objects
+                processed_messages = [
+                    (
+                        ChatMessage(**msg)
+                        if isinstance(msg, dict)
+                        else ChatMessage(role="user", content=str(msg))
+                    )
+                    for msg in processed_messages
+                ]
 
-        Special handling for reasoning_effort:
-        - By default, this method appends " /think" to the last client message (user or system role).
-        - The suffix is NOT appended only when reasoning_effort is explicitly set to "low".
-        - This triggers Qwen's extended reasoning mode for more thoughtful responses.
-        - The " /think" suffix is only appended to regular messages, not tool call responses.
-        """
+        canonical_request = ConnectorChatCompletionsRequest(
+            request=request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            identity=identity,
+            cancellation_token=cancellation_token,
+            cancellation_coordinator=cancellation_coordinator,
+            context=context,
+        )
+
+        # Call the canonical implementation
+        return await self._chat_completions_canonical(canonical_request)
         if not self._enable_qwen_oauth_backend_debugging_override:
             logger.warning(
                 "Rejected request: Qwen OAuth backend requires debugging override flag. "

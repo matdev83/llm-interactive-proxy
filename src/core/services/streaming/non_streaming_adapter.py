@@ -15,7 +15,10 @@ from typing import Any, cast
 from pydantic.types import JsonValue
 
 from src.core.domain.usage_summary import UsageSummary
-from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.response_processor_interface import (
+    ProcessedChunkContent,
+    ProcessedResponse,
+)
 from src.core.ports.streaming_contracts import StreamingContent
 
 logger = logging.getLogger(__name__)
@@ -187,7 +190,23 @@ class NonStreamingAdapter:
 def _extract_content(response: Any) -> str:
     """Extract content from various response formats."""
     if isinstance(response, ProcessedResponse):
-        return response.content or ""
+        content: ProcessedChunkContent = response.content
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, bytes):
+            try:
+                return content.decode("utf-8")
+            except UnicodeDecodeError:
+                return content.decode("latin-1")
+        if isinstance(content, dict):
+            # Use safe_json_dumps to handle StopChunkWithUsage correctly
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+            return StopChunkWithUsage.safe_json_dumps(content)
+        # Fallback: convert any remaining type to string
+        return str(content) if content else ""
 
     if isinstance(response, StreamingContent):
         content = response.content

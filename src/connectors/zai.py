@@ -9,10 +9,13 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import yaml
 
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+)
 from src.core.common.exceptions import AuthenticationError, ConfigurationError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
@@ -155,6 +158,7 @@ class ZAIConnector(OpenAIConnector):
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        context: ConnectorRequestContext | None = None,
     ) -> dict[str, Any]:
         """
         Prepare payload for ZAI backend with 200K max_tokens support.
@@ -163,7 +167,7 @@ class ZAIConnector(OpenAIConnector):
         max_tokens is set appropriately based on client request.
         """
         payload = await super()._prepare_payload(
-            request_data, processed_messages, effective_model
+            request_data, processed_messages, effective_model, context
         )
 
         def _extract_param(name: str) -> Any | None:
@@ -217,27 +221,80 @@ class ZAIConnector(OpenAIConnector):
 
         return payload
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
-        request_data: Any,
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        response_envelope = await super().chat_completions(
-            request_data=request_data,
+        """Canonical connector API implementation with backward compatibility.
+
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        For backward compatibility, also accepts legacy signature:
+        chat_completions(request_data, processed_messages, effective_model, ...)
+        """
+        # Import here to avoid circular imports
+        from src.connectors.contracts import ConnectorChatCompletionsRequest
+        from src.core.domain.chat import ChatMessage
+
+        # Handle legacy API called with keyword arguments only (request_data=...)
+        if request is None and "request_data" in kwargs:
+            request = kwargs.pop("request_data")
+
+        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            # Structural enforcement: check cancellation immediately if coordinator and token provided
+            if (
+                request.cancellation_coordinator is not None
+                and request.cancellation_token is not None
+            ):
+                request.cancellation_coordinator.ensure_not_cancelled(
+                    request.cancellation_token
+                )
+            return await self._chat_completions_canonical(request)
+
+        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
+        request_data = request
+        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
+        effective_model = (
+            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        )
+        identity = kwargs.get("identity")
+        cancellation_token = kwargs.get("cancellation_token")
+        cancellation_coordinator = kwargs.get("cancellation_coordinator")
+        context = kwargs.get("context")
+
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
+
+        # Ensure processed_messages is a Sequence[ChatMessage]
+        # It may already be ChatMessage objects or dicts
+        if processed_messages and not isinstance(
+            processed_messages[0], ChatMessage
+        ):
+                # Convert dicts to ChatMessage objects
+                processed_messages = [
+                    (
+                        ChatMessage(**msg)
+                        if isinstance(msg, dict)
+                        else ChatMessage(role="user", content=str(msg))
+                    )
+                    for msg in processed_messages
+                ]
+
+        canonical_request = ConnectorChatCompletionsRequest(
+            request=request_data,
             processed_messages=processed_messages,
             effective_model=effective_model,
             identity=identity,
             cancellation_token=cancellation_token,
             cancellation_coordinator=cancellation_coordinator,
-            **kwargs,
+            context=context,
         )
+
+        # Call the canonical implementation
+        response_envelope = await self._chat_completions_canonical(canonical_request)
 
         # If streaming, wrap the content (connector-agnostic pipeline will repair JSON)
         if (

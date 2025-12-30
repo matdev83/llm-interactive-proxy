@@ -64,11 +64,15 @@ class UsageTrackingWrapper(IUsageTrackingWrapper):
                 "data: [DONE]",
             )
         if isinstance(content, dict):
-            choices = content.get("choices", [])
-            if choices:
-                for choice in choices:
-                    delta = choice.get("delta", {})
-                    if delta.get("content") or delta.get("tool_calls"):
+            choices_raw_value = content.get("choices", [])
+            if isinstance(choices_raw_value, list) and choices_raw_value:
+                for choice_item in choices_raw_value:
+                    if not isinstance(choice_item, dict):
+                        continue
+                    delta_value = choice_item.get("delta", {})
+                    if not isinstance(delta_value, dict):
+                        continue
+                    if delta_value.get("content") or delta_value.get("tool_calls"):
                         return True
             return bool(content.get("content") or content.get("text"))
         return bool(content)

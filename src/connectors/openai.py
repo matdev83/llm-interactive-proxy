@@ -406,9 +406,13 @@ class OpenAIConnector(LLMBackend):
         processed_messages = list(request.processed_messages)
         effective_model = request.effective_model
         identity = request.identity
-        cancellation_token = request.cancellation_token
         cancellation_coordinator = request.cancellation_coordinator
+        cancellation_token = request.cancellation_token
         context = request.context
+
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
 
         # Prepare context for logging correlation
         log_extra = self._get_log_extra(context)
@@ -524,13 +528,62 @@ class OpenAIConnector(LLMBackend):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request: ConnectorChatCompletionsRequest,
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Canonical connector API implementation.
+        """Canonical connector API implementation with backward compatibility.
 
         This method implements ICanonicalChatCompletionsBackend protocol.
+        For backward compatibility, also accepts legacy signature:
+        chat_completions(request_data, processed_messages, effective_model, ...)
         """
-        return await self._chat_completions_canonical(request)
+        # Import here to avoid circular imports
+        from src.connectors.contracts import ConnectorChatCompletionsRequest
+        from src.core.domain.chat import ChatMessage
+        
+        # Handle legacy API called with keyword arguments only (request_data=...)
+        if request is None and "request_data" in kwargs:
+            request = kwargs.pop("request_data")
+        
+        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            return await self._chat_completions_canonical(request)
+        
+        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
+        request_data = request
+        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
+        effective_model = args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        identity = kwargs.get("identity")
+        cancellation_token = kwargs.get("cancellation_token")
+        cancellation_coordinator = kwargs.get("cancellation_coordinator")
+        context = None  # Legacy API doesn't provide context
+        options = {k: v for k, v in kwargs.items() if k not in [
+            "identity", "cancellation_token", "cancellation_coordinator",
+            "processed_messages", "effective_model"
+        ]}
+        
+        # Ensure processed_messages is a Sequence[ChatMessage]
+        # It may already be ChatMessage objects or dicts
+        if processed_messages and not isinstance(processed_messages[0], ChatMessage):
+                # Convert dicts to ChatMessage objects
+                processed_messages = [
+                    ChatMessage(**msg) if isinstance(msg, dict) else ChatMessage(role="user", content=str(msg))
+                    for msg in processed_messages
+                ]
+        
+        canonical_request = ConnectorChatCompletionsRequest(
+            request=request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            identity=identity,
+            cancellation_token=cancellation_token,
+            cancellation_coordinator=cancellation_coordinator,
+            context=context,
+            options=options,
+        )
+        
+        return await self._chat_completions_canonical(canonical_request)
 
     async def _prepare_payload(
         self,

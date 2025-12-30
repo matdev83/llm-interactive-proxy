@@ -40,7 +40,7 @@ class TestServiceRegistration:
         from typing import cast
 
         from src.core.config.app_config import AppConfig
-        from src.core.di.registrations import core, streaming, tooling
+        from src.core.di.registrations import core, persistence, streaming, tooling
         from src.core.interfaces.event_bus_interface import IEventBus
         from src.core.services.event_bus import EventBus
 
@@ -57,10 +57,12 @@ class TestServiceRegistration:
             implementation_factory=lambda p: p.get_required_service(EventBus),
         )
 
-        # Register core, tooling, and streaming services
+        # Register core, tooling, persistence, and streaming services
         # (StreamNormalizer is now in streaming registrar, but depends on tooling services)
+        # (EndOfSessionService depends on SessionMetricsRepository from persistence)
         core.register(services, config)
         tooling.register(services, config)
+        persistence.register(services, config)
         streaming.register(services, config)
         provider = services.build_service_provider()
 

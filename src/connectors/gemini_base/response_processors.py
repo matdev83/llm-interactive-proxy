@@ -183,11 +183,14 @@ class XmlToolCallPostProcessor:
                     elif isinstance(chunk_content, dict):
                         # Rough estimate for dict content
                         choices = chunk_content.get("choices", [])
-                        if choices:
-                            delta = choices[0].get("delta", {})
-                            content_part = delta.get("content", "")
-                            if content_part:
-                                buffer_size += len(content_part)
+                        if isinstance(choices, list) and choices:
+                            first_choice = choices[0]
+                            if isinstance(first_choice, dict):
+                                delta = first_choice.get("delta", {})
+                                if isinstance(delta, dict):
+                                    content_part = delta.get("content", "")
+                                    if isinstance(content_part, str) and content_part:
+                                        buffer_size += len(content_part)
 
                 if buffer_size > MAX_BUFFER_SIZE:
                     # Buffer exceeded limit, stop buffering and yield everything
@@ -210,11 +213,14 @@ class XmlToolCallPostProcessor:
                     chunk_content = chunk.content
                     if isinstance(chunk_content, dict):
                         choices = chunk_content.get("choices", [])
-                        if choices:
-                            delta = choices[0].get("delta", {})
-                            content_part = delta.get("content", "")
-                            if content_part:
-                                content_parts.append(content_part)
+                        if isinstance(choices, list) and choices:
+                            first_choice = choices[0]
+                            if isinstance(first_choice, dict):
+                                delta = first_choice.get("delta", {})
+                                if isinstance(delta, dict):
+                                    content_part = delta.get("content", "")
+                                    if isinstance(content_part, str) and content_part:
+                                        content_parts.append(content_part)
                     elif isinstance(chunk_content, str):
                         content_parts.append(chunk_content)
             full_content = "".join(content_parts)

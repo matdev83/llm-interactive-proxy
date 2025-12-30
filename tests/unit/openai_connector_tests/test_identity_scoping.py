@@ -46,6 +46,7 @@ async def test_chat_completions_clears_identity_between_calls(
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: Any | None = None,
     ) -> ResponseEnvelope:
         observed_headers.append(headers)
         return ResponseEnvelope(content={}, headers={}, status_code=200)
@@ -84,6 +85,7 @@ async def test_chat_completions_uses_identity_without_api_key(
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: Any | None = None,
     ) -> ResponseEnvelope:
         observed_headers.append(headers)
         return ResponseEnvelope(content={}, headers={}, status_code=200)
@@ -133,6 +135,7 @@ async def test_responses_clears_identity_between_calls(
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: Any | None = None,
     ) -> ResponseEnvelope:
         observed_headers.append(headers)
         return ResponseEnvelope(content={}, headers={}, status_code=200)

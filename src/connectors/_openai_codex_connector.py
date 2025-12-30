@@ -1665,9 +1665,10 @@ class OpenAICodexConnector(OpenAIConnector):
         request_data: Any,
         processed_messages: list[Any],
         effective_model: str,
+        context: Any = None,
     ) -> dict[str, Any]:
         payload = await super()._prepare_payload(
-            request_data, processed_messages, effective_model
+            request_data, processed_messages, effective_model, context
         )
         if "model" in payload and isinstance(payload["model"], str):
             payload["model"] = strip_vendor_prefix(
@@ -1812,6 +1813,7 @@ class OpenAICodexConnector(OpenAIConnector):
         payload: dict[str, Any],
         headers: dict[str, str] | None,
         session_id: str,
+        context: Any | None = None,
     ) -> ResponseEnvelope:
         """Override to ensure compatibility state cleanup for non-streaming responses.
 
@@ -1835,7 +1837,7 @@ class OpenAICodexConnector(OpenAIConnector):
         try:
             # Call parent implementation
             result = await super()._handle_non_streaming_response(
-                url, payload, headers, session_id
+                url, payload, headers, session_id, context
             )
 
             # Clean up compatibility state to prevent memory leaks

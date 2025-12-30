@@ -10,13 +10,13 @@ from __future__ import annotations
 import inspect
 import logging
 from collections.abc import Sequence
-from typing import Any
+
+from pydantic.types import JsonValue
 
 from src.connectors.base import LLMBackend
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
-    ICanonicalChatCompletionsBackend,
 )
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.request_context import RequestContext
@@ -26,7 +26,6 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
-from pydantic.types import JsonValue
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +124,7 @@ class ConnectorInvoker:
         if not hasattr(backend, "chat_completions"):
             return False
 
-        method = getattr(backend, "chat_completions")
+        method = backend.chat_completions
         if not callable(method):
             return False
 
@@ -163,9 +162,8 @@ class ConnectorInvoker:
             return True
 
         # Handle string annotations (forward references)
-        if isinstance(param_annotation, str):
-            if "ConnectorChatCompletionsRequest" in param_annotation:
-                return True
+        if isinstance(param_annotation, str) and "ConnectorChatCompletionsRequest" in param_annotation:
+            return True
 
         # Check if annotation is a type that matches (handle Union, etc.)
         try:

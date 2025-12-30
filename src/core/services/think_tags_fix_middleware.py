@@ -21,6 +21,7 @@ from cachetools import TTLCache
 from src.core.interfaces.response_processor_interface import (
     IResponseFeature,
     IResponseMiddleware,
+    ProcessedChunkContent,
     ProcessedResponse,
 )
 
@@ -172,6 +173,24 @@ class ThinkTagsFixFeature(IResponseFeature):
             metadata=metadata,
         )
 
+    def _content_to_str(self, content: ProcessedChunkContent) -> str:
+        """Convert ProcessedChunkContent to str."""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, bytes):
+            try:
+                return content.decode("utf-8")
+            except UnicodeDecodeError:
+                return content.decode("latin-1")
+        if isinstance(content, dict):
+            # Use safe_json_dumps to handle StopChunkWithUsage correctly
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+            return StopChunkWithUsage.safe_json_dumps(content)
+        return str(content) if content else ""
+
     def _fix_think_tags(self, content: str) -> ThinkTagFixResult:
         """Fix think tags in content (non-streaming)."""
         if not content or not isinstance(content, str):
@@ -318,8 +337,10 @@ class ThinkTagsFixFeature(IResponseFeature):
         )
 
         if is_streaming:
+            # Convert ProcessedChunkContent to str for processing
+            content_str = self._content_to_str(processed_response.content)
             fixed_content, reasoning_metadata = self._process_streaming_chunk(
-                processed_response.content,
+                content_str,
                 resolved_session_id,
                 is_streaming=True,
                 context=context,
@@ -335,14 +356,16 @@ class ThinkTagsFixFeature(IResponseFeature):
                 ):
                     formatted_response.metadata["streaming_extraction"] = True
                 return formatted_response
-            elif fixed_content != processed_response.content:
+            elif fixed_content != content_str:
                 modified_response = self._ensure_processed_response(response)
                 modified_response.content = fixed_content
                 return modified_response
             else:
                 return response
         else:
-            result = self._fix_think_tags(processed_response.content)
+            # Convert ProcessedChunkContent to str for processing
+            content_str = self._content_to_str(processed_response.content)
+            result = self._fix_think_tags(content_str)
 
             if result.reasoning_content is not None:
                 return self._format_response_with_reasoning(
@@ -587,6 +610,24 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
 
         # Fall back to global setting
         return self._streaming_buffer_size
+
+    def _content_to_str(self, content: ProcessedChunkContent) -> str:
+        """Convert ProcessedChunkContent to str."""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, bytes):
+            try:
+                return content.decode("utf-8")
+            except UnicodeDecodeError:
+                return content.decode("latin-1")
+        if isinstance(content, dict):
+            # Use safe_json_dumps to handle StopChunkWithUsage correctly
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+            return StopChunkWithUsage.safe_json_dumps(content)
+        return str(content) if content else ""
 
     def _fix_think_tags(self, content: str) -> ThinkTagFixResult:
         """Fix improperly formatted <think> tags in content.
@@ -1116,8 +1157,10 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         # Handle streaming vs non-streaming processing
         if is_streaming:
             # Use streaming-aware processing
+            # Convert ProcessedChunkContent to str for processing
+            content_str = self._content_to_str(processed_response.content)
             fixed_content, reasoning_metadata = self._process_streaming_chunk(
-                processed_response.content,
+                content_str,
                 resolved_session_id,
                 is_streaming=True,
                 context=context,
@@ -1135,7 +1178,7 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
                 ):
                     formatted_response.metadata["streaming_extraction"] = True
                 return formatted_response
-            elif fixed_content != processed_response.content:
+            elif fixed_content != content_str:
                 # Content was modified (e.g., think tags filtered out)
                 modified_response = self._ensure_processed_response(response)
                 modified_response.content = fixed_content
@@ -1145,7 +1188,9 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
                 return response
         else:
             # Use regular non-streaming processing
-            result = self._fix_think_tags(processed_response.content)
+            # Convert ProcessedChunkContent to str for processing
+            content_str = self._content_to_str(processed_response.content)
+            result = self._fix_think_tags(content_str)
 
             # If reasoning content was extracted, format the response properly
             if result.reasoning_content is not None:

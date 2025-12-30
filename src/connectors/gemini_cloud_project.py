@@ -1553,6 +1553,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                     "message", user_message
                                 )
                             # Yield quota error chunk instead of raising exception
+                            from pydantic.types import JsonValue
+                            from typing import cast
                             quota_code = 503
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
@@ -1568,7 +1570,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                     "code": quota_code,
                                 },
                             }
-                            yield ProcessedResponse(content=error_chunk)
+                            error_chunk_content: dict[str, JsonValue] = cast(dict[str, JsonValue], error_chunk)
+                            yield ProcessedResponse(content=error_chunk_content)
                             return
                         else:
                             # Extract user-friendly error message
@@ -1578,6 +1581,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                     "message", user_message
                                 )
                             # Yield general error chunk instead of raising exception
+                            from pydantic.types import JsonValue
+                            from typing import cast
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
                                 "object": "chat.completion.chunk",
@@ -1592,7 +1597,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                     "code": response.status_code,
                                 },
                             }
-                            yield ProcessedResponse(content=error_chunk)
+                            error_chunk_content_api: dict[str, JsonValue] = cast(dict[str, JsonValue], error_chunk)
+                            yield ProcessedResponse(content=error_chunk_content_api)
                             return
 
                     # Process the streaming response using iter_content for real-time streaming

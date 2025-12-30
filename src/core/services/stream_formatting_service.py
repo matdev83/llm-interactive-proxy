@@ -129,18 +129,22 @@ class StreamFormattingService(IStreamFormattingService):
         # Handle dict (JSON chunk)
         if isinstance(content, dict):
             # Check for actual content
-            choices = content.get("choices", [])
-            if choices:
-                for choice in choices:
-                    delta = choice.get("delta", {})
+            choices_raw_value = content.get("choices", [])
+            if isinstance(choices_raw_value, list) and choices_raw_value:
+                for choice_item in choices_raw_value:
+                    if not isinstance(choice_item, dict):
+                        continue
+                    delta_value = choice_item.get("delta", {})
+                    if not isinstance(delta_value, dict):
+                        continue
                     # Has actual text content
-                    if delta.get("content"):
+                    if delta_value.get("content"):
                         return True
                     # Has tool calls
-                    if delta.get("tool_calls"):
+                    if delta_value.get("tool_calls"):
                         return True
                     # Has function call
-                    if delta.get("function_call"):
+                    if delta_value.get("function_call"):
                         return True
             # Check for direct content field
             return bool(content.get("content") or content.get("text"))

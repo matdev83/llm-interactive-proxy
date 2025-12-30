@@ -356,8 +356,10 @@ class OpenRouterBackend(OpenAIConnector):
             # Translate to a base payload using the shared hook so that
             # processed_messages, effective_model and extra_body are applied
             # consistently (and tests can patch _prepare_payload).
+            # Note: OpenRouterBackend uses legacy chat_completions signature,
+            # so context is not available here. Pass None for backward compatibility.
             payload = await self._prepare_payload(
-                domain_request, processed_messages, effective_model
+                domain_request, processed_messages, effective_model, context=None
             )
 
             # Add OpenRouter-specific parameters to the payload

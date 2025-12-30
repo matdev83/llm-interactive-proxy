@@ -5,6 +5,8 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from freezegun import freeze_time
+
 # Add dev/scripts to path for imports
 dev_scripts_path = Path(__file__).parent.parent.parent.parent / "dev" / "scripts"
 sys.path.insert(0, str(dev_scripts_path))
@@ -418,68 +420,71 @@ class TestAllowlist:
 
     def test_allowlist_entry_expired(self):
         """Test that expired allowlist entries are detected."""
-        past_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-        entry = AllowlistEntry(
-            file="src/core/interfaces/test.py",
-            symbol="process_request",
-            violation="Any-in-signature",
-            reason="Test",
-            expires_at=past_date,
-            tracking="test-123",
-        )
+        with freeze_time("2024-01-15T12:00:00Z"):
+            past_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+            entry = AllowlistEntry(
+                file="src/core/interfaces/test.py",
+                symbol="process_request",
+                violation="Any-in-signature",
+                reason="Test",
+                expires_at=past_date,
+                tracking="test-123",
+            )
 
-        assert entry.is_expired() is True
+            assert entry.is_expired() is True
 
     def test_allowlist_entry_not_expired(self):
         """Test that non-expired allowlist entries are valid."""
-        future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-        entry = AllowlistEntry(
-            file="src/core/interfaces/test.py",
-            symbol="process_request",
-            violation="Any-in-signature",
-            reason="Test",
-            expires_at=future_date,
-            tracking="test-123",
-        )
+        with freeze_time("2024-01-15T12:00:00Z"):
+            future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+            entry = AllowlistEntry(
+                file="src/core/interfaces/test.py",
+                symbol="process_request",
+                violation="Any-in-signature",
+                reason="Test",
+                expires_at=future_date,
+                tracking="test-123",
+            )
 
-        assert entry.is_expired() is False
+            assert entry.is_expired() is False
 
     def test_load_allowlist_filters_expired(self, tmp_path):
         """Test that loading allowlist filters out expired entries."""
-        future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-        past_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        with freeze_time("2024-01-15T12:00:00Z"):
+            future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+            past_date = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 
-        allowlist_file = tmp_path / "allowlist.json"
-        allowlist_file.write_text(
-            json.dumps(
-                {
-                    "version": "1.0",
-                    "entries": [
-                        {
-                            "file": "src/core/interfaces/valid.py",
-                            "symbol": "func1",
-                            "violation": "Any-in-signature",
-                            "reason": "Valid entry",
-                            "expires_at": future_date,
-                            "tracking": "test-1",
-                        },
-                        {
-                            "file": "src/core/interfaces/expired.py",
-                            "symbol": "func2",
-                            "violation": "Any-in-signature",
-                            "reason": "Expired entry",
-                            "expires_at": past_date,
-                            "tracking": "test-2",
-                        },
-                    ],
-                }
+            allowlist_file = tmp_path / "allowlist.json"
+            allowlist_file.write_text(
+                json.dumps(
+                    {
+                        "version": "1.0",
+                        "entries": [
+                            {
+                                "file": "src/core/interfaces/valid.py",
+                                "symbol": "func1",
+                                "violation": "Any-in-signature",
+                                "reason": "Valid entry",
+                                "expires_at": future_date,
+                                "tracking": "test-1",
+                            },
+                            {
+                                "file": "src/core/interfaces/expired.py",
+                                "symbol": "func2",
+                                "violation": "Any-in-signature",
+                                "reason": "Expired entry",
+                                "expires_at": past_date,
+                                "tracking": "test-2",
+                            },
+                        ],
+                    }
+                )
             )
-        )
 
-        entries, has_expired = load_allowlist(allowlist_file)
-        assert len(entries) == 1
-        assert entries[0].file == "src/core/interfaces/valid.py"
-        assert has_expired is True
+            entries, has_expired = load_allowlist(allowlist_file)
+            assert len(entries) == 1
+            assert entries[0].file == "src/core/interfaces/valid.py"
+            assert has_expired is True
 
     def test_allowlist_matches_dict_violation(self):
         """Test that allowlist matches dict[str, Any] violations."""
@@ -558,32 +563,33 @@ def process_request(request: Any) -> None:
         )
 
         # Create allowlist
-        future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
-        allowlist_file = tmp_path / "allowlist.json"
-        allowlist_file.write_text(
-            json.dumps(
-                {
-                    "version": "1.0",
-                    "entries": [
-                        {
-                            "file": "src/core/interfaces/test.py",
-                            "symbol": "process_request",
-                            "violation": "Any-in-signature",
-                            "reason": "Test allowlist",
-                            "expires_at": future_date,
-                            "tracking": "test-123",
-                        }
-                    ],
-                }
+        with freeze_time("2024-01-15T12:00:00Z"):
+            future_date = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
+            allowlist_file = tmp_path / "allowlist.json"
+            allowlist_file.write_text(
+                json.dumps(
+                    {
+                        "version": "1.0",
+                        "entries": [
+                            {
+                                "file": "src/core/interfaces/test.py",
+                                "symbol": "process_request",
+                                "violation": "Any-in-signature",
+                                "reason": "Test allowlist",
+                                "expires_at": future_date,
+                                "tracking": "test-123",
+                            }
+                        ],
+                    }
+                )
             )
-        )
 
-        # Load configs
-        scope_config = load_scope_config(scope_file)
-        allowlist, _ = load_allowlist(allowlist_file)
+            # Load configs
+            scope_config = load_scope_config(scope_file)
+            allowlist, _ = load_allowlist(allowlist_file)
 
-        # Check should pass (violation is allowlisted)
-        exit_code = check_boundary_types(
-            [str(tmp_path)], scope_config=scope_config, allowlist=allowlist
-        )
-        assert exit_code == 0
+            # Check should pass (violation is allowlisted)
+            exit_code = check_boundary_types(
+                [str(tmp_path)], scope_config=scope_config, allowlist=allowlist
+            )
+            assert exit_code == 0

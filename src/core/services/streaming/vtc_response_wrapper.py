@@ -349,10 +349,16 @@ class VTCResponseStreamWrapper:
                 new_content[key] = value
 
         # Rebuild choices with new content
-        choices = content.get("choices", [{}])
+        choices_raw_value = content.get("choices", [{}])
         new_choices = []
 
-        for choice in choices:
+        # Type guard: ensure choices_raw is a list for iteration
+        if not isinstance(choices_raw_value, list):
+            choices_raw: list[Any] = [{}]
+        else:
+            choices_raw = choices_raw_value
+
+        for choice in choices_raw:
             if not isinstance(choice, dict):
                 new_choices.append(choice)
                 continue

@@ -674,6 +674,7 @@ def test_backend_service_interface_shares_concrete_singleton() -> None:
         IBackendModelResolver,
     )
     from src.core.interfaces.backend_service_interface import IBackendService
+    from src.core.interfaces.configuration_interface import IConfig
     from src.core.interfaces.exception_normalizer_interface import (
         IExceptionNormalizer,
     )
@@ -703,7 +704,9 @@ def test_backend_service_interface_shares_concrete_singleton() -> None:
     from src.core.services.rate_limiter import RateLimiter
 
     services = ServiceCollection()
-    services.add_instance(AppConfig, AppConfig())
+    config = AppConfig()
+    services.add_instance(AppConfig, config)
+    services.add_instance(cast(type, IConfig), config)
     services.add_instance(BackendFactory, MagicMock(spec=BackendFactory))
     services.add_instance(RateLimiter, MagicMock(spec=RateLimiter))
     services.add_instance(

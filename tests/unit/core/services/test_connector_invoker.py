@@ -11,12 +11,9 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
-
 from src.connectors.base import LLMBackend
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
-    ConnectorRequestContext,
-    ICanonicalChatCompletionsBackend,
 )
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.request_context import RequestContext
@@ -88,7 +85,6 @@ class MockLegacyBackend(LLMBackend):
 
     async def initialize(self, **kwargs: Any) -> None:
         """Mock initialize method."""
-        pass
 
     def get_available_models(self) -> list[str]:
         """Mock get_available_models method."""
@@ -381,7 +377,7 @@ class TestLegacyBackendDispatch:
         """Test that legacy backend receives typed domain models."""
         backend = MockLegacyBackend()
         domain_request = sample_canonical_request
-        processed_messages = list(sample_canonical_request.messages)
+        list(sample_canonical_request.messages)
         effective_model = "gpt-4"
 
         result = await connector_invoker.invoke(

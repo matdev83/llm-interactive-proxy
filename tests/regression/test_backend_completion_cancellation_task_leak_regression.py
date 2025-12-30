@@ -17,6 +17,7 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.session_key import SessionKey
 from src.core.services.backend_completion_flow.service import BackendCompletionFlow
+from src.core.services.connector_invoker import ConnectorInvoker
 from src.core.services.session_cancellation_coordinator import (
     SessionCancellationCoordinator,
 )

@@ -6,6 +6,7 @@ import pytest
 from src.core.services.backend_completion_flow.service import (
     BackendCompletionFlow,
 )
+from src.core.services.connector_invoker import ConnectorInvoker
 from tests.utils.fake_clock import FakeClockContext
 
 

@@ -511,7 +511,7 @@ class OpencodeZenConnector(OpenAIConnector):
             else:
                 raise e
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
         request_data: DomainModel | InternalDTO | dict[str, Any],
         processed_messages: list[Any],

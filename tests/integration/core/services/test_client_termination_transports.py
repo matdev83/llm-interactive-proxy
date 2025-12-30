@@ -134,11 +134,13 @@ class TestHTTPStreamingDisconnect:
         )
 
         # Consume stream until disconnect
+        # The disconnect is detected when processing chunk3 (after is_disconnected returns True)
         chunks = []
         try:
             async for chunk in stream_gen:
                 chunks.append(chunk)
-                if len(chunks) >= 2:  # After 2 chunks, disconnect is detected
+                # Continue consuming to trigger disconnect check on chunk3
+                if len(chunks) >= 3:
                     break
         except Exception:
             pass
