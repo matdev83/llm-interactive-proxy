@@ -966,7 +966,41 @@ class ResponsesController:
 
                         last_chunk_model = chunk_model
 
-                        yield f"data: {json.dumps(streaming_chunk)}\n\n"
+                        # OPTIMIZATION: Use fast path for simple content chunks to avoid expensive json.dumps
+                        # This avoids serializing the full dict structure for every token in high-volume streams
+                        is_simple_chunk = (
+                            isinstance(streaming_chunk, dict)
+                            and len(streaming_chunk) == 5
+                            and "choices" in streaming_chunk
+                            and isinstance(streaming_chunk["choices"], list)
+                            and len(streaming_chunk["choices"]) == 1
+                            and isinstance(streaming_chunk["choices"][0], dict)
+                            and "delta" in streaming_chunk["choices"][0]
+                            and len(streaming_chunk["choices"][0]) == 2  # index and delta only
+                            and isinstance(streaming_chunk["choices"][0]["delta"], dict)
+                            and len(streaming_chunk["choices"][0]["delta"]) == 1
+                            and "content" in streaming_chunk["choices"][0]["delta"]
+                            and isinstance(streaming_chunk["choices"][0]["delta"]["content"], str)
+                        )
+
+                        if is_simple_chunk:
+                            # Fast string construction for simple chunks
+                            # Use json.dumps only for the content string to ensure safe escaping
+                            c = cast(dict[str, Any], streaming_chunk)
+                            choices = cast(list[dict[str, Any]], c["choices"])
+                            choice = choices[0]
+                            delta = cast(dict[str, Any], choice["delta"])
+                            
+                            content_json = json.dumps(delta["content"])
+                            idx = choice["index"]
+
+                            json_str = (
+                                f'{{"id": "{c["id"]}", "object": "{c["object"]}", "created": {c["created"]}, '
+                                f'"model": "{c["model"]}", "choices": [{{"index": {idx}, "delta": {{"content": {content_json}}}}}]}}'
+                            )
+                            yield f"data: {json_str}\n\n"
+                        else:
+                            yield f"data: {json.dumps(streaming_chunk)}\n\n"
 
                     except Exception as exc:
                         if logger.isEnabledFor(logging.WARNING):

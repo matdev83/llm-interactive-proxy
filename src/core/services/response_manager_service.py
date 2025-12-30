@@ -853,6 +853,12 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         # Use pre-compiled patterns for better performance
         lines = message.split("\n")
         for line in lines:
+            # Optimization: Quick string check before expensive regex
+            # All patterns contain "pytest" or "py.test" (case-insensitive)
+            line_lower = line.lower()
+            if "pytest" not in line_lower and "py.test" not in line_lower:
+                continue
+
             for pattern in self._COMMAND_EXTRACTION_PATTERNS:
                 match = pattern.search(line)
                 if match:
@@ -949,12 +955,16 @@ class AgentResponseFormatter(IAgentResponseFormatter):
             return PytestCompressionResult(output=output, token_count=0)
 
         # Calculate original metrics
-        from src.core.utils.token_count import count_tokens
+        original_tokens = 0
+        original_lines = 0
+        should_log = logger.isEnabledFor(logging.INFO)
 
-        original_tokens = count_tokens(output)
-        original_lines = len(output.split("\n")) if output else 0
+        if should_log:
+            from src.core.utils.token_count import count_tokens
 
-        if logger.isEnabledFor(logging.INFO):
+            original_tokens = count_tokens(output)
+            original_lines = len(output.split("\n")) if output else 0
+
             logger.info(
                 "Pytest compression started - Original metrics: %d tokens, %d lines",
                 original_tokens,
@@ -993,21 +1003,26 @@ class AgentResponseFormatter(IAgentResponseFormatter):
         filtered_output = "\n".join(filtered_lines)
 
         # Calculate final metrics
-        final_tokens = count_tokens(filtered_output)
-        final_lines = len(filtered_output.split("\n")) if filtered_output else 0
-        tokens_filtered = original_tokens - final_tokens
-        lines_filtered = original_lines - final_lines
+        final_tokens = 0
 
-        # Calculate compression ratios
-        token_compression_ratio = (
-            (tokens_filtered / original_tokens * 100) if original_tokens > 0 else 0
-        )
-        line_compression_ratio = (
-            (lines_filtered / original_lines * 100) if original_lines > 0 else 0
-        )
+        if should_log:
+            # Re-import just in case, or rely on scope (but cleaner to re-import or move import up)
+            from src.core.utils.token_count import count_tokens
 
-        # Log comprehensive compression metrics
-        if logger.isEnabledFor(logging.INFO):
+            final_tokens = count_tokens(filtered_output)
+            final_lines = len(filtered_output.split("\n")) if filtered_output else 0
+            tokens_filtered = original_tokens - final_tokens
+            lines_filtered = original_lines - final_lines
+
+            # Calculate compression ratios
+            token_compression_ratio = (
+                (tokens_filtered / original_tokens * 100) if original_tokens > 0 else 0
+            )
+            line_compression_ratio = (
+                (lines_filtered / original_lines * 100) if original_lines > 0 else 0
+            )
+
+            # Log comprehensive compression metrics
             logger.info(
                 "Pytest compression completed - Detailed metrics:\n"
                 "  Original: %d tokens, %d lines\n"
