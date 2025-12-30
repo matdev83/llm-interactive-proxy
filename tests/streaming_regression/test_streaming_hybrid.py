@@ -201,7 +201,7 @@ async def test_hybrid_combined_streaming() -> None:
         reasoning_text, "Initial thoughts"
     )
     reasoning_backend = OpenAIStreamingEmulator(
-        chunks=reasoning_chunks, chunk_delay=0.011  # Above 10ms threshold
+        chunks=reasoning_chunks, chunk_delay=0.020  # Well above 10ms threshold for buffering detection
     )
 
     execution_text = "Final comprehensive answer based on reasoning"
@@ -209,7 +209,7 @@ async def test_hybrid_combined_streaming() -> None:
         execution_text, chunk_size=10
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.011  # Above 10ms threshold
+        chunks=execution_chunks, chunk_delay=0.020  # Well above 10ms threshold for buffering detection
     )
 
     app = build_test_app()
