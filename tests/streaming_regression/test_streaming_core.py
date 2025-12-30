@@ -223,7 +223,7 @@ async def test_gemini_streaming_incremental_delivery() -> None:
         GeminiStreamingEmulator.create_text_chunks(text, chunk_size=8),
     )
 
-    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.005)  # Reduced delay
+    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.02)  # Increased for reliable timing
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 

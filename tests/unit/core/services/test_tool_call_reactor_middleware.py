@@ -710,62 +710,6 @@ def _expected_path(relative_path: str) -> str:
     return os.path.abspath(os.path.join(os.getcwd(), relative_path.lstrip("/\\")))
 
 
-@pytest.mark.skip(reason="Path fixup is now handled by orchestrator's fixup pipeline")
-def test_maybe_fix_droid_antigravity_path_handles_single_filename_string() -> None:
-    """Single-segment relative paths should be normalized with leading forward slash."""
-    # This method no longer exists on ToolCallReactorFeature
-    # Path fixup is now handled by the orchestrator's fixup pipeline
-
-
-@pytest.mark.skip(reason="Path fixup is now handled by orchestrator's fixup pipeline")
-def test_maybe_fix_droid_antigravity_path_handles_single_filename_dict() -> None:
-    """Dictionary arguments should also be normalized for single-segment paths."""
-    # This method no longer exists on ToolCallReactorMiddleware
-    # Path fixup is now handled by the orchestrator's fixup pipeline
-
-
-@pytest.mark.skip(reason="Path fixup is now handled by orchestrator's fixup pipeline")
-def test_maybe_fix_droid_antigravity_path_handles_nested_path() -> None:
-    """Nested relative paths should be normalized with forward slashes."""
-    # This method no longer exists on ToolCallReactorFeature
-    # Path fixup is now handled by the orchestrator's fixup pipeline
-
-
-@pytest.mark.skip(reason="Path fixup is now handled by orchestrator's fixup pipeline")
-def test_maybe_fix_droid_antigravity_path_not_modified_for_absolute_path() -> None:
-    """Paths that are already absolute should not be modified."""
-    # This method no longer exists on ToolCallReactorFeature
-    # Path fixup is now handled by the orchestrator's fixup pipeline
-
-
-@pytest.mark.skip(reason="Path fixup is now handled by orchestrator's fixup pipeline")
-def test_maybe_fix_droid_antigravity_path_not_modified_for_drive_letter() -> None:
-    """Windows drive letter paths should not be modified."""
-    # This method no longer exists on ToolCallReactorFeature
-    # Path fixup is now handled by the orchestrator's fixup pipeline
-
-
-@pytest.mark.skip(reason="Path fixup is now handled by orchestrator's fixup pipeline")
-def test_maybe_fix_droid_antigravity_path_not_modified_for_non_droid_agent() -> None:
-    """Non-droid agents should not have paths modified."""
-    # This method no longer exists on ToolCallReactorFeature
-    # Path fixup is now handled by the orchestrator's fixup pipeline
-
-
-@pytest.mark.skip(reason="Path fixup is now handled by orchestrator's fixup pipeline")
-def test_maybe_fix_droid_antigravity_path_handles_factory_cli_agent() -> None:
-    """factory-cli user agent (Droid's actual User-Agent) should have paths fixed."""
-    # This method no longer exists on ToolCallReactorFeature
-    # Path fixup is now handled by the orchestrator's fixup pipeline
-
-
-@pytest.mark.skip(reason="Path fixup is now handled by orchestrator's fixup pipeline")
-def test_maybe_fix_droid_antigravity_path_handles_factory_variations() -> None:
-    """Various factory-related agent names should trigger the path fix."""
-    # This method no longer exists on ToolCallReactorFeature
-    # Path fixup is now handled by the orchestrator's fixup pipeline
-
-
 class TestVTCToolCallBypass:
     """Tests for VTC (Virtual Tool Calling) tool call bypass in ToolCallReactorFeature."""
 

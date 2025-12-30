@@ -72,15 +72,16 @@ class StreamingEmulatorBase(LLMBackend):
             self.chunk_timestamps.clear()
             self.chunks_sent = 0
 
-            for chunk in self.chunks:
-                # Always yield control to event loop to simulate streaming
-                # Even with chunk_delay=0, use a small delay to ensure separate async yields
-                # and consistent timing for regression detection
-                delay = self.chunk_delay if self.chunk_delay > 0 else 0.02
-                await asyncio.sleep(delay)
-
-                # Record timestamp after delay, right before yielding
-                # This reflects when chunks are actually sent, not when they're queued
+            for i, chunk in enumerate(self.chunks):
+                # Add delay before each chunk (except the first) to simulate realistic streaming
+                # This delay ensures chunks are produced incrementally, not all at once
+                if i > 0:
+                    delay = self.chunk_delay if self.chunk_delay > 0 else 0.02
+                    await asyncio.sleep(delay)
+                
+                # Record timestamp right before yielding to track when chunk is actually produced
+                # This ensures timestamps reflect when chunks are yielded, accounting for delays
+                # We record AFTER any sleep so the timestamp reflects the actual production time
                 self.chunk_timestamps.append(_perf_counter())
 
                 # Convert to ProcessedResponse
@@ -89,10 +90,10 @@ class StreamingEmulatorBase(LLMBackend):
                 else:
                     content = chunk
 
-                # Safe debug print
-                content_preview = str(content)[:50] if content else ""
-                print(f"DEBUG: Emulator yielding chunk: {content_preview!r}")
                 self.chunks_sent += 1
+                # Yield the chunk - this is where the async generator actually produces output
+                # The timestamp above was recorded just before this yield, so it reflects
+                # when the chunk is ready to be consumed
                 yield ProcessedResponse(content=content)
 
         return StreamingResponseEnvelope(

@@ -1,46 +1,13 @@
 {
     "version": "1.1.407",
-    "time": "1767136625342",
-    "generalDiagnostics": [
-        {
-            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\qwen_oauth.py",
-            "severity": "error",
-            "message": "No overloads for \"__setitem__\" match the provided arguments",
-            "range": {
-                "start": {
-                    "line": 1379,
-                    "character": 24
-                },
-                "end": {
-                    "line": 1379,
-                    "character": 67
-                }
-            },
-            "rule": "reportCallIssue"
-        },
-        {
-            "file": "c:\\Users\\Mateusz\\source\\repos\\llm-interactive-proxy\\src\\connectors\\qwen_oauth.py",
-            "severity": "error",
-            "message": "Argument of type \"dict[Unknown, Any]\" cannot be assigned to parameter \"value\" of type \"ChatMessage\" in function \"__setitem__\"\n┬á┬á\"dict[Unknown, Any]\" is not assignable to \"ChatMessage\"",
-            "range": {
-                "start": {
-                    "line": 1379,
-                    "character": 24
-                },
-                "end": {
-                    "line": 1379,
-                    "character": 67
-                }
-            },
-            "rule": "reportArgumentType"
-        }
-    ],
+    "time": "1767137507652",
+    "generalDiagnostics": [],
     "summary": {
         "filesAnalyzed": 1021,
-        "errorCount": 2,
+        "errorCount": 0,
         "warningCount": 0,
         "informationCount": 0,
-        "timeInSec": 18.986
+        "timeInSec": 22.469
     }
 }
 

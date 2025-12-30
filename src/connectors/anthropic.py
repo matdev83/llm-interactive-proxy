@@ -24,7 +24,7 @@ from src.core.common.exceptions import (
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -379,9 +379,6 @@ class AnthropicBackend(LLMBackend):
         For backward compatibility, also accepts legacy signature:
         chat_completions(request_data, processed_messages, effective_model, ...)
         """
-        # Import here to avoid circular imports
-        from src.connectors.contracts import ConnectorChatCompletionsRequest
-        from src.core.domain.chat import ChatMessage
         
         # Handle legacy API called with keyword arguments only (request_data=...)
         if request is None and "request_data" in kwargs:

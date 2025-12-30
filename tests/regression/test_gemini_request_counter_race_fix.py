@@ -17,11 +17,8 @@ from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 
 def _get_current_pacific_date() -> str:
     """Get current date in Pacific timezone."""
-    from freezegun import freeze_time
-
-    with freeze_time("2024-01-01 12:00:00"):
-        pacific_tz = pytz.timezone("America/Los_Angeles")
-        return datetime.now(pacific_tz).strftime("%Y-%m-%d")
+    pacific_tz = pytz.timezone("America/Los_Angeles")
+    return datetime.now(pacific_tz).strftime("%Y-%m-%d")
 
 
 class TestDailyRequestCounterRaceConditionFix:
@@ -32,17 +29,18 @@ class TestDailyRequestCounterRaceConditionFix:
         with tempfile.TemporaryDirectory() as tmpdir:
             persistence_path = Path(tmpdir) / "counter.json"
 
-            # Pre-populate with some state (use current date to match Pacific timezone)
-            current_date = _get_current_pacific_date()
-            with open(persistence_path, "w") as f:
-                json.dump(
-                    {
-                        "count": 100,
-                        "last_reset_date": current_date,
-                        "logged_thresholds": [700, 800, 900],
-                    },
-                    f,
-                )
+            # Pre-populate with some state (use frozen time to match Pacific timezone)
+            with freeze_time("2024-01-01 12:00:00"):
+                current_date = _get_current_pacific_date()
+                with open(persistence_path, "w") as f:
+                    json.dump(
+                        {
+                            "count": 100,
+                            "last_reset_date": current_date,
+                            "logged_thresholds": [700, 800, 900],
+                        },
+                        f,
+                    )
 
             with freeze_time("2024-01-01 12:00:00"):
                 counter = DailyRequestCounter(persistence_path, 1000)
@@ -134,20 +132,22 @@ class TestDailyRequestCounterRaceConditionFix:
             persistence_path = Path(tmpdir) / "counter.json"
 
             # Create counter
-            DailyRequestCounter(persistence_path, 1000)
+            with freeze_time("2024-01-01 12:00:00"):
+                DailyRequestCounter(persistence_path, 1000)
 
-            # Update state file externally (use current date to match Pacific timezone)
+            # Update state file externally (use frozen time to match Pacific timezone)
             # Note: thresholds are filtered to match _thresholds (700, 800, 900 for limit=1000)
-            current_date = _get_current_pacific_date()
-            with open(persistence_path, "w") as f:
-                json.dump(
-                    {
-                        "count": 500,
-                        "last_reset_date": current_date,
-                        "logged_thresholds": [700, 800, 900],
-                    },
-                    f,
-                )
+            with freeze_time("2024-01-01 12:00:00"):
+                current_date = _get_current_pacific_date()
+                with open(persistence_path, "w") as f:
+                    json.dump(
+                        {
+                            "count": 500,
+                            "last_reset_date": current_date,
+                            "logged_thresholds": [700, 800, 900],
+                        },
+                        f,
+                    )
 
             # Create new instance which will load state
             with freeze_time("2024-01-01 12:00:00"):

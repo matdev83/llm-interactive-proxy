@@ -389,6 +389,11 @@ async def test_capacity_exceeded_fails_closed(
     
     session_id = "test-session-capacity"
     
+    # Create a session for the command service to work with
+    from src.core.interfaces.session_service_interface import ISessionService
+    session_service = service_provider.get_required_service(ISessionService)
+    await session_service.create_session(session_id)
+    
     # Fill up to limit (1 tag)
     msg1 = ChatMessage(role="user", content="!/command1")
     msg1_id = identity_svc.compute_identity(msg1)

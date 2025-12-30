@@ -24,7 +24,7 @@ from src.connectors.contracts import (
 )
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.models_listing import ModelsListingResponse
 from src.core.domain.responses import (
     ResponseEnvelope,
@@ -539,9 +539,6 @@ class OpenAIConnector(LLMBackend):
         For backward compatibility, also accepts legacy signature:
         chat_completions(request_data, processed_messages, effective_model, ...)
         """
-        # Import here to avoid circular imports
-        from src.connectors.contracts import ConnectorChatCompletionsRequest
-        from src.core.domain.chat import ChatMessage
 
         # Handle legacy API called with keyword arguments only (request_data=...)
         if request is None and "request_data" in kwargs:
@@ -588,8 +585,6 @@ class OpenAIConnector(LLMBackend):
             ]
 
         # Convert request_data to domain object if it's a dict
-        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
-
         if isinstance(request_data, dict):
             # Ensure model is set from effective_model if not in dict
             request_dict = dict(request_data)
