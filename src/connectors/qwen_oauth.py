@@ -1374,13 +1374,12 @@ class QwenOAuthConnector(OpenAIConnector):
                 elif isinstance(msg, dict):
                     content = msg.get("content")
                     if isinstance(content, str) and not content.endswith(" /think"):
-                        # Create a modified ChatMessage object from the dict
-                        modified_msg_dict = dict(msg)
-                        modified_msg_dict["content"] = content + " /think"
-                        # Convert the modified dict to a ChatMessage object
+                        # Convert the dict to a ChatMessage object with modified content
                         from src.core.domain.chat import ChatMessage
 
-                        modified_chat_message = ChatMessage(**modified_msg_dict)
+                        modified_chat_message = ChatMessage(
+                            **{**msg, "content": content + " /think"}
+                        )
                         processed_messages[last_client_message_idx] = (
                             modified_chat_message
                         )
