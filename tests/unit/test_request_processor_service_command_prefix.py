@@ -67,7 +67,18 @@ async def test_request_processor_uses_app_state_command_prefix(monkeypatch) -> N
     async def _echo_process(request, _context):
         return request
 
-    def fake_redaction(*, api_keys, command_prefix):
+    # Store transform_pipeline reference for accessing command_prefix
+    transform_pipeline_ref = [None]
+    
+    def fake_redaction(*, api_keys):
+        # Get command prefix from transform pipeline for testing
+        # This will be set after transform_pipeline is created
+        if transform_pipeline_ref[0] is not None:
+            # Create a dummy session to get command prefix
+            dummy_session = Session(session_id="test")
+            command_prefix = transform_pipeline_ref[0]._get_command_prefix(dummy_session)
+        else:
+            command_prefix = app_state.get_command_prefix()
         captured_prefix["value"] = command_prefix
         middleware = MagicMock()
         middleware.process = AsyncMock(side_effect=_echo_process)
@@ -219,7 +230,16 @@ async def test_request_processor_prefers_session_command_prefix(monkeypatch) -> 
     async def _echo_process(request, _context):
         return request
 
-    def fake_redaction(*, api_keys, command_prefix):
+    # Store transform_pipeline reference for accessing command_prefix
+    transform_pipeline_ref = [None]
+    
+    def fake_redaction(*, api_keys):
+        # Get command prefix from transform pipeline for testing
+        # This will be set after transform_pipeline is created
+        if transform_pipeline_ref[0] is not None:
+            command_prefix = transform_pipeline_ref[0]._get_command_prefix(session_override)
+        else:
+            command_prefix = app_state.get_command_prefix()
         captured_prefix["value"] = command_prefix
         middleware = MagicMock()
         middleware.process = AsyncMock(side_effect=_echo_process)
@@ -285,6 +305,7 @@ async def test_request_processor_prefers_session_command_prefix(monkeypatch) -> 
     from src.core.services.request_transform_pipeline import RequestTransformPipeline
 
     transform_pipeline = RequestTransformPipeline(app_state=app_state)
+    transform_pipeline_ref[0] = transform_pipeline
 
     backend_executor = AsyncMock(spec=IBackendExecutor)
     backend_executor.execute.return_value = ResponseEnvelope(content={"ok": True})

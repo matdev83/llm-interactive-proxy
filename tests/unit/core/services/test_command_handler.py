@@ -64,6 +64,7 @@ def mock_app_state() -> IApplicationState:
     """Create a mock application state."""
     mock = MagicMock(spec=IApplicationState)
     mock.get_disable_commands.return_value = False
+    mock.get_disable_interactive_commands.return_value = False
     return mock
 
 
@@ -125,7 +126,11 @@ async def test_handle_when_commands_disabled_returns_processed_result(
     # Assert
     assert isinstance(result, ProcessedResult)
     assert result.command_executed is False
-    assert result.modified_messages == []
+    # When commands are disabled, commands are filtered from messages for security
+    assert len(result.modified_messages) == 1
+    assert (
+        result.modified_messages[0].content == ""
+    )  # Command "!/help" was filtered out
     mock_command_processor.process_messages.assert_not_called()
 
 

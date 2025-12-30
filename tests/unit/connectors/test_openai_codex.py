@@ -1,6 +1,7 @@
 import asyncio
 import json
 import threading
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -13,7 +14,16 @@ from src.connectors.openai_codex import (
     OpenAICodexConnector,
     OpenAICredentialsFileHandler,
 )
+from src.core.di.services import set_service_provider
 from src.core.domain.chat import ChatMessage, ChatRequest
+
+
+@pytest.fixture(autouse=True)
+def reset_di_container() -> Generator[None, None, None]:
+    """Reset DI container between tests to prevent state pollution."""
+    set_service_provider(None)
+    yield
+    set_service_provider(None)
 
 
 @pytest_asyncio.fixture(name="auth_dir")
@@ -154,6 +164,7 @@ async def test_openai_codex_reload_scheduled_from_thread(
 async def test_start_file_watching_success(auth_dir: Path):
     """Test that file watching starts successfully."""
     import os
+
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
@@ -210,6 +221,7 @@ async def test_start_file_watching_no_credentials_path():
 async def test_stop_file_watching_success(auth_dir: Path):
     """Test that file watching stops successfully."""
     import os
+
     async with httpx.AsyncClient() as client:
         from src.core.config.app_config import AppConfig
         from src.core.services.translation_service import TranslationService
@@ -406,32 +418,36 @@ async def test_load_auth_with_force_reload(auth_dir: Path):
         backend = OpenAICodexConnector(client, cfg, translation_service=ts)
         backend._oauth_dir_override = auth_dir
 
-        # First load
-        result1 = await backend._load_auth()
-        assert result1 is True
-        token1 = backend.api_key
-        last_modified1 = backend._last_modified
+        try:
+            # First load
+            result1 = await backend._load_auth()
+            assert result1 is True
+            token1 = backend.api_key
+            last_modified1 = backend._last_modified
 
-        # Update the file with new token but keep same timestamp
-        new_data = {"tokens": {"access_token": "force_reload_token"}}
-        (auth_dir / "auth.json").write_text(json.dumps(new_data), encoding="utf-8")
+            # Update the file with new token but keep same timestamp
+            new_data = {"tokens": {"access_token": "force_reload_token"}}
+            (auth_dir / "auth.json").write_text(json.dumps(new_data), encoding="utf-8")
 
-        # Set the timestamp back to simulate no change
-        import os
+            # Set the timestamp back to simulate no change
+            import os
 
-        os.utime(auth_dir / "auth.json", (last_modified1, last_modified1))
+            os.utime(auth_dir / "auth.json", (last_modified1, last_modified1))
 
-        # Load without force_reload - should use cache
-        result2 = await backend._load_auth(force_reload=False)
-        assert result2 is True
-        token2 = backend.api_key
-        assert token2 == token1  # Should be cached
+            # Load without force_reload - should use cache
+            result2 = await backend._load_auth(force_reload=False)
+            assert result2 is True
+            token2 = backend.api_key
+            assert token2 == token1  # Should be cached
 
-        # Load with force_reload - should reload from file
-        result3 = await backend._load_auth(force_reload=True)
-        assert result3 is True
-        token3 = backend.api_key
-        assert token3 == "force_reload_token"  # Should be new token
+            # Load with force_reload - should reload from file
+            result3 = await backend._load_auth(force_reload=True)
+            assert result3 is True
+            token3 = backend.api_key
+            assert token3 == "force_reload_token"  # Should be new token
+        finally:
+            # Clean up backend to prevent test isolation issues
+            await backend.shutdown()
 
 
 @pytest.mark.asyncio
@@ -445,19 +461,24 @@ async def test_file_handler_on_modified_path_comparison(auth_dir: Path):
         ts = TranslationService()
         backend = OpenAICodexConnector(client, cfg, translation_service=ts)
         backend._oauth_dir_override = auth_dir
-        await backend._load_auth()
 
-        handler = OpenAICredentialsFileHandler(backend)
+        try:
+            await backend._load_auth()
 
-        # Create a mock event with the same path
-        mock_event = MagicMock()
-        mock_event.is_directory = False
-        mock_event.src_path = str(auth_dir / "auth.json")
+            handler = OpenAICredentialsFileHandler(backend)
 
-        # Mock the schedule method to verify it was called
-        with patch.object(backend, "_schedule_credentials_reload") as mock_schedule:
-            handler.on_modified(mock_event)
-            mock_schedule.assert_called_once()
+            # Create a mock event with the same path
+            mock_event = MagicMock()
+            mock_event.is_directory = False
+            mock_event.src_path = str(auth_dir / "auth.json")
+
+            # Mock the schedule method to verify it was called
+            with patch.object(backend, "_schedule_credentials_reload") as mock_schedule:
+                handler.on_modified(mock_event)
+                mock_schedule.assert_called_once()
+        finally:
+            # Clean up backend to prevent test isolation issues
+            await backend.shutdown()
 
 
 @pytest.mark.asyncio
@@ -471,19 +492,24 @@ async def test_file_handler_on_modified_different_file(auth_dir: Path):
         ts = TranslationService()
         backend = OpenAICodexConnector(client, cfg, translation_service=ts)
         backend._oauth_dir_override = auth_dir
-        await backend._load_auth()
 
-        handler = OpenAICredentialsFileHandler(backend)
+        try:
+            await backend._load_auth()
 
-        # Create a mock event for a different file
-        mock_event = MagicMock()
-        mock_event.is_directory = False
-        mock_event.src_path = str(auth_dir / "other_file.json")
+            handler = OpenAICredentialsFileHandler(backend)
 
-        # Mock the schedule method to verify it was NOT called
-        with patch.object(backend, "_schedule_credentials_reload") as mock_schedule:
-            handler.on_modified(mock_event)
-            mock_schedule.assert_not_called()
+            # Create a mock event for a different file
+            mock_event = MagicMock()
+            mock_event.is_directory = False
+            mock_event.src_path = str(auth_dir / "other_file.json")
+
+            # Mock the schedule method to verify it was NOT called
+            with patch.object(backend, "_schedule_credentials_reload") as mock_schedule:
+                handler.on_modified(mock_event)
+                mock_schedule.assert_not_called()
+        finally:
+            # Clean up backend to prevent test isolation issues
+            await backend.shutdown()
 
 
 @pytest.mark.asyncio
@@ -535,6 +561,8 @@ async def test_openai_codex_blocked_without_flag(auth_dir: Path):
 
         assert exc_info.value.status_code == 403
         assert "Forbidden" in exc_info.value.detail
-        assert "--enable-openai-codex-backend-debugging-override" in exc_info.value.detail
+        assert (
+            "--enable-openai-codex-backend-debugging-override" in exc_info.value.detail
+        )
     finally:
         await backend.shutdown()

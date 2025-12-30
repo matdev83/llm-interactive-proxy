@@ -228,20 +228,18 @@ def _register_response_processor(services: ServiceCollection) -> None:
         stream_normalizer: IStreamNormalizer = provider.get_required_service(
             cast(type, IStreamNormalizer)  # type: ignore[type-abstract]
         )
+        import contextlib
+
         memory_capture = None
-        try:
-            memory_capture = provider.get_service(MemoryCaptureMiddleware)
-        except RuntimeError:
+        with contextlib.suppress(RuntimeError):
             # Optional service not registered
-            pass
+            memory_capture = provider.get_service(MemoryCaptureMiddleware)
         cancellation_coordinator = None
-        try:
+        with contextlib.suppress(RuntimeError):
+            # Optional service not registered
             cancellation_coordinator = provider.get_service(
                 cast(type, ISessionCancellationCoordinator)  # type: ignore[type-abstract]
             )
-        except RuntimeError:
-            # Optional service not registered
-            pass
         return ResponseProcessor(
             response_parser=response_parser,
             app_state=app_state,

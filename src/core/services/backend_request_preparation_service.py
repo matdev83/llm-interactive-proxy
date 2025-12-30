@@ -72,63 +72,68 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
         """
         final_request = request
 
-        # Process command results if commands were executed
-        if command_result.command_executed:
+        # Process modified_messages if they exist (either from command execution or filtering)
+        # This handles both command execution and command filtering when commands are disabled
+        final_messages: list[ChatMessage] = list(request.messages)
+        messages_were_modified = False
+
+        if command_result.modified_messages:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Command executed; modified_messages_count=%s, command_results_count=%s",
+                    "Processing modified_messages; command_executed=%s, modified_messages_count=%s",
+                    command_result.command_executed,
                     len(command_result.modified_messages or []),
-                    len(command_result.command_results or []),
                 )
 
-            final_messages: list[ChatMessage] = list(request.messages)
-            messages_were_modified = False
-
             # Process modified_messages: if they exist and have content, they replace original messages
-            if command_result.modified_messages:
-                if any(
-                    self._message_has_content(m)
-                    for m in command_result.modified_messages
-                ):
-                    normalized_messages: list[ChatMessage] = []
-                    for m in command_result.modified_messages:
-                        if isinstance(m, ChatMessage):
-                            normalized_messages.append(m)
-                        elif isinstance(m, dict):
-                            normalized_messages.append(ChatMessage(**m))
-                        else:
-                            normalized_messages.append(
-                                ChatMessage(
-                                    role=getattr(m, "role", "user"),
-                                    content=getattr(m, "content", ""),
-                                )
+            if any(
+                self._message_has_content(m) for m in command_result.modified_messages
+            ):
+                normalized_messages: list[ChatMessage] = []
+                for m in command_result.modified_messages:
+                    if isinstance(m, ChatMessage):
+                        normalized_messages.append(m)
+                    elif isinstance(m, dict):
+                        normalized_messages.append(ChatMessage(**m))
+                    else:
+                        normalized_messages.append(
+                            ChatMessage(
+                                role=getattr(m, "role", "user"),
+                                content=getattr(m, "content", ""),
                             )
-                    final_messages = normalized_messages
-                    messages_were_modified = True
-                else:
-                    # All modified messages are empty, skip backend call
-                    return None
-
-            # Process command_results: append tool outputs to the message list
-            if command_result.command_results:
-                extra_messages = []
-                for result in command_result.command_results:
-                    extracted = self._extract_messages_from_command_result(result)
-                    if extracted:
-                        extra_messages.extend(extracted)
-
-                if extra_messages:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Appending %s command result messages to backend request",
-                            len(extra_messages),
                         )
-                    final_messages.extend(extra_messages)
-                    messages_were_modified = True
+                final_messages = normalized_messages
+                messages_were_modified = True
+            else:
+                # All modified messages are empty, skip backend call
+                return None
 
-            # If messages were changed, create a new request object
-            if messages_were_modified:
-                final_request = request.model_copy(update={"messages": final_messages})
+        # Process command_results: append tool outputs to the message list
+        # Only process command_results when commands were actually executed
+        if command_result.command_executed and command_result.command_results:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Command executed; command_results_count=%s",
+                    len(command_result.command_results or []),
+                )
+            extra_messages = []
+            for result in command_result.command_results:
+                extracted = self._extract_messages_from_command_result(result)
+                if extracted:
+                    extra_messages.extend(extracted)
+
+            if extra_messages:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Appending %s command result messages to backend request",
+                        len(extra_messages),
+                    )
+                final_messages.extend(extra_messages)
+                messages_were_modified = True
+
+        # If messages were changed, create a new request object
+        if messages_were_modified:
+            final_request = request.model_copy(update={"messages": final_messages})
 
         # Apply history compaction to reduce stale tool outputs
         # This is done after command processing but before connector translation

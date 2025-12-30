@@ -141,11 +141,11 @@ def _register_middleware_application_manager(services: ServiceCollection) -> Non
 
         if getattr(cfg.session, "json_repair_enabled", False):
             json_service: JsonRepairService | None = None
-            try:
-                json_service = provider.get_service(JsonRepairService)
-            except RuntimeError:
+            import contextlib
+
+            with contextlib.suppress(RuntimeError):
                 # Optional service not registered
-                pass
+                json_service = provider.get_service(JsonRepairService)
             if json_service is not None:
                 features.append(JsonRepairFeature(cfg, json_service))
 

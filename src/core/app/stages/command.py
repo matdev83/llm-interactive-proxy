@@ -9,6 +9,7 @@ This stage registers command-related services:
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from src.core.config.app_config import AppConfig
@@ -200,27 +201,21 @@ class CommandStage(InitializationStage):
                 tail_extractor = provider.get_required_service(CommandTailExtractor)
                 match_filter = provider.get_required_service(CommandMatchFilter)
                 app_state = None
-                try:
-                    app_state = provider.get_service(cast(type, IApplicationState))
-                except RuntimeError:
+                with contextlib.suppress(RuntimeError):
                     # Optional service not registered
-                    pass
+                    app_state = provider.get_service(cast(type, IApplicationState))
                 # Get non-forwardable services (optional - may not be registered)
                 non_forwardable_registry = None
                 non_forwardable_identity_service = None
-                try:
+                with contextlib.suppress(RuntimeError):
                     non_forwardable_registry = provider.get_service(
                         cast(type, INonForwardableMessageRegistry)
                     )
-                except RuntimeError:
-                    pass
 
-                try:
+                with contextlib.suppress(RuntimeError):
                     non_forwardable_identity_service = provider.get_service(
                         cast(type, INonForwardableMessageIdentityService)
                     )
-                except RuntimeError:
-                    pass
                 return NewCommandService(
                     session_service,
                     command_parser,

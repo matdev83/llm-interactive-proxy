@@ -188,7 +188,13 @@ def _register_backend_non_streaming_response_handler(
             cancellation_coordinator = provider.get_service(
                 cast(type, ISessionCancellationCoordinator)
             )
-        except (RuntimeError, AttributeError, TypeError, ValueError, ServiceResolutionError):
+        except (
+            RuntimeError,
+            AttributeError,
+            TypeError,
+            ValueError,
+            ServiceResolutionError,
+        ):
             # Cancellation coordinator not available (optional dependency)
             # Log unexpected errors during service lookup to aid debugging
             if logger.isEnabledFor(logging.WARNING):
@@ -300,7 +306,9 @@ def _register_loop_detector_factory(services: ServiceCollection) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                "Failed to register ILoopDetectorFactory interface: %s", e, exc_info=True
+                "Failed to register ILoopDetectorFactory interface: %s",
+                e,
+                exc_info=True,
             )
 
 
@@ -347,7 +355,9 @@ def _register_angel_stream_verifier(services: ServiceCollection) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                "Failed to register IAngelStreamVerifier interface: %s", e, exc_info=True
+                "Failed to register IAngelStreamVerifier interface: %s",
+                e,
+                exc_info=True,
             )
 
 

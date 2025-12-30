@@ -36,8 +36,12 @@ class StubBackendService:
         self,
         *,
         reasoning_chunks: list[ProcessedResponse],
+        execution_chunks: list[ProcessedResponse] | None = None,
+        execution_response: dict[str, Any] | None = None,
     ) -> None:
         self.reasoning_chunks = reasoning_chunks
+        self.execution_chunks = execution_chunks or []
+        self.execution_response = execution_response
         self.calls: list[tuple[str, bool]] = []
 
     def _stream(
@@ -55,6 +59,7 @@ class StubBackendService:
         *,
         stream: bool,
         allow_failover: bool,
+        context: Any | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         self.calls.append((request.model, stream))
 
@@ -62,6 +67,18 @@ class StubBackendService:
             return StreamingResponseEnvelope(
                 content=self._stream(self.reasoning_chunks)
             )
+
+        # Execution phase models - return execution chunks when streaming
+        if request.model in ("zai-coding-plan:glm-4.6", "glm-4.6"):
+            # Return appropriate response type based on stream flag
+            if stream:
+                return StreamingResponseEnvelope(
+                    content=self._stream(self.execution_chunks)
+                )
+            # For non-streaming, return execution response if available
+            if self.execution_response:
+                return ResponseEnvelope(content=self.execution_response)
+            return ResponseEnvelope(content={})
 
         raise AssertionError(f"Unexpected model request: {request.model}")
 
@@ -183,7 +200,10 @@ async def test_hybrid_streaming_exposes_reasoning_before_execution() -> None:
         ProcessedResponse(metadata={"is_done": True}),
     ]
 
-    backend_service = StubBackendService(reasoning_chunks=reasoning_chunks)
+    backend_service = StubBackendService(
+        reasoning_chunks=reasoning_chunks,
+        execution_chunks=execution_chunks,
+    )
     backend_factory = StubBackendFactory(
         execution_stream_chunks=execution_chunks,
         execution_response=None,
@@ -214,8 +234,12 @@ async def test_hybrid_streaming_exposes_reasoning_before_execution() -> None:
     assert isinstance(execution_chunk.content, str)
     assert "Answer" in execution_chunk.content
 
-    assert backend_service.calls == [("minimax:MiniMax-M2", True)]
-    assert backend_factory.calls == ["zai-coding-plan"]
+    # BackendService is called for both reasoning and execution phases
+    # Execution phase uses BackendService.call_completion() directly, not the factory
+    assert ("minimax:MiniMax-M2", True) in backend_service.calls
+    assert ("zai-coding-plan:glm-4.6", True) in backend_service.calls
+    # Factory is not called when execution phase uses BackendService directly
+    assert len(backend_factory.calls) == 0
 
 
 @pytest.mark.asyncio
@@ -248,7 +272,11 @@ async def test_hybrid_non_streaming_merges_reasoning_into_response() -> None:
         ]
     }
 
-    backend_service = StubBackendService(reasoning_chunks=reasoning_chunks)
+    backend_service = StubBackendService(
+        reasoning_chunks=reasoning_chunks,
+        execution_chunks=[],
+        execution_response=execution_response,
+    )
     backend_factory = StubBackendFactory(
         execution_stream_chunks=[],
         execution_response=execution_response,
@@ -275,5 +303,12 @@ async def test_hybrid_non_streaming_merges_reasoning_into_response() -> None:
     assert message.get("content") == "Here is the solution."
     assert "<think>" in message.get("reasoning", "")
 
-    assert backend_service.calls == [("minimax:MiniMax-M2", True)]
-    assert backend_factory.calls == ["zai-coding-plan"]
+    # BackendService is called for both reasoning and execution phases
+    # Execution phase uses BackendService.call_completion() directly, not the factory
+    assert ("minimax:MiniMax-M2", True) in backend_service.calls
+    assert (
+        "zai-coding-plan:glm-4.6",
+        False,
+    ) in backend_service.calls  # Non-streaming execution
+    # Factory is not called when execution phase uses BackendService directly
+    assert len(backend_factory.calls) == 0

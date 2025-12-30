@@ -149,7 +149,11 @@ class CommandHandler(ICommandHandler):
         should_disable_commands = False
         if self._app_state is not None:
             try:
-                should_disable_commands = bool(self._app_state.get_disable_commands())
+                # Check both disable_commands and disable_interactive_commands
+                should_disable_commands = bool(
+                    self._app_state.get_disable_commands()
+                    or self._app_state.get_disable_interactive_commands()
+                )
             except AttributeError as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -158,11 +162,15 @@ class CommandHandler(ICommandHandler):
                 should_disable_commands = False
 
         if should_disable_commands:
-            # When commands are disabled, return early without processing
+            # When commands are disabled, filter commands from messages for security
             # This prevents command execution and forces backend call path
+            modified_messages = self._filter_commands_from_messages(
+                request_data.messages, context
+            )
+            # Return filtered messages so they're used in the backend call
             return ProcessedResult(
                 command_executed=False,
-                modified_messages=[],
+                modified_messages=modified_messages,
                 command_results=[],
             )
 
@@ -174,3 +182,78 @@ class CommandHandler(ICommandHandler):
     def _should_process_command_only(self, command_result: ProcessedResult) -> bool:
         """Determine if we should process command result without backend call."""
         return command_result.command_executed and not command_result.modified_messages
+
+    def _filter_commands_from_messages(
+        self, messages: list, context: RequestContext
+    ) -> list:
+        """Filter commands from message content when commands are disabled.
+
+        Args:
+            messages: List of messages to filter
+            context: Request context for accessing command prefix
+
+        Returns:
+            List of messages with commands removed from content
+        """
+        from src.core.commands.parser import CommandParser
+        from src.core.domain.chat import ChatMessage
+
+        # Get command prefix from app_state or context
+        command_prefix = "!/"  # default
+        if self._app_state is not None:
+            try:
+                prefix = self._app_state.get_command_prefix()
+                if prefix and isinstance(prefix, str):
+                    command_prefix = prefix
+            except Exception:
+                pass
+
+        parser = CommandParser(command_prefix=command_prefix)
+        filtered_messages = []
+
+        for message in messages:
+            if not isinstance(message, ChatMessage):
+                filtered_messages.append(message)
+                continue
+
+            if not message.content or not isinstance(message.content, str):
+                filtered_messages.append(message)
+                continue
+
+            # Parse commands in the content
+            parsed_commands = parser.parse(
+                message.content, command_prefix=command_prefix
+            )
+
+            if not parsed_commands:
+                # No commands found, keep message as-is
+                filtered_messages.append(message)
+                continue
+
+            # Remove all command matches from content
+            # Build new content by keeping parts between commands
+            content = message.content
+            sorted_commands = sorted(parsed_commands, key=lambda x: x.start)
+
+            # Build filtered content by keeping text between commands
+            filtered_parts = []
+            last_end = 0
+
+            for parsed_cmd in sorted_commands:
+                # Add text before this command
+                if parsed_cmd.start > last_end:
+                    filtered_parts.append(content[last_end : parsed_cmd.start])
+                # Skip the command itself
+                last_end = parsed_cmd.end
+
+            # Add remaining text after last command
+            if last_end < len(content):
+                filtered_parts.append(content[last_end:])
+
+            content = "".join(filtered_parts)
+
+            # Create new message with filtered content
+            filtered_message = message.model_copy(update={"content": content})
+            filtered_messages.append(filtered_message)
+
+        return filtered_messages

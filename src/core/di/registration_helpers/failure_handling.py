@@ -38,14 +38,14 @@ def resolve_failure_strategy(
     """
     # Try to get pre-registered strategy from DI first
     # Optional service - handle RuntimeError when not registered
+    import contextlib
+
     failure_handling_strategy = None
-    try:
+    with contextlib.suppress(RuntimeError):
+        # Service not registered - this is expected for optional services
         failure_handling_strategy = provider.get_service(
             cast(type, IFailureHandlingStrategy)
         )
-    except RuntimeError:
-        # Service not registered - this is expected for optional services
-        pass
     if failure_handling_strategy is not None:
         return failure_handling_strategy
 

@@ -177,7 +177,20 @@ class ServiceProvider(IServiceProvider):
 
     def get_service(self, service_type: type[T]) -> T | None:
         """Get a service of the given type if registered."""
-        return self._get_service(service_type, None)
+        try:
+            return self._get_service(service_type, None)
+        except RuntimeError as exc:
+            # get_service is a non-throwing API for the common "not registered"
+            # case, but it should still surface meaningful runtime resolution
+            # errors (e.g., resolving a SCOPED service from the root provider).
+            message = str(exc)
+            if message.startswith("Service ") and message.endswith(
+                " is not registered"
+            ):
+                pop_resolution()
+                return None
+            pop_resolution()
+            raise
 
     def get_required_service(self, service_type: type[T]) -> T:
         """Get a service of the given type, throwing if not found."""

@@ -345,21 +345,17 @@ class TestPhaseExecutor:
     async def test_execute_execution_phase_success(
         self,
         phase_executor,
-        mock_backend_factory,
-        mock_backend_connector,
+        mock_backend_service,
     ):
         """Test successful execution phase."""
         with patch(
             "src.core.di.services.get_required_service",
-            return_value=mock_backend_factory,
+            return_value=mock_backend_service,
         ):
-            mock_backend_factory.ensure_backend = AsyncMock(
-                return_value=mock_backend_connector
-            )
             response = ResponseEnvelope(
                 content={"choices": [{"message": {"content": "response"}}]}
             )
-            mock_backend_connector.chat_completions = AsyncMock(return_value=response)
+            mock_backend_service.call_completion = AsyncMock(return_value=response)
 
             request_data = {"model": "test-model", "messages": []}
             augmented_messages = [{"role": "user", "content": "test"}]
@@ -374,32 +370,27 @@ class TestPhaseExecutor:
             )
 
             assert isinstance(result, ResponseEnvelope)
-            mock_backend_connector.chat_completions.assert_called_once()
+            mock_backend_service.call_completion.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_execute_execution_phase_timeout(
         self,
         phase_executor,
-        mock_backend_factory,
-        mock_backend_connector,
+        mock_backend_service,
     ):
         """Test execution phase timeout handling."""
         phase_executor.config.backends.hybrid_execution_model_timeout = 0.1
 
         with patch(
             "src.core.di.services.get_required_service",
-            return_value=mock_backend_factory,
+            return_value=mock_backend_service,
         ):
-            mock_backend_factory.ensure_backend = AsyncMock(
-                return_value=mock_backend_connector
-            )
-
-            # Mock slow response
+            # Mock slow response that will timeout
             async def slow_response():
                 await asyncio.sleep(1.0)
                 return ResponseEnvelope(content={})
 
-            mock_backend_connector.chat_completions = slow_response
+            mock_backend_service.call_completion = slow_response
 
             request_data = {"model": "test-model", "messages": []}
             augmented_messages = [{"role": "user", "content": "test"}]
@@ -420,14 +411,14 @@ class TestPhaseExecutor:
     async def test_execute_execution_phase_backend_not_found(
         self,
         phase_executor,
-        mock_backend_factory,
+        mock_backend_service,
     ):
         """Test execution phase when backend is not found."""
         with patch(
             "src.core.di.services.get_required_service",
-            return_value=mock_backend_factory,
+            return_value=mock_backend_service,
         ):
-            mock_backend_factory.ensure_backend = AsyncMock(
+            mock_backend_service.call_completion = AsyncMock(
                 side_effect=ValueError("Backend not found")
             )
 
@@ -450,14 +441,13 @@ class TestPhaseExecutor:
     async def test_execute_execution_phase_uri_params(
         self,
         phase_executor,
-        mock_backend_factory,
-        mock_backend_connector,
+        mock_backend_service,
     ):
         """Test execution phase with URI parameters."""
         with (
             patch(
                 "src.core.di.services.get_required_service",
-                return_value=mock_backend_factory,
+                return_value=mock_backend_service,
             ),
             patch(
                 "src.core.services.uri_parameter_validator.URIParameterValidator"
@@ -469,11 +459,8 @@ class TestPhaseExecutor:
             )
             mock_validator_class.return_value = mock_validator
 
-            mock_backend_factory.ensure_backend = AsyncMock(
-                return_value=mock_backend_connector
-            )
             response = ResponseEnvelope(content={})
-            mock_backend_connector.chat_completions = AsyncMock(return_value=response)
+            mock_backend_service.call_completion = AsyncMock(return_value=response)
 
             request_data = {"model": "test-model", "messages": []}
             augmented_messages = [{"role": "user", "content": "test"}]

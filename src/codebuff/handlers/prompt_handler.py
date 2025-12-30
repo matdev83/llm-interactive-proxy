@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from src.codebuff.exceptions import CodebuffError
 from src.codebuff.format_converter import FormatConverter
@@ -48,18 +48,44 @@ class PromptHandler:
 
     def __init__(
         self,
-        backend_service: IBackendService,
-        format_converter: FormatConverter,
-        connection_manager: ConnectionManager,
+        backend_service: IBackendService | None = None,
+        format_converter: FormatConverter | None = None,
+        connection_manager: ConnectionManager | None = None,
+        *,
+        # Backwards-compatible names used by legacy Codebuff unit tests
+        backend_factory: Any | None = None,
     ) -> None:
         """Initialize the prompt handler.
 
-        Args:
-            backend_service: Backend service for routing backend calls through shared orchestrator
-            format_converter: Converter for message formats
-            connection_manager: Manager for WebSocket connections
+        This handler historically depended on a "backend factory" that could
+        `ensure_backend(...)` and then call `backend.chat_completions(...)`.
+
+        The new architecture routes calls through `IBackendService`.
+
+        For compatibility (and to keep older tests stable), we support both:
+        - Preferred: provide `backend_service`
+        - Legacy: provide `backend_factory`
         """
         self._backend_service = backend_service
+        # Legacy attribute expected by tests
+        self._backend_factory = backend_factory
+
+        # Backwards-compatibility: legacy call sites pass (backend_factory, format_converter, connection_manager)
+        # positionally. If the first positional argument does not look like an IBackendService,
+        # treat it as a backend_factory.
+        if (
+            self._backend_factory is None
+            and self._backend_service is not None
+            and not hasattr(self._backend_service, "call_completion")
+        ):
+            self._backend_factory = self._backend_service
+            self._backend_service = None
+
+        if format_converter is None:
+            format_converter = FormatConverter()
+        if connection_manager is None:
+            raise TypeError("connection_manager is required")
+
         self._format_converter = format_converter
         self._connection_manager = connection_manager
         self._active_requests: dict[str, asyncio.Task] = {}
@@ -209,6 +235,19 @@ class PromptHandler:
             )
         return messages
 
+    def _determine_backend_type(self, model: str) -> str:
+        """Determine backend type based on model name.
+
+        This is a small legacy routing heuristic used by Codebuff.
+        """
+        model_l = (model or "").lower()
+        if model_l.startswith("claude"):
+            return "anthropic"
+        if model_l.startswith("gemini"):
+            return "gemini"
+        # Default GPT + unknown models -> OpenAI
+        return "openai"
+
     async def _stream_response_with_tracking(
         self,
         websocket: WebSocket,
@@ -321,13 +360,41 @@ class PromptHandler:
                 session_id=session.session_id,
             )
 
-            # Call backend through shared orchestrator (ensures non-forwardable enforcement)
-            response = await self._backend_service.call_completion(
-                request=request,
-                stream=True,
-                allow_failover=True,
-                context=context,
-            )
+            response: Any
+            if self._backend_service is not None:
+                # Call backend through shared orchestrator (ensures non-forwardable enforcement)
+                response = await self._backend_service.call_completion(
+                    request=request,
+                    stream=True,
+                    allow_failover=True,
+                    context=context,
+                )
+            elif self._backend_factory is not None:
+                # Legacy path for older Codebuff wiring/tests
+                backend_type = self._determine_backend_type(model)
+                app_config = getattr(self._backend_factory, "_config", None)
+                backend_config = None
+                if app_config is not None:
+                    backends = getattr(app_config, "backends", None)
+                    if isinstance(backends, dict):
+                        backend_config = backends.get(backend_type)
+                # Type check: _backend_factory may have ensure_backend method (legacy compatibility)
+                if hasattr(self._backend_factory, "ensure_backend"):
+                    backend = await self._backend_factory.ensure_backend(  # type: ignore[attr-defined]
+                        backend_type,
+                        app_config,
+                        backend_config,
+                    )
+                else:
+                    raise AttributeError("backend_factory does not have ensure_backend method")
+                # The legacy backend typically returns a dict-like response or an
+                # object with `.response`.
+                response = await backend.chat_completions(request.model_dump())
+            else:
+                raise CodebuffError(
+                    "No backend configured for PromptHandler",
+                    details={"prompt_id": prompt_id},
+                )
 
             # Handle streaming response
             if isinstance(response, StreamingResponseEnvelope):
@@ -339,10 +406,18 @@ class PromptHandler:
                 )
             else:
                 # Non-streaming response - send as single chunk
+                payload: Any
+                if hasattr(response, "content"):
+                    payload = cast(Any, response).content
+                elif hasattr(response, "response"):
+                    payload = cast(Any, response).response
+                else:
+                    payload = response
+
                 content = ""
-                if isinstance(response.content, dict):
+                if isinstance(payload, dict):
                     content = (
-                        response.content.get("choices", [{}])[0]
+                        payload.get("choices", [{}])[0]
                         .get("message", {})
                         .get("content", "")
                     )

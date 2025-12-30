@@ -89,6 +89,60 @@ class _FakeBackendService:
             return SimpleNamespace(content="<override_angel>True</override_angel>")
         return SimpleNamespace(content=self.corrected_text)
 
+    def compute_identity(self, message: ChatMessage) -> str:
+        """Mock implementation of compute_identity for INonForwardableMessageIdentityService."""
+        import hashlib
+        content = str(message.content) if message.content else ""
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    def reset(self) -> None:
+        """Mock implementation of reset for ILoopDetector."""
+
+    def is_enabled(self) -> bool:
+        """Mock implementation of is_enabled for ILoopDetector."""
+        return False
+
+    def process_chunk(self, chunk: str) -> Any:
+        """Mock implementation of process_chunk for ILoopDetector."""
+        return None
+
+    def get_loop_history(self) -> list:
+        """Mock implementation of get_loop_history for ILoopDetector."""
+        return []
+
+    def get_current_state(self) -> Any:
+        """Mock implementation of get_current_state for ILoopDetector."""
+        return None
+
+    def get_stats(self) -> Any:
+        """Mock implementation of get_stats for ILoopDetector."""
+        return None
+
+    async def check_for_loops(self, content: str) -> Any:
+        """Mock implementation of check_for_loops for ILoopDetector."""
+        from src.core.interfaces.loop_detector_interface import LoopDetectionResult
+        return LoopDetectionResult(has_loop=False)
+
+    async def tag_identities(
+        self,
+        session_id: str,
+        identities: list,
+        *,
+        scope: Any,
+        reason: str,
+    ) -> None:
+        """Mock implementation of tag_identities for INonForwardableMessageRegistry."""
+
+    async def is_tagged(
+        self,
+        session_id: str,
+        identity: str,
+        *,
+        scope: Any,
+    ) -> bool:
+        """Mock implementation of is_tagged for INonForwardableMessageRegistry."""
+        return False
+
 
 class _DummyAppState:
     def __init__(self, config: AppConfig) -> None:

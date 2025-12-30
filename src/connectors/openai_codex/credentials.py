@@ -62,8 +62,26 @@ class OpenAICredentialsFileHandler(FileSystemEventHandler):
             # Compare paths using Path objects to handle Windows/Unix differences
             try:
                 event_path = Path(event.src_path).resolve()
-                auth_path = getattr(self._target, "_auth_path", None)
-                auth_path = auth_path.resolve() if isinstance(auth_path, Path) else None
+                # Get auth_path - try target first, then credential manager
+                auth_path = None
+                # Try to get _auth_path from target (property or attribute)
+                try:
+                    auth_path_attr = getattr(self._target, "_auth_path", None)
+                    if isinstance(auth_path_attr, Path):
+                        auth_path = auth_path_attr.resolve()
+                except Exception:
+                    pass
+
+                # Fallback: get from credential manager if target doesn't have it
+                if auth_path is None and hasattr(self._target, "_credential_manager"):
+                    try:
+                        cred_mgr = getattr(self._target, "_credential_manager", None)
+                        if cred_mgr is not None:
+                            auth_path_attr = getattr(cred_mgr, "_auth_path", None)
+                            if isinstance(auth_path_attr, Path):
+                                auth_path = auth_path_attr.resolve()
+                    except Exception:
+                        pass
 
                 if auth_path and event_path == auth_path:
                     logger.debug(

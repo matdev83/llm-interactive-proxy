@@ -123,7 +123,8 @@ def register_command_pipeline_services(services: ServiceCollection) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register ICommandPolicyService interface: {e}", exc_info=True
+                f"Failed to register ICommandPolicyService interface: {e}",
+                exc_info=True,
             )
 
     # Register CommandService

@@ -131,13 +131,11 @@ def register_backend_service(services: ServiceCollection) -> None:
             )
             # Optional service - handle RuntimeError when not registered
             usage_tracking_service: IUsageTrackingService | None = None
-            try:
+            with contextlib.suppress(RuntimeError):
+                # Service not registered - this is expected for optional services
                 usage_tracking_service = provider.get_service(
                     cast(type, IUsageTrackingService)
                 )
-            except RuntimeError:
-                # Service not registered - this is expected for optional services
-                pass
 
             stream_formatting_service: IStreamFormattingService = (
                 provider.get_required_service(cast(type, IStreamFormattingService))

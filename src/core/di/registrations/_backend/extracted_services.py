@@ -148,26 +148,24 @@ def register_extracted_backend_services(services: ServiceCollection) -> None:
         def _usage_tracking_wrapper_factory(
             provider: IServiceProvider,
         ) -> UsageTrackingWrapper:
+            import contextlib
+
             from src.core.interfaces.stream_formatting_interface import (
                 IStreamFormattingService,
             )
 
             # Optional service - handle RuntimeError when not registered
             usage_service = None
-            try:
-                usage_service = provider.get_service(cast(type, IUsageTrackingService))
-            except RuntimeError:
+            with contextlib.suppress(RuntimeError):
                 # Service not registered - this is expected for optional services
-                pass
+                usage_service = provider.get_service(cast(type, IUsageTrackingService))
             # Optional service - handle RuntimeError when not registered
             stream_formatting = None
-            try:
+            with contextlib.suppress(RuntimeError):
+                # Service not registered - this is expected for optional services
                 stream_formatting = provider.get_service(
                     cast(type, IStreamFormattingService)
                 )
-            except RuntimeError:
-                # Service not registered - this is expected for optional services
-                pass
             return UsageTrackingWrapper(
                 usage_tracking_service=usage_service,
                 stream_formatting_service=stream_formatting,

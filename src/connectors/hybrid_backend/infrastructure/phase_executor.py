@@ -624,10 +624,14 @@ class PhaseExecutor:
 
         try:
             # Prepare canonical request for backend service
+            # Respect the original request's stream flag if provided
+            original_stream = getattr(execution_request, "stream", False)
+            if isinstance(request_data, dict):
+                original_stream = request_data.get("stream", original_stream)
             canonical_execution_request = self._prepare_backend_request(
                 execution_request,
                 target_model=f"{execution_backend}:{execution_model}",
-                stream=False,  # Execution phase is typically non-streaming
+                stream=original_stream,  # Respect original request's stream flag
                 messages=augmented_messages,
             )
 
@@ -663,10 +667,12 @@ class PhaseExecutor:
             )
 
             # Call execution model with timeout via backend service (ensures non-forwardable enforcement)
+            # Use the stream flag from the canonical request
+            execution_stream = getattr(canonical_execution_request, "stream", False)
             response = await asyncio.wait_for(
                 backend_service.call_completion(
                     request=canonical_execution_request,
-                    stream=False,
+                    stream=execution_stream,
                     allow_failover=False,
                     context=context,
                 ),

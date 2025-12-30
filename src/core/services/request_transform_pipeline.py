@@ -164,6 +164,34 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
         return should_redact
 
+    def _get_command_prefix(self, session: object) -> str | None:
+        """Get command prefix from session override or app_state.
+
+        Args:
+            session: Session object
+
+        Returns:
+            Command prefix string or None
+        """
+        # Check session override first
+        try:
+            session_state = self._get_session_state(session)
+            if session_state is not None:
+                session_prefix = getattr(session_state, "command_prefix_override", None)
+                if isinstance(session_prefix, str):
+                    return session_prefix
+        except Exception:
+            pass
+
+        # Fall back to app_state
+        if self._app_state is not None:
+            try:
+                return self._app_state.get_command_prefix()
+            except Exception:
+                pass
+
+        return None
+
     async def _apply_redaction(
         self,
         context: RequestContext,

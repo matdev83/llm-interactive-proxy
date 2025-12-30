@@ -456,7 +456,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Credential coordinator
         self._credential_coordinator: ICredentialCoordinator | None = None
         if provider:
-            self._credential_coordinator = provider.get_service(ICredentialCoordinator)  # type: ignore[type-abstract]
+            try:
+                self._credential_coordinator = provider.get_service(ICredentialCoordinator)  # type: ignore[type-abstract]
+            except RuntimeError as exc:
+                logger.debug(
+                    "DI service missing during connector initialization (%s); using local fallback for credential coordinator",
+                    exc,
+                )
         if not self._credential_coordinator:
             # Fallback: construct locally
             self._credential_coordinator = GeminiCredentialCoordinator(
@@ -467,7 +473,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Model registry
         self._model_registry: IModelRegistry | None = None
         if provider:
-            self._model_registry = provider.get_service(IModelRegistry)  # type: ignore[type-abstract]
+            try:
+                self._model_registry = provider.get_service(IModelRegistry)  # type: ignore[type-abstract]
+            except RuntimeError as exc:
+                logger.debug(
+                    "DI service missing during connector initialization (%s); using local fallback for model registry",
+                    exc,
+                )
         if not self._model_registry:
             # Fallback: construct locally
             self._model_registry = GeminiModelRegistry(
@@ -482,7 +494,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Health check service
         self._health_check_service: IHealthCheckService | None = None
         if provider:
-            self._health_check_service = provider.get_service(IHealthCheckService)  # type: ignore[type-abstract]
+            try:
+                self._health_check_service = provider.get_service(IHealthCheckService)  # type: ignore[type-abstract]
+            except RuntimeError as exc:
+                logger.debug(
+                    "DI service missing during connector initialization (%s); using local fallback for health check service",
+                    exc,
+                )
         if not self._health_check_service:
             # Fallback: construct locally
             disable_health_checks = self.config.get("disable_health_checks", False)
@@ -497,7 +515,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # Error mapper
         self._error_mapper: IErrorMapper | None = None
         if provider:
-            self._error_mapper = provider.get_service(IErrorMapper)  # type: ignore[type-abstract]
+            try:
+                self._error_mapper = provider.get_service(IErrorMapper)  # type: ignore[type-abstract]
+            except RuntimeError as exc:
+                logger.debug(
+                    "DI service missing during connector initialization (%s); using local fallback for error mapper",
+                    exc,
+                )
         if not self._error_mapper:
             # Fallback: construct locally
             self._error_mapper = GeminiErrorMapper()
@@ -505,7 +529,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # VTC wrapper builder
         self._vtc_wrapper_builder: IVtcWrapperBuilder | None = None
         if provider:
-            self._vtc_wrapper_builder = provider.get_service(IVtcWrapperBuilder)  # type: ignore[type-abstract]
+            try:
+                self._vtc_wrapper_builder = provider.get_service(IVtcWrapperBuilder)  # type: ignore[type-abstract]
+            except RuntimeError as exc:
+                logger.debug(
+                    "DI service missing during connector initialization (%s); using local fallback for VTC wrapper builder",
+                    exc,
+                )
         if not self._vtc_wrapper_builder:
             # Fallback: construct locally
             self._vtc_wrapper_builder = GeminiVtcWrapperBuilder(
@@ -2098,7 +2128,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             logger.error(
                 f"Unexpected error during streaming API call: {e}", exc_info=True
             )
-            raise BackendError(f"Unexpected error during streaming API call: {e}") from e
+            raise BackendError(
+                f"Unexpected error during streaming API call: {e}"
+            ) from e
 
     def _build_vtc_wrapper(
         self, request_data: Any, effective_model: str
@@ -2537,7 +2569,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             except asyncio.CancelledError:
                 # Re-raise cancellation to allow proper cleanup
                 raise
-            except (OSError, ProcessLookupError, AttributeError, RuntimeError, ValueError) as exc:
+            except (
+                OSError,
+                ProcessLookupError,
+                AttributeError,
+                RuntimeError,
+                ValueError,
+            ) as exc:
                 # Best-effort cleanup; suppress errors to avoid masking real failures
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(

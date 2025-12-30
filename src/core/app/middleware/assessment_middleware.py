@@ -296,18 +296,25 @@ class AssessmentMiddleware:
             request.messages
         )  # Index where injected messages begin
 
-        # Create new request with steering message using Pydantic model_copy
-        modified_request = request.model_copy(update={"messages": new_messages})
+        # Store injection boundary in request metadata for later use in RequestContext.
+        # ChatRequest is a frozen Pydantic model, so we must update extra_body via model_copy
+        # rather than mutating it in-place.
+        existing_extra_body = (
+            request.extra_body
+            if hasattr(request, "extra_body") and request.extra_body
+            else {}
+        )
+        new_extra_body = {
+            **existing_extra_body,
+            "_proxy_injected_messages_start_index": injection_start_index,
+        }
 
-        # Store injection boundary in request metadata for later use in RequestContext
-        # This will be picked up when RequestContext is created/updated
-        if (
-            not hasattr(modified_request, "extra_body")
-            or modified_request.extra_body is None
-        ):
-            modified_request.extra_body = {}
-        modified_request.extra_body["_proxy_injected_messages_start_index"] = (
-            injection_start_index
+        # Create new request with steering message using Pydantic model_copy
+        modified_request = request.model_copy(
+            update={
+                "messages": new_messages,
+                "extra_body": new_extra_body,
+            }
         )
 
         if logger.isEnabledFor(logging.INFO):

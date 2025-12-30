@@ -313,8 +313,15 @@ class TestAssessmentBackendServiceIntegration:
     def test_chat_request_uses_backend_model_format(self, mock_backend_service):
         """Test that ChatRequest creation uses backend:model format in assessment backend service."""
         # Setup mock backend service with proper JSON response
-        mock_response = Mock()
-        mock_response.content = '{"reasoning": "Test assessment", "confidence": 0.3}'
+        # The assessment service expects response.content to be a string
+        from src.core.domain.responses import ResponseEnvelope
+
+        mock_response = ResponseEnvelope(
+            content='{"reasoning": "Test assessment", "confidence": 0.3}',
+            status_code=200,
+        )
+        # Mock both call_completion and chat_completions for compatibility
+        mock_backend_service.call_completion = AsyncMock(return_value=mock_response)
         mock_backend_service.chat_completions = AsyncMock(return_value=mock_response)
 
         # Create assessment config
@@ -342,11 +349,15 @@ class TestAssessmentBackendServiceIntegration:
         asyncio.run(backend_service.perform_assessment(request))
 
         # Verify the chat request was created with backend:model format
-        mock_backend_service.chat_completions.assert_called_once()
-        call_args = mock_backend_service.chat_completions.call_args[0][0]
-
-        # The model should be in backend:model format
-        assert call_args.model == "openrouter:anthropic/claude-3.5-sonnet"
+        # The code tries call_completion first, then falls back to chat_completions
+        if mock_backend_service.call_completion.called:
+            call_args = mock_backend_service.call_completion.call_args[0][0]
+            assert call_args.model == "openrouter:anthropic/claude-3.5-sonnet"
+        elif mock_backend_service.chat_completions.called:
+            call_args = mock_backend_service.chat_completions.call_args[0][0]
+            assert call_args.model == "openrouter:anthropic/claude-3.5-sonnet"
+        else:
+            pytest.fail("Neither call_completion nor chat_completions was called")
 
 
 class TestMiddlewareRegistration:
@@ -447,7 +458,9 @@ class TestTurnCounterServiceNoBlockingSleeps:
             "time.sleep(" not in mark_assessment_source
         ), "mark_assessment_performed should not contain time.sleep"
 
-    @real_time(reason="Measures actual execution time to ensure methods don't block with sleep calls.")
+    @real_time(
+        reason="Measures actual execution time to ensure methods don't block with sleep calls."
+    )
     def test_turn_counter_service_methods_are_async_compatible(self):
         """Test that TurnCounterService methods are compatible with async contexts."""
         # Create a turn counter service

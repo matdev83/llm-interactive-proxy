@@ -52,11 +52,13 @@ class ApplicationTestBuilder(ApplicationBuilder):
             CoreServicesStage,
             InfrastructureStage,
             ProcessorStage,
+            SteeringStage,
         )
         from src.core.app.stages.test_stages import MockBackendStage
 
         self.add_stage(InfrastructureStage())
         self.add_stage(CoreServicesStage())
+        self.add_stage(SteeringStage())  # Register steering services
         self.add_stage(MockBackendStage())  # Mock backends instead of real ones
         self.add_stage(CommandStage())
         self.add_stage(ProcessorStage())
