@@ -265,13 +265,17 @@ class TestQwenOAuthAuthentication:
                     connector, "_refresh_token_if_needed", new_callable=AsyncMock
                 ) as mock_refresh,
                 patch(
-                    "src.connectors.openai.OpenAIConnector.chat_completions",
+                    "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
                     new_callable=AsyncMock,
                 ) as mock_chat,
             ):
                 # Configure mocks explicitly
                 mock_validate.return_value = True
                 mock_refresh.return_value = True
+                from src.core.domain.responses import ResponseEnvelope
+                mock_chat.return_value = ResponseEnvelope(
+                    content={"id": "test-id", "choices": []},
+                )
 
                 # Create a test request
                 request = ChatRequest(

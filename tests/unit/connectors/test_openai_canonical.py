@@ -83,7 +83,7 @@ class TestOpenAICanonicalAPI:
         import inspect
         
         # Check if canonical method exists by inspecting signature
-        # The canonical API should have a single parameter named "request"
+        # The canonical API should have a parameter named "request" as the first argument
         method = getattr(openai_connector, "chat_completions", None)
         assert method is not None, "chat_completions method not found"
         
@@ -91,20 +91,21 @@ class TestOpenAICanonicalAPI:
             sig = inspect.signature(method)
             params = list(sig.parameters.values())
             
-            # Check if this is the canonical signature (single "request" parameter)
-            if len(params) == 1 and params[0].name == "request":
+            # Check if the first parameter is "request"
+            if len(params) >= 1 and params[0].name == "request":
                 # Canonical API found
                 param_annotation = params[0].annotation
                 # Check if annotation matches ConnectorChatCompletionsRequest
+                # Note: It might be Union[ConnectorChatCompletionsRequest, Any] due to legacy support
                 assert (
                     param_annotation == ConnectorChatCompletionsRequest
                     or "ConnectorChatCompletionsRequest" in str(param_annotation)
                 ), f"Expected ConnectorChatCompletionsRequest, got {param_annotation}"
             else:
-                # Legacy signature - this is expected until we implement canonical
+                # Legacy signature without 'request' as first param
                 pytest.fail(
-                    "Canonical chat_completions method not found. "
-                    f"Found legacy signature with {len(params)} parameters: {[p.name for p in params]}"
+                    "Canonical chat_completions method signature not found. "
+                    f"Found signature with {len(params)} parameters: {[p.name for p in params]}"
                 )
         except (ValueError, TypeError) as e:
             pytest.fail(f"Failed to inspect signature: {e}")

@@ -1553,8 +1553,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                     "message", user_message
                                 )
                             # Yield quota error chunk instead of raising exception
-                            from pydantic.types import JsonValue
                             from typing import cast
+
+                            from pydantic.types import JsonValue
                             quota_code = 503
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
@@ -1581,8 +1582,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                     "message", user_message
                                 )
                             # Yield general error chunk instead of raising exception
-                            from pydantic.types import JsonValue
                             from typing import cast
+
+                            from pydantic.types import JsonValue
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
                                 "object": "chat.completion.chunk",

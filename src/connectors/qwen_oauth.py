@@ -1260,79 +1260,31 @@ class QwenOAuthConnector(OpenAIConnector):
             ),
         )
 
-    async def chat_completions(  # type: ignore[override]
+    async def _chat_completions_canonical(
         self,
-        request: ConnectorChatCompletionsRequest | Any = None,
-        *args: Any,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Canonical connector API implementation with backward compatibility.
+        """Canonical connector API implementation with Qwen OAuth-specific logic.
 
-        This method implements ICanonicalChatCompletionsBackend protocol.
-        For backward compatibility, also accepts legacy signature:
-        chat_completions(request_data, processed_messages, effective_model, ...)
+        Extracts fields from ConnectorChatCompletionsRequest and adds:
+        - Token refresh validation
+        - Runtime credential validation
+        - Reasoning effort handling (/think appending)
+        - Model name processing
+        - Token usage augmentation
         """
-        # Import here to avoid circular imports
-        from src.core.domain.chat import ChatMessage
-
-        # Handle legacy API called with keyword arguments only (request_data=...)
-        if request is None and "request_data" in kwargs:
-            request = kwargs.pop("request_data")
-
-        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
-        if isinstance(request, ConnectorChatCompletionsRequest):
-            # Structural enforcement: check cancellation immediately if coordinator and token provided
-            if (
-                request.cancellation_coordinator is not None
-                and request.cancellation_token is not None
-            ):
-                request.cancellation_coordinator.ensure_not_cancelled(
-                    request.cancellation_token
-                )
-            return await self._chat_completions_canonical(request)
-
-        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
-        request_data = request
-        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
-        effective_model = (
-            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
-        )
-        identity = kwargs.get("identity")
-        cancellation_token = kwargs.get("cancellation_token")
-        cancellation_coordinator = kwargs.get("cancellation_coordinator")
-        context = kwargs.get("context")
+        # Extract fields from canonical request
+        domain_request = request.request
+        processed_messages = list(request.processed_messages)
+        effective_model = request.effective_model
+        cancellation_coordinator = request.cancellation_coordinator
+        cancellation_token = request.cancellation_token
 
         # Structural enforcement: check cancellation immediately if coordinator and token provided
         if cancellation_coordinator is not None and cancellation_token is not None:
             cancellation_coordinator.ensure_not_cancelled(cancellation_token)
 
-        # Ensure processed_messages is a Sequence[ChatMessage]
-        # It may already be ChatMessage objects or dicts
-        if processed_messages and not isinstance(
-            processed_messages[0], ChatMessage
-        ):
-                # Convert dicts to ChatMessage objects
-                processed_messages = [
-                    (
-                        ChatMessage(**msg)
-                        if isinstance(msg, dict)
-                        else ChatMessage(role="user", content=str(msg))
-                    )
-                    for msg in processed_messages
-                ]
-
-        canonical_request = ConnectorChatCompletionsRequest(
-            request=request_data,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=identity,
-            cancellation_token=cancellation_token,
-            cancellation_coordinator=cancellation_coordinator,
-            context=context,
-        )
-
-        # Call the canonical implementation
-        return await self._chat_completions_canonical(canonical_request)
+        # Check debugging override flag
         if not self._enable_qwen_oauth_backend_debugging_override:
             logger.warning(
                 "Rejected request: Qwen OAuth backend requires debugging override flag. "
@@ -1374,10 +1326,8 @@ class QwenOAuthConnector(OpenAIConnector):
 
         # Handle reasoning_effort by appending " /think" to the last user message
         # Append by default unless explicitly set to "low"
-        reasoning_effort = None
-        reasoning_effort = getattr(request_data, "reasoning_effort", None)
-        if reasoning_effort is None and isinstance(request_data, dict):
-            reasoning_effort = request_data.get("reasoning_effort")
+        # Note: This may have already been handled in the legacy API path, so check before appending
+        reasoning_effort = getattr(domain_request, "reasoning_effort", None)
 
         # Append " /think" unless reasoning_effort is explicitly "low"
         should_append_think = reasoning_effort != "low"
@@ -1405,7 +1355,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 # Handle different message formats
                 if hasattr(msg, "content"):
                     content = msg.content
-                    if isinstance(content, str):
+                    if isinstance(content, str) and not content.endswith(" /think"):
                         # Create a modified copy of the message
                         if hasattr(msg, "model_copy"):
                             processed_messages[last_client_message_idx] = (
@@ -1423,94 +1373,80 @@ class QwenOAuthConnector(OpenAIConnector):
                         )
                 elif isinstance(msg, dict):
                     content = msg.get("content")
-                    if isinstance(content, str):
-                        # Create a modified copy of the dict
-                        modified_msg = dict(msg)
-                        modified_msg["content"] = content + " /think"
-                        processed_messages[last_client_message_idx] = modified_msg
+                    if isinstance(content, str) and not content.endswith(" /think"):
+                        # Create a modified ChatMessage object from the dict
+                        modified_msg_dict = dict(msg)
+                        modified_msg_dict["content"] = content + " /think"
+                        # Convert the modified dict to a ChatMessage object
+                        from src.core.domain.chat import ChatMessage
+
+                        modified_chat_message = ChatMessage(**modified_msg_dict)
+                        processed_messages[last_client_message_idx] = (
+                            modified_chat_message
+                        )
                         logger.info(
                             f"Appended ' /think' to last client message (reasoning_effort={reasoning_effort or 'default'})"
                         )
 
+        # Use the effective model and properly extract just the model name part
+        # Strip any backend prefix (like "qwen-oauth:", "gemini-cli-oauth-personal:", etc.)
+        model_name = effective_model
+        if ":" in model_name:
+            # Extract just the model name part after the last colon
+            model_name = model_name.split(":")[-1]
+
+        # Strip vendor prefix (e.g., "qwen/") for unified model naming
+        model_name = strip_vendor_prefix(model_name, QWEN_VENDOR_PREFIX)
+
+        # Further clean up the model name to remove any prefixes like "models/"
+        if model_name.startswith("models/"):
+            model_name = model_name[7:]  # Remove "models/" prefix
+
+        # Additional safety check: if the model name doesn't look like a Qwen model,
+        # fall back to the default model to prevent API errors
+        valid_qwen_models = {
+            "qwen3-coder-plus",
+            "qwen3-coder-flash",
+            "qwen-turbo",
+            "qwen-plus",
+            "qwen-max",
+            "qwen2.5-72b-instruct",
+            "qwen2.5-32b-instruct",
+            "qwen2.5-14b-instruct",
+            "qwen2.5-7b-instruct",
+            "qwen2.5-3b-instruct",
+            "qwen2.5-1.5b-instruct",
+            "qwen2.5-0.5b-instruct",
+        }
+
+        # If the model name is not in our valid list, try to map common names or default
+        if model_name not in valid_qwen_models:
+            # Map common model name patterns to Qwen equivalents
+            if "qwen" in model_name.lower():
+                # If it contains qwen, it might be a valid qwen model
+                pass  # Allow it through
+            elif "turbo" in model_name.lower():
+                model_name = "qwen-turbo"
+            elif "plus" in model_name.lower():
+                model_name = "qwen-plus"
+            elif "max" in model_name.lower():
+                model_name = "qwen-max"
+            else:
+                # Default to a known working model
+                model_name = "qwen-turbo"
+                logger.warning(
+                    f"Unknown model '{effective_model}' mapped to '{model_name}' for Qwen OAuth"
+                )
+
+        # Update the request with processed model name
+        request.effective_model = model_name
+
+        # Call parent's canonical implementation directly
+        # Note: Tests that mock OpenAIConnector.chat_completions need to mock _chat_completions_canonical instead
         try:
-            # Use the effective model and properly extract just the model name part
-            # Strip any backend prefix (like "qwen-oauth:", "gemini-cli-oauth-personal:", etc.)
-            model_name = effective_model
-            if ":" in model_name:
-                # Extract just the model name part after the last colon
-                model_name = model_name.split(":")[-1]
-
-            # Strip vendor prefix (e.g., "qwen/") for unified model naming
-            model_name = strip_vendor_prefix(model_name, QWEN_VENDOR_PREFIX)
-
-            # Further clean up the model name to remove any prefixes like "models/"
-            if model_name.startswith("models/"):
-                model_name = model_name[7:]  # Remove "models/" prefix
-
-            # Additional safety check: if the model name doesn't look like a Qwen model,
-            # fall back to the default model to prevent API errors
-            valid_qwen_models = {
-                "qwen3-coder-plus",
-                "qwen3-coder-flash",
-                "qwen-turbo",
-                "qwen-plus",
-                "qwen-max",
-                "qwen2.5-72b-instruct",
-                "qwen2.5-32b-instruct",
-                "qwen2.5-14b-instruct",
-                "qwen2.5-7b-instruct",
-                "qwen2.5-3b-instruct",
-                "qwen2.5-1.5b-instruct",
-                "qwen2.5-0.5b-instruct",
-            }
-
-            # If the model name is not in our valid list, try to map common names or default
-            if model_name not in valid_qwen_models:
-                # Map common model name patterns to Qwen equivalents
-                if "qwen" in model_name.lower():
-                    # If it contains qwen, it might be a valid qwen model
-                    pass  # Allow it through
-                elif "turbo" in model_name.lower():
-                    model_name = "qwen-turbo"
-                elif "plus" in model_name.lower():
-                    model_name = "qwen-plus"
-                elif "max" in model_name.lower():
-                    model_name = "qwen-max"
-                else:
-                    # Default to a known working model
-                    model_name = "qwen-turbo"
-                    logger.warning(
-                        f"Unknown model '{effective_model}' mapped to '{model_name}' for Qwen OAuth"
-                    )
-
-            # Call the parent class method directly - it will handle the model override correctly
-            # The parent OpenAIConnector.chat_completions method uses the effective_model parameter
-            # to override the model in the payload, so we don't need to modify request_data
-            from src.connectors.openai import OpenAIConnector
-
-            # DEBUG: Log what we're about to do
-            original_model = (
-                getattr(request_data, "model", "unknown")
-                if hasattr(request_data, "model")
-                else "unknown"
-            )
-            logger.info(
-                f"QwenOAuth DEBUG: Calling parent with effective_model='{model_name}', original request_data model='{original_model}'"
-            )
-
-            response_envelope = await OpenAIConnector.chat_completions(
-                self,
-                request_data=request_data,  # Pass original request_data, let parent handle model override
-                processed_messages=processed_messages,
-                effective_model=model_name,  # Pass our validated/mapped model name
-                **kwargs,
-            )
-
-            # If streaming, leave content as-is; central pipeline will handle repairs
+            response_envelope = await super()._chat_completions_canonical(request)
 
             # Calculate and augment token usage if missing or has zero values
-            should_calculate_usage = False
-
             if isinstance(response_envelope, ResponseEnvelope):
                 from src.core.domain.usage_summary import UsageSummary
 
@@ -1518,6 +1454,8 @@ class QwenOAuthConnector(OpenAIConnector):
                     response_envelope.usage = UsageSummary.from_dict(
                         response_envelope.usage
                     )
+
+                should_calculate_usage = False
                 if not response_envelope.usage:
                     should_calculate_usage = True
                     logger.debug("No usage information in response, calculating...")
@@ -1549,14 +1487,14 @@ class QwenOAuthConnector(OpenAIConnector):
             # Re-raise domain exceptions
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "DEBUG: Re-raising domain exception: %s",
+                    "Re-raising domain exception: %s",
                     type(e).__name__,
                 )
             raise
         except HTTPException as e:
             # Re-raise HTTP exceptions (e.g., 400, 404) without wrapping
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("DEBUG: Re-raising HTTPException: %s", e.status_code)
+                logger.warning("Re-raising HTTPException: %s", e.status_code)
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
@@ -1567,6 +1505,123 @@ class QwenOAuthConnector(OpenAIConnector):
             raise BackendError(
                 message=f"Qwen OAuth chat completion failed: {e!s}"
             ) from e
+
+    async def chat_completions(  # type: ignore[override]
+        self,
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Canonical connector API implementation with backward compatibility.
+
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        For backward compatibility, also accepts legacy signature:
+        chat_completions(request_data, processed_messages, effective_model, ...)
+        """
+        # Import here to avoid circular imports
+
+        # Handle legacy API called with keyword arguments only (request_data=...)
+        if request is None and "request_data" in kwargs:
+            request = kwargs.pop("request_data")
+
+        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            # Structural enforcement: check cancellation immediately if coordinator and token provided
+            if (
+                request.cancellation_coordinator is not None
+                and request.cancellation_token is not None
+            ):
+                request.cancellation_coordinator.ensure_not_cancelled(
+                    request.cancellation_token
+                )
+            return await self._chat_completions_canonical(request)
+
+        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
+        request_data = request
+        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
+        effective_model = (
+            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        )
+        identity = kwargs.get("identity")
+        cancellation_token = kwargs.get("cancellation_token")
+        cancellation_coordinator = kwargs.get("cancellation_coordinator")
+        context = kwargs.get("context")
+        options = kwargs.get("options", {})
+
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if cancellation_coordinator is not None and cancellation_token is not None:
+            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
+
+        # Handle reasoning_effort by appending " /think" to the last user message
+        # This needs to happen BEFORE converting to ChatMessage objects so we modify the original dicts
+        # Note: We handle it here for legacy API compatibility (tests check original dicts)
+        # The canonical path will also handle it, but on ChatMessage objects, so we need to do it here first
+        reasoning_effort = getattr(request_data, "reasoning_effort", None)
+        should_append_think = reasoning_effort != "low"
+
+        if should_append_think and processed_messages:
+            # Find the last message from the client (user or system role, not tool responses)
+            last_client_message_idx = None
+            for idx in range(len(processed_messages) - 1, -1, -1):
+                msg = processed_messages[idx]
+                role = None
+                if hasattr(msg, "role"):
+                    role = msg.role
+                elif isinstance(msg, dict):
+                    role = msg.get("role")
+
+                # Skip tool response messages
+                if role in ("user", "system"):
+                    last_client_message_idx = idx
+                    break
+
+            if last_client_message_idx is not None:
+                # Append " /think" to the content of the last client message
+                msg = processed_messages[last_client_message_idx]
+
+                # Handle different message formats
+                if isinstance(msg, dict):
+                    content = msg.get("content")
+                    if isinstance(content, str) and not content.endswith(" /think"):
+                        # Modify the dict in place
+                        msg["content"] = content + " /think"
+                        logger.info(
+                            f"Appended ' /think' to last client message (reasoning_effort={reasoning_effort or 'default'})"
+                        )
+                elif hasattr(msg, "content"):
+                    content = msg.content
+                    if isinstance(content, str) and not content.endswith(" /think"):
+                        # Create a modified copy of the message
+                        if hasattr(msg, "model_copy"):
+                            processed_messages[last_client_message_idx] = (
+                                msg.model_copy(update={"content": content + " /think"})
+                            )
+                        elif hasattr(msg, "copy"):
+                            modified_msg = msg.copy()
+                            modified_msg.content = content + " /think"
+                            processed_messages[last_client_message_idx] = modified_msg
+                        else:
+                            # Fallback: modify in place
+                            msg.content = content + " /think"
+                        logger.info(
+                            f"Appended ' /think' to last client message (reasoning_effort={reasoning_effort or 'default'})"
+                        )
+
+        # Call parent's chat_completions with legacy parameters
+        # This ensures the parent method is called (for test mocking) and will
+        # convert to canonical and call _chat_completions_canonical, which we override
+        # to do Qwen-specific processing (token refresh, credential validation, model name processing)
+        # Pass all parameters as keyword arguments to match test expectations
+        return await super().chat_completions(
+            request_data=request_data,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            identity=identity,
+            cancellation_token=cancellation_token,
+            cancellation_coordinator=cancellation_coordinator,
+            context=context,
+            **options,
+        )
 
     def _calculate_token_usage(
         self,

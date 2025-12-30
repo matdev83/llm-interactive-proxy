@@ -50,9 +50,9 @@ class TestQwenOAuthToolCallingEnhanced:
 
     @pytest.fixture
     def mock_parent_chat_completions(self):
-        """Fixture to mock the parent OpenAIConnector's chat_completions method."""
+        """Fixture to mock the parent OpenAIConnector's _chat_completions_canonical method."""
         with patch(
-            "src.connectors.openai.OpenAIConnector.chat_completions",
+            "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
             new_callable=AsyncMock,
         ) as mock_chat_completions:
             yield mock_chat_completions
@@ -204,12 +204,11 @@ class TestQwenOAuthToolCallingEnhanced:
                 effective_model="qwen3-coder-plus",
             )
 
-            # Verify the parent class's chat_completions method was called
+            # Verify the parent class's _chat_completions_canonical method was called
             mock_parent_chat_completions.assert_called_once()
-            called_request_data = mock_parent_chat_completions.call_args.kwargs[
-                "request_data"
-            ]
-            assert called_request_data.tool_choice == "none"
+            # _chat_completions_canonical takes a single ConnectorChatCompletionsRequest argument
+            called_request = mock_parent_chat_completions.call_args[0][0]
+            assert called_request.request.tool_choice == "none"
 
             # Assert
             response_data = result.content
@@ -311,11 +310,9 @@ class TestQwenOAuthToolCallingEnhanced:
             # headers = result.headers
 
             # Verify request contained the expected tool_choice
-            called_request_data = mock_parent_chat_completions.call_args.kwargs[
-                "request_data"
-            ]
-            assert called_request_data.tool_choice["type"] == "function"
-            assert called_request_data.tool_choice["function"]["name"] == "get_weather"
+            called_request = mock_parent_chat_completions.call_args[0][0]
+            assert called_request.request.tool_choice["type"] == "function"
+            assert called_request.request.tool_choice["function"]["name"] == "get_weather"
 
             # Verify response contains the expected tool call
             assert "choices" in response_data
@@ -475,11 +472,11 @@ class TestQwenOAuthToolCallingEnhanced:
             # headers = result.headers
 
             # Verify the conversation context was properly passed
-            called_kwargs = mock_parent_chat_completions.call_args.kwargs
-            assert called_kwargs["processed_messages"] == messages
+            called_request = mock_parent_chat_completions.call_args[0][0]
+            assert list(called_request.processed_messages) == messages
 
             # Verify message types in the captured request
-            messages_data = called_kwargs["request_data"].model_dump()["messages"]
+            messages_data = called_request.request.model_dump()["messages"]
             assert len(messages_data) == 3
             assert messages_data[0]["role"] == "user"
             assert messages_data[1]["role"] == "assistant"
@@ -587,8 +584,8 @@ class TestQwenOAuthToolCallingEnhanced:
             )
 
             # Assert the prefix was stripped
-            called_kwargs = mock_parent_chat_completions.call_args.kwargs
-            assert called_kwargs["effective_model"] == "qwen3-coder-plus"
+            called_request = mock_parent_chat_completions.call_args[0][0]
+            assert called_request.effective_model == "qwen3-coder-plus"
 
             # Verify the response was passed through correctly
             response_data = result.content

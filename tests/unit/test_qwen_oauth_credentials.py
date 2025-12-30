@@ -377,7 +377,7 @@ class TestQwenOAuthCredentials:
                     connector, "_refresh_token_if_needed", new_callable=AsyncMock
                 ) as mock_refresh,
                 patch(
-                    "src.connectors.openai.OpenAIConnector.chat_completions",
+                    "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
                     new_callable=AsyncMock,
                 ) as mock_parent_chat,
             ):
@@ -391,6 +391,10 @@ class TestQwenOAuthCredentials:
 
                 mock_refresh.return_value = True
                 mock_refresh.side_effect = mock_refresh_side_effect
+                from src.core.domain.responses import ResponseEnvelope
+                mock_parent_chat.return_value = ResponseEnvelope(
+                    content={"id": "test-id", "choices": []},
+                )
 
                 await connector.chat_completions(
                     request_data=request_data,
@@ -404,6 +408,6 @@ class TestQwenOAuthCredentials:
                 ), f"Expected _refresh_token_if_needed to be called once, was called {mock_refresh.call_count} times"
                 assert (
                     mock_parent_chat.call_count == 1
-                ), f"Expected parent chat_completions to be called once, was called {mock_parent_chat.call_count} times"
+                ), f"Expected parent _chat_completions_canonical to be called once, was called {mock_parent_chat.call_count} times"
                 # Verify the new token is now in the credentials
             assert connector._oauth_credentials["access_token"] == "new-access-token"

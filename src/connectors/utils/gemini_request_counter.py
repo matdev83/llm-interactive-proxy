@@ -14,15 +14,16 @@ class DailyRequestCounter:
     def __init__(self, persistence_path: Path, limit: int) -> None:
         self.persistence_path = persistence_path
         self.limit = limit
+        self._lock = Lock()
         self.count = 0
         self._thresholds = self._calculate_thresholds()
         self._logged_thresholds: set[int] = set()
         self.last_reset_date = self._get_current_pacific_date()
         self._load_state()
-        self._reset_if_needed()
-        if self._check_thresholds():
-            self._save_state()
-        self._lock = Lock()
+        with self._lock:
+            self._reset_if_needed()
+            if self._check_thresholds():
+                self._save_state()
 
     @property
     def logged_thresholds(self) -> set[int]:
@@ -48,14 +49,15 @@ class DailyRequestCounter:
         try:
             with open(self.persistence_path, encoding="utf-8") as f:
                 data = json.load(f)
-                self.count = data.get("count", 0)
-                self.last_reset_date = data.get(
-                    "last_reset_date", self._get_current_pacific_date()
-                )
-                logged_thresholds = data.get("logged_thresholds", [])
-                self._logged_thresholds = {
-                    int(threshold) for threshold in logged_thresholds
-                } & set(self._thresholds)
+                with self._lock:
+                    self.count = data.get("count", 0)
+                    self.last_reset_date = data.get(
+                        "last_reset_date", self._get_current_pacific_date()
+                    )
+                    logged_thresholds = data.get("logged_thresholds", [])
+                    self._logged_thresholds = {
+                        int(threshold) for threshold in logged_thresholds
+                    } & set(self._thresholds)
         except (json.JSONDecodeError, OSError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(

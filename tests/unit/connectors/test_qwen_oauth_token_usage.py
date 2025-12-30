@@ -198,7 +198,7 @@ class TestQwenOAuthTokenUsage:
         # Mock the parent method
         with (
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
                 autospec=True,
             ) as mock_parent,
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,
@@ -252,7 +252,7 @@ class TestQwenOAuthTokenUsage:
         # Mock the parent method
         with (
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
                 autospec=True,
             ) as mock_parent,
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,
@@ -300,7 +300,7 @@ class TestQwenOAuthTokenUsage:
         # Mock the parent method
         with (
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
                 autospec=True,
             ) as mock_parent,
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,

@@ -843,7 +843,7 @@ async def test_property_filtering_scope_semantics(
 
     # Filter messages (may raise NoForwardableContentError if all user content filtered)
     try:
-        filtered, filtered_count = await enforcer.filter_messages(
+        filtered, _ = await enforcer.filter_messages(
             session_id=session_id,
             messages=all_messages,
             context=context,
@@ -911,7 +911,7 @@ async def test_property_filtering_scope_semantics(
         st.builds(
             ChatMessage,
             role=st.just("user"),
-            content=st.text(min_size=1, max_size=200),  # Ensure non-empty content
+            content=st.text(min_size=1, max_size=200).filter(lambda s: bool(s.strip())),  # Ensure non-empty, non-whitespace content
             tool_call_id=st.just(None),
             tool_calls=st.just(None),
             reasoning_content=st.just(None),

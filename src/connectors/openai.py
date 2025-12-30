@@ -529,6 +529,7 @@ class OpenAIConnector(LLMBackend):
     async def chat_completions(  # type: ignore[override]
         self,
         request: ConnectorChatCompletionsRequest | Any = None,
+        # Legacy parameters for backward compatibility
         *args: Any,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
@@ -541,39 +542,98 @@ class OpenAIConnector(LLMBackend):
         # Import here to avoid circular imports
         from src.connectors.contracts import ConnectorChatCompletionsRequest
         from src.core.domain.chat import ChatMessage
-        
+
         # Handle legacy API called with keyword arguments only (request_data=...)
         if request is None and "request_data" in kwargs:
             request = kwargs.pop("request_data")
-        
+
         # Check if this is a canonical request (ConnectorChatCompletionsRequest)
         if isinstance(request, ConnectorChatCompletionsRequest):
             return await self._chat_completions_canonical(request)
-        
+
         # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
         request_data = request
         processed_messages = args[0] if args else kwargs.get("processed_messages", [])
-        effective_model = args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        effective_model = (
+            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        )
         identity = kwargs.get("identity")
         cancellation_token = kwargs.get("cancellation_token")
         cancellation_coordinator = kwargs.get("cancellation_coordinator")
         context = None  # Legacy API doesn't provide context
-        options = {k: v for k, v in kwargs.items() if k not in [
-            "identity", "cancellation_token", "cancellation_coordinator",
-            "processed_messages", "effective_model"
-        ]}
-        
+        options = {
+            k: v
+            for k, v in kwargs.items()
+            if k
+            not in [
+                "identity",
+                "cancellation_token",
+                "cancellation_coordinator",
+                "processed_messages",
+                "effective_model",
+            ]
+        }
+
         # Ensure processed_messages is a Sequence[ChatMessage]
         # It may already be ChatMessage objects or dicts
         if processed_messages and not isinstance(processed_messages[0], ChatMessage):
-                # Convert dicts to ChatMessage objects
-                processed_messages = [
-                    ChatMessage(**msg) if isinstance(msg, dict) else ChatMessage(role="user", content=str(msg))
-                    for msg in processed_messages
-                ]
-        
+            # Convert dicts to ChatMessage objects
+            processed_messages = [
+                (
+                    ChatMessage(**msg)
+                    if isinstance(msg, dict)
+                    else ChatMessage(role="user", content=str(msg))
+                )
+                for msg in processed_messages
+            ]
+
+        # Convert request_data to domain object if it's a dict
+        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+
+        if isinstance(request_data, dict):
+            # Ensure model is set from effective_model if not in dict
+            request_dict = dict(request_data)
+            if "model" not in request_dict and effective_model:
+                request_dict["model"] = effective_model
+            # Ensure messages are set - use processed_messages if available, otherwise from dict
+            if "messages" not in request_dict:
+                request_dict["messages"] = (
+                    processed_messages if processed_messages else []
+                )
+            # If messages are still empty, add a dummy message to satisfy validation
+            # (backend functionality checks will handle actual validation)
+            if not request_dict.get("messages"):
+                request_dict["messages"] = [{"role": "user", "content": ""}]
+            # Use translation service to convert dict to CanonicalChatRequest
+            if self.translation_service:
+                domain_request = self.translation_service.to_domain_request(
+                    request_dict, "openai"
+                )
+            else:
+                # Fallback: create a minimal CanonicalChatRequest
+                domain_request = CanonicalChatRequest(**request_dict)
+        elif isinstance(request_data, ChatRequest | CanonicalChatRequest):
+            # Already a domain object, use as-is
+            if isinstance(request_data, ChatRequest):
+                domain_request = CanonicalChatRequest.model_validate(
+                    request_data.model_dump()
+                )
+            else:
+                domain_request = request_data
+        else:
+            # For other types, try to convert via translation service
+            if self.translation_service:
+                domain_request = self.translation_service.to_domain_request(
+                    request_data, "openai"
+                )
+            else:
+                raise TypeError(
+                    f"Cannot convert {type(request_data).__name__} to domain request. "
+                    "Expected dict, ChatRequest, or CanonicalChatRequest."
+                )
+
         canonical_request = ConnectorChatCompletionsRequest(
-            request=request_data,
+            request=domain_request,
             processed_messages=processed_messages,
             effective_model=effective_model,
             identity=identity,
@@ -582,7 +642,7 @@ class OpenAIConnector(LLMBackend):
             context=context,
             options=options,
         )
-        
+
         return await self._chat_completions_canonical(canonical_request)
 
     async def _prepare_payload(

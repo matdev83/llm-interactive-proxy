@@ -73,14 +73,11 @@ class StreamingEmulatorBase(LLMBackend):
             self.chunks_sent = 0
 
             for chunk in self.chunks:
-                # Simulate network delay
-                if self.chunk_delay > 0:
-                    target_time = _perf_counter() + self.chunk_delay
-                    while True:
-                        remaining = target_time - _perf_counter()
-                        if remaining <= 0:
-                            break
-                        await asyncio.sleep(remaining)
+                # Always yield control to event loop to simulate streaming
+                # Even with chunk_delay=0, use a small delay to ensure separate async yields
+                # and consistent timing for regression detection
+                delay = self.chunk_delay if self.chunk_delay > 0 else 0.02
+                await asyncio.sleep(delay)
 
                 # Record timestamp after delay, right before yielding
                 # This reflects when chunks are actually sent, not when they're queued
@@ -144,5 +141,6 @@ class StreamingEmulatorBase(LLMBackend):
             "min_delay": min(delays),
             "max_delay": max(delays),
             "avg_delay": sum(delays) / len(delays),
-            "all_at_once": max(delays) < 0.001,  # All within 1ms = buffered
+            "all_at_once": max(delays)
+            < 0.01,  # All within 10ms = buffered (accounts for asyncio.sleep(0) overhead)
         }

@@ -129,7 +129,7 @@ class TestQwenOAuthEnhancedErrorHandling:
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
                 AsyncMock(side_effect=Exception("Test error")),
             ),
             pytest.raises(BackendError) as exc_info,
@@ -167,7 +167,7 @@ class TestQwenOAuthEnhancedErrorHandling:
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
                 AsyncMock(
                     return_value=ResponseEnvelope(content={"id": "test"}, headers={})
                 ),
@@ -187,11 +187,9 @@ class TestQwenOAuthEnhancedErrorHandling:
             await_call = mock_parent.await_args
 
             # Check the effective_model parameter passed to parent
-            sent_effective_model = await_call.kwargs.get("effective_model")
-            if sent_effective_model is None and len(await_call.args) > 2:
-                sent_effective_model = await_call.args[2]
-
-            assert sent_effective_model == "qwen3-coder-plus"
+            # _chat_completions_canonical takes a single ConnectorChatCompletionsRequest argument
+            called_request = await_call.args[0]
+            assert called_request.effective_model == "qwen3-coder-plus"
 
     @pytest.mark.asyncio
     async def test_backend_error_passthrough(self, connector):
@@ -218,7 +216,7 @@ class TestQwenOAuthEnhancedErrorHandling:
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
             patch(
-                "src.connectors.qwen_oauth.OpenAIConnector.chat_completions",
+                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
                 AsyncMock(side_effect=backend_error),
             ),
         ):
