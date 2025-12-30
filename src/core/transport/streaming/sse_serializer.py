@@ -29,6 +29,7 @@ class SSESerializer:
     def _serialize_stop_chunk_with_usage(self, content: StreamingContent) -> bytes:
         """Serialize StopChunkWithUsage to SSE bytes with usage at top level."""
         assert isinstance(content.content, StopChunkWithUsage)
+        # Type hint for content.content as StopChunkWithUsage is already asserted
         plain_dict = dict(content.content)
         return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
 
@@ -39,7 +40,7 @@ class SSESerializer:
         if chunk.metadata.finish_reason == "error" and (
             chunk.metadata.error is not None or "error" in content.metadata
         ):
-            error_dict = (
+            error_dict: dict[str, Any] = (
                 chunk.metadata.error.model_dump(exclude_none=True)
                 if chunk.metadata.error is not None
                 else content.metadata.get("error", {})
@@ -54,6 +55,8 @@ class SSESerializer:
                 if key in content.metadata:
                     error_data[key] = content.metadata[key]
             return f"data: {json.dumps(error_data)}\n\ndata: [DONE]\n\n".encode()
+
+        # Check for error in content if it's a dict
         if isinstance(content.content, dict) and content.content.get("error"):
             return f"data: {json.dumps(content.content)}\n\ndata: [DONE]\n\n".encode()
         return None
@@ -79,6 +82,7 @@ class SSESerializer:
         """Serialize done chunk to SSE bytes (may include content or just [DONE])."""
         if content._is_empty_completion_payload():  # type: ignore[attr-defined]
             return b"data: [DONE]\n\n"
+
         content_is_done_marker = (
             content.content == "[DONE]"
             or content.content == SentinelManager.DONE_MARKER
@@ -123,19 +127,25 @@ class SSESerializer:
         choices = payload.get("choices")
         if not isinstance(choices, list) or not choices:
             return payload
+
         normalized_choices: list[Any] = []
         converted_any = False
+
         for choice in choices:
             if not isinstance(choice, dict):
                 normalized_choices.append(choice)
                 continue
+
             if "delta" in choice:
                 normalized_choices.append(choice)
                 continue
+
             message = choice.get("message")
             if isinstance(message, dict):
-                new_choice = {k: v for k, v in choice.items() if k != "message"}
-                delta = dict(message)
+                new_choice: dict[str, Any] = {
+                    k: v for k, v in choice.items() if k != "message"
+                }
+                delta: dict[str, Any] = dict(message)
                 if delta.get("content") is None:
                     delta["content"] = ""
                 new_choice["delta"] = delta
@@ -146,8 +156,10 @@ class SSESerializer:
                 new_choice.setdefault("delta", {})
                 normalized_choices.append(new_choice)
                 converted_any = True
+
         if not converted_any and payload.get("object") != "chat.completion":
             return payload
+
         normalized = dict(payload)
         normalized["choices"] = normalized_choices
         if payload.get("object") == "chat.completion":
@@ -196,7 +208,7 @@ class SSESerializer:
 
                 # Copy the choice dict so we can safely modify it
                 # (we only modify if we find tool_calls)
-                new_choice = dict(choice_item)
+                new_choice: dict[str, Any] = dict(choice_item)
                 choice_modified = False
 
                 for container_key in ("delta", "message"):
@@ -207,18 +219,20 @@ class SSESerializer:
                         if is_virtual:
                             if "tool_calls" in container:
                                 # Copy container to modify
-                                new_container = dict(container)
+                                new_container: dict[str, Any] = dict(container)
                                 del new_container["tool_calls"]
                                 new_choice[container_key] = new_container
                                 choice_modified = True
                         # If not virtual, we want to sanitize tool_calls
                         elif isinstance(tc_list, list) and tc_list:
                             # Sanitize internal markers
-                            sanitized_calls = [
+                            sanitized_calls: list[dict[str, Any]] = [
                                 {
                                     k: v
                                     for k, v in tc.items()
-                                    if not k.startswith("_") and k != "extra_content"
+                                    if isinstance(k, str)
+                                    and not k.startswith("_")
+                                    and k != "extra_content"
                                 }
                                 for tc in tc_list
                                 if isinstance(tc, dict)
@@ -256,10 +270,12 @@ class SSESerializer:
                 else:
                     continue
                 # Sanitize inline to avoid second iteration
-                sanitized_dict = {
+                sanitized_dict: dict[str, Any] = {
                     k: v
                     for k, v in tc_dict.items()
-                    if not k.startswith("_") and k != "extra_content"
+                    if isinstance(k, str)
+                    and not k.startswith("_")
+                    and k != "extra_content"
                 }
                 if sanitized_dict:
                     sanitized_calls.append(sanitized_dict)
@@ -285,7 +301,7 @@ class SSESerializer:
             {
                 k: v
                 for k, v in tc.items()
-                if not k.startswith("_") and k != "extra_content"
+                if isinstance(k, str) and not k.startswith("_") and k != "extra_content"
             }
             for tc in tool_calls
             if isinstance(tc, dict)  # type: ignore[misc]
