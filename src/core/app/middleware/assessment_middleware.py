@@ -11,6 +11,10 @@ import logging
 from dataclasses import dataclass
 from uuid import uuid4
 
+from src.core.common.exceptions import (
+    NonForwardableEnforcementError,
+    NonForwardableTagLimitExceededError,
+)
 from src.core.common.logging_utils import get_logger
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.assessment_config import AssessmentConfig
@@ -276,13 +280,15 @@ class AssessmentMiddleware:
                         f"Tagged assessment steering message as client-history-only for session {assessment_result.session_id}, "
                         f"identity={identity[:16]}..."
                     )
+            except NonForwardableTagLimitExceededError:
+                # Fail closed - capacity exceeded (Req 14.3, 10.1)
+                raise
             except Exception as e:
-                # Log error but don't fail steering injection if tagging fails
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Failed to tag assessment steering message as non-forwardable: {e}",
-                        exc_info=True,
-                    )
+                # Fail closed on any tagging failure to prevent leakage (Req 10.1)
+                raise NonForwardableEnforcementError(
+                    f"Failed to tag assessment steering message as non-forwardable: {e}",
+                    details={"session_id": assessment_result.session_id},
+                ) from e
 
         # Add steering message to conversation history
         new_messages = [*list(request.messages), steering_message]

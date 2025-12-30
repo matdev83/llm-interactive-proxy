@@ -164,58 +164,6 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
         return should_redact
 
-    def _resolve_command_prefix(
-        self, session: object, app_config: Any | None
-    ) -> str | None:
-        # 1) Session-level override
-        try:
-            session_state = self._get_session_state(session)
-            if session_state is not None:
-                session_prefix = getattr(session_state, "command_prefix_override", None)
-                if isinstance(session_prefix, str):
-                    session_prefix = session_prefix.strip()
-                    if session_prefix:
-                        return session_prefix
-        except (AttributeError, TypeError):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Failed to resolve session-level command prefix",
-                    exc_info=True,
-                )
-
-        # 2) App state
-        if self._app_state is not None:
-            try:
-                candidate_prefix = self._app_state.get_command_prefix()
-            except AttributeError:
-                candidate_prefix = None
-            if isinstance(candidate_prefix, str):
-                candidate_prefix = candidate_prefix.strip()
-                if candidate_prefix:
-                    return candidate_prefix
-
-        # 3) Config
-        try:
-            config_prefix = (
-                app_config.command_prefix if app_config is not None else None
-            )
-            if isinstance(config_prefix, str):
-                config_prefix = config_prefix.strip()
-                if config_prefix:
-                    return config_prefix
-        except (AttributeError, TypeError):
-            pass
-
-        return None
-
-    def _get_commands_disabled(self) -> bool:
-        if self._app_state is None:
-            return False
-        try:
-            return bool(self._app_state.get_disable_commands())
-        except AttributeError:
-            return False
-
     async def _apply_redaction(
         self,
         context: RequestContext,
@@ -229,11 +177,6 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         Configuration precedence for enabling redaction:
         1. Session-level override (session.state.api_key_redaction_enabled)
         2. App config setting (app_config.auth.redact_api_keys_in_prompts)
-
-        Command prefix precedence:
-        1. Session-level override (session.state.command_prefix_override)
-        2. App state command prefix (app_state.get_command_prefix())
-        3. Config command prefix (app_config.command_prefix)
 
         Returns:
             Request with API keys redacted (or unchanged if redaction disabled)
@@ -251,17 +194,9 @@ class RequestTransformPipeline(IRequestTransformPipeline):
         # Discover API keys
         api_keys = discover_api_keys_from_config_and_env(app_config)
 
-        # Resolve command prefix with precedence
-        command_prefix = self._resolve_command_prefix(session, app_config)
-        commands_disabled = self._get_commands_disabled()
-
         # Create and apply redaction middleware
-        redaction = RedactionMiddleware(
-            api_keys=api_keys,
-            command_prefix=command_prefix or "!/",
-        )
+        redaction = RedactionMiddleware(api_keys=api_keys)
         redaction_context: dict[str, JsonValue] = {
-            "commands_disabled": commands_disabled,
             "session_id": session_id,
         }
 

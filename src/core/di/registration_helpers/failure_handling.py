@@ -37,9 +37,15 @@ def resolve_failure_strategy(
         IFailureHandlingStrategy instance or None if disabled
     """
     # Try to get pre-registered strategy from DI first
-    failure_handling_strategy = provider.get_service(
-        cast(type, IFailureHandlingStrategy)
-    )
+    # Optional service - handle RuntimeError when not registered
+    failure_handling_strategy = None
+    try:
+        failure_handling_strategy = provider.get_service(
+            cast(type, IFailureHandlingStrategy)
+        )
+    except RuntimeError:
+        # Service not registered - this is expected for optional services
+        pass
     if failure_handling_strategy is not None:
         return failure_handling_strategy
 

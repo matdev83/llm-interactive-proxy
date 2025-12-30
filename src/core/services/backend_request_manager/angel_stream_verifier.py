@@ -16,6 +16,8 @@ from typing import Any
 from src.core.common.exceptions import (
     BackendError,
     LLMProxyError,
+    NonForwardableEnforcementError,
+    NonForwardableTagLimitExceededError,
     RateLimitExceededError,
 )
 from src.core.domain.backend_request_manager.context_models import StreamingContext
@@ -243,6 +245,8 @@ class AngelStreamVerifier(IAngelStreamVerifier):
 
             # Tag the angel steering message as non-forwardable and set injection boundary
             if correction_request.messages and request_context:
+                from typing import cast
+
                 from src.core.domain.non_forwardable import NonForwardableTagScope
                 from src.core.interfaces.non_forwardable_interface import (
                     INonForwardableMessageIdentityService,
@@ -251,7 +255,6 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 from src.core.services.non_forwardable_message_enforcer import (
                     PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
                 )
-                from typing import cast
 
                 # Get registry and identity service from provider
                 non_forwardable_registry = self._provider.get_service(
@@ -273,8 +276,8 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                     and non_forwardable_registry
                     and non_forwardable_identity_service
                 ):
+                    session_id = request_context.session_id or "unknown"
                     try:
-                        session_id = request_context.session_id or "unknown"
                         identity = non_forwardable_identity_service.compute_identity(
                             steering_message
                         )
@@ -296,12 +299,15 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                                 f"Tagged angel steering message as client-history-only for session {session_id}, "
                                 f"identity={identity[:16]}..."
                             )
+                    except NonForwardableTagLimitExceededError:
+                        # Fail closed - capacity exceeded (Req 14.3, 10.1)
+                        raise
                     except Exception as e:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                f"Failed to tag angel steering message as non-forwardable: {e}",
-                                exc_info=True,
-                            )
+                        # Fail closed on any tagging failure to prevent leakage (Req 10.1)
+                        raise NonForwardableEnforcementError(
+                            f"Failed to tag angel steering message as non-forwardable: {e}",
+                            details={"session_id": session_id},
+                        ) from e
 
             # Cancellation gate: ensure session is not cancelled before Angel correction backend call
             if self._cancellation_coordinator and request_context:

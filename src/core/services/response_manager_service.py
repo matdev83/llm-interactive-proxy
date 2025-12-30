@@ -14,6 +14,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from src.core.common.exceptions import (
+    NonForwardableEnforcementError,
+    NonForwardableTagLimitExceededError,
+)
 from src.core.domain.chat import ChatMessage
 from src.core.domain.command_results import CommandResult
 from src.core.domain.non_forwardable import NonForwardableTagScope
@@ -67,7 +71,9 @@ class ResponseManager(IResponseManager):
         agent_response_formatter: IAgentResponseFormatter,
         session_service=None,
         non_forwardable_registry: INonForwardableMessageRegistry | None = None,
-        non_forwardable_identity_service: INonForwardableMessageIdentityService | None = None,
+        non_forwardable_identity_service: (
+            INonForwardableMessageIdentityService | None
+        ) = None,
     ) -> None:
         """Initialize the response manager."""
         self._agent_response_formatter = agent_response_formatter
@@ -96,11 +102,20 @@ class ResponseManager(IResponseManager):
 
         if isinstance(first_result, ResponseEnvelope):
             # Tag the ResponseEnvelope direct return before returning
-            if self._non_forwardable_registry is not None and self._non_forwardable_identity_service is not None:
+            if (
+                self._non_forwardable_registry is not None
+                and self._non_forwardable_identity_service is not None
+            ):
                 try:
-                    response_message = self._extract_message_from_envelope(first_result, session)
+                    response_message = self._extract_message_from_envelope(
+                        first_result, session
+                    )
                     if response_message is not None:
-                        identity = self._non_forwardable_identity_service.compute_identity(response_message)
+                        identity = (
+                            self._non_forwardable_identity_service.compute_identity(
+                                response_message
+                            )
+                        )
                         await self._non_forwardable_registry.tag_identities(
                             session_id=session.session_id,
                             identities=[identity],
@@ -112,13 +127,15 @@ class ResponseManager(IResponseManager):
                                 f"Tagged ResponseEnvelope command response as never-forward for session {session.session_id}, "
                                 f"identity={identity[:16]}..."
                             )
+                except NonForwardableTagLimitExceededError:
+                    # Fail closed - capacity exceeded (Req 14.3, 10.1)
+                    raise
                 except Exception as e:
-                    # Log error but don't fail response creation if tagging fails
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            f"Failed to tag ResponseEnvelope command response as non-forwardable: {e}",
-                            exc_info=True,
-                        )
+                    # Fail closed on any tagging failure to prevent leakage (Req 10.1)
+                    raise NonForwardableEnforcementError(
+                        f"Failed to tag ResponseEnvelope command response as non-forwardable: {e}",
+                        details={"session_id": session.session_id},
+                    ) from e
             return first_result
 
         # Use the agent response formatter to format the result (async)
@@ -128,11 +145,18 @@ class ResponseManager(IResponseManager):
 
         # Tag the command response message as non-forwardable
         # Construct a ChatMessage representation that matches what clients might resubmit
-        if self._non_forwardable_registry is not None and self._non_forwardable_identity_service is not None:
+        if (
+            self._non_forwardable_registry is not None
+            and self._non_forwardable_identity_service is not None
+        ):
             try:
-                response_message = self._construct_response_chat_message(content, session)
+                response_message = self._construct_response_chat_message(
+                    content, session
+                )
                 if response_message is not None:
-                    identity = self._non_forwardable_identity_service.compute_identity(response_message)
+                    identity = self._non_forwardable_identity_service.compute_identity(
+                        response_message
+                    )
                     await self._non_forwardable_registry.tag_identities(
                         session_id=session.session_id,
                         identities=[identity],
@@ -144,13 +168,15 @@ class ResponseManager(IResponseManager):
                             f"Tagged command response as never-forward for session {session.session_id}, "
                             f"identity={identity[:16]}..."
                         )
+            except NonForwardableTagLimitExceededError:
+                # Fail closed - capacity exceeded (Req 14.3, 10.1)
+                raise
             except Exception as e:
-                # Log error but don't fail response creation if tagging fails
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Failed to tag command response as non-forwardable: {e}",
-                        exc_info=True,
-                    )
+                # Fail closed on any tagging failure to prevent leakage (Req 10.1)
+                raise NonForwardableEnforcementError(
+                    f"Failed to tag command response as non-forwardable: {e}",
+                    details={"session_id": session.session_id},
+                ) from e
 
         return ResponseEnvelope(
             content=content,
@@ -162,14 +188,14 @@ class ResponseManager(IResponseManager):
         self, content: dict[str, Any], session: Session
     ) -> ChatMessage | None:
         """Construct a ChatMessage representation of the command response.
-        
+
         This matches what clients might resubmit in history, so the identity
         computation will recognize it when clients echo the response.
-        
+
         Args:
             content: The formatted response content dict from AgentResponseFormatter
             session: The session object
-            
+
         Returns:
             ChatMessage representation of the response, or None if construction fails
         """
@@ -183,7 +209,7 @@ class ResponseManager(IResponseManager):
                         role = message_dict.get("role", "assistant")
                         msg_content = message_dict.get("content")
                         tool_calls = message_dict.get("tool_calls")
-                        
+
                         # Construct ChatMessage matching client resubmission format
                         if tool_calls:
                             # Cline agent: tool_calls response
@@ -210,25 +236,25 @@ class ResponseManager(IResponseManager):
         self, envelope: ResponseEnvelope, session: Session
     ) -> ChatMessage | None:
         """Extract a ChatMessage representation from ResponseEnvelope.content.
-        
+
         Handles all ResponseEnvelope.content types: dict, str, bytes, None.
         This matches what clients might resubmit in history, so the identity
         computation will recognize it when clients echo the response.
-        
+
         Args:
             envelope: The ResponseEnvelope to extract message from
             session: The session object (for agent type detection if needed)
-            
+
         Returns:
             ChatMessage representation of the response, or None if extraction fails
         """
         try:
             content = envelope.content
-            
+
             # Handle dict content (most common case - formatted response)
             if isinstance(content, dict):
                 return self._construct_response_chat_message(content, session)
-            
+
             # Handle string content - construct assistant message
             elif isinstance(content, str):
                 if content:  # Only create message if content is non-empty
@@ -236,7 +262,7 @@ class ResponseManager(IResponseManager):
                         role="assistant",
                         content=content,
                     )
-            
+
             # Handle bytes content - decode and construct assistant message
             elif isinstance(content, bytes):
                 try:
@@ -252,11 +278,11 @@ class ResponseManager(IResponseManager):
                             f"Failed to decode bytes content from ResponseEnvelope: {e}",
                             exc_info=True,
                         )
-            
+
             # Handle None content - cannot construct a meaningful message
             elif content is None:
                 return None
-            
+
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(

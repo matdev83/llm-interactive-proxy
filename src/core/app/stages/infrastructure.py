@@ -141,12 +141,17 @@ class InfrastructureStage(InitializationStage):
             import httpx
 
             provider = services.build_service_provider()
-            if provider.get_service(httpx.AsyncClient) is not None:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Shared HTTP client already registered; skipping registration"
-                    )
-                return
+            try:
+                existing_client = provider.get_service(httpx.AsyncClient)
+                if existing_client is not None:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Shared HTTP client already registered; skipping registration"
+                        )
+                    return
+            except RuntimeError:
+                # Service not registered - proceed with registration
+                pass
 
             # Create shared HTTP client instance with http2 fallback
             shared_httpx_client: httpx.AsyncClient | None = None

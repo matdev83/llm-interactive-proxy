@@ -1,5 +1,8 @@
 """
 Integration test for redaction functionality.
+
+Note: Command filtering is no longer handled by RedactionMiddleware or ProxyCommandFilter.
+It is now handled by the non-forwardable message tagging system.
 """
 
 from unittest.mock import MagicMock
@@ -7,27 +10,26 @@ from unittest.mock import MagicMock
 import pytest
 from src.core.config.app_config import AuthConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.security import APIKeyRedactor, ProxyCommandFilter
+from src.security import APIKeyRedactor
 
 
 def test_redaction_functionality():
-    """Test that redaction works correctly."""
-    # Create redactor and filter
+    """Test that API key redaction works correctly."""
+    # Create redactor
     redactor = APIKeyRedactor(["SECRET_ABC123", "API_KEY_XYZ"])
-    filter = ProxyCommandFilter("!/")
 
     # Test content with secrets and commands
     original_content = "Use SECRET_ABC123 to access API and run !/hello command"
 
-    # Apply redaction and filtering
+    # Apply redaction only (no command filtering)
     redacted_content = redactor.redact(original_content)
-    filtered_content = filter.filter_commands(redacted_content)
 
     # Verify redaction
-    assert "SECRET_ABC123" not in filtered_content
-    assert "API_KEY_XYZ" not in filtered_content
-    assert "(API_KEY_HAS_BEEN_REDACTED)" in filtered_content
-    assert "!/hello" not in filtered_content
+    assert "SECRET_ABC123" not in redacted_content
+    assert "API_KEY_XYZ" not in redacted_content
+    assert "(API_KEY_HAS_BEEN_REDACTED)" in redacted_content
+    # Commands are NOT filtered by redaction (handled by tagging system)
+    assert "!/hello" in redacted_content
 
 
 @pytest.mark.asyncio

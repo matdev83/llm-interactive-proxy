@@ -362,32 +362,30 @@ async def test_redaction_disabled_when_session_override_false(
 
 
 @pytest.mark.asyncio
-async def test_redaction_command_prefix_precedence(
+async def test_redaction_does_not_pass_command_prefix(
     request_context: RequestContext,
     basic_request: ChatRequest,
 ) -> None:
     """
-    Requirement 9.2: Command prefix resolution follows precedence:
-    session > app_state > config
+    Regression: Verify that command_prefix is NOT passed to RedactionMiddleware.
+
+    Command filtering is no longer handled by RedactionMiddleware - it's handled
+    by the non-forwardable message tagging system.
     """
-    # Setup session with custom command prefix
+    # Setup session
     session = Mock()
     session.agent = "test-agent"
     session.state = Mock()
     session.state.api_key_redaction_enabled = None  # Use config default
-    session.state.command_prefix_override = "$/session"  # Highest precedence
 
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_config = MagicMock()
     mock_config.auth.redact_api_keys_in_prompts = True
-    mock_config.command_prefix = "$/config"  # Lowest precedence
     mock_app_state.get_setting.return_value = mock_config
-    mock_app_state.get_command_prefix.return_value = "$/appstate"  # Middle precedence
-    mock_app_state.get_disable_commands.return_value = False
 
     pipeline = RequestTransformPipeline(app_state=mock_app_state)
 
-    # Mock RedactionMiddleware to capture the command_prefix used
+    # Mock RedactionMiddleware to verify command_prefix is NOT passed
     with patch(
         "src.core.services.redaction_middleware.RedactionMiddleware"
     ) as mock_redaction_cls:
@@ -404,9 +402,13 @@ async def test_redaction_command_prefix_precedence(
                 request_context, session, "test-session-id", basic_request
             )
 
-            # Verify session prefix was used (highest precedence)
-            call_kwargs = mock_redaction_cls.call_args[1]
-            assert call_kwargs["command_prefix"] == "$/session"
+            # Verify command_prefix is NOT in call kwargs
+            call_kwargs = (
+                mock_redaction_cls.call_args[1] if mock_redaction_cls.call_args else {}
+            )
+            assert "command_prefix" not in call_kwargs
+            # Verify only api_keys is passed
+            assert "api_keys" in call_kwargs
 
 
 @pytest.mark.asyncio
@@ -594,6 +596,7 @@ async def test_tool_filtering_preserves_original_request(
         ToolFilterMetadata,
         ToolFilterResult,
     )
+
     mock_policy_service.filter_tool_definitions.return_value = ToolFilterResult(
         filtered_tools=filtered_tools,
         metadata=ToolFilterMetadata(

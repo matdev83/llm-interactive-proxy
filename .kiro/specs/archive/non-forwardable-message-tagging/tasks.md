@@ -124,7 +124,7 @@
   - Verify "no forwardable content" and tag-capacity errors fail before any backend call.
   - _Requirements: 1.12, 1.13, 6.3, 7.1, 7.4, 14.3_
 
-- [ ]* 6.4 Add property-based tests for identity and filtering invariants (deferrable)
+- [x] 6.4 Add property-based tests for identity and filtering invariants (deferrable)
   - Generate diverse canonical message shapes (role/content/tool variants) and assert identity determinism.
   - Assert filtering invariants (order preserved; removed messages are always tagged for the session and scope).
   - Include cases covering tool-result messages whose content is rewritten by compaction.
@@ -155,26 +155,26 @@
   - Verify concurrent interactions do not cross-apply tags between different session identifiers.
   - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 8. Remove legacy regex-based enforcement and legacy code paths (alpha finality)
-- [ ] 8.1 Remove regex-based non-forwardable filtering mechanisms and all wiring
+- [x] 8. Remove legacy regex-based enforcement and legacy code paths (alpha finality)
+- [x] 8.1 Remove regex-based non-forwardable filtering mechanisms and all wiring
   - Delete legacy regex-based mechanisms previously used for command stripping and prompt redaction related to non-forwardable behavior.
-  - Remove any remaining “compatibility” toggles or fallback paths that preserve legacy semantics.
+  - Remove any remaining "compatibility" toggles or fallback paths that preserve legacy semantics.
   - Ensure the tagging + single-boundary enforcement mechanism is the only remaining implementation.
   - _Requirements: 13.1, 13.2, 13.3_
 
-- [ ] 8.2 Update tests to remove legacy regex expectations and assert final behavior only
+- [x] 8.2 Update tests to remove legacy regex expectations and assert final behavior only
   - Remove or rewrite tests that depended on legacy regex stripping and replace with tagging/enforcement assertions.
   - Add regression coverage that fails if legacy regex-based non-forwardable filtering is reintroduced.
   - Remove obsolete helpers/fixtures that existed only to support legacy regex-based enforcement tests.
   - _Requirements: 13.1, 13.3_
 
-- [ ] 8.3 Run the full unit and integration suites for this feature and fix failures
+- [x] 8.3 Run the full unit and integration suites for this feature and fix failures
   - Ensure unit tests for identity/registry/enforcer pass.
   - Ensure integration tests for backend flow, compaction compatibility, and entry point coverage pass.
   - Ensure static checks pass for modified modules (lint, formatting, type checks).
   - _Requirements: 9.1, 10.1, 11.1_
 
-- [ ] 8.4 Ensure final state of the implementation and legacy paths removed
+- [x] 8.4 Ensure final state of the implementation and legacy paths removed
   - Ensure all new functionalities from this effort are actually and properly wired in via the DI.
   - This is an Alpha stage project. We don't need to maintain any backward compability. All implementations made during this effort should be the only active implementations of the features being in scope of this effort. No legacy code superseded by the new one created during this session should remain. Check it.
   - Ensure no fallbacks to legacy code

@@ -900,20 +900,18 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_execution_phase_api_failure(self, hybrid_connector):
         """Test execution phase API failure."""
-        # Mock backend registry to return a failing connector
-        mock_backend = AsyncMock()
-        mock_backend.initialize = AsyncMock()
-        mock_backend.chat_completions = AsyncMock(side_effect=Exception("API Error"))
+        # Mock BackendService to raise an error when call_completion is called
+        mock_backend_service = AsyncMock()
+        # Make call_completion an async function that raises BackendError with execution context
+        async def failing_call_completion(*args, **kwargs):
+            raise BackendError("Execution phase failed: API Error", backend_name="openai")
+        mock_backend_service.call_completion = failing_call_completion
 
-        # Mock factory to return the failing backend
-        mock_factory = Mock()
-        mock_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-
-        # Patch get_required_service to return our mock factory
+        # Patch get_required_service at the module where it's imported from
         with (
             patch(
                 "src.core.di.services.get_required_service",
-                return_value=mock_factory,
+                return_value=mock_backend_service,
             ),
             pytest.raises(BackendError) as exc_info,
         ):

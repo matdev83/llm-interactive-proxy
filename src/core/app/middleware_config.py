@@ -220,19 +220,19 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
     # LLM Assessment middleware (if enabled)
     if hasattr(config, "assessment") and getattr(config.assessment, "enabled", False):
         try:
-            from src.core.services.assessment_service import AssessmentService
+            from typing import cast
 
             from src.core.interfaces.non_forwardable_interface import (
                 INonForwardableMessageIdentityService,
                 INonForwardableMessageRegistry,
             )
-            from typing import cast
+            from src.core.services.assessment_service import AssessmentService
 
             assessment_service = app.state.service_provider.get_required_service(
                 AssessmentService
             )
-            from src.core.services.turn_counter_service import TurnCounterService
             from src.core.domain.configuration.assessment_config import AssessmentConfig
+            from src.core.services.turn_counter_service import TurnCounterService
 
             turn_counter_service = app.state.service_provider.get_required_service(
                 TurnCounterService

@@ -34,6 +34,7 @@
   - Add `ConnectorChatCompletionsRequest` as the canonical connector request payload.
   - Add `ICanonicalChatCompletionsBackend` (or equivalent) to define the canonical connector entry point.
   - Ensure connector-facing options and extension values are constrained to JSON-serializable typed values.
+  - Ensure connector cancellation uses a stable typed interface (e.g., `ISessionCancellationCoordinator | None`) rather than `Any`.
   - Ensure connector-facing contracts do not import transport framework types.
   - _Requirements: 4.1, 4.2, 4.3, 2.3_
 
@@ -67,14 +68,14 @@
   - _Requirements: 1.1, 1.2, 1.3, 4.4, 1.5_
 
 - [ ] 3. Response and streaming seam hardening: processed chunks, usage, and metadata
-- [ ] 3.1 (P) Define a typed processed response / chunk contract for the core-to-transport seam
-  - Introduce a typed processed response contract that carries content, usage, and JSON-safe metadata.
-  - Ensure the processed chunk content union supports the minimal required payload types for streaming and non-streaming flows.
-  - Ensure the contract is transport-agnostic and efficient to construct per chunk.
+- [ ] 3.1 (P) Harden `ProcessedResponse` contract and boundary signatures
+  - Align `ProcessedResponse` (and related boundary interfaces) on a single shared `ProcessedChunkContent` union (no `Any` in boundary signatures).
+  - Ensure `ProcessedResponse.metadata` uses JSON-safe values (`dict[str, JsonValue]`) and avoids mutable class-level defaults.
+  - Ensure the contract remains transport-agnostic and efficient to construct per chunk.
   - _Requirements: 2.5, 6.1, 6.2, NFR1.2_
 
-- [ ] 3.2 Update core response processing to emit typed processed responses
-  - Normalize connector outputs into the processed response contract before handing off to transport adapters.
+- [ ] 3.2 Tighten core response processing to emit boundary-safe processed responses
+  - Normalize connector outputs into `ProcessedChunkContent` before handing off to transport adapters (no provider-specific objects crossing seams).
   - Ensure per-chunk transformations remain shallow and do not introduce buffering.
   - Preserve copy-on-write behavior for any enrichment of contracts during processing.
   - _Requirements: 2.5, 6.3, NFR1.2, NFR1.3_
@@ -87,7 +88,7 @@
 
 - [ ] 3.4 Tighten non-streaming response envelopes to typed usage and JSON-safe metadata
   - Ensure non-streaming results crossing boundaries use canonical usage and JSON-safe metadata end-to-end.
-  - Ensure protocol/vendor-specific extras cross boundaries only through an explicit extension container.
+  - Ensure protocol/vendor-specific extras cross boundaries only through a documented extension container.
   - _Requirements: 2.4, 2.6, 6.1, 6.2_
 
 - [ ] 3.5 Add regression coverage for streaming performance and copy-on-write behavior

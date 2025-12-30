@@ -17,6 +17,8 @@ All notable changes to this project will be documented in this file.
 - **Context Compaction**: Metrics export via structured logging (Req 4.1) - all compaction operations now emit detailed metrics for observability, including messages compacted, bytes saved, and estimated token savings
 - **Context Compaction**: Configurable resource identifier redaction (Req 4.5) - optional redaction of file paths and commands in compaction stubs for security-sensitive environments (default: OFF for debuggability)
 - **Documentation**: Comprehensive user guide for context compaction feature with configuration examples, troubleshooting, and best practices
+- Implemented typed contracts boundary hardening with enhanced validation and error handling
+- Enhanced non-forwardable message handling with improved security and reliability measures
 
 ### Changed
 

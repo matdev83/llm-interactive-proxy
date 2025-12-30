@@ -199,14 +199,28 @@ class CommandStage(InitializationStage):
                 )
                 tail_extractor = provider.get_required_service(CommandTailExtractor)
                 match_filter = provider.get_required_service(CommandMatchFilter)
-                app_state = provider.get_service(cast(type, IApplicationState))
+                app_state = None
+                try:
+                    app_state = provider.get_service(cast(type, IApplicationState))
+                except RuntimeError:
+                    # Optional service not registered
+                    pass
                 # Get non-forwardable services (optional - may not be registered)
-                non_forwardable_registry = provider.get_service(
-                    cast(type, INonForwardableMessageRegistry)
-                )
-                non_forwardable_identity_service = provider.get_service(
-                    cast(type, INonForwardableMessageIdentityService)
-                )
+                non_forwardable_registry = None
+                non_forwardable_identity_service = None
+                try:
+                    non_forwardable_registry = provider.get_service(
+                        cast(type, INonForwardableMessageRegistry)
+                    )
+                except RuntimeError:
+                    pass
+
+                try:
+                    non_forwardable_identity_service = provider.get_service(
+                        cast(type, INonForwardableMessageIdentityService)
+                    )
+                except RuntimeError:
+                    pass
                 return NewCommandService(
                     session_service,
                     command_parser,

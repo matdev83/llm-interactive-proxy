@@ -184,7 +184,13 @@ def _register_failover_planner(services: ServiceCollection) -> None:
             )
             config: IConfig = provider.get_required_service(cast(type, IConfig))
 
-            failover_strategy = provider.get_service(cast(type, IFailoverStrategy))
+            # Optional services - handle RuntimeError when not registered
+            failover_strategy = None
+            try:
+                failover_strategy = provider.get_service(cast(type, IFailoverStrategy))
+            except RuntimeError:
+                # Service not registered - this is expected for optional services
+                pass
             resilience_coordinator = provider.get_service(
                 cast(type, IResilienceCoordinator)
             )

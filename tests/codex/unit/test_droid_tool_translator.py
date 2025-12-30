@@ -302,6 +302,81 @@ class TestDroidToolTranslatorGrep:
         assert args["max_results"] == 100
 
 
+class TestDroidToolTranslatorGlob:
+    """TDD tests for Glob->grep_files translation."""
+
+    def test_translate_glob_to_grep_files_basic(self):
+        """Glob should map to grep_files with file_patterns."""
+        from src.connectors._openai_codex_droid_tool_translator import (
+            DroidToolTranslator,
+        )
+
+        translator = DroidToolTranslator()
+        result = translator.translate_tool_call("Glob", {"pattern": "**/*.py"})
+        tool_name, args = result.codex_tool_name, result.codex_arguments
+        assert tool_name == "grep_files"
+        assert args["pattern"] == "**/*.py"
+        assert args["file_patterns"] == ["**/*.py"]
+
+    def test_translate_glob_with_max_results(self):
+        """Glob should propagate max_results when present."""
+        from src.connectors._openai_codex_droid_tool_translator import (
+            DroidToolTranslator,
+        )
+
+        translator = DroidToolTranslator()
+        result = translator.translate_tool_call(
+            "Glob", {"pattern": "*.md", "max_results": 25}
+        )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
+        assert tool_name == "grep_files"
+        assert args["pattern"] == "*.md"
+        assert args["file_patterns"] == ["*.md"]
+        assert args["max_results"] == 25
+
+
+class TestDroidToolTranslatorPatchTools:
+    """TDD tests for Edit/Create->apply_patch translation."""
+
+    def test_translate_edit_to_apply_patch(self):
+        """Edit should map to apply_patch with file_path and content."""
+        from src.connectors._openai_codex_droid_tool_translator import (
+            DroidToolTranslator,
+        )
+
+        translator = DroidToolTranslator()
+        result = translator.translate_tool_call(
+            "Edit",
+            {
+                "file_path": "/project/app.py",
+                "old_str": "print('old')",
+                "new_str": "print('new')",
+                "content": "print('new')",
+            },
+        )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
+        assert tool_name == "apply_patch"
+        assert args["file_path"] == "/project/app.py"
+        assert args["old_str"] == ""
+        assert args["new_str"] == "print('new')"
+
+    def test_translate_create_to_apply_patch(self):
+        """Create should map to apply_patch with is_new_file marker."""
+        from src.connectors._openai_codex_droid_tool_translator import (
+            DroidToolTranslator,
+        )
+
+        translator = DroidToolTranslator()
+        result = translator.translate_tool_call(
+            "Create", {"file_path": "/project/new.txt", "content": "hello"}
+        )
+        tool_name, args = result.codex_tool_name, result.codex_arguments
+        assert tool_name == "apply_patch"
+        assert args["file_path"] == "/project/new.txt"
+        assert args["content"] == "hello"
+        assert args["is_new_file"] is True
+
+
 class TestProxySideTools:
     """TDD tests for proxy-handled tools (no Codex equivalent)."""
 

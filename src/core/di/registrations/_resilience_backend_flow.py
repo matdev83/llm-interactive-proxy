@@ -266,9 +266,15 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             failover_planner: IFailoverPlanner = provider.get_required_service(
                 cast(type, IFailoverPlanner)
             )
-            failure_strategy: IFailureHandlingStrategy | None = provider.get_service(
-                cast(type, IFailureHandlingStrategy)
-            )
+            # Optional service - handle RuntimeError when not registered
+            failure_strategy: IFailureHandlingStrategy | None = None
+            try:
+                failure_strategy = provider.get_service(
+                    cast(type, IFailureHandlingStrategy)
+                )
+            except RuntimeError:
+                # Service not registered - this is expected for optional services
+                pass
             routing_service = provider.get_service(BackendRoutingService)
             config: IConfig = provider.get_required_service(cast(type, IConfig))
 
@@ -366,9 +372,16 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         def _usage_accounting_orchestrator_factory(
             provider: IServiceProvider,
         ) -> UsageAccountingOrchestrator:
-            usage_tracking_service: IUsageTrackingService | None = provider.get_service(
-                cast(type, IUsageTrackingService)
-            )
+            # Optional service - handle RuntimeError when not registered
+            usage_tracking_service: IUsageTrackingService | None = None
+            try:
+                usage_tracking_service = provider.get_service(
+                    cast(type, IUsageTrackingService)
+                )
+            except RuntimeError:
+                # Service not registered - this is expected for optional services
+                pass
+            # Wrapper is always registered (factory handles None services)
             usage_tracking_wrapper: IUsageTrackingWrapper = (
                 provider.get_required_service(cast(type, IUsageTrackingWrapper))
             )

@@ -6,9 +6,10 @@ This specification defines the requirements for hardening and completing the typ
 
 This effort is specifically concerned with *boundary surfaces* (interfaces and adapters) where cross-layer data is exchanged. Internal implementation details may remain flexible when they are not part of a boundary contract, but boundary signatures and boundary-carried payloads must use canonical contracts or JSON-serializable typed values.
 
-**Discovered Constraints (from Gap Analysis)**:
-- The current boundary type guardrail script scans a very broad set of files and reports widespread violations; this effort must explicitly define which modules are considered “boundary surfaces” for enforcement and which are internal-only.
-- The connector seam (`src/connectors/`) is a cross-layer boundary but is not currently covered by the boundary type guardrail script; the enforcement scope must include it.
+**Discovered Constraints (from Gap Analysis + current code state)**:
+- `dev/scripts/check_boundary_types.py` currently scans `src/core/interfaces/`, `src/core/domain/`, and `src/core/transport/` and reports ~638 violations; enforcement must be re-scoped to true boundary surfaces to become actionable.
+- The connector seam (`src/connectors/`) is a cross-layer boundary but is not currently covered by the boundary type guardrail script; the enforcement scope must include at least the connector boundary API.
+- Several canonical contracts already exist (`RequestContext`, `BackendTarget`, `UsageSummary`, `ResponseEnvelope`/`StreamingResponseEnvelope`, streaming `StreamingChunk`), but key boundary protocols (notably response-processing and transport adapter protocols) still expose `Any`/`dict[str, Any]`, limiting the practical benefits of the contract set.
 
 **Project Context**: Universal LLM Proxy - Traffic routing, failover, accounting for multiple LLM backends with async FastAPI architecture.
 
@@ -47,8 +48,8 @@ This effort is specifically concerned with *boundary surfaces* (interfaces and a
 2.2 When core request processing hands off execution to backend orchestration, the LLM Proxy shall represent routing outputs (backend selection, effective model, and URI parameters) using canonical typed contracts rather than ad hoc dict shapes.
 2.3 When core orchestration invokes a connector backend, the LLM Proxy shall pass canonical request and context contracts without converting them into `dict[str, Any]` payloads.
 2.4 When a connector returns a non-streaming result, the LLM Proxy shall represent it using a transport-agnostic response envelope contract with typed usage and JSON-serializable metadata.
-2.5 While processing streaming responses, when a streaming chunk crosses a boundary between core response processing and transport serialization, the LLM Proxy shall represent it using a typed streaming/processed-chunk contract (not raw `Any`).
-2.6 Where protocol- or vendor-specific data must cross a boundary, the LLM Proxy shall carry it only via an explicit extension container whose values are JSON-serializable typed values.
+2.5 While processing streaming responses, when a streaming chunk crosses a boundary between core response processing and transport serialization, the LLM Proxy shall represent it using a typed contract (e.g., `ProcessedResponse` and/or `StreamingChunk`) rather than raw `Any`.
+2.6 Where protocol- or vendor-specific data must cross a boundary, the LLM Proxy shall carry it only via an explicitly documented extension mechanism (an “approved extension container/field”) and shall not introduce new ad hoc cross-layer extension fields.
 2.7 Where backward compatibility requires a boundary contract field to remain permissive, the LLM Proxy shall document the exception, constrain it to the smallest practical surface, and provide a clear promotion path to a typed field or typed extension container.
 
 #### Technical Constraints
@@ -78,13 +79,14 @@ This effort is specifically concerned with *boundary surfaces* (interfaces and a
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
-4.1 The LLM Proxy shall expose a connector-facing chat completion interface whose request payload type is the canonical request contract rather than `dict[str, Any]`.
-4.2 When a connector is invoked, the LLM Proxy shall provide “processed messages” using a typed representation consistent with the canonical request message contract, rather than an untyped list.
-4.3 If connector invocation requires provider-specific options, then the LLM Proxy shall constrain connector-bound option values to JSON-serializable typed values (or provide a dedicated typed options contract).
+4.1 The LLM Proxy shall invoke connector backends using the canonical request contract and shall not pass `dict[str, Any]` payloads from core orchestration into connectors; any legacy compatibility for dict-shaped inputs must be confined behind an explicitly named connector boundary adapter (see 4.4).
+4.2 When a connector is invoked, the LLM Proxy shall provide “processed messages” using a typed representation consistent with the canonical request message contract (e.g., `Sequence[ChatMessage]`) rather than an untyped list.
+4.3 If connector invocation requires provider-specific options, then the LLM Proxy shall constrain connector-bound option values to JSON-serializable typed values (or provide a dedicated typed options contract) and keep non-JSON runtime objects out of connector options/kwargs.
 4.4 Where backward compatibility is required for existing connectors or tests, the LLM Proxy shall provide compatibility adapters that convert legacy shapes at the connector boundary without leaking legacy shapes into core services.
 
 #### Technical Constraints
 - Connector contracts must remain transport-agnostic and must not depend on FastAPI/Starlette types.
+- Connector cancellation must use a stable typed interface (e.g., `ISessionCancellationCoordinator | None`) rather than `Any` once it crosses the core → connector seam.
 
 ### Requirement 5: Centralized Legacy Compatibility and Explicit Conversion Points
 **Objective:** As a developer, I want legacy compatibility logic to be centralized at explicit conversion points, so that core services operate on stable typed inputs and avoid hidden conversion churn.

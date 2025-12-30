@@ -11,11 +11,15 @@ import contextlib
 import json
 import zlib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+cbor2: Any | None = None
 try:
-    import cbor2
+    import cbor2 as _cbor2
+
+    cbor2 = _cbor2
 except ImportError:
     cbor2 = None
 
@@ -197,11 +201,11 @@ class TestDroidCodexCompatibility:
             pytest.skip("No wire captures directory")
 
         # Find latest Droid session capture
-        droid_captures = list(captures_dir.glob("proxy-20251205*.cbor"))
+        droid_captures = list(captures_dir.glob("proxy-*.cbor"))
         if not droid_captures:
             pytest.skip("No Droid capture files found")
 
-        capture_file = droid_captures[0]
+        capture_file = max(droid_captures, key=lambda path: path.stat().st_mtime)
         translator = DroidToolTranslator()
         found_tools = set()
 

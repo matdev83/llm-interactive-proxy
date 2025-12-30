@@ -9,19 +9,23 @@ from src.core.commands.parser import CommandParser
 from src.core.commands.pipeline import CommandMatchFilter, CommandTailExtractor
 from src.core.commands.registry import get_all_commands, get_command_handler
 from src.core.common.env_utils import get_env_flag
+from src.core.common.exceptions import (
+    NonForwardableEnforcementError,
+    NonForwardableTagLimitExceededError,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain import chat as models
 from src.core.domain.chat import ChatMessage
 from src.core.domain.non_forwardable import NonForwardableTagScope
 from src.core.domain.processed_result import ProcessedResult
 from src.core.interfaces.application_state_interface import IApplicationState
+from src.core.interfaces.command_policy_service_interface import ICommandPolicyService
+from src.core.interfaces.command_service_interface import ICommandService
+from src.core.interfaces.command_state_service_interface import ICommandStateService
 from src.core.interfaces.non_forwardable_interface import (
     INonForwardableMessageIdentityService,
     INonForwardableMessageRegistry,
 )
-from src.core.interfaces.command_policy_service_interface import ICommandPolicyService
-from src.core.interfaces.command_service_interface import ICommandService
-from src.core.interfaces.command_state_service_interface import ICommandStateService
 from src.core.interfaces.session_service_interface import ISessionService
 
 if TYPE_CHECKING:
@@ -194,13 +198,15 @@ class NewCommandService(ICommandService):
                         f"Tagged command message as never-forward for session {session_id}, "
                         f"command={command.name}, identity={identity[:16]}..."
                     )
+            except NonForwardableTagLimitExceededError:
+                # Fail closed - capacity exceeded (Req 14.3, 10.1)
+                raise
             except Exception as e:
-                # Log error but don't fail command processing if tagging fails
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        f"Failed to tag command message as non-forwardable: {e}",
-                        exc_info=True,
-                    )
+                # Fail closed on any tagging failure to prevent leakage (Req 10.1)
+                raise NonForwardableEnforcementError(
+                    f"Failed to tag command message as non-forwardable: {e}",
+                    details={"session_id": session_id},
+                ) from e
 
         message = orig_message.model_copy()
         modified_messages[tail_segment.message_index] = message
@@ -224,12 +230,15 @@ class NewCommandService(ICommandService):
                         scope=NonForwardableTagScope.NEVER_FORWARD,
                         reason="slash_command",
                     )
+                except NonForwardableTagLimitExceededError:
+                    # Fail closed - capacity exceeded (Req 14.3, 10.1)
+                    raise
                 except Exception as e:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            f"Failed to tag invalid command message as non-forwardable: {e}",
-                            exc_info=True,
-                        )
+                    # Fail closed on any tagging failure to prevent leakage (Req 10.1)
+                    raise NonForwardableEnforcementError(
+                        f"Failed to tag invalid command message as non-forwardable: {e}",
+                        details={"session_id": session_id},
+                    ) from e
             return ProcessedResult(
                 modified_messages=modified_messages,
                 command_executed=False,

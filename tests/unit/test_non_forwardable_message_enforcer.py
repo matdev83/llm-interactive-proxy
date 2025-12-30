@@ -27,7 +27,6 @@ from src.core.domain.non_forwardable import (
 )
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.non_forwardable_interface import (
-    INonForwardableMessageEnforcer,
     INonForwardableMessageIdentityService,
     INonForwardableMessageRegistry,
 )

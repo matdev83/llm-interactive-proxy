@@ -1162,7 +1162,11 @@ async def test_request_processor_clears_pending_entry_after_use() -> None:
 async def test_request_processor_applies_redaction_before_backend_call(
     session_service: MockSessionService,
 ) -> None:
-    """Ensure API key redaction and command filtering are applied to outbound request."""
+    """Ensure API key redaction is applied to outbound request.
+
+    Note: Command filtering is now handled by the non-forwardable message tagging system,
+    not by RedactionMiddleware.
+    """
     # Arrange
     command_processor = MockCommandProcessor()
     session_manager = AsyncMock()
@@ -1275,8 +1279,8 @@ async def test_request_processor_applies_redaction_before_backend_call(
     # API key should be replaced
     assert "SECRET_API_KEY_123" not in redacted_content
     assert "(API_KEY_HAS_BEEN_REDACTED)" in redacted_content
-    # Proxy command should be removed
-    assert "!/hello" not in redacted_content
+    # Proxy command should remain (filtering is handled by tagging system, not redaction)
+    assert "!/hello" in redacted_content
 
 
 @pytest.mark.asyncio
@@ -1395,7 +1399,6 @@ async def test_request_processor_redacts_command_modified_messages(
             redacted_content = str(message_content)
     assert "ANOTHER_SECRET_KEY_456" not in redacted_content
     assert "(API_KEY_HAS_BEEN_REDACTED)" in redacted_content
-    assert "!/hello" not in redacted_content
 
 
 @pytest.mark.asyncio

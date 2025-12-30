@@ -9,9 +9,8 @@ from __future__ import annotations
 import functools
 import logging
 import re
-from typing import Any, cast
+from typing import Any, Protocol, cast, runtime_checkable
 
-from src.connectors._openai_codex_xml_tool_parser import XMLToolParser
 from src.connectors.openai_codex.contracts import (
     CodexRequestContext,
     CodexToolSchema,
@@ -27,6 +26,11 @@ from src.connectors.openai_codex.interfaces import ICompatibilityLayer
 from src.connectors.openai_codex.tools import ToolExecutionService
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class _XMLParserLike(Protocol):
+    def parse(self, xml_text: str) -> Any: ...
 
 
 class CompatibilityLayer(ICompatibilityLayer):
@@ -518,11 +522,8 @@ class CompatibilityLayer(ICompatibilityLayer):
                     xml_parser = get_parser()
                 except Exception:
                     xml_parser = None
-        if xml_parser is None:
+        if not isinstance(xml_parser, _XMLParserLike):
             logger.debug("XMLToolParser not available")
-            return result
-        if not isinstance(xml_parser, XMLToolParser):
-            logger.debug("XMLToolParser returned unexpected type: %s", type(xml_parser))
             return result
 
         # Process each message

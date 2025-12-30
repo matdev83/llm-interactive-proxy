@@ -35,12 +35,12 @@ from src.core.interfaces.backend_completion_flow_interface import (
     IBackendCompletionFlow,
 )
 from src.core.interfaces.exception_normalizer_interface import IExceptionNormalizer
+from src.core.interfaces.non_forwardable_interface import (
+    INonForwardableMessageEnforcer,
+)
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
-)
-from src.core.interfaces.non_forwardable_interface import (
-    INonForwardableMessageEnforcer,
 )
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 from src.core.services.resilience.scope import (

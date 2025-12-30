@@ -37,7 +37,8 @@ from src.core.services.translation_service import TranslationService
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
-# API key redaction and command filtering are now handled by middleware
+# API key redaction is handled by middleware.
+# Command filtering is handled by the non-forwardable message tagging system.
 
 logger = logging.getLogger(__name__)
 
@@ -259,7 +260,13 @@ class AnthropicBackend(LLMBackend):
 
                     prompt_text = extract_prompt_text(processed_messages)
                     prompt_tokens = count_tokens(prompt_text, model=effective_model)
-                except (ImportError, AttributeError, TypeError, KeyError, ValueError) as e:
+                except (
+                    ImportError,
+                    AttributeError,
+                    TypeError,
+                    KeyError,
+                    ValueError,
+                ) as e:
                     # Catch expected exceptions from token counting utilities
                     # ImportError: tiktoken not available
                     # AttributeError/TypeError/KeyError/ValueError: data structure issues
@@ -271,7 +278,9 @@ class AnthropicBackend(LLMBackend):
                     # Fallback for truly unexpected errors
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to calculate prompt tokens (unexpected error): %s", e, exc_info=True
+                            "Failed to calculate prompt tokens (unexpected error): %s",
+                            e,
+                            exc_info=True,
                         )
 
                 # Integrate with streaming pipeline

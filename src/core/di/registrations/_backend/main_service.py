@@ -129,9 +129,15 @@ def register_backend_service(services: ServiceCollection) -> None:
             failure_handling_strategy: IFailureHandlingStrategy | None = (
                 resolve_failure_strategy(provider, config, routing_service)
             )
-            usage_tracking_service: IUsageTrackingService | None = provider.get_service(
-                cast(type, IUsageTrackingService)
-            )
+            # Optional service - handle RuntimeError when not registered
+            usage_tracking_service: IUsageTrackingService | None = None
+            try:
+                usage_tracking_service = provider.get_service(
+                    cast(type, IUsageTrackingService)
+                )
+            except RuntimeError:
+                # Service not registered - this is expected for optional services
+                pass
 
             stream_formatting_service: IStreamFormattingService = (
                 provider.get_required_service(cast(type, IStreamFormattingService))

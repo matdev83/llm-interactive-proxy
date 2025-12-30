@@ -18,7 +18,6 @@ from src.connectors.openai_codex.contracts import (
 )
 from src.connectors.openai_codex.executor import ResponseExecutor
 from src.connectors.openai_codex.interfaces import (
-    ICodexTransport,
     ICredentialManager,
     IResponseExecutor,
 )

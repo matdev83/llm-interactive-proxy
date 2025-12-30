@@ -783,67 +783,27 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
             # Try to call the backend - if it fails, provide fallback response
             response_payload: dict[str, Any] | None = None
             try:
-                # Check if there's a mock backend on app.state (test scenario)
-                app_state = request.app.state
-                if (
-                    hasattr(app_state, "openrouter_backend")
-                    and app_state.openrouter_backend
-                ):
-                    mock_result = await app_state.openrouter_backend.chat_completions(
-                        domain_request
-                    )
-                    mock_content = (
-                        mock_result.content
-                        if hasattr(mock_result, "content")
-                        else mock_result
-                    )
-                    from src.core.domain.gemini_translation import (
-                        canonical_response_to_gemini_response,
-                    )
+                # All backend calls must route through the shared orchestrator
+                # to ensure non-forwardable enforcement boundary is applied (Req 7.6)
+                result = await backend_service.call_completion(
+                    domain_request, context=ctx
+                )
+                if hasattr(result, "content"):
+                    if isinstance(result.content, dict):
+                        from src.core.domain.gemini_translation import (
+                            canonical_response_to_gemini_response,
+                        )
 
-                    response_payload = canonical_response_to_gemini_response(
-                        mock_content
-                    )
-                else:
-                    result = await backend_service.call_completion(
-                        domain_request, context=ctx
-                    )
-                    if hasattr(result, "content"):
-                        if isinstance(result.content, dict):
-                            from src.core.domain.gemini_translation import (
-                                canonical_response_to_gemini_response,
-                            )
-
-                            response_payload = canonical_response_to_gemini_response(
-                                result.content
-                            )
-                        else:
-                            response_text = str(result.content)
-                            response_payload = {
-                                "candidates": [
-                                    {
-                                        "content": {
-                                            "parts": [{"text": response_text}],
-                                            "role": "model",
-                                        },
-                                        "finishReason": "STOP",
-                                        "index": 0,
-                                    }
-                                ],
-                                "usageMetadata": {
-                                    "promptTokenCount": 10,
-                                    "candidatesTokenCount": 20,
-                                    "totalTokenCount": 30,
-                                },
-                            }
+                        response_payload = canonical_response_to_gemini_response(
+                            result.content
+                        )
                     else:
+                        response_text = str(result.content)
                         response_payload = {
                             "candidates": [
                                 {
                                     "content": {
-                                        "parts": [
-                                            {"text": "Response processed successfully."}
-                                        ],
+                                        "parts": [{"text": response_text}],
                                         "role": "model",
                                     },
                                     "finishReason": "STOP",
@@ -856,6 +816,26 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                                 "totalTokenCount": 30,
                             },
                         }
+                else:
+                    response_payload = {
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [
+                                        {"text": "Response processed successfully."}
+                                    ],
+                                    "role": "model",
+                                },
+                                "finishReason": "STOP",
+                                "index": 0,
+                            }
+                        ],
+                        "usageMetadata": {
+                            "promptTokenCount": 10,
+                            "candidatesTokenCount": 20,
+                            "totalTokenCount": 30,
+                        },
+                    }
             except Exception as e:
                 if isinstance(e, HTTPException):
                     raise HTTPException(status_code=e.status_code, detail=e.detail)

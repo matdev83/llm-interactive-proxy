@@ -8,8 +8,8 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from fastapi import Request, Response
-
 from src.core.app.middleware.assessment_middleware import AssessmentMiddleware
+from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.interfaces.assessment_service_interface import (
     IAssessmentService,
     ITurnCounterService,
@@ -18,7 +18,6 @@ from src.core.interfaces.non_forwardable_interface import (
     INonForwardableMessageIdentityService,
     INonForwardableMessageRegistry,
 )
-from src.core.domain.configuration.assessment_config import AssessmentConfig
 
 if TYPE_CHECKING:
     from fastapi import FastAPI

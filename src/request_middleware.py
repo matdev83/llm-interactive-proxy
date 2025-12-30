@@ -1,6 +1,8 @@
 """
-Request processing middleware for handling cross-cutting concerns like API key redaction and command filtering.
+Request processing middleware for handling cross-cutting concerns like API key redaction.
 
+Note: Command filtering is no longer handled by middleware - it is handled by the
+non-forwardable message tagging system.
 
 This module provides a pluggable middleware system that can process requests
 before they are sent to any backend without coupling the redaction logic to individual connectors.

@@ -9,11 +9,10 @@ Tests coverage for:
 Requirements: 5.3, 6.2, 7.3, 10.1, 14.3
 """
 
-import pytest
 from src.core.common.exceptions import (
     LLMProxyError,
-    NonForwardableEnforcementError,
     NoForwardableContentError,
+    NonForwardableEnforcementError,
     NonForwardableTagLimitExceededError,
 )
 

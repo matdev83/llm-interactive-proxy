@@ -17,6 +17,7 @@ Given current codebase reality (widespread `Any` usage in `src/core/domain` util
 - Ensure Transport ↔ Core ↔ Connector seams exchange canonical contracts or JSON-serializable typed values (`JsonValue`).
 - Preserve external behavior: HTTP API shapes, error mapping, streaming semantics, capture compatibility.
 - Centralize legacy dict compatibility at explicit conversion points.
+- Prevent new cross-layer “extension surface sprawl” by making extension mechanisms explicit and reviewable.
 
 ### Non-Goals
 - Rewriting all translation utilities to remove `Any` throughout `src/core/domain` internals.
@@ -41,10 +42,12 @@ Given current codebase reality (widespread `Any` usage in `src/core/domain` util
 ### Existing Architecture Analysis
 
 - Request entry is through FastAPI controllers and adapter functions that construct `RequestContext` and normalize protocol payloads into canonical request models.
-- Core processing is orchestrated by `RequestProcessor` and backend orchestration by `BackendCompletionFlow` collaborators.
+- Core processing is orchestrated by `RequestProcessor` and backend orchestration by `BackendCompletionFlow` (currently implemented under `src/core/services/backend_completion_flow/`).
 - Transport response adaptation (including streaming/SSE) is layered under `src/core/transport/fastapi/adapters/`.
-- Connector invocation is through `src/connectors/base.LLMBackend`, which currently accepts broad input types and untyped processed messages.
-- A boundary type checker exists (`dev/scripts/check_boundary_types.py`) but currently treats `src/core/domain/` broadly as “boundary” and reports widespread violations, requiring scope reconciliation.
+- Connector invocation is through `src/connectors/base.LLMBackend.chat_completions(...)`, which currently accepts permissive inputs (`dict[str, Any]`, untyped processed messages, `**kwargs: Any`) even though call sites already have canonical inputs available.
+- Response streaming is already normalized through `ProcessedResponse` and `StreamingResponseEnvelope`, and typed streaming boundary models exist (`StreamingChunk`), but several boundary protocols still expose `Any`/`dict[str, Any]`.
+- Session cancellation already has a stable core-side interface (`ISessionCancellationCoordinator`), but the connector seam is still typed as `Any` for cancellation in the base connector API.
+- A boundary type checker exists (`dev/scripts/check_boundary_types.py`) but currently relies on hard-coded “boundary directories” and treats `src/core/domain/` broadly as “boundary”, yielding a large number of violations and not covering the connector seam; scope reconciliation is required before it can be used as a practical guardrail.
 
 ### Architecture Pattern & Boundary Map
 
@@ -157,24 +160,25 @@ sequenceDiagram
   - `include_globs`: list of glob patterns
   - `exclude_globs`: list of glob patterns
   - `explicit_files`: list of exact files that must be enforced even if outside globs
-- The documented initial scope is deliberately phased so the guardrail targets *connector boundary contracts* without requiring immediate refactors of all connector implementation internals:
-  - `include_globs`:
-    - `src/core/interfaces/**/*.py`
-    - `src/core/transport/**/*.py`
-    - `src/connectors/contracts/**/*.py`
-  - `explicit_files` (canonical contract carriers used at seams):
-    - `src/core/domain/request_context.py`
-    - `src/core/domain/backend_target.py`
-    - `src/core/domain/usage_summary.py`
-    - `src/core/domain/responses.py`
-    - `src/core/domain/streaming/contracts.py`
-    - `src/connectors/base.py`
-  - `exclude_globs` (internal-only modules not treated as seam contracts initially):
-    - `src/core/domain/translation.py`
-    - `src/core/domain/translation_utils/**/*.py`
-    - `src/core/domain/translators/**/*.py`
-    - `src/core/domain/**/tests/**/*.py`
-    - `src/connectors/**/*.py`
+- The scope is deliberately phased so the guardrail can become *green and enforceable* early, rather than flagging thousands of pre-existing violations:
+  - **Phase 0 (minimum viable enforcement; expected to become green first)**:
+    - `explicit_files`:
+      - `src/connectors/base.py` (connector boundary API)
+      - `src/core/interfaces/response_processor_interface.py` (processed chunk contract + response processor seam)
+      - `src/core/transport/fastapi/adapters/protocols.py` (adapter protocol signatures)
+      - `src/core/domain/responses.py` (response envelopes; already boundary-carried)
+      - `src/core/domain/request_context.py` (context contract; already boundary-carried)
+      - `src/core/domain/backend_target.py` (routing contract; already boundary-carried)
+      - `src/core/domain/usage_summary.py` (usage contract; already boundary-carried)
+      - `src/core/domain/streaming/contracts.py` (typed chunk boundary model)
+    - `include_globs`: empty or extremely narrow (prefer explicit pinning in Phase 0 to control blast radius)
+    - `exclude_globs`: optional; primarily used in later phases when include_globs expand
+  - **Phase 1+ (expand enforcement surface incrementally)**:
+    - Add narrowly targeted `include_globs` as areas become compliant, e.g.:
+      - `src/core/interfaces/**/*.py` (after high-traffic interfaces stop using `Any`)
+      - `src/core/transport/fastapi/adapters/**/*.py` (after adapter protocols and key implementations are typed)
+      - `src/connectors/contracts/**/*.py` (when connector-facing DTOs are introduced)
+    - Keep `src/core/domain/**/*.py` excluded by default, except for explicit canonical contract carriers.
 
 **Scope precedence rules**
 - `explicit_files` override `exclude_globs`.
@@ -206,9 +210,37 @@ sequenceDiagram
 **Why connectors are in-scope**
 - The connector seam is an explicit cross-layer boundary (Core ↔ Connector) and must be enforced by scope (3.2) to satisfy 4.1–4.4.
 
+### Extension Mechanisms Policy (Design Decision)
+
+**Decision**: Treat “extensions” as a first-class boundary concept: new cross-layer extensibility must go through explicitly approved extension containers/fields with JSON-safe values, and we do not add new ad hoc dict-shaped extension fields at boundaries.
+
+**Motivation**
+- The codebase already has multiple extension-like surfaces for compatibility and provider variance (e.g., `ChatRequest.extra_body`, tool metadata, streaming payload metadata).
+- Without an explicit policy, boundary hardening risks either (a) breaking compatibility by trying to eliminate legacy surfaces too aggressively, or (b) letting new ad hoc extension fields proliferate, undoing the typing gains.
+
+**Approved extension mechanisms (initial list; Phase 0/1)**
+- `RequestContext.extensions: dict[str, JsonValue]` (cross-layer context metadata)
+- `UsageSummary.extensions: dict[str, JsonValue]` (provider-specific usage)
+- `ResponseEnvelope.metadata: dict[str, JsonValue] | None` and `StreamingResponseEnvelope.metadata: dict[str, JsonValue] | None` (response metadata crossing seams)
+- `ProcessedResponse.metadata: dict[str, JsonValue]` (streaming processed-chunk metadata crossing core → transport seam)
+
+**Legacy extension mechanisms (allowed, but no new usage; Phase 0/1)**
+- `ChatRequest.extra_body: dict[str, Any] | None` and related permissive request fields (kept for external protocol compatibility; promotion path required under 2.7)
+- `ToolCall.extra_content: dict[str, Any] | None` (kept for provider compatibility; promotion path required under 2.7)
+- `StreamingChunk.payload.opaque_json_dict: dict[str, Any] | None` (kept as an explicit “opaque” escape hatch; prefer `JsonValue` where feasible)
+
+**Rules**
+- New cross-layer metadata/extension fields MUST be added to an approved extension mechanism, not as a new standalone `dict[str, Any]` field on a boundary-carried contract.
+- Extension values crossing seams MUST be JSON-safe (`JsonValue`) unless explicitly documented as an “opaque” escape hatch with a promotion plan (2.7).
+- When a legacy extension mechanism is used to carry a stable, recurring concept, it must be promoted into a typed field or JSON-safe approved extension mechanism on a time-bounded plan (2.7, 8.2).
+
 ### Connector-Facing Contracts
 
 **Decision**: Introduce an explicit canonical connector contract and invoke connectors through a single adapter that preserves backward compatibility without leaking legacy shapes into core orchestration.
+
+**Compatibility stance (project-default assumption)**:
+- Treat `LLMBackend` as a *stable plugin boundary* for this project: connectors are auto-discovered/imported and are likely to be customized. Avoid hard breaking changes to `LLMBackend` signatures in the near term.
+- Achieve hardening by controlling what *core passes into connectors* (canonical inputs + typed messages + typed cancellation + JSON-safe options) and by containing legacy behavior behind a single, explicitly named adapter/invoker.
 
 **Canonical connector API (4.1–4.3, 2.3)**:
 - Define a canonical connector-facing request contract:
@@ -218,7 +250,7 @@ sequenceDiagram
     - `effective_model: str`
     - `identity: IAppIdentityConfig | None`
     - `cancellation_token: SessionKey | None`
-    - `cancellation_coordinator: object | None` (typed to the smallest stable interface available)
+    - `cancellation_coordinator: ISessionCancellationCoordinator | None`
     - `options: dict[str, JsonValue]` (connector options; replaces `**kwargs`)
 - Define a canonical connector protocol/interface:
   - `ICanonicalChatCompletionsBackend.chat_completions(request: ConnectorChatCompletionsRequest) -> ResponseEnvelope | StreamingResponseEnvelope`
@@ -236,28 +268,30 @@ sequenceDiagram
 
 **Migration plan (phased)**
 - Phase 1: Add the canonical protocol + invoker; migrate first-party connectors to implement `ICanonicalChatCompletionsBackend`.
-- Phase 2: Deprecate legacy kwargs expansion (warn in logs when used); progressively remove from first-party connectors.
-- Phase 3: Remove legacy expansion entirely (requires explicit approval because it may affect third-party connectors).
+- Phase 2: Deprecate legacy kwargs expansion (warn in logs when used); progressively stop relying on `**kwargs` in first-party connectors.
+- Phase 3 (optional, requires explicit approval): Remove legacy kwargs expansion entirely. This is considered a potentially breaking change for third-party connectors and is therefore out-of-scope for default execution.
 
-### Response Processing and Streaming Chunk Contracts
+### Response Processing and Streaming Boundary Contracts
 
-**Decision**: Standardize the response-processing-to-transport seam on a single typed chunk contract with a minimal payload union and JSON-safe metadata.
+**Decision**: Treat the existing `ProcessedResponse` contract (`src/core/interfaces/response_processor_interface.py`) as the canonical core→transport processed-chunk wrapper, and treat `StreamingChunk` (`src/core/domain/streaming/contracts.py`) as the typed boundary contract for serialization/validation where it adds value.
 
-**Canonical processed chunk contract (2.5, 6.1–6.3)**:
-- Define a payload union for the boundary seam:
-  - `ProcessedChunkContent = bytes | str | dict[str, JsonValue]`
-- Define the processed chunk contract:
-  - `ProcessedResponse` carries:
-    - `content: ProcessedChunkContent | None`
-    - `usage: UsageSummary | None`
-    - `metadata: dict[str, JsonValue]`
-- Constraints at the seam:
-  - Connectors and core response processors must normalize any provider-specific or internal objects into `ProcessedChunkContent` before yielding across the seam.
-  - Transport streaming adapters may treat `bytes` as already-serialized SSE payloads and may treat `dict[str, JsonValue]` as OpenAI-style chunk payloads to serialize.
+**Current state to reconcile**
+- `StreamingResponseEnvelope.content` is already `AsyncIterator[ProcessedResponse]`, but `ProcessedResponse` and `IResponseProcessor` still expose `Any` in signatures/attributes, preventing boundary guardrails from being actionable within `src/core/interfaces/` and `src/core/transport/`.
+- Transport adapter protocols (SSE decoding, usage normalization, reasoning injection) still accept/return `Any`/`dict[str, Any]` for boundary-carried payloads and metadata.
+
+**Hardened processed-chunk contract (2.5, 6.1–6.3)**:
+- Define a single shared content union for boundary use:
+  - `ProcessedChunkContent = bytes | str | dict[str, JsonValue] | None`
+- Ensure `ProcessedResponse` carries:
+  - `content: ProcessedChunkContent`
+  - `usage: UsageSummary | None`
+  - `metadata: dict[str, JsonValue]` (no mutable class-level defaults)
+- Constrain boundary protocol signatures to consume/emit `ProcessedResponse` (or `ProcessedChunkContent`) rather than raw `Any`.
 
 **Allowed conversion points**
-- Connector/raw stream → core streaming processing: provider-specific objects may exist internally, but must be normalized to `ProcessedChunkContent` before reaching `StreamingResponseEnvelope.content`.
-- Response processor → transport adapter: no additional deep validation; only lightweight type checks and serialization.
+- Connector/raw stream → core streaming processing: provider-specific objects may exist internally, but must be normalized into `ProcessedChunkContent` before crossing into `StreamingResponseEnvelope.content`.
+- Response processor → transport adapter: no deep validation per chunk; only shallow checks and serialization.
+- Transport streaming adapter → wire: optional validation can use `StreamingChunk` for done markers and error envelopes without introducing per-chunk heavy parsing.
 
 **Performance constraints (NFR1.2)**
 - No Pydantic model parsing per chunk in hot paths unless explicitly required for correctness.
@@ -286,6 +320,12 @@ sequenceDiagram
 - Define and document boundary surface enforcement scope.
 - Update boundary type checker to use that scope and include connectors.
 - Add allowlist entries only with explicit rationale and a deprecation plan.
+- Phase 0 “exit criteria” (must be true before treating the guardrail as meaningful):
+  - `dev/scripts/check_boundary_types.py` can run against Phase 0 scope and exit 0 on `main` (or fails only on a small, time-bounded allowlist with expiry).
+  - `ProcessedResponse` and the highest-traffic adapter protocol signatures stop using `Any` for boundary-carried content/metadata (use `ProcessedChunkContent` + `JsonValue`).
+  - `src/connectors/base.py` no longer requires `dict[str, Any]` inputs from core call sites (core always passes canonical request).
+  - A minimal unit test suite exists for scope filtering + allowlist expiry behavior.
+  - Documentation states: “Phase 0 scope is enforced; other areas are advisory until expanded.”
 
 ### Phase 1: Harden connector seam (4.1–4.4, 2.3)
 - Introduce `ConnectorChatCompletionsRequest` + `ICanonicalChatCompletionsBackend`.
@@ -300,7 +340,7 @@ sequenceDiagram
 - Remove acceptance of legacy dict contexts from core services; confine dict→contract conversion to explicit adapter points only.
 
 ### Phase 4: Optional follow-ups (2.7)
-- Tighten remaining permissive legacy fields in canonical request/response models where feasible, promoting stable keys into typed fields or a single typed extension container.
+- Tighten remaining permissive legacy fields in canonical request/response models where feasible, promoting stable keys into typed fields or an approved JSON-safe extension mechanism.
 
 ## Testing Strategy
 
@@ -324,5 +364,5 @@ sequenceDiagram
 ## Open Questions (for design review)
 
 1. Which domain modules, if any, should be treated as boundary surfaces beyond the “canonical contract carriers” list (e.g., translation facade)? (3.1)
-2. Which cancellation coordinator interface (if any) is stable enough to type at the connector seam without importing transport types? (4.1–4.3)
-3. Which currently permissive request fields should be tightened in this effort vs deferred under 2.7? (2.7)
+2. Which currently permissive request/streaming extension surfaces should be treated as “legacy extension mechanisms” in Phase 0/1 vs promoted during this effort? (2.6, 2.7)
+3. What is the target long-term stance on third-party connector compatibility: fully supported plugin API, or “best effort”? (4.4)

@@ -13,9 +13,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
-
 from src.core.app.test_builder import build_test_app, create_test_config
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import (
+    BackendError,
+    NonForwardableTagLimitExceededError,
+)
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.non_forwardable import NonForwardableTagScope
 from src.core.domain.request_context import RequestContext
@@ -98,8 +100,9 @@ async def test_filtering_before_wire_capture(
     )
 
     # Use the test app's service provider to get backend invoker
+    from unittest.mock import patch
+
     from src.core.interfaces.backend_completion_collaborators import IBackendInvoker
-    from unittest.mock import AsyncMock, patch
 
     service_provider = test_app.state.service_provider
     backend_invoker = service_provider.get_required_service(IBackendInvoker)
@@ -194,8 +197,9 @@ async def test_filtering_after_compaction(
             usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         )
 
+    from unittest.mock import patch
+
     from src.core.interfaces.backend_completion_collaborators import IBackendInvoker
-    from unittest.mock import AsyncMock, patch
 
     service_provider = test_app.state.service_provider
     backend_invoker = service_provider.get_required_service(IBackendInvoker)
@@ -260,8 +264,9 @@ async def test_no_forwardable_content_error(
             usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         )
 
+    from unittest.mock import patch
+
     from src.core.interfaces.backend_completion_collaborators import IBackendInvoker
-    from unittest.mock import AsyncMock, patch
 
     service_provider = test_app.state.service_provider
     backend_invoker = service_provider.get_required_service(IBackendInvoker)
@@ -332,8 +337,9 @@ async def test_session_scoping_no_leakage(
             usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         )
 
+    from unittest.mock import patch
+
     from src.core.interfaces.backend_completion_collaborators import IBackendInvoker
-    from unittest.mock import AsyncMock, patch
 
     service_provider = test_app.state.service_provider
     backend_invoker = service_provider.get_required_service(IBackendInvoker)
@@ -347,3 +353,62 @@ async def test_session_scoping_no_leakage(
     # Verify message was NOT filtered in session 2 (tags are session-scoped)
     assert len(backend_received_messages) == 1
     assert backend_received_messages[0].content == "!/command"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_capacity_exceeded_fails_closed(
+    test_app,
+    backend_flow: IBackendCompletionFlow,
+    identity_service: INonForwardableMessageIdentityService,
+    registry: INonForwardableMessageRegistry,
+):
+    """Test that capacity exceeded fails closed before backend call (requirement 14.3, 10.1)."""
+    # Create a test app with very small capacity limit
+    from src.core.config.models.non_forwardable_config import (
+        NonForwardableTaggingConfig,
+    )
+    from src.core.interfaces.command_service_interface import ICommandService
+    
+    config = create_test_config()
+    # Use model_copy to create a new config with modified non_forwardable_tagging
+    config = config.model_copy(
+        update={
+            "non_forwardable_tagging": NonForwardableTaggingConfig(
+                max_identities_per_session=1
+            )
+        }
+    )
+    app = build_test_app(config)
+    service_provider = app.state.service_provider
+    
+    # Get services from the new app
+    identity_svc = service_provider.get_service(INonForwardableMessageIdentityService)
+    registry_svc = service_provider.get_service(INonForwardableMessageRegistry)
+    command_service = service_provider.get_service(ICommandService)
+    
+    session_id = "test-session-capacity"
+    
+    # Fill up to limit (1 tag)
+    msg1 = ChatMessage(role="user", content="!/command1")
+    msg1_id = identity_svc.compute_identity(msg1)
+    await registry_svc.tag_identities(
+        session_id,
+        [msg1_id],
+        scope=NonForwardableTagScope.NEVER_FORWARD,
+        reason="test",
+    )
+    
+    # Try to process another command message (should exceed capacity during tagging)
+    msg2 = ChatMessage(role="user", content="!/command2")
+    
+    # Command service will try to tag this message, which should exceed capacity
+    # and raise NonForwardableTagLimitExceededError before any backend call
+    with pytest.raises(NonForwardableTagLimitExceededError) as exc_info:
+        await command_service.process_commands([msg2], session_id)
+    
+    # Verify error details
+    error = exc_info.value
+    assert error.session_id == session_id
+    assert error.max_limit == 1
+    assert "capacity" in error.message.lower() or "limit" in error.message.lower()

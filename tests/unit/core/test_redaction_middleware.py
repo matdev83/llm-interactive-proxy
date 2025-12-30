@@ -1,5 +1,9 @@
 """
-Tests for RedactionMiddleware to ensure prompt redaction and command filtering.
+Tests for RedactionMiddleware to ensure API key redaction.
+
+Note: Command filtering and proxy response removal are no longer handled by
+RedactionMiddleware. These are now handled by the non-forwardable message tagging
+system.
 """
 
 from __future__ import annotations
@@ -29,13 +33,12 @@ def reset_cache():
 
 @pytest.mark.asyncio
 async def test_redaction_middleware_redacts_text_and_parts() -> None:
-    """Verify that secrets and proxy commands are removed from different content shapes."""
+    """Verify that API keys are redacted from different content shapes."""
     # Arrange
     api_keys = ["sk-TESTSECRET12345"]  # Example dummy key
-    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=api_keys)
 
     # Request includes both string content and list-of-parts content
-    # Commands are at the END of the last message to trigger filtering
     req = ChatRequest(
         model="gpt-4o",
         messages=[
@@ -59,12 +62,12 @@ async def test_redaction_middleware_redacts_text_and_parts() -> None:
     processed = await mw.process(req)
 
     # Assert
-    # First message (string content) got redacted, but no command to remove
+    # First message (string content) got redacted
     first = processed.messages[0].content
     assert isinstance(first, str)
     assert "(API_KEY_HAS_BEEN_REDACTED)" in first
 
-    # Second message (list of parts) got redacted and command at END was removed
+    # Second message (list of parts) got redacted
     second = processed.messages[1].content
     assert isinstance(second, list)
     texts = []
@@ -75,20 +78,20 @@ async def test_redaction_middleware_redacts_text_and_parts() -> None:
             texts.append(p["text"])
     combined = " ".join(t for t in texts if t)
     assert "(API_KEY_HAS_BEEN_REDACTED)" in combined
-    # Command !/help was at the end of the last text part, so it should be filtered
-    assert "!/help" not in combined
+    # Commands are NOT filtered by RedactionMiddleware (handled by tagging system)
+    assert "!/help" in combined
 
 
 @pytest.mark.asyncio
 async def test_redaction_middleware_preserves_commands_in_tool_responses() -> None:
-    """Verify that tool/function responses are not filtered for proxy commands.
+    """Verify that API keys are redacted but commands are preserved in all messages.
 
-    Tool responses (like file reads) may legitimately contain proxy command examples
-    in documentation or code comments. These should not be filtered.
+    Commands are no longer filtered by RedactionMiddleware - they are handled
+    by the non-forwardable message tagging system.
     """
     # Arrange
     api_keys = ["sk-TESTSECRET12345"]  # Example dummy key
-    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=api_keys)
 
     # Simulate a conversation with tool responses containing command examples
     req = ChatRequest(
@@ -122,7 +125,7 @@ async def test_redaction_middleware_preserves_commands_in_tool_responses() -> No
                     f"API key: {api_keys[0]}"
                 ),
             ),
-            # User sends a command (this should be filtered)
+            # User sends a command (should NOT be filtered by RedactionMiddleware)
             ChatMessage(role="user", content="!/backend(openai)"),
         ],
     )
@@ -131,7 +134,7 @@ async def test_redaction_middleware_preserves_commands_in_tool_responses() -> No
     processed = await mw.process(req)
 
     # Assert
-    # Tool response should preserve commands (not filtered)
+    # Tool response should preserve commands and redact API keys
     tool_msg = processed.messages[2]
     assert tool_msg.role == "tool"
     assert isinstance(tool_msg.content, str)
@@ -142,18 +145,18 @@ async def test_redaction_middleware_preserves_commands_in_tool_responses() -> No
     assert "(API_KEY_HAS_BEEN_REDACTED)" in tool_msg.content
     assert api_keys[0] not in tool_msg.content
 
-    # User message should have command filtered
+    # User message should preserve commands (not filtered by RedactionMiddleware)
     user_msg = processed.messages[3]
     assert user_msg.role == "user"
     assert isinstance(user_msg.content, str)
-    assert "!/backend" not in user_msg.content
+    assert "!/backend(openai)" in user_msg.content
 
 
 @pytest.mark.asyncio
-async def test_redaction_middleware_filters_function_role_like_tool() -> None:
-    """Verify that 'function' role messages are treated like 'tool' role."""
+async def test_redaction_middleware_preserves_function_role_messages() -> None:
+    """Verify that 'function' role messages are preserved unchanged."""
     # Arrange
-    mw = RedactionMiddleware(api_keys=[], command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=[])
 
     req = ChatRequest(
         model="gpt-4o",
@@ -178,23 +181,24 @@ async def test_redaction_middleware_filters_function_role_like_tool() -> None:
 
 
 @pytest.mark.asyncio
-async def test_redaction_middleware_removes_command_response_pairs() -> None:
-    """Verify that user commands and their corresponding proxy responses are removed."""
+async def test_redaction_middleware_does_not_remove_proxy_responses() -> None:
+    """Regression: Verify that proxy responses are NOT removed by RedactionMiddleware.
+
+    Proxy response removal is now handled by the non-forwardable message tagging system.
+    """
     # Arrange
-    mw = RedactionMiddleware(api_keys=[], command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=[])
 
     req = ChatRequest(
         model="gpt-4o",
         messages=[
             ChatMessage(role="user", content="Some previous message"),
-            # This is the pair that should be removed
             ChatMessage(role="user", content="!/backend(test)"),
             ChatMessage(
                 role="assistant",
                 content="Proxy command executed.",
                 metadata={"is_proxy_response": True},
             ),
-            # This is the substantive prompt that should remain
             ChatMessage(role="user", content="Now, please write a poem."),
         ],
     )
@@ -203,103 +207,38 @@ async def test_redaction_middleware_removes_command_response_pairs() -> None:
     processed = await mw.process(req)
 
     # Assert
-    # The command and the marked response should be gone.
-    assert len(processed.messages) == 2
+    # All messages should remain (RedactionMiddleware does not remove proxy responses)
+    assert len(processed.messages) == 4
     assert processed.messages[0].content == "Some previous message"
-    assert processed.messages[1].content == "Now, please write a poem."
-    # Verify that no proxy responses remain
-    for msg in processed.messages:
-        if msg.metadata:
-            assert not msg.metadata.get("is_proxy_response")
+    assert processed.messages[1].content == "!/backend(test)"
+    assert processed.messages[2].content == "Proxy command executed."
+    assert processed.messages[3].content == "Now, please write a poem."
 
 
 @pytest.mark.asyncio
-async def test_redaction_middleware_respects_custom_command_prefix() -> None:
-    """Ensure proxy command removal respects runtime command prefix overrides."""
-    mw = RedactionMiddleware(api_keys=[], command_prefix="#/")
+async def test_redaction_middleware_does_not_filter_commands() -> None:
+    """Regression: Verify that commands are NOT filtered by RedactionMiddleware.
+
+    Command filtering is now handled by the non-forwardable message tagging system.
+    """
+    mw = RedactionMiddleware(api_keys=[])
 
     req = ChatRequest(
         model="gpt-4o",
         messages=[
-            ChatMessage(role="user", content="#/backend(test)"),
-            ChatMessage(
-                role="assistant",
-                content="Proxy command executed.",
-                metadata={"is_proxy_response": True},
-            ),
+            ChatMessage(role="user", content="!/backend(test)"),
+            ChatMessage(role="user", content="#/model(gpt-4)"),
             ChatMessage(role="user", content="Follow-up task"),
         ],
     )
 
     processed = await mw.process(req)
 
-    assert len(processed.messages) == 1
-    assert processed.messages[0].content == "Follow-up task"
-
-
-@pytest.mark.asyncio
-async def test_redaction_middleware_limits_proxy_tool_outputs() -> None:
-    """Older proxy-generated tool outputs should be removed before backend call."""
-
-    mw = RedactionMiddleware(api_keys=[], command_prefix="!/")
-    mw._MAX_PROXY_TOOL_OUTPUTS = 2  # type: ignore[attr-defined]
-
-    tool_messages = [
-        ChatMessage(
-            role="tool",
-            content=f"result {idx}",
-            metadata={"is_proxy_tool_output": True, "tool_call_id": f"call-{idx}"},
-        )
-        for idx in range(5)
-    ]
-
-    req = ChatRequest(
-        model="gpt-4o",
-        messages=[
-            ChatMessage(role="user", content="Task start"),
-            *tool_messages,
-            ChatMessage(role="assistant", content="summary"),
-        ],
-    )
-
-    processed = await mw.process(req)
-
-    remaining_tools = [
-        msg
-        for msg in processed.messages
-        if msg.metadata and msg.metadata.get("is_proxy_tool_output")
-    ]
-
-    assert len(remaining_tools) == 2
-    assert {msg.content for msg in remaining_tools} == {"result 3", "result 4"}
-    assert processed.messages[0].content == "Task start"
-    assert processed.messages[-1].content == "summary"
-
-
-@pytest.mark.asyncio
-async def test_redaction_middleware_preserves_non_proxy_tool_outputs() -> None:
-    """Tool outputs without proxy metadata must be forwarded unchanged."""
-
-    mw = RedactionMiddleware(api_keys=[], command_prefix="!/")
-    mw._MAX_PROXY_TOOL_OUTPUTS = 1  # type: ignore[attr-defined]
-
-    req = ChatRequest(
-        model="gpt-4o",
-        messages=[
-            ChatMessage(role="user", content="Question"),
-            ChatMessage(role="tool", content="external tool response"),
-            ChatMessage(
-                role="tool",
-                content="proxy response",
-                metadata={"is_proxy_tool_output": True},
-            ),
-        ],
-    )
-
-    processed = await mw.process(req)
-
-    tool_contents = [msg.content for msg in processed.messages if msg.role == "tool"]
-    assert tool_contents == ["external tool response", "proxy response"]
+    # All messages should remain with commands intact
+    assert len(processed.messages) == 3
+    assert processed.messages[0].content == "!/backend(test)"
+    assert processed.messages[1].content == "#/model(gpt-4)"
+    assert processed.messages[2].content == "Follow-up task"
 
 
 # =============================================================================
@@ -311,7 +250,7 @@ async def test_redaction_middleware_preserves_non_proxy_tool_outputs() -> None:
 async def test_redaction_middleware_caches_processed_messages() -> None:
     """Verify that processed messages are cached to avoid reprocessing."""
     api_keys = ["sk-TESTSECRET12345"]
-    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=api_keys)
     session_id = "test-session-cache"
 
     # First request with 2 messages
@@ -336,7 +275,7 @@ async def test_redaction_middleware_caches_processed_messages() -> None:
 async def test_redaction_middleware_skips_cached_messages() -> None:
     """Verify that already-cached messages are skipped on subsequent requests."""
     api_keys = ["sk-TESTSECRET12345"]
-    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=api_keys)
     session_id = "test-session-skip"
 
     # First request with 2 messages
@@ -372,7 +311,7 @@ async def test_redaction_middleware_skips_cached_messages() -> None:
 async def test_redaction_middleware_without_session_id() -> None:
     """Verify that middleware works without session_id (no caching)."""
     api_keys = ["sk-TESTSECRET12345"]
-    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=api_keys)
 
     req = ChatRequest(
         model="gpt-4o",
@@ -392,7 +331,7 @@ async def test_redaction_middleware_without_session_id() -> None:
 async def test_redaction_middleware_different_sessions_isolated() -> None:
     """Verify that different sessions have isolated caches."""
     api_keys = ["sk-TESTSECRET12345"]
-    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=api_keys)
 
     req = ChatRequest(
         model="gpt-4o",
@@ -417,7 +356,7 @@ async def test_redaction_middleware_different_sessions_isolated() -> None:
 async def test_redaction_still_applies_to_new_messages_with_api_keys() -> None:
     """Verify that new messages containing API keys are still properly redacted."""
     api_keys = ["sk-TESTSECRET12345"]
-    mw = RedactionMiddleware(api_keys=api_keys, command_prefix="!/")
+    mw = RedactionMiddleware(api_keys=api_keys)
     session_id = "test-session-redact-new"
 
     # First request - establishes cache

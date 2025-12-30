@@ -145,11 +145,14 @@ class MockBackendStage(BaseTestBackendStage):
         except ImportError:
             return None
 
-        with contextlib.suppress(Exception):
+        try:
             provider = services.build_service_provider()
             client = provider.get_service(httpx.AsyncClient)
             if client is not None:
                 return client
+        except RuntimeError:
+            # Service not registered
+            pass
         return None
 
     def _register_backend_config_provider(self, services: ServiceCollection) -> None:

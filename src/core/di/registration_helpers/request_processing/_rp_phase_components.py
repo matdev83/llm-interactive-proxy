@@ -162,8 +162,18 @@ def _register_request_side_effects(services: ServiceCollection) -> None:
     def _request_side_effects_factory(
         provider: IServiceProvider,
     ) -> RequestSideEffects:
-        context_injector = provider.get_service(ContextInjectionMiddleware)
-        memory_capture = provider.get_service(MemoryCaptureMiddleware)
+        context_injector = None
+        try:
+            context_injector = provider.get_service(ContextInjectionMiddleware)
+        except RuntimeError:
+            # Optional service not registered
+            pass
+        memory_capture = None
+        try:
+            memory_capture = provider.get_service(MemoryCaptureMiddleware)
+        except RuntimeError:
+            # Optional service not registered
+            pass
         return RequestSideEffects(
             context_injector=context_injector, memory_capture=memory_capture
         )

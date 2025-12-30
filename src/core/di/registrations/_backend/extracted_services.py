@@ -152,10 +152,22 @@ def register_extracted_backend_services(services: ServiceCollection) -> None:
                 IStreamFormattingService,
             )
 
-            usage_service = provider.get_service(cast(type, IUsageTrackingService))
-            stream_formatting = provider.get_service(
-                cast(type, IStreamFormattingService)
-            )
+            # Optional service - handle RuntimeError when not registered
+            usage_service = None
+            try:
+                usage_service = provider.get_service(cast(type, IUsageTrackingService))
+            except RuntimeError:
+                # Service not registered - this is expected for optional services
+                pass
+            # Optional service - handle RuntimeError when not registered
+            stream_formatting = None
+            try:
+                stream_formatting = provider.get_service(
+                    cast(type, IStreamFormattingService)
+                )
+            except RuntimeError:
+                # Service not registered - this is expected for optional services
+                pass
             return UsageTrackingWrapper(
                 usage_tracking_service=usage_service,
                 stream_formatting_service=stream_formatting,

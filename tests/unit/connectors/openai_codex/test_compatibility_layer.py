@@ -62,8 +62,10 @@ class TestCompatibilityLayer:
         translator.translate_tool_invocation = AsyncMock(
             return_value=("read_file", {"path": "/tmp/test.txt"})
         )
-        translator._xml_parser = MagicMock()
-        translator._xml_parser.parse = MagicMock(return_value=None)
+        parser = MagicMock()
+        parser.parse = MagicMock(return_value=None)
+        translator.ensure_xml_parser = MagicMock(return_value=parser)
+        translator.get_xml_parser = MagicMock(return_value=parser)
         return translator
 
     @pytest.fixture
@@ -182,7 +184,10 @@ class TestCompatibilityLayer:
         parsed_tool = MagicMock()
         parsed_tool.raw_xml = "<read_file path='/tmp/test.txt'/>"
         parsed_tool.canonical_name = "read_file"
-        mock_kilo_translator._xml_parser.parse = MagicMock(return_value=parsed_tool)
+        parser = MagicMock()
+        parser.parse = MagicMock(return_value=parsed_tool)
+        mock_kilo_translator.ensure_xml_parser = MagicMock(return_value=parser)
+        mock_kilo_translator.get_xml_parser = MagicMock(return_value=parser)
         mock_kilo_translator.translate_tool_invocation = AsyncMock(
             return_value=("__proxy_read_file", {"path": "/tmp/test.txt"})
         )
@@ -215,7 +220,10 @@ class TestCompatibilityLayer:
         )
 
         # Mock XML parser to return None (no tools found)
-        mock_kilo_translator._xml_parser.parse = MagicMock(return_value=None)
+        parser = MagicMock()
+        parser.parse = MagicMock(return_value=None)
+        mock_kilo_translator.ensure_xml_parser = MagicMock(return_value=parser)
+        mock_kilo_translator.get_xml_parser = MagicMock(return_value=parser)
 
         result = await layer.apply(sample_context)
 
