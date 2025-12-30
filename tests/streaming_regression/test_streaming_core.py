@@ -86,7 +86,9 @@ async def test_openai_streaming_incremental_delivery() -> None:
         OpenAIStreamingEmulator.create_text_chunks(text, chunk_size=10),
     )
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)  # Increased for reliable timing
+    backend = OpenAIStreamingEmulator(
+        chunks=chunks, chunk_delay=0.02
+    )  # Increased for reliable timing
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -151,9 +153,7 @@ async def test_openai_streaming_incremental_delivery() -> None:
 @pytest.mark.asyncio
 async def test_anthropic_streaming_incremental_delivery() -> None:
     """Test that Anthropic streaming delivers chunks incrementally, not buffered."""
-    text = (
-        "Test response streamed."  # Further reduced for performance
-    )
+    text = "Test response streamed."  # Further reduced for performance
     chunks = cast(
         list[str | bytes],
         AnthropicStreamingEmulator.create_text_chunks(
@@ -223,7 +223,9 @@ async def test_gemini_streaming_incremental_delivery() -> None:
         GeminiStreamingEmulator.create_text_chunks(text, chunk_size=8),
     )
 
-    backend = GeminiStreamingEmulator(chunks=chunks, chunk_delay=0.02)  # Increased for reliable timing
+    backend = GeminiStreamingEmulator(
+        chunks=chunks, chunk_delay=0.02
+    )  # Increased for reliable timing
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
@@ -280,7 +282,9 @@ async def test_openai_tool_call_streaming() -> None:
     """Test that tool calls stream correctly without buffering."""
     chunks = cast(list[str | bytes], OpenAIStreamingEmulator.create_tool_call_chunks())
 
-    backend = OpenAIStreamingEmulator(chunks=chunks, chunk_delay=0.02)  # Increased for reliable timing
+    backend = OpenAIStreamingEmulator(
+        chunks=chunks, chunk_delay=0.02
+    )  # Increased for reliable timing
     app = _build_streaming_test_app()
     _inject_backend(app, backend)
 
