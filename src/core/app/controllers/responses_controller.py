@@ -838,7 +838,7 @@ class ResponsesController:
                         break
 
                     try:
-                        chunk_content = ""
+                        chunk_content: Any = ""
                         chunk_metadata: dict[str, Any] = {}
                         chunk_payload: dict[str, Any] | None = None
 
