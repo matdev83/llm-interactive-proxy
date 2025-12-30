@@ -21,11 +21,12 @@ history-compaction-follow-up
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
-1. The LLM Interactive Proxy shall determine a resource identity for each tool result message based on the tool name and the tool call parameters that materially affect the tool output.
-2. When a tool reads a file with selection parameters (for example, `offset`, `limit`, `start_line`, `end_line`, `index`, or `page`), the LLM Interactive Proxy shall treat each unique combination of file path and selection parameters as a distinct resource identity.
-3. When two tool results refer to the same file path but different selection parameters, the LLM Interactive Proxy shall not mark either result as stale due to the other.
-4. When a tool result message lacks a resource identity sufficient to correlate (for example, missing file path or unreadable tool parameters), the LLM Interactive Proxy shall preserve the message content unchanged.
-5. If the LLM Interactive Proxy cannot determine whether two tool results refer to the same resource identity, the LLM Interactive Proxy shall preserve both message contents unchanged and shall record diagnostics indicating the ambiguity.
+1.1. The LLM Interactive Proxy shall determine a resource identity for each tool result message based on the tool name and the tool call parameters that materially affect the tool output.
+1.2. When tool call parameters are semantically equivalent but encoded differently (for example, JSON string vs object, or numeric strings vs integers), the LLM Interactive Proxy shall produce the same resource identity.
+1.3. When a tool reads a file with selection parameters (for example, `offset`, `limit`, `start_line`, `end_line`, `index`, `page`, `cursor`, `chunk_size`, or `length`), the LLM Interactive Proxy shall treat each unique combination of file path and selection parameters as a distinct resource identity.
+1.4. When two tool results refer to the same file path but different selection parameters, the LLM Interactive Proxy shall not mark either result as stale due to the other.
+1.5. When a tool result message lacks a resource identity sufficient to correlate (for example, missing file path or unreadable tool parameters), the LLM Interactive Proxy shall preserve the message content unchanged.
+1.6. If the LLM Interactive Proxy cannot determine whether two tool results refer to the same resource identity, the LLM Interactive Proxy shall preserve both message contents unchanged and shall record diagnostics indicating the ambiguity.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -39,11 +40,13 @@ history-compaction-follow-up
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
-1. When a newer tool result is present in the history for the same resource identity, the LLM Interactive Proxy shall mark older tool result messages for that same resource identity as stale.
-2. While no newer tool result exists for a resource identity, the LLM Interactive Proxy shall retain the most recent tool result content for that resource identity unmodified.
-3. The LLM Interactive Proxy shall not compact user, system, or assistant messages (including assistant reasoning content).
-4. When compacting messages, the LLM Interactive Proxy shall preserve message order and shall preserve tool call identifiers and tool metadata required for downstream connector compatibility.
-5. When the LLM Interactive Proxy processes a history that already contains compaction stubs, the LLM Interactive Proxy shall not modify those stubbed messages further.
+2.1. When a newer tool result is present in the history for the same resource identity, the LLM Interactive Proxy shall mark older tool result messages for that same resource identity as stale.
+2.2. While no newer tool result exists for a resource identity, the LLM Interactive Proxy shall retain the most recent tool result content for that resource identity unmodified.
+2.3. The LLM Interactive Proxy shall not compact user, system, or assistant messages (including assistant reasoning content).
+2.4. When compacting messages, the LLM Interactive Proxy shall preserve message order and shall preserve tool call identifiers and tool metadata required for downstream connector compatibility.
+2.5. When the LLM Interactive Proxy processes a history that already contains compaction stubs, the LLM Interactive Proxy shall not modify those stubbed messages further.
+2.6. When a history contains compaction stubs without message metadata (for example, a client re-submits the history), the LLM Interactive Proxy shall still recognize those messages as compaction stubs and shall not compact them again.
+2.7. Where preservation limits are configured, the LLM Interactive Proxy shall preserve at least the configured number of most recent tool results per resource identity unmodified.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -57,10 +60,12 @@ history-compaction-follow-up
 **Priority:** P0 (Critical)
 
 #### Acceptance Criteria
-1. When a tool result is compacted, the LLM Interactive Proxy shall replace the tool result content with an explicit stub indicating that prior output was removed because newer output exists later in the conversation.
-2. When a tool result is compacted, the LLM Interactive Proxy shall include in the stub sufficient resource identity information to distinguish the compacted result from other results for the same primary resource (for example, include selection parameters for paginated file reads).
-3. When compaction is applied for a resource identity, the LLM Interactive Proxy shall retain at least one stub message indicating that earlier executions were compacted and shall preserve the latest full tool result message for that resource identity.
-4. If stub generation fails for any reason, the LLM Interactive Proxy shall preserve the original tool result content unchanged and shall record diagnostics for the failure.
+3.1. When a tool result is compacted, the LLM Interactive Proxy shall replace the tool result content with an explicit stub indicating that prior output was removed because newer output exists later in the conversation.
+3.2. When a tool result is compacted, the LLM Interactive Proxy shall include in the stub sufficient resource identity information to distinguish the compacted result from other results for the same primary resource (for example, include selection parameters for paginated file reads).
+3.3. When a compacted tool result includes selection parameters, the LLM Interactive Proxy shall include those selection parameter names and values in the stub.
+3.4. When compaction is applied for a resource identity, the LLM Interactive Proxy shall retain at least one stub message indicating that earlier executions were compacted and shall preserve the latest full tool result message for that resource identity.
+3.5. If stub generation fails for any reason, the LLM Interactive Proxy shall preserve the original tool result content unchanged and shall record diagnostics for the failure.
+3.6. The LLM Interactive Proxy shall generate compaction stubs in a form that is unambiguously recognizable as a stub in later processing, including when message metadata is absent.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -74,11 +79,11 @@ history-compaction-follow-up
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
-1. When the estimated outbound tokens are greater than or equal to the configured compaction threshold, the LLM Interactive Proxy shall be permitted to compact eligible stale tool results.
-2. When the estimated outbound tokens are below the configured compaction threshold, the LLM Interactive Proxy shall forward the history without modifying any tool messages.
-3. While the estimated outbound tokens remain greater than or equal to the configured compaction threshold and eligible stale tool results remain available, the LLM Interactive Proxy shall compact additional eligible stale tool results, subject to configured preservation limits.
-4. If compaction cannot reduce the estimated outbound tokens below the configured maximum token budget, the LLM Interactive Proxy shall emit a warning indicating residual overflow risk and shall forward the request.
-5. When compaction is disabled by configuration, the LLM Interactive Proxy shall forward the history untouched and shall record that compaction was skipped due to configuration.
+4.1. When the estimated outbound tokens are greater than or equal to the configured compaction threshold, the LLM Interactive Proxy shall be permitted to compact eligible stale tool results.
+4.2. When the estimated outbound tokens are below the configured compaction threshold, the LLM Interactive Proxy shall forward the history without modifying any tool messages.
+4.3. While the estimated outbound tokens remain greater than or equal to the configured compaction threshold and eligible stale tool results remain available, the LLM Interactive Proxy shall compact additional eligible stale tool results, subject to configured preservation limits.
+4.4. If compaction cannot reduce the estimated outbound tokens below the configured maximum token budget, the LLM Interactive Proxy shall emit a warning indicating residual overflow risk and shall forward the request.
+4.5. When compaction is disabled by configuration, the LLM Interactive Proxy shall forward the history untouched and shall record that compaction was skipped due to configuration.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -92,11 +97,12 @@ history-compaction-follow-up
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
-1. Where compaction is enabled, the LLM Interactive Proxy shall apply eligibility policies that allow compaction only for explicitly permitted tool result types.
-2. When a tool result type is not recognized or is not explicitly permitted by policy, the LLM Interactive Proxy shall preserve that tool result content unmodified.
-3. When a tool result type is explicitly denied by policy, the LLM Interactive Proxy shall preserve that tool result content unmodified even if it is stale.
-4. The LLM Interactive Proxy shall allow operators to configure eligibility policies at least by tool type/category and by tool name.
-5. Where policies change between requests, the LLM Interactive Proxy shall apply the current policies per request without relying on previously cached compaction decisions.
+5.1. Where compaction is enabled, the LLM Interactive Proxy shall apply eligibility policies that allow compaction only for explicitly permitted tool result types.
+5.2. When no tool types are explicitly permitted by policy, the LLM Interactive Proxy shall preserve all tool result content unmodified.
+5.3. When a tool result type is not recognized or is not explicitly permitted by policy, the LLM Interactive Proxy shall preserve that tool result content unmodified.
+5.4. When a tool result type is explicitly denied by policy, the LLM Interactive Proxy shall preserve that tool result content unmodified even if it is stale.
+5.5. The LLM Interactive Proxy shall allow operators to configure eligibility policies at least by tool type/category and by tool name.
+5.6. Where policies change between requests, the LLM Interactive Proxy shall apply the current policies per request without relying on previously cached compaction decisions.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -110,11 +116,11 @@ history-compaction-follow-up
 **Priority:** P1 (High)
 
 #### Acceptance Criteria
-1. When compaction occurs, the LLM Interactive Proxy shall record diagnostics including the number of compacted messages, an estimate of bytes removed, and an estimate of token savings.
-2. When compaction occurs, the LLM Interactive Proxy shall not persist or emit the removed tool output content as part of compaction diagnostics.
-3. Where resource identifier redaction is enabled, the LLM Interactive Proxy shall redact resource identifiers in compaction stubs and in compaction diagnostics.
-4. If the proxy’s compaction savings estimates would be negative due to stub overhead, the LLM Interactive Proxy shall report zero savings for those estimates.
-5. If compaction logic encounters an error, the LLM Interactive Proxy shall fail open by forwarding the original history and shall record diagnostics including the error condition.
+6.1. When compaction occurs, the LLM Interactive Proxy shall record diagnostics including the number of compacted messages, an estimate of bytes removed, and an estimate of token savings.
+6.2. When compaction occurs, the LLM Interactive Proxy shall not persist or emit the removed tool output content as part of compaction diagnostics.
+6.3. Where resource identifier redaction is enabled, the LLM Interactive Proxy shall redact resource identifiers in compaction stubs and in compaction diagnostics such that unredacted file paths and full command strings are not emitted.
+6.4. If the proxy’s compaction savings estimates would be negative due to stub overhead, the LLM Interactive Proxy shall report zero savings for those estimates.
+6.5. If compaction logic encounters an error, the LLM Interactive Proxy shall fail open by forwarding the original history and shall record diagnostics including the error condition.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns
@@ -128,10 +134,11 @@ history-compaction-follow-up
 **Priority:** P2 (Medium)
 
 #### Acceptance Criteria
-1. When a tool result type has a defined resource identity and is permitted by policy, the LLM Interactive Proxy shall apply stale-result compaction for that tool result type.
-2. When a tool result type produces outputs scoped by a query and a target scope (for example, search tools), the LLM Interactive Proxy shall treat the resource identity as a combination of query and scope parameters.
-3. When a tool result type produces outputs scoped by a directory and filters (for example, directory listing tools), the LLM Interactive Proxy shall treat the resource identity as a combination of directory and filter parameters.
-4. When a tool result type produces outputs that are not safely correlatable to a resource identity, the LLM Interactive Proxy shall preserve those outputs unchanged.
+7.1. When a tool result type has a defined resource identity and is permitted by policy, the LLM Interactive Proxy shall apply stale-result compaction for that tool result type.
+7.2. When a tool result type produces outputs scoped by a query and a target scope (for example, search tools), the LLM Interactive Proxy shall treat the resource identity as a combination of query and scope parameters.
+7.3. When a tool result type produces outputs scoped by a directory and filters (for example, directory listing tools), the LLM Interactive Proxy shall treat the resource identity as a combination of directory and filter parameters.
+7.4. When a tool result type produces outputs that are not safely correlatable to a resource identity, the LLM Interactive Proxy shall preserve those outputs unchanged.
+7.5. When a tool result type includes both query parameters and scope parameters, the LLM Interactive Proxy shall not use scope parameters alone as the query component of the resource identity.
 
 #### Technical Constraints
 - Async compatibility: Must use `async/await` patterns

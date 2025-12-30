@@ -225,6 +225,7 @@ sequenceDiagram
 
 **Approved extension mechanisms (initial list; Phase 0/1)**
 - `RequestContext.extensions: dict[str, JsonValue]` (cross-layer context metadata)
+- `ConnectorRequestContext.extensions: dict[str, JsonValue]` (connector-facing context metadata; Phase 1)
 - `UsageSummary.extensions: dict[str, JsonValue]` (provider-specific usage)
 - `ResponseEnvelope.metadata: dict[str, JsonValue] | None` and `StreamingResponseEnvelope.metadata: dict[str, JsonValue] | None` (response metadata crossing seams)
 - `ProcessedResponse.metadata: dict[str, JsonValue]` (streaming processed-chunk metadata crossing core → transport seam)

@@ -11,9 +11,9 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
 - **Phase 4 (Capture/replay boundary tightening)**: `5.1–5.3`
 - **Phase 5 (Contributor guidance + enforcement workflow)**: `6.1–6.3`
 
-- [ ] 1. Boundary type guardrails: scope, allowlist, and CI wiring
+- [x] 1. Boundary type guardrails: scope, allowlist, and CI wiring
   - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 1.5_
-- [ ] 1.1 (P) Define an explicit boundary surface enforcement scope
+- [x] 1.1 (P) Define an explicit boundary surface enforcement scope
   - Introduce a scope configuration that declares which modules are “boundary surfaces” vs internal-only.
   - Start with a Phase 0 scope that uses explicit file pinning for the highest-leverage seams (signature-first), then expand via include globs in later phases.
   - Ensure the scope includes transport adapters, core interfaces, and the connector boundary API without pulling in all connector implementations.
@@ -29,32 +29,32 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
     - `src/core/domain/streaming/contracts.py`
   - _Requirements: 3.1, 3.2_
 
-- [ ] 1.2 Update the boundary type checker to enforce only the declared scope
+- [x] 1.2 Update the boundary type checker to enforce only the declared scope
   - Load the scope configuration and compute the effective file set deterministically.
   - Preserve actionable violation output including file path, line/column, and a human-readable message.
   - Ensure the check exits with code 0 for a compliant codebase and non-zero when violations exist.
   - Clarify/document Phase 0 capability as signature-first; do not claim full model-field enforcement until explicitly implemented.
   - _Requirements: 3.3, 3.4_
 
-- [ ] 1.3 Implement a time-bounded allowlist mechanism for boundary exceptions
+- [x] 1.3 Implement a time-bounded allowlist mechanism for boundary exceptions
   - Support narrow exceptions with rationale, tracking reference, and an expiration timestamp.
   - Fail the boundary type check when an allowlisted entry is expired.
   - Ensure allowlist usage is confined to the smallest practical surface and has a documented promotion path.
   - _Requirements: 2.7, 3.5_
 
-- [ ] 1.4 Integrate the boundary type check into the required verification workflow
+- [x] 1.4 Integrate the boundary type check into the required verification workflow
   - Wire the check into the project’s standard verification path so newly introduced non-allowlisted violations fail.
   - Ensure the developer workflow documents the canonical command and remediation process.
   - _Requirements: 3.6, 3.7, 1.5_
 
-- [ ] 1.5 Add automated tests for scope filtering and allowlist behavior
+- [x] 1.5 Add automated tests for scope filtering and allowlist behavior
   - Test include/exclude behavior, explicit file pinning, and allowlist expiry handling.
   - Validate that violations report file path + line/column + message consistently.
   - _Requirements: 3.3, 3.4, 3.5_
 
 - [ ] 2. Connector seam hardening: canonical API, invoker, and migration
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 2.3, 5.1, 5.3, 1.5_
-- [ ] 2.1 (P) Introduce canonical connector-facing contracts and protocol
+- [x] 2.1 (P) Introduce canonical connector-facing contracts and protocol
   - Add `ConnectorRequestContext` as the minimal connector-facing context contract (request/session ids + JSON-safe extensions).
   - Add `ConnectorChatCompletionsRequest` as the canonical connector request payload (includes request + processed messages + context).
   - Add `ICanonicalChatCompletionsBackend` (or equivalent) to define the canonical connector entry point.
@@ -63,7 +63,7 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
   - Ensure connector-facing contracts do not import transport framework types.
   - _Requirements: 4.1, 4.2, 4.3, 2.3_
 
-- [ ] 2.2 Implement `ConnectorInvoker` with canonical-first dispatch and legacy fallback
+- [x] 2.2 Implement `ConnectorInvoker` with canonical-first dispatch and legacy fallback
   - Build the canonical connector request payload from core orchestration inputs.
   - Project `RequestContext` into `ConnectorRequestContext` as a shallow, JSON-safe mapping (`request_id`, `session_id`, `client_host`, `extensions`) and pass it only via the canonical connector API.
   - Prefer the canonical connector API when available; otherwise call legacy connector code without converting canonical request/context into dict payloads.
@@ -71,13 +71,13 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
   - Do not require legacy connectors to accept connector context via `**kwargs`; guarantee connector context only on the canonical connector API.
   - _Requirements: 4.4, 2.3, 5.1, 5.3, NFR3.1_
 
-- [ ] 2.3 Wire connector invocation through the invoker without behavior changes
+- [x] 2.3 Wire connector invocation through the invoker without behavior changes
   - Replace direct connector calls in orchestration with invoker-based calls.
   - Preserve failover/retry behavior and any best-effort side effects on the execution path.
   - Preserve client-visible error classification and HTTP mapping when connector execution fails.
   - _Requirements: 1.2, 1.3, NFR2.1, NFR2.3_
 
-- [ ] 2.4 Migrate connectors exercised by CI to the canonical connector API
+- [x] 2.4 Migrate connectors exercised by CI to the canonical connector API
   - Update first-party connectors used by existing tests to implement the canonical connector protocol.
   - Ensure connectors consume typed processed messages and canonical request payloads consistently.
   - Ensure provider-specific options are consumed from a JSON-safe options container in the canonical path.
@@ -99,7 +99,7 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
 
 - [ ] 3. Response and streaming seam hardening: processed chunks, usage, and metadata
   - _Requirements: 2.5, 6.1, 6.2, 6.3, 1.1, 1.2, 1.3, 1.5, NFR1.2_
-- [ ] 3.1 (P) Harden `ProcessedResponse` contract and boundary signatures
+- [x] 3.1 (P) Harden `ProcessedResponse` contract and boundary signatures
   - Align `ProcessedResponse` (and related boundary interfaces) on a single shared `ProcessedChunkContent` union (no `Any` in boundary signatures).
   - Ensure `ProcessedResponse.metadata` uses JSON-safe values (`dict[str, JsonValue]`) and avoids mutable class-level defaults.
   - Ensure the contract remains transport-agnostic and efficient to construct per chunk.
@@ -207,7 +207,7 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
 
 - [ ] 7. Final verification and regression safety
   - _Requirements: 1.5, 3.7_
-- [ ] 7.1 Drive boundary checker violations to zero within the declared scope
+- [x] 7.1 Drive boundary checker violations to zero within the declared scope
   - Fix boundary type violations in-scope by tightening signatures and boundary payload types.
   - Use allowlist entries only when a time-bounded exception is required and a promotion path exists.
   - _Requirements: 3.3, 3.5, 3.7_
