@@ -110,16 +110,6 @@ class TestBackendLifecycleManagerGetOrCreate:
         assert "no factory configured" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_gemini_cli_acp_uses_default_key(self) -> None:
-        """gemini-cli-acp without session_id should use default key."""
-        factory = MockBackendFactory()
-        manager = BackendLifecycleManager(factory=factory)  # type: ignore
-
-        await manager.get_or_create("gemini-cli-acp")
-
-        assert "gemini-cli-acp:default" in manager._per_session_backends
-
-    @pytest.mark.asyncio
     async def test_per_session_cache_lru_eviction(self) -> None:
         """Per-session cache should evict LRU backends."""
         factory = MockBackendFactory()

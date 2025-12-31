@@ -17,7 +17,6 @@ The proxy supports the following backend providers out of the box:
 | `gemini-oauth-plan` | Google Gemini (CLI) | OAuth | Users with Google One subscription |
 | `gemini-oauth-free` | Google Gemini (CLI) | OAuth | Free tier users |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + GCP Project | Enterprise, team workflows, central billing |
-| `gemini-cli-acp` | Google Gemini (CLI Agent) | OAuth | AI agent workflows, project-aware coding |
 | `openrouter` | OpenRouter | API Key | Access to many hosted models |
 | `zenmux` | ZenMux | API Key | OpenAI-compatible ZenMux router |
 | `zai` | ZAI | API Key | Zhipu/Z.ai access |

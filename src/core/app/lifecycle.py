@@ -684,7 +684,7 @@ class AppLifecycle:
         await self._shutdown_health_checks(provider)
 
         # Shutdown all cached backends to prevent subprocess leaks
-        # This ensures backends like GeminiCliAcpConnector clean up their subprocesses
+        # This ensures backends with subprocesses clean up properly
         await self._shutdown_all_backends(provider)
 
         # Get wire capture service and shut it down
@@ -695,9 +695,8 @@ class AppLifecycle:
     async def _shutdown_all_backends(self, provider: Any) -> None:
         """Shutdown all cached backends to prevent resource leaks.
 
-        This method ensures that all backends (including those with subprocesses
-        like GeminiCliAcpConnector) are properly shut down during app shutdown,
-        preventing subprocess leaks.
+        This method ensures that all backends (including those with subprocesses)
+        are properly shut down during app shutdown, preventing subprocess leaks.
 
         Args:
             provider: The service provider.

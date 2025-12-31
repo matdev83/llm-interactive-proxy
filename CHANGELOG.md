@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Removed
+
+- **Gemini ACP Connector**: Removed `gemini-cli-acp` backend connector due to problematic implementation and poor fit with project architecture. All related code, tests, configuration, and documentation have been removed. The connector is no longer available in the backend registry.
+
 ### Added
 
 - Implemented non-forwardable message tagging system with configuration and domain models

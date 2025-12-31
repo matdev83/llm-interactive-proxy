@@ -391,41 +391,6 @@ class TestHealthFiltering:
             ("anthropic", "claude-3-opus"),
         ]
 
-    def test_finds_session_scoped_backend_for_health_check(
-        self,
-        failover_planner,
-        mock_failover_coordinator,
-        mock_backend_lifecycle_manager,
-    ):
-        """Test that session-scoped backends are found for health checks."""
-        # Set up active backends with session-scoped backend
-        mock_backend = Mock()
-        mock_backend.is_backend_functional = Mock(return_value=False)
-
-        mock_backend_lifecycle_manager.get_active_backends = Mock(
-            return_value={
-                "gemini-cli-acp:session-123": mock_backend,
-            }
-        )
-
-        # Set up coordinator with session-scoped backend in plan
-        mock_failover_coordinator.get_failover_attempts = Mock(
-            return_value=[
-                FailoverAttempt(backend="gemini-cli-acp", model="gemini-1.5-flash"),
-                FailoverAttempt(backend="openai", model="gpt-4"),
-            ]
-        )
-
-        # Call get_failover_plan
-        result = failover_planner.get_failover_plan(
-            "gemini-1.5-flash", "gemini-cli-acp"
-        )
-
-        # Verify session-scoped backend was found and filtered (unhealthy)
-        # The non-session gemini-cli-acp is not in active backends, so it's included (optimistic)
-        # But session-scoped one would be filtered if it matched
-        assert ("openai", "gpt-4") in result
-
 
 class TestEdgeCases:
     """Test edge cases and error handling."""

@@ -50,7 +50,6 @@ class TestBackendAutoDiscovery:
                 "anthropic",
                 "anthropic-oauth",
                 "gemini",
-                "gemini-cli-acp",
                 "gemini-cli-cloud-project",
                 "gemini-oauth-free",
                 "gemini-oauth-plan",
@@ -124,7 +123,6 @@ class TestBackendAutoDiscovery:
             "streaming_utils",
             "gemini_request_counter",
             "gemini_oauth_base",
-            "gemini_cli_acp_types",
             "openai_codex_config",  # Configuration file, not a backend
         )
         backend_files = [

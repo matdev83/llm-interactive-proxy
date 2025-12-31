@@ -238,19 +238,6 @@ class TestCacheKeyRules:
         assert "openai" in manager._backends
         assert len(manager._per_session_backends) == 0
 
-    @pytest.mark.asyncio
-    async def test_gemini_cli_acp_special_case(self) -> None:
-        """gemini-cli-acp without session_id should get default session key."""
-        from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
-
-        factory = MockBackendFactory()
-        manager = BackendLifecycleManager(factory=factory)  # type: ignore
-
-        await manager.get_or_create("gemini-cli-acp")
-
-        assert "gemini-cli-acp:default" in manager._per_session_backends
-        assert "gemini-cli-acp" not in manager._backends
-
 
 class TestGetActiveBackends:
     """Test get_active_backends method."""

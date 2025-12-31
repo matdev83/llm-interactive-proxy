@@ -25,7 +25,6 @@ class IBackendLifecycleManager(ABC):
 
         Cache key rules:
         - With session_id: `f"{backend_type}:{session_id}"`
-        - Special case gemini-cli-acp without session_id: `f"{backend_type}:default"`
         - Otherwise: `backend_type`
 
         Per-session cache is LRU via OrderedDict; eviction shuts down backends.

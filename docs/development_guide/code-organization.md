@@ -142,7 +142,6 @@ src/connectors/
 ├── gemini_oauth_free.py    # Gemini OAuth free tier
 ├── gemini_oauth_plan.py    # Gemini OAuth with subscription
 ├── gemini_cloud_project.py # Gemini GCP project connector
-├── gemini_cli_acp.py       # Gemini CLI Agent Control Protocol
 ├── openrouter.py           # [OpenRouter](../user_guide/backends/openrouter.md) connector
 ├── zai.py                  # [ZAI](../user_guide/backends/zai.md) connector
 ├── zai_coding_plan.py      # ZAI coding plan connector

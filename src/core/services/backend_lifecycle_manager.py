@@ -89,7 +89,6 @@ class BackendLifecycleManager(IBackendLifecycleManager):
 
         Cache key rules:
         - With session_id: `f"{backend_type}:{session_id}"`
-        - Special case gemini-cli-acp without session_id: `f"{backend_type}:default"`
         - Otherwise: `backend_type`
 
         Per-session cache is LRU via OrderedDict; eviction shuts down backends.
@@ -106,9 +105,6 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         # Always use session-specific cache key if session_id is provided
         if session_id:
             cache_key = f"{backend_type}:{session_id}"
-        elif backend_type == "gemini-cli-acp":
-            # Special case for gemini-cli-acp which requires isolation
-            cache_key = f"{backend_type}:default"
         else:
             cache_key = backend_type
 
@@ -195,7 +191,14 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         except asyncio.CancelledError:
             # Propagate cancellation to allow proper cleanup of shutdown tasks
             raise
-        except (RuntimeError, AttributeError, ValueError, TypeError, OSError, ConnectionError) as exc:
+        except (
+            RuntimeError,
+            AttributeError,
+            ValueError,
+            TypeError,
+            OSError,
+            ConnectionError,
+        ) as exc:
             # Common exceptions during shutdown (resource cleanup, missing attributes, file/socket operations, network errors)
             logger.exception(
                 "Error shutting down backend %s: %s",

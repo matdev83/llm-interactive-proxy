@@ -3,7 +3,7 @@ from pathlib import Path
 
 import yaml
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
 # Comprehensive drift scan
@@ -36,8 +36,14 @@ for config_path in example_configs:
 print("\n2. Edit precision configs:")
 print("-" * 60)
 edit_configs = [
-    ("config/edit_precision_patterns.yaml", "config/schemas/edit_precision_patterns.schema.yaml"),
-    ("config/edit_precision_model_temperatures.yaml", "config/schemas/edit_precision_temperatures.schema.yaml"),
+    (
+        "config/edit_precision_patterns.yaml",
+        "config/schemas/edit_precision_patterns.schema.yaml",
+    ),
+    (
+        "config/edit_precision_model_temperatures.yaml",
+        "config/schemas/edit_precision_temperatures.schema.yaml",
+    ),
 ]
 for config_path, schema_path in edit_configs:
     cp, sp = Path(config_path), Path(schema_path)
@@ -125,7 +131,6 @@ for config_path in codex_configs:
 print("\n7. Backend configs (no schema - just checking YAML validity):")
 print("-" * 60)
 backend_configs = [
-    "config/backends/gemini-cli-acp/backend.yaml",
     "config/backends/openai_codex/backend.yaml",
     "config/backends/qwen-oauth/backend.yaml",
 ]
@@ -143,4 +148,3 @@ for config_path in backend_configs:
         print(f"    {str(e)[:100]}")
 
 print("\n=== SCAN COMPLETE ===")
-
