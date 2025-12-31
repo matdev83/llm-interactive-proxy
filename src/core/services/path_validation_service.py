@@ -206,7 +206,13 @@ class PathValidationService(IPathValidator):
             if isinstance(arguments, str):
                 try:
                     parsed_arguments = json.loads(arguments)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as e:
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Failed to parse JSON in tool arguments: %s",
+                            e,
+                            exc_info=False,
+                        )
                     return []
                 if isinstance(parsed_arguments, dict):
                     arguments = parsed_arguments

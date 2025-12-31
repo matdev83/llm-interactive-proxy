@@ -518,7 +518,7 @@ class QwenOAuthConnector(OpenAIConnector):
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to start file watching for OAuth credentials: %s", e
+                    "Failed to start file watching for OAuth credentials: %s", e, exc_info=True
                 )
 
     def _stop_file_watching(self) -> None:
@@ -538,7 +538,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 logger.info("Stopped watching OAuth credentials file")
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Error stopping file watcher: %s", e)
+                    logger.warning("Error stopping file watcher: %s", e, exc_info=True)
             finally:
                 self._file_observer = None
 
