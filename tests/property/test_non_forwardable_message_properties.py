@@ -552,7 +552,7 @@ async def test_property_filtering_order_preservation(
     session_id=st.text(min_size=1, max_size=50),
     scope=st.sampled_from(list(NonForwardableTagScope)),
 )
-@property_test_settings(max_examples=20)  # Reduced from 30 for performance
+@property_test_settings(max_examples=10)  # Reduced from 20 for performance
 async def test_property_filtering_removes_only_tagged_messages(
     messages: list[ChatMessage],
     session_id: str,

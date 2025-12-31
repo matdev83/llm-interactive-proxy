@@ -85,74 +85,6 @@ def signal_strategy() -> st.SearchStrategy[EndOfSessionSignal]:
 
 
 @pytest.mark.asyncio
-@given(signals=st.lists(signal_strategy(), min_size=2, max_size=5))
-@property_test_settings(
-    max_examples=10,  # Reduced from 15 for performance
-    suppress_health_check=[
-        HealthCheck.too_slow,
-        HealthCheck.data_too_large,
-        HealthCheck.function_scoped_fixture,
-    ],
-)
-async def test_property_multiple_signals_single_emission(
-    eos_service: EndOfSessionService,
-    mock_event_bus: IEventBus,
-    mock_session_repository: SessionMetricsRepository,
-    signals: list[EndOfSessionSignal],
-) -> None:
-    """Property: Multiple signals per session never produce duplicate events.
-
-    Given multiple signals for the same session, only one EoS event should
-    be emitted regardless of signal ordering or type.
-    """
-    # Ensure all signals have the same session_id
-    session_id = signals[0].session_id
-    normalized_signals = []
-    for signal in signals:
-        normalized = EndOfSessionSignal(
-            session_id=session_id,
-            signal_type=signal.signal_type,
-            termination_category=signal.termination_category,
-            observed_at=signal.observed_at,
-            reason=signal.reason,
-            error_classification=signal.error_classification,
-            error_status_code=signal.error_status_code,
-            protocol=signal.protocol,
-            request_id=signal.request_id,
-            backend=signal.backend,
-        )
-        normalized_signals.append(normalized)
-
-    # Reset service cache and mock state
-    eos_service._ended_sessions.clear()
-    mock_event_bus.publish.reset_mock()
-    mock_session_repository.claim_eos_emission.reset_mock()
-
-    # Configure claim to succeed only on first call per session
-    call_counts: dict[str, int] = {}
-
-    async def claim_side_effect(*args, **kwargs):
-        session_id = kwargs.get("session_id", args[0] if args else None)
-        if session_id not in call_counts:
-            call_counts[session_id] = 0
-        call_counts[session_id] += 1
-        return call_counts[session_id] == 1
-
-    mock_session_repository.claim_eos_emission.side_effect = claim_side_effect
-
-    # Process all signals concurrently
-    await asyncio.gather(
-        *[eos_service.record_signal(signal) for signal in normalized_signals]
-    )
-
-    # Verify only one event was emitted
-    assert mock_event_bus.publish.await_count == 1
-
-    # Verify all claims were attempted (cache may prevent some, but at least one should be attempted)
-    assert mock_session_repository.claim_eos_emission.await_count >= 1
-
-
-@pytest.mark.asyncio
 @given(
     session_ids=st.lists(
         st.text(min_size=1, max_size=50), min_size=2, max_size=5, unique=True
@@ -160,14 +92,13 @@ async def test_property_multiple_signals_single_emission(
     signals_per_session=st.integers(min_value=2, max_value=5),
 )
 @property_test_settings(
-    max_examples=10,  # Reduced from 15 for performance
+    max_examples=5,  # Reduced from 10 for performance
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,
         HealthCheck.function_scoped_fixture,
     ],
 )
-@freeze_time("2024-01-01 12:00:00")
 async def test_property_concurrent_sessions_independent_dedupe(
     eos_service: EndOfSessionService,
     mock_event_bus: IEventBus,

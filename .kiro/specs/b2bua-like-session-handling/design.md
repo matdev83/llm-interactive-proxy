@@ -157,6 +157,70 @@ Key decisions:
 - Each attempt increments `<seq>` atomically for the A-leg.
 - Attempt records are retained until expiration for diagnostics.
 
+## Identity Contract & Boundary Rules
+
+This section is the **canonical contract** for where each identifier may appear. It exists to prevent accidental A-leg/B-leg mixing and identifier leaks during staged migration.
+
+### Canonical identifier meanings
+- `a_session_id`: internal, proxy-generated A-leg session identity. This is the only identifier permitted to key **session-scoped state**.
+- `b_session_id`: internal, proxy-generated B-leg session identity allocated **per backend attempt**. This is the only identifier permitted to correlate with upstream provider “conversation/session” mechanisms.
+- `client_session_id`: any client-provided session identifier captured as **untrusted metadata only**; never canonical and never forwarded to backends as a correlation id.
+- `auth_scope_id`: internal identifier representing the caller’s authentication scope. In multi-user mode it is derived from the validated bearer token record identity (`token_id`); in localhost mode it is a single implicit scope.
+
+### Boundary mapping matrix
+
+| Boundary / consumer | Field / carrier | Value | Prohibitions / notes |
+|---|---|---|---|
+| Core request processing | `RequestContext.session_id` | `a_session_id` (when B2BUA enabled) | Must never contain `client_session_id` in B2BUA mode. |
+| Session-scoped state store | `Session.id` / repository key | `a_session_id` | Must never be keyed by `b_session_id` or `request_id`. |
+| Backend-attempt boundary | Backend attempt context (new) | `a_session_id` + `b_session_id` + `b_seq` | `b_session_id` allocated immediately before each outbound attempt. |
+| Connector boundary (canonical) | `ConnectorRequestContext.session_id` | `b_session_id` | Never pass `client_session_id` to connectors; keep it in proxy-only state. |
+| Connector boundary (diagnostics) | `ConnectorRequestContext.extensions["b2bua"]` | `{ "a_session_id": ..., "b_session_id": ..., "b_seq": ... }` | Must omit `client_session_id` to prevent accidental upstream propagation by connectors. |
+| Outbound provider request payload | request/provider “session_id” fields | `b_session_id` (or derived) | Must never use `a_session_id` or `client_session_id`. |
+| Response header echo (diagnostic) | `x-b2bua-session-id` (configurable name) | `a_session_id` | Emitted only when enabled; ignored inbound for identity. |
+| Structured logs | log fields | `a_session_id`, `b_session_id`, `b_seq` | Must not substitute `request_id` for missing session ids. |
+| Wire capture metadata | capture meta fields | `a_session_id` and `b_session_id` (distinct) | Must not use `request_id` as a surrogate “session id” in B2BUA mode. |
+| Usage tracking | `UsageRecord.session_id` | `a_session_id` | Per-attempt usage must also store `b_session_id` or `b_seq` for PTB/BTP legs. |
+
+### Identity carriers (typed-first; no leaks)
+To avoid leaking `client_session_id` into connector-facing `extensions`, prefer **typed identity** on `RequestContext` rather than storing identity inside `RequestContext.extensions`.
+
+**Design contract**:
+- Add `RequestContext.b2bua_identity: B2buaIdentity | None` (proxy-only; not projected to connectors by default).
+- `B2buaIdentity.client_session_id` is proxy-only and must not be copied into `ConnectorRequestContext.extensions`.
+
+## Auth Scope Derivation & Injection
+
+### Source of `auth_scope_id`
+- **Multi-user (SSO) mode**: `auth_scope_id` is derived from the validated bearer token record identity (`TokenValidationResult.token_id`). The raw bearer token value is never used as an identifier.
+- **Localhost mode**: `auth_scope_id` is a single implicit constant scope (for example, `"localhost"`).
+
+### Transport-to-domain injection contract
+The current SSO middleware gates requests but does not provide token identity to core services. This feature requires an explicit injection contract so `B2BUASessionResolver` can reliably scope continuity.
+
+**Design contract (FastAPI)**:
+- On successful authentication, `SSOMiddlewareAdapter` writes token identity into a proxy-internal location accessible to domain services, for example:
+  - `request.state.request_state["auth_scope_id"] = <token_id>`
+  - `request.state.request_state["user_id"] = <user_id>` (optional for session-scoped state, not for continuity)
+- `fastapi_to_domain_request_context()` already maps `request.state.request_state` into `RequestContext.state`; `IAuthScopeResolver` reads from `RequestContext.state` and derives `auth_scope_id`.
+- If `auth_scope_id` is missing in multi-user mode, `B2BUASessionResolver` must treat continuity as unavailable and create a new `a_session_id` per request (Requirement 4.10).
+
+**Implementation note (required refactor)**:
+- `AuthMiddleware.__call__()` currently returns only “sandbox response or None” and does not expose `token_id`/`user_id`. To satisfy the injection contract, the SSO integration must be extended to surface `TokenValidationResult` on success (for example, by returning a typed decision object from the middleware or by exposing a separate `authenticate(...) -> TokenValidationResult | SandboxResponse` method used by the adapter).
+
+## B-leg Sequence Allocation Modes & Enforcement
+
+### Allocation modes
+- **In-memory (single-process)**: maintain `last_b_seq` in an in-memory mapping store and allocate `<seq>` using an async-safe critical section (for example, per-`a_session_id` lock). Correct under concurrency **within one process only**.
+- **Persistent (multi-worker safe)**: maintain `last_b_seq` in a persistent mapping store (SQLModel-backed). Allocate `<seq>` using a transactional atomic increment so concurrent workers cannot allocate the same value.
+
+### Enforcement and startup validation
+Atomic `<seq>` allocation across multiple worker processes cannot be guaranteed with an in-memory store.
+
+**Design contract**:
+- Configuration must allow operators to declare whether multi-worker safety is required (for example, `session.b2bua.require_persistent_mapping_store: bool` or `session.b2bua.deployment_mode: "single-process"|"multi-worker"`).
+- If B2BUA is enabled and multi-worker mode is selected, the application must refuse to start unless the persistent mapping store is enabled and correctly configured.
+
 ## Requirements Traceability
 
 Canonical requirement ID format used in this design: `N.M` where `N` is the top-level Requirement number from `requirements.md` and `M` is the numbered Acceptance Criteria within that requirement.
@@ -258,7 +322,7 @@ Canonical requirement ID format used in this design: `N.M` where `N` is the top-
 - Resolve `auth_scope_id` (token identity in multi-user mode, implicit scope in localhost mode).
 - Resolve or create `a_session_id` using continuity store and expiration policy.
 - Set `RequestContext.session_id` to the internal `a_session_id` (never leave client ids in `context.session_id` when B2BUA is enabled).
-- Store identity metadata in a typed structure (preferred) or `RequestContext.extensions` as a migration bridge.
+- Store identity metadata in `RequestContext.b2bua_identity` (preferred). If `RequestContext.extensions` is used as a migration bridge, it must contain only **connector-safe** diagnostics (no `client_session_id`) because `extensions` are projected to `ConnectorRequestContext`.
 
 **Dependencies (via DI)**
 - `IClientSessionIdExtractor`
@@ -346,10 +410,19 @@ class ISessionEchoService(ABC):
 - A-leg identity (session state key, per-session backend cache key): `a_session_id` (from `RequestContext.session_id` in B2BUA mode).
 - B-leg identity (provider correlation id, connector-facing context, outbound request fields): `b_session_id`.
 
+**Backend attempt context**
+- Each outbound attempt must operate on an **attempt-scoped context object** that carries `b_session_id`/`b_seq` without mutating the shared A-leg context.
+- Rationale: A single A-leg may create multiple B-legs, including under concurrency (Requirement 2.5). Attempt-scoped context avoids races where a single `RequestContext` would otherwise be overwritten with different `b_session_id` values.
+- Minimal contract:
+  - A-leg context: `RequestContext.session_id == a_session_id`
+  - Attempt context: `RequestContext.session_id == a_session_id` and `RequestContext.b2bua_identity` contains `b_session_id` and `b_seq`
+
 **Injection points**
 - Immediately before invoking a backend attempt, allocate B-leg and:
   - Overwrite outbound request session fields with `b_session_id` (including `request.session_id` and `extra_body.session_id`).
-  - Pass `b_session_id` to connector-facing context projection (canonical connectors).
+  - Pass `b_session_id` to connector-facing context projection (canonical connectors) by ensuring `ConnectorRequestContext.session_id == b_session_id` for the attempt.
+  - Populate `ConnectorRequestContext.extensions["b2bua"]` with a connector-safe subset for diagnostics: `a_session_id`, `b_session_id`, `b_seq` (and never `client_session_id`).
+  - Ensure `RequestContext.session_id` remains `a_session_id` and is never temporarily overwritten with `b_session_id`.
   - Emit structured logs containing both `a_session_id` and `b_session_id`.
 
 ## Data Models
@@ -362,6 +435,9 @@ Introduce a typed identity container (domain-level) to avoid ad-hoc dict usage:
   - `client_session_id: str | None`
   - `auth_scope_id: str | None`
   - `b_seq: int | None`
+  
+**Attachment rule**:
+- The canonical carrier for `B2buaIdentity` is `RequestContext.b2bua_identity` (proxy-only). Only a redacted subset may be copied into `ConnectorRequestContext.extensions` (see Identity Contract & Boundary Rules).
 
 ### Persistence Model (optional)
 When persistence is enabled, introduce tables for continuity mapping and B-leg attempts (exact schema is implementation choice; this design requires these logical fields and invariants).
@@ -397,8 +473,10 @@ erDiagram
 
 ### Wire Capture Metadata
 Extend capture metadata to store both IDs distinctly:
-- Add `a_session_id` and `b_session_id` as explicit fields.
+- Add `a_session_id` and `b_session_id` as explicit fields (distinct values, not a combined string).
+- Preserve backward compatibility by continuing to populate existing `session_id`/`sid` with `a_session_id` while B2BUA is enabled, but treat `a_session_id`/`b_session_id` as the canonical fields for correlation.
 - When B2BUA is enabled, do not fall back to `request_id` as a surrogate “session id” for capture metadata.
+- Ensure ingress wire capture observes the resolved internal `a_session_id` (i.e., session resolution must happen before inbound capture metadata is finalized).
 
 ### Usage Tracking Schema
 Evolve usage persistence to attribute to A-leg while retaining per-attempt metadata:

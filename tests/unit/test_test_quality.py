@@ -505,32 +505,26 @@ def test_ruff_linting_on_tests() -> None:
     # Re-check once more to handle race conditions.
     if final_check.returncode != 0:
         # Retry loop to allow concurrent file operations to complete
-        # Use asyncio.sleep for non-blocking delay simulation
-        import asyncio
+        # Use real time.sleep for actual delay (not fake clock, as we need real delay)
+        import time
 
-        async def retry_check() -> subprocess.CompletedProcess[str]:
-            """Retry check with non-blocking delay."""
-            from tests.utils.fake_clock import FakeClockContext
-            async with FakeClockContext() as clock:
-                sleep_task = asyncio.create_task(asyncio.sleep(0.1))
-                clock.advance(0.1)  # Brief delay for file operations
-                await sleep_task
-            return subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "ruff",
-                    "check",
-                    "--no-fix",
-                    str(tests_dir),
-                ],
-                capture_output=True,
-                text=True,
-                cwd=project_root,
-            )
+        # Brief delay for file operations to complete
+        time.sleep(0.1)
 
         # Final check after delay
-        final_check = asyncio.run(retry_check())
+        final_check = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "--no-fix",
+                str(tests_dir),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=project_root,
+        )
 
         if final_check.returncode != 0:
             error_msg = (

@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **B2BUA Session Handling**: Comprehensive identity contract and boundary rules for A-leg/B-leg session handling with typed identity containers and connector-safe diagnostics
 - Implemented non-forwardable message tagging system with configuration and domain models
 - Implemented Kiro spec archiving system with documentation updates
 - Added archive functionality and allowlist for completed specifications

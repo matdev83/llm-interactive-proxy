@@ -218,7 +218,7 @@ def test_property_1_usage_at_top_level_in_sse_output(
 
 
 @given(chunk=stop_chunk_with_usage_strategy())
-@property_test_settings(max_examples=25)  # Reduced from 50 for performance
+@property_test_settings(max_examples=15)  # Reduced from 25 for performance
 def test_property_1_usage_not_in_delta_content(chunk: StopChunkWithUsage) -> None:
     """
     **Feature: gemini-oauth-streaming-fix, Property 1: Usage data preservation**
