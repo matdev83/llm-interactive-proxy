@@ -113,11 +113,13 @@ class ZAIConnector(OpenAIConnector):
             if models:
                 self.available_models = models
                 return
-        except Exception as e:
+        except (httpx.HTTPError, AttributeError, TypeError) as e:
             # Log the exception for debugging
-            import logging
-
-            logging.debug("Error fetching models from API: %s", e, exc_info=True)
+            # Specific exceptions:
+            # - httpx.HTTPError: all httpx exceptions including network/API errors
+            # - AttributeError: unexpected response structure
+            # - TypeError: invalid data types in response
+            logger.debug("Error fetching models from API: %s", e, exc_info=True)
 
         # If we get here, either the API call failed or returned no models
         # Use default models from config
@@ -270,18 +272,16 @@ class ZAIConnector(OpenAIConnector):
 
         # Ensure processed_messages is a Sequence[ChatMessage]
         # It may already be ChatMessage objects or dicts
-        if processed_messages and not isinstance(
-            processed_messages[0], ChatMessage
-        ):
-                # Convert dicts to ChatMessage objects
-                processed_messages = [
-                    (
-                        ChatMessage(**msg)
-                        if isinstance(msg, dict)
-                        else ChatMessage(role="user", content=str(msg))
-                    )
-                    for msg in processed_messages
-                ]
+        if processed_messages and not isinstance(processed_messages[0], ChatMessage):
+            # Convert dicts to ChatMessage objects
+            processed_messages = [
+                (
+                    ChatMessage(**msg)
+                    if isinstance(msg, dict)
+                    else ChatMessage(role="user", content=str(msg))
+                )
+                for msg in processed_messages
+            ]
 
         canonical_request = ConnectorChatCompletionsRequest(
             request=request_data,

@@ -824,7 +824,9 @@ class OpenAIConnector(LLMBackend):
                 f"DEBUG: Request failed to {url}. Error: {e}",
                 extra=log_extra if log_extra else None,
             )
-            raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
+            raise ServiceUnavailableError(
+                message=f"Could not connect to backend ({e})"
+            ) from e
 
         if int(response.status_code) >= 400:
             # For backwards compatibility with existing error handlers, still use HTTPException here.
@@ -1431,7 +1433,9 @@ class OpenAIConnector(LLMBackend):
                 url, json=payload, headers=guarded_headers
             )
         except httpx.RequestError as e:
-            raise ServiceUnavailableError(message=f"Could not connect to backend ({e})")
+            raise ServiceUnavailableError(
+                message=f"Could not connect to backend ({e})"
+            ) from e
 
         if int(response.status_code) >= 400:
             try:
