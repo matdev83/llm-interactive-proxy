@@ -21,11 +21,12 @@ class DailyRequestCounter:
         # Don't initialize last_reset_date here - let _load_state() set it first
         # This prevents race condition where _reset_if_needed() compares against wrong date
         self.last_reset_date = ""
-        self._load_state()
-        # If _load_state() didn't set last_reset_date (file didn't exist), initialize it now
-        if not self.last_reset_date:
-            self.last_reset_date = self._get_current_pacific_date()
+        # Load state and initialize atomically under lock
         with self._lock:
+            self._load_state()
+            # If _load_state() didn't set last_reset_date (file didn't exist), initialize it now
+            if not self.last_reset_date:
+                self.last_reset_date = self._get_current_pacific_date()
             self._reset_if_needed()
             if self._check_thresholds():
                 self._save_state()
@@ -49,20 +50,21 @@ class DailyRequestCounter:
         return datetime.now(pacific_tz).strftime("%Y-%m-%d")  # type: ignore[arg-type]
 
     def _load_state(self) -> None:
+        """Load state from persistence file. Must be called while holding self._lock."""
         if not self.persistence_path.exists():
             return
         try:
             with open(self.persistence_path, encoding="utf-8") as f:
                 data = json.load(f)
-                with self._lock:
-                    self.count = data.get("count", 0)
-                    self.last_reset_date = data.get(
-                        "last_reset_date", self._get_current_pacific_date()
-                    )
-                    logged_thresholds = data.get("logged_thresholds", [])
-                    self._logged_thresholds = {
-                        int(threshold) for threshold in logged_thresholds
-                    } & set(self._thresholds)
+            # Apply loaded state (caller must hold lock)
+            self.count = data.get("count", 0)
+            self.last_reset_date = data.get(
+                "last_reset_date", self._get_current_pacific_date()
+            )
+            logged_thresholds = data.get("logged_thresholds", [])
+            self._logged_thresholds = {
+                int(threshold) for threshold in logged_thresholds
+            } & set(self._thresholds)
         except (json.JSONDecodeError, OSError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(

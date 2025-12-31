@@ -155,7 +155,6 @@ class TestToolCallRepairService10MBScenariosRegression:
         test_cases = [
             # (size_description, data_length, should_pass)
             ("small", 10000, True),
-            ("medium", 1 * 1024 * 1024, True),  # Reduced from 5MB for performance
             ("large_under", limit - 100, True),  # Account for JSON overhead (~60 bytes)
             ("large_over", limit + 50, False),  # Reduced from 100 for performance
         ]

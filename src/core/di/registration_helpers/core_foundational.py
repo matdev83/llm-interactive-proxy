@@ -3,6 +3,7 @@ Foundational core services registration helper.
 
 Registers:
 - AppConfig and IConfig
+- EventBus and IEventBus
 - Session services
 - Application state services
 """
@@ -35,7 +36,9 @@ def register_app_config(
             register_singleton_if_absent(services, cast(type, IConfig), instance=app_config)  # type: ignore[type-abstract]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to register IConfig interface: %s", e, exc_info=True)
+                logger.warning(
+                    "Failed to register IConfig interface: %s", e, exc_info=True
+                )
     else:
         # Register default AppConfig for testing and basic functionality
         default_config = AppConfig()
@@ -44,7 +47,39 @@ def register_app_config(
             register_singleton_if_absent(services, cast(type, IConfig), instance=default_config)  # type: ignore[type-abstract]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to register default IConfig interface: %s", e, exc_info=True)
+                logger.warning(
+                    "Failed to register default IConfig interface: %s", e, exc_info=True
+                )
+
+
+def register_event_bus(services: ServiceCollection) -> None:
+    """Register EventBus and IEventBus interface.
+
+    EventBus must be registered early as it's required by streaming services
+    (e.g., EndOfSessionService) and other core services.
+    """
+    from src.core.interfaces.event_bus_interface import IEventBus
+    from src.core.services.event_bus import EventBus
+
+    def event_bus_factory(provider: IServiceProvider) -> EventBus:
+        return EventBus()
+
+    register_singleton_if_absent(
+        services, EventBus, implementation_factory=event_bus_factory
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IEventBus),
+            implementation_factory=lambda p: p.get_required_service(EventBus),
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered EventBus and IEventBus")
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to register IEventBus interface: %s", e, exc_info=True
+            )
 
 
 def register_session_services(services: ServiceCollection) -> None:
@@ -80,7 +115,9 @@ def register_session_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to register ISessionService interface: %s", e, exc_info=True)
+            logger.warning(
+                "Failed to register ISessionService interface: %s", e, exc_info=True
+            )
 
 
 def register_application_state_services(services: ServiceCollection) -> None:
@@ -145,7 +182,9 @@ def register_application_state_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to register IAppSettings interface: %s", e, exc_info=True)
+            logger.warning(
+                "Failed to register IAppSettings interface: %s", e, exc_info=True
+            )
 
     # Register SecureStateService
     def _secure_state_factory(provider: IServiceProvider) -> SecureStateService:
@@ -168,7 +207,9 @@ def register_application_state_services(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to register secure state interfaces: %s", e, exc_info=True)
+            logger.warning(
+                "Failed to register secure state interfaces: %s", e, exc_info=True
+            )
 
     # Register SecureCommandFactory
     def _secure_command_factory(provider: IServiceProvider) -> SecureCommandFactory:
@@ -211,7 +252,9 @@ def register_time_source(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to register ITimeSource interface: %s", e, exc_info=True)
+            logger.warning(
+                "Failed to register ITimeSource interface: %s", e, exc_info=True
+            )
 
 
 def _register_tool_call_repair_service(services: ServiceCollection) -> None:
@@ -268,7 +311,9 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                "Failed to register IHistoryCompactionService interface: %s", e, exc_info=True
+                "Failed to register IHistoryCompactionService interface: %s",
+                e,
+                exc_info=True,
             )
 
     # Register SessionManager
@@ -283,9 +328,15 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
             ConversationFingerprintService,
         )
 
-        session_service = provider.get_required_service(ISessionService)
-        session_resolver = provider.get_required_service(ISessionResolver)
-        session_repository = provider.get_service(ISessionRepository)
+        session_service = provider.get_required_service(
+            cast(type[ISessionService], ISessionService)
+        )
+        session_resolver = provider.get_required_service(
+            cast(type[ISessionResolver], ISessionResolver)
+        )
+        session_repository = provider.get_service(
+            cast(type[ISessionRepository], ISessionRepository)
+        )
         fingerprint_service = provider.get_required_service(
             ConversationFingerprintService
         )
@@ -307,4 +358,6 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to register ISessionManager interface: %s", e, exc_info=True)
+            logger.warning(
+                "Failed to register ISessionManager interface: %s", e, exc_info=True
+            )

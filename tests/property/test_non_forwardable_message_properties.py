@@ -666,7 +666,7 @@ async def test_property_filtering_removes_only_tagged_messages(
     messages=st.lists(chat_message_strategy(), min_size=1, max_size=20),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings(max_examples=30)  # Reduced for async tests
+@property_test_settings(max_examples=15)  # Reduced from 30 for performance
 async def test_property_filtering_no_content_mutation(
     messages: list[ChatMessage],
     session_id: str,

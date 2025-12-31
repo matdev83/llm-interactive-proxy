@@ -11,12 +11,12 @@ from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager as ContextManager
 from contextlib import contextmanager
 from types import ModuleType
-from typing import Any, cast
+from typing import Any
 
 
 def _load_pytest_module() -> ModuleType | None:
     try:
-        return cast(ModuleType, importlib.import_module("pytest"))
+        return importlib.import_module("pytest")
     except ImportError:  # pragma: no cover - pytest not installed in runtime
         return None
     except (AttributeError, ValueError, TypeError) as e:  # pragma: no cover - defensive
@@ -36,11 +36,11 @@ if pytest_module is not None:
     WarnsCallable = Callable[..., ContextManager[Any]]
     WarningExpectation = type[Warning] | tuple[type[Warning], ...] | None
 
-    original_warns = cast(WarnsCallable | None, getattr(pytest_module, "warns", None))
+    original_warns = getattr(pytest_module, "warns", None)
     if original_warns is not None:
         warns_delegate: WarnsCallable = original_warns
         try:  # Check if pytest.warns already supports None
-            with cast(Any, pytest_module.warns)(None):
+            with pytest_module.warns(None):  # type: ignore[arg-type]
                 pass
         except TypeError:
 
@@ -65,7 +65,7 @@ if pytest_module is not None:
                     return _no_warning_context()
                 return warns_delegate(expected_warning, *args, **kwargs)
 
-            cast(Any, pytest_module).warns = _warns_patch
+            pytest_module.warns = _warns_patch  # type: ignore[attr-defined]
 
 asyncio_logger = logging.getLogger("asyncio")
 if asyncio_logger.level == logging.NOTSET:
@@ -74,16 +74,53 @@ if asyncio_logger.level == logging.NOTSET:
 if sys.platform.startswith("win"):
     try:
         windows_events = getattr(asyncio, "windows_events", None)
-        policy = asyncio.get_event_loop_policy()
-        if windows_events and isinstance(
-            policy, windows_events.WindowsProactorEventLoopPolicy
-        ):
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    except Exception as e:
+        if windows_events is None:
+            # Windows-specific asyncio extensions not available
+            logger = logging.getLogger(__name__)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("asyncio.windows_events not available, skipping event loop policy change")
+        else:
+            policy = asyncio.get_event_loop_policy()
+            if not isinstance(policy, windows_events.WindowsProactorEventLoopPolicy):
+                # Already using SelectorEventLoopPolicy or a custom policy
+                logger = logging.getLogger(__name__)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Event loop policy is not WindowsProactorEventLoopPolicy (current: %s), skipping",
+                        type(policy).__name__,
+                    )
+            else:
+                # Attempt to switch to SelectorEventLoopPolicy to avoid Proactor shutdown hangs
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+                logger = logging.getLogger(__name__)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Switched to WindowsSelectorEventLoopPolicy for improved shutdown behavior")
+
+    except (AttributeError, TypeError) as e:
+        # Expected errors from attribute access or type checking
+        logger = logging.getLogger(__name__)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Expected error accessing asyncio.windows_events or checking policy type: %s",
+                e,
+                exc_info=True,
+            )
+    except RuntimeError as e:
+        # RuntimeError: event loop policy cannot be changed after loop is created
         logger = logging.getLogger(__name__)
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                "Failed to set WindowsSelectorEventLoopPolicy: %s",
+                "Cannot change event loop policy: %s (event loop may already be created)",
                 e,
                 exc_info=True,
+            )
+    except Exception as e:
+        # Fallback for unexpected errors - log with full traceback for debugging
+        logger = logging.getLogger(__name__)
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(
+                "Unexpected error setting WindowsSelectorEventLoopPolicy: %s",
+                e,
+                exc_info=True,
+                extra={"error_code": "EVENT_LOOP_POLICY_SETUP_FAILED"},
             )

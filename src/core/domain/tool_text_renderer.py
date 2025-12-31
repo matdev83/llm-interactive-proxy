@@ -299,7 +299,7 @@ class OverrideRenderer:
         global _override
         _override = self.renderer_name
 
-    def __exit__(self, exc_type: Any, _: Any, traceback: Any) -> None:
+    def __exit__(self, _exc_type: Any, _: Any, _traceback: Any) -> None:
         global _override
         _override = self.original_override
 

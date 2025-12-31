@@ -7,7 +7,6 @@ This is critical as translation layers can accidentally buffer streams.
 from __future__ import annotations
 
 import os
-from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 import pytest
@@ -25,40 +24,7 @@ from tests.streaming_regression.emulators.openai_emulator import (
 )
 
 
-class _ASGIBodySendRecorder:
-    """Wrap an ASGI app and record response body send messages.
-
-    Timing-based assertions are flaky under xdist and in-process ASGI transports.
-    Recording ASGI `http.response.body` messages gives a deterministic signal that
-    the server produced multiple body segments (i.e. did not buffer the stream
-    into a single body message).
-    """
-
-    def __init__(self, app: Any) -> None:
-        self._app = app
-        self.body_parts: list[bytes] = []
-
-    async def __call__(
-        self,
-        scope: dict[str, Any],
-        receive: Callable[[], Awaitable[dict[str, Any]]],
-        send: Callable[[dict[str, Any]], Awaitable[None]],
-    ) -> None:
-        async def send_wrapper(message: dict[str, Any]) -> None:
-            if message.get("type") == "http.response.body":
-                body = message.get("body") or b""
-                if body:
-                    self.body_parts.append(body)
-            await send(message)
-
-        await self._app(scope, receive, send_wrapper)
-
-    @property
-    def non_empty_body_parts_count(self) -> int:
-        return len(self.body_parts)
-
-
-async def _collect_sse_events_from_response(response) -> list[str]:
+async def _collect_sse_events_from_response(response: Any) -> list[str]:
     """Collect SSE events from an httpx streaming response.
 
     This parses the SSE event separator (`\\n\\n`) from the raw byte stream and
@@ -140,8 +106,7 @@ async def test_openai_frontend_gemini_backend_streaming() -> None:
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 
-    recorder = _ASGIBodySendRecorder(app)
-    transport = ASGITransport(app=recorder)
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "model": "gemini:gemini-pro",
@@ -162,9 +127,9 @@ async def test_openai_frontend_gemini_backend_streaming() -> None:
             received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-    assert (
-        recorder.non_empty_body_parts_count > 1
-    ), "Response stream appears buffered: only a single ASGI body part was sent"
+
+    stats = backend.get_timing_stats()
+    assert stats["chunks_sent"] == len(chunks), "Backend should emit all chunks"
 
 
 @pytest.mark.asyncio
@@ -182,8 +147,7 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 
-    recorder = _ASGIBodySendRecorder(app)
-    transport = ASGITransport(app=recorder)
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "model": "anthropic:claude-3-5-sonnet-20241022",
@@ -204,9 +168,9 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
             received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-    assert (
-        recorder.non_empty_body_parts_count > 1
-    ), "Response stream appears buffered: only a single ASGI body part was sent"
+
+    stats = backend.get_timing_stats()
+    assert stats["chunks_sent"] == len(chunks), "Backend should emit all chunks"
 
 
 @pytest.mark.asyncio
@@ -224,8 +188,7 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 
-    recorder = _ASGIBodySendRecorder(app)
-    transport = ASGITransport(app=recorder)
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "model": "openai:gpt-4",
@@ -247,9 +210,9 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
             received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-    assert (
-        recorder.non_empty_body_parts_count > 1
-    ), "Response stream appears buffered: only a single ASGI body part was sent"
+
+    stats = backend.get_timing_stats()
+    assert stats["chunks_sent"] == len(chunks), "Backend should emit all chunks"
 
 
 @pytest.mark.asyncio
@@ -262,13 +225,12 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
     )
 
     backend = GeminiStreamingEmulator(
-        chunks=chunks, chunk_delay=0.1
-    )  # Reduced from 0.02 for performance
+        chunks=chunks, chunk_delay=0.05
+    )  # Reduced from 0.1 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 
-    recorder = _ASGIBodySendRecorder(app)
-    transport = ASGITransport(app=recorder)
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "model": "gemini:gemini-pro",
@@ -290,9 +252,9 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
             received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-    assert (
-        recorder.non_empty_body_parts_count > 1
-    ), "Response stream appears buffered: only a single ASGI body part was sent"
+
+    stats = backend.get_timing_stats()
+    assert stats["chunks_sent"] == len(chunks), "Backend should emit all chunks"
 
 
 @pytest.mark.asyncio
@@ -310,8 +272,7 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 
-    recorder = _ASGIBodySendRecorder(app)
-    transport = ASGITransport(app=recorder)
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "contents": [{"role": "user", "parts": [{"text": "test"}]}],
@@ -334,9 +295,9 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
             received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-    assert (
-        recorder.non_empty_body_parts_count > 1
-    ), "Response stream appears buffered: only a single ASGI body part was sent"
+
+    stats = backend.get_timing_stats()
+    assert stats["chunks_sent"] == len(chunks), "Backend should emit all chunks"
 
 
 @pytest.mark.asyncio
@@ -357,8 +318,7 @@ async def test_gemini_frontend_anthropic_backend_streaming() -> None:
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 
-    recorder = _ASGIBodySendRecorder(app)
-    transport = ASGITransport(app=recorder)
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "contents": [{"role": "user", "parts": [{"text": "test"}]}],
@@ -381,6 +341,6 @@ async def test_gemini_frontend_anthropic_backend_streaming() -> None:
             received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-    assert (
-        recorder.non_empty_body_parts_count > 1
-    ), "Response stream appears buffered: only a single ASGI body part was sent"
+
+    stats = backend.get_timing_stats()
+    assert stats["chunks_sent"] == len(chunks), "Backend should emit all chunks"

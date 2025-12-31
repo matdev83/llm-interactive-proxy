@@ -17,6 +17,7 @@ from src.core.di.registration_helpers.core_commands import (
 from src.core.di.registration_helpers.core_foundational import (
     register_app_config,
     register_application_state_services,
+    register_event_bus,
     register_session_services,
     register_time_source,
 )
@@ -48,6 +49,9 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     """
     # Register AppConfig and IConfig
     register_app_config(services, app_config)
+
+    # Register EventBus early (required by streaming services like EndOfSessionService)
+    register_event_bus(services)
 
     # Register time source (early, as other services may depend on it)
     register_time_source(services)

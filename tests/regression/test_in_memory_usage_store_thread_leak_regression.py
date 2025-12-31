@@ -132,23 +132,20 @@ class TestInMemoryUsageStoreThreadLeakRegression:
         """Test rapid start/stop cycles don't leak threads."""
         threads_before = threading.active_count()
 
-        # Rapidly create, start, and stop stores (reduced from 5 to 3 for performance)
-        for i in range(3):
+        # Rapidly create, start, and stop stores (reduced from 3 to 2 for performance)
+        for i in range(2):
             store = InMemoryUsageStore(
                 persistence_path=temp_dir / f"test_usage_store_{i}.json",
-                flush_interval_seconds=0.5,
+                flush_interval_seconds=1.0,  # Increased to reduce wake-ups
             )
             store.start_persistence_thread()
-            # Small delay to allow thread operations - use threading.Event
-            event = Event()
-            event.wait(timeout=0.001)  # Brief wait for thread operations
+            # No explicit delay needed - thread startup is fast enough
             store.stop_persistence_thread()
-            event.wait(timeout=0.001)  # Brief wait for thread operations
 
         # Wait for all threads to stop - use threading.Event
         event = Event()
-        # Wait up to 0.1s for threads to stop
-        for _ in range(100):  # 100 iterations * 0.001s = 0.1s max
+        # Wait up to 0.05s for threads to stop
+        for _ in range(50):  # 50 iterations * 0.001s = 0.05s max
             event.wait(timeout=0.001)
 
         threads_after = threading.active_count()

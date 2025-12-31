@@ -187,34 +187,33 @@ class TestToolCallRepairServiceDoSRegression:
         self, repair_service: ToolCallRepairService
     ) -> None:
         """Test that progressively larger payloads are handled correctly."""
-        # Use smaller multipliers to reduce test time while still testing size limits
-        multipliers = [1]
+        # Test just one case to validate size limit logic
+        multiplier = 1
+        large_json = self.create_large_json_payload(multiplier)
 
-        for multiplier in multipliers:
-            large_json = self.create_large_json_payload(multiplier)
-            # Use string length instead of encoding for faster size check
-            payload_size_mb = len(large_json) / (1024 * 1024)
+        # Use string length instead of encoding for faster size check
+        payload_size_mb = len(large_json) / (1024 * 1024)
 
-            content = f"```json\n{large_json}\n```"
+        content = f"```json\n{large_json}\n```"
 
-            start_time = time.time()
-            result = repair_service.repair_tool_calls(content)
-            duration = time.time() - start_time
+        start_time = time.time()
+        result = repair_service.repair_tool_calls(content)
+        duration = time.time() - start_time
 
-            if payload_size_mb > (MAX_JSON_PARSE_SIZE / (1024 * 1024)):
-                # Large payloads should be rejected (may take time to create string, but should reject)
-                # Increased timeout to account for string creation time
-                assert duration < 2.0, (
-                    f"Payload {payload_size_mb:.2f}MB took {duration:.2f} seconds. "
-                    "Large payloads should be rejected (accounting for string creation time)."
-                )
-                assert result is None, (
-                    f"Payload {payload_size_mb:.2f}MB should be rejected. "
-                    f"Got: {result}"
-                )
-            else:
-                # Small payloads may take longer but should complete
-                assert duration < 1.5, (
-                    f"Payload {payload_size_mb:.2f}MB took {duration:.2f} seconds. "
-                    "Should complete within reasonable time."
-                )
+        if payload_size_mb > (MAX_JSON_PARSE_SIZE / (1024 * 1024)):
+            # Large payloads should be rejected (may take time to create string, but should reject)
+            # Increased timeout to account for string creation time
+            assert duration < 2.0, (
+                f"Payload {payload_size_mb:.2f}MB took {duration:.2f} seconds. "
+                "Large payloads should be rejected (accounting for string creation time)."
+            )
+            assert result is None, (
+                f"Payload {payload_size_mb:.2f}MB should be rejected. "
+                f"Got: {result}"
+            )
+        else:
+            # Small payloads may take longer but should complete
+            assert duration < 1.5, (
+                f"Payload {payload_size_mb:.2f}MB took {duration:.2f} seconds. "
+                "Should complete within reasonable time."
+            )

@@ -121,12 +121,11 @@ class TimeOverride:
 
     async def __aexit__(
         self,
-        exc_type: type[BaseException] | None,
-        exc_val: BaseException | None,
-        exc_tb: Any | None,
+        _exc_type: type[BaseException] | None,
+        _exc_val: BaseException | None,
+        _exc_tb: Any | None,
     ) -> None:
         """Exit the override context."""
         if self._token is not None:
             _OVERRIDE_TIME_SOURCE.reset(self._token)
             self._token = None
-
