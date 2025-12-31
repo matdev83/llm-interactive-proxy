@@ -248,10 +248,11 @@ class BinaryFileEditPolicy(ISteeringPolicy):
                         "Loaded binary file edit steering prompt from %s",
                         prompt_override_path,
                     )
-            except Exception:
+            except OSError as e:
                 logger.warning(
-                    "Failed to read binary file edit steering prompt from %s, using default.",
+                    "Failed to read binary file edit steering prompt from %s: %s. Using default.",
                     prompt_override_path,
+                    e,
                     exc_info=True,
                 )
         self._message = final_message
@@ -317,7 +318,8 @@ class BinaryFileEditPolicy(ISteeringPolicy):
 
             try:
                 basename = PathObj(binary_path).name if binary_path else "<unknown>"
-            except Exception:
+            except (OSError, ValueError, TypeError):
+                # Path construction can raise these for invalid paths
                 basename = "<unknown>"
 
             logger.info(

@@ -61,10 +61,11 @@ class InlinePythonPolicy(ISteeringPolicy):
                         "Loaded inline python steering prompt from %s",
                         prompt_override_path,
                     )
-            except Exception:
+            except OSError as e:
                 logger.warning(
-                    "Failed to read inline python steering prompt from %s, using default.",
+                    "Failed to read inline python steering prompt from %s: %s. Using default.",
                     prompt_override_path,
+                    e,
                     exc_info=True,
                 )
         self._message = final_message
