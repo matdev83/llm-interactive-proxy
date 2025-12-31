@@ -46,6 +46,11 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
             BackendRoutingService,
             implementation_factory=_routing_service_factory,
         )
-    except Exception:
+    except (ImportError, AttributeError, TypeError, RuntimeError):
+        # Specific exceptions during service registration:
+        # - ImportError: Module not found or import errors
+        # - AttributeError: Missing attributes during config/provider resolution
+        # - TypeError: Incorrect types during registration
+        # - RuntimeError: Runtime errors during factory execution
         logger.exception("Failed to register BackendRoutingService")
         raise

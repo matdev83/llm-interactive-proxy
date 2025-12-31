@@ -292,8 +292,9 @@ class SessionConfig(DomainModel):
                         exc_info=True,
                     )
                 values["angel_model"] = None
-            except Exception:
-                # Unexpected errors during conversion (defensive guard for custom __str__ exceptions or other errors)
+            except (TypeError, ValueError, RuntimeError):
+                # Specific exceptions from str() conversion - TypeError for invalid __str__ return type,
+                # ValueError for conversions, RuntimeError for execution errors in custom __str__
                 # Log with full context and set to None to allow model construction
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(

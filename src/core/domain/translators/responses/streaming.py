@@ -80,7 +80,9 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 event_type or "<none>",
                 json.dumps(chunk)[:400],
             )
-        except Exception:
+        except (TypeError, ValueError, UnicodeEncodeError):
+            # JSON serialization errors - TypeError for non-serializable types,
+            # ValueError for circular references, UnicodeEncodeError for encoding issues
             logger.log(
                 TRACE_LEVEL,
                 "Responses event type=%s payload=<non-serializable>",
@@ -203,7 +205,9 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                     "Responses output_item.done item=%s",
                     json.dumps(item)[:400],
                 )
-            except Exception:
+            except (TypeError, ValueError, UnicodeEncodeError):
+                # JSON serialization errors - TypeError for non-serializable types,
+                # ValueError for circular references, UnicodeEncodeError for encoding issues
                 logger.log(
                     TRACE_LEVEL,
                     "Responses output_item.done item=<non-serializable>",
