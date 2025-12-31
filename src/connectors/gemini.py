@@ -344,7 +344,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})") from e
         except (AttributeError, TypeError):
             request = self.client.build_request(
                 "POST", url, json=payload, headers=request_headers
@@ -358,7 +358,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     )
                 raise ServiceUnavailableError(
                     message=f"Could not connect to Gemini ({e})"
-                )
+                ) from e
 
         if response.status_code >= 400:
             try:
@@ -997,7 +997,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})") from e
 
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str

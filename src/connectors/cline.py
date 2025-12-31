@@ -199,7 +199,7 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
                 )
             raise ServiceUnavailableError(
                 message=f"Could not connect to Cline backend ({e})"
-            )
+            ) from e
 
         if int(response.status_code) >= 400:
             try:

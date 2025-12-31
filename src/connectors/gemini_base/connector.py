@@ -1420,14 +1420,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             logger.error("Timeout connecting to Gemini OAuth API: %s", e, exc_info=True)
             raise ServiceUnavailableError(
                 message=f"Timeout connecting to Gemini OAuth API ({e})"
-            )
+            ) from e
         except httpx.RequestError as e:
             logger.error(
                 "Request error connecting to Gemini OAuth API: %s", e, exc_info=True
             )
             raise ServiceUnavailableError(
                 message=f"Could not connect to Gemini OAuth API ({e})"
-            )
+            ) from e
 
     async def _resolve_gemini_api_config(
         self,
