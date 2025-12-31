@@ -526,7 +526,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                         logger.debug(
                             "Could not get XML parser via get_xml_parser: %s",
                             e,
-                            exc_info=False,
+                            exc_info=True,
                         )
                     xml_parser = None
                 except Exception as e:
@@ -708,7 +708,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                         logger.debug(
                             "Could not get XML parser via ensure_xml_parser: %s",
                             e,
-                            exc_info=False,
+                            exc_info=True,
                         )
                     xml_parser = None
                 except Exception as e:
@@ -731,7 +731,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                             logger.debug(
                                 "Could not get XML parser via get_xml_parser: %s",
                                 e,
-                                exc_info=False,
+                                exc_info=True,
                             )
                         xml_parser = None
                     except Exception as e:

@@ -185,7 +185,9 @@ class RequestTransformPipeline(IRequestTransformPipeline):
             # Continue to app_state fallback
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Could not get command prefix from session state: %s", e, exc_info=False
+                    "Could not get command prefix from session state: %s",
+                    e,
+                    exc_info=True,
                 )
         except Exception as e:
             # Unexpected errors - log with full context for visibility
@@ -206,7 +208,9 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                 # Fall back to None
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Could not get command prefix from app_state: %s", e, exc_info=False
+                        "Could not get command prefix from app_state: %s",
+                        e,
+                        exc_info=True,
                     )
             except Exception as e:
                 # Unexpected errors - log with full context for visibility

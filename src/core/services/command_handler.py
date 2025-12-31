@@ -210,7 +210,9 @@ class CommandHandler(ICommandHandler):
                 # Fallback to default prefix
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Could not get command prefix from app_state: %s", e, exc_info=False
+                        "Could not get command prefix from app_state: %s",
+                        e,
+                        exc_info=True,
                     )
             except Exception as e:
                 # Unexpected errors - log with full context for visibility
