@@ -380,7 +380,7 @@ class JsonRepairMiddleware(IResponseMiddleware):
                     else "json_repair.non_streaming.best_effort_fail"
                 )
                 raise
-            except Exception:
+            except Exception as exc:  # noqa: F841 - used via exc_info=True
                 # Unexpected exceptions - log with context before re-raising
                 metrics.inc(
                     "json_repair.non_streaming.strict_fail"

@@ -121,7 +121,12 @@ class JSONSanitizer:
             )
 
             return get_steering_leak_protector()
-        except Exception:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Could not get steering leak protector", exc_info=True)
+        except Exception as e:  # noqa: F841 - used via exc_info=True
+            # Log at WARNING level: failure to get steering leak protector is
+            # important for security (could leak steering prompts)
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Could not get steering leak protector",
+                    exc_info=True,
+                )
             return None

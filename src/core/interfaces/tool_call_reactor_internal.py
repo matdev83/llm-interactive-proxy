@@ -133,7 +133,7 @@ def normalize_tool_arguments(
                 except (KeyboardInterrupt, SystemExit):
                     # System-level exceptions should propagate
                     raise
-                except Exception:
+                except Exception as e:  # noqa: F841 - used via exc_info=True
                     # Log repair failures - unexpected errors during JSON repair should be visible
                     # This is a fallback path, so log at WARNING level for visibility
                     logger.warning(
