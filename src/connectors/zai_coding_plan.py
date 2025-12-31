@@ -869,7 +869,9 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                 logger.debug("Including temperature: %s", payload["temperature"])
             except (ValueError, TypeError):
                 logger.warning(
-                    "Invalid temperature value '%s' ignored.", request_data.temperature
+                    "Invalid temperature value '%s' ignored.",
+                    request_data.temperature,
+                    exc_info=True,
                 )
         if hasattr(request_data, "top_p") and request_data.top_p is not None:
             payload["top_p"] = request_data.top_p

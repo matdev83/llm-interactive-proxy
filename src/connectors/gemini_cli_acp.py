@@ -348,7 +348,9 @@ class GeminiCliAcpConnector(GeminiBackend):
                     logger.debug("gemini-cli process terminated")
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Error terminating gemini-cli process: %s", e)
+                    logger.warning(
+                        "Error terminating gemini-cli process: %s", e, exc_info=True
+                    )
             finally:
                 self._cleanup_process(process)
 

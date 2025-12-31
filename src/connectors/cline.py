@@ -194,7 +194,9 @@ class ClineConnector(ClineAuthMixin, OpenAIConnector):
             )
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Cline request failed to {url}. Error: {e}")
+                logger.error(
+                    f"Cline request failed to {url}. Error: {e}", exc_info=True
+                )
             raise ServiceUnavailableError(
                 message=f"Could not connect to Cline backend ({e})"
             )
