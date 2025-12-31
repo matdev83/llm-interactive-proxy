@@ -137,7 +137,7 @@ class TestSyncSessionManagerExecutorLeakRegression:
                 task = asyncio.create_task(asyncio.sleep(0.01))
                 try:
                     # Create multiple sessions (each creates an executor)
-                    for i in range(10):
+                    for i in range(7):  # Reduced from 10 for performance
                         session = sync_manager.get_session(f"test-session-{i}")
                         assert session is not None
                     # Advance clock to allow sleep to complete

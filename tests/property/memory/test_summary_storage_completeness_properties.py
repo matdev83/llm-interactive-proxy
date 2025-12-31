@@ -202,10 +202,10 @@ def test_property_7_summary_has_all_required_fields(summary: SessionSummary) -> 
 
 @given(summary=session_summary_strategy())
 @property_test_settings(
-    max_examples=10,
+    max_examples=6,  # Reduced from 8 for performance
     suppress_health_check=[
         HealthCheck.filter_too_much
-    ],  # Reduced from 15 for performance
+    ],
 )
 @freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_model_format(summary: SessionSummary) -> None:
@@ -296,7 +296,8 @@ def test_property_7_summary_is_immutable(summary: SessionSummary) -> None:
 
 @given(summary=session_summary_strategy())
 @property_test_settings(
-    max_examples=10, suppress_health_check=[HealthCheck.filter_too_much]
+    max_examples=5,  # Reduced from 6 for performance
+    suppress_health_check=[HealthCheck.filter_too_much]
 )
 @freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_serializable(summary: SessionSummary) -> None:

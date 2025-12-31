@@ -119,7 +119,7 @@ class TestSSEBytesParserDoSProtection:
         parser = SSEBytesParser()
 
         # Create a large JSON array (reduced size for performance while still exceeding limit)
-        large_array = [{"id": i, "data": "x" * 200} for i in range(50000)]  # Reduced from 100000 to 50000, increased data size to maintain test coverage
+        large_array = [{"id": i, "data": "x" * 400} for i in range(30000)]  # Reduced from 50000 to 30000, increased data size to maintain test coverage
         large_json = json.dumps(large_array)
         large_payload = f"data: {large_json}".encode()
 

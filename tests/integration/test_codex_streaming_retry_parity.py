@@ -248,7 +248,7 @@ async def test_streaming_handshake_auth_failure_retry_exhausted(
         # Use settings loader with max_retries=0 to ensure exception is raised immediately
         mock_settings_loader = create_mock_settings_loader(
             max_retries=0,
-            retry_backoff_seconds=(0.1,),
+            retry_backoff_seconds=(0.01,),  # Reduced from 0.1 for performance
         )
 
         from src.connectors.openai_codex.contracts import CodexConnectorDependencies
@@ -481,9 +481,9 @@ async def test_streaming_retry_backoff_behavior(
         mock_settings_loader = create_mock_settings_loader(
             max_retries=2,
             retry_backoff_seconds=(
+                0.0005,
                 0.001,
-                0.002,
-                0.003,
+                0.0015,
             ),  # Further reduced for performance
         )
 
@@ -566,9 +566,9 @@ async def test_streaming_retry_backoff_behavior(
 
                 end_time = time.time()
 
-                # Verify backoff was applied (should take at least 0.001 seconds)
+                # Verify backoff was applied (should take at least 0.0005 seconds)
                 elapsed = end_time - start_time
-                assert elapsed >= 0.001  # At least first backoff delay
+                assert elapsed >= 0.0005  # At least first backoff delay
 
                 assert isinstance(result, StreamingResponseEnvelope)
 

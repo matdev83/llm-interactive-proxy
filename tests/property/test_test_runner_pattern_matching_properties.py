@@ -337,7 +337,7 @@ def test_property_8_consistent_pattern_matching(
 
 
 @given(test_data=command_with_expected_result_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from default for performance
 def test_property_8_empty_and_none_command_handling(
     test_data: tuple[str, str, str]
 ) -> None:

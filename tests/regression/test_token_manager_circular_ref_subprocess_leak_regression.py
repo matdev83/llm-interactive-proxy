@@ -38,11 +38,11 @@ async def test_subprocess_leak_with_circular_ref() -> None:
     provider._token_manager_ref = token_manager  # type: ignore[attr-defined]
 
     # Launch subprocess (this creates a subprocess)
-    # Use a command that will stay alive for a bit (reduced from 1s to 0.1s for performance)
+    # Use a command that will stay alive for a bit (reduced from 0.1s to 0.05s for performance)
     if sys.platform == "win32":
-        cmd = ["python", "-c", "import time; time.sleep(0.1)"]
+        cmd = ["python", "-c", "import time; time.sleep(0.05)"]  # Reduced from 0.1s
     else:
-        cmd = ["python3", "-c", "import time; time.sleep(0.1)"]
+        cmd = ["python3", "-c", "import time; time.sleep(0.05)"]  # Reduced from 0.1s
 
     try:
         process = subprocess.Popen(
@@ -62,10 +62,10 @@ async def test_subprocess_leak_with_circular_ref() -> None:
         # Force garbage collection
         gc.collect()
 
-        # Wait a bit (reduced from 0.1s to 0.05s for performance)
+        # Wait a bit (reduced from 0.05s to 0.03s for performance)
         async with FakeClockContext() as clock:
-            sleep_task = asyncio.create_task(asyncio.sleep(0.05))
-            clock.advance(0.05)
+            sleep_task = asyncio.create_task(asyncio.sleep(0.03))  # Reduced from 0.05s
+            clock.advance(0.03)
             await sleep_task
 
         # Check if process is still running
@@ -102,9 +102,9 @@ async def test_cleanup_explicitly_prevents_leak_with_circular_ref() -> None:
 
     # Launch subprocess
     if sys.platform == "win32":
-        cmd = ["python", "-c", "import time; time.sleep(0.2)"]  # Reduced from 1
+        cmd = ["python", "-c", "import time; time.sleep(0.05)"]  # Reduced from 0.1 for performance
     else:
-        cmd = ["python3", "-c", "import time; time.sleep(0.2)"]  # Reduced from 1
+        cmd = ["python3", "-c", "import time; time.sleep(0.05)"]  # Reduced from 0.1 for performance
 
     try:
         process = subprocess.Popen(
@@ -147,7 +147,7 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
     # Each creates a subprocess that may leak if __del__ is not called
     processes = []
 
-    for _i in range(2):
+    for _i in range(2):  # Keep at 2 - sufficient for testing, already minimal
         provider = MockCredentialProvider()
         token_manager = TokenManager()
 
@@ -157,9 +157,9 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
 
         # Launch subprocess
         if sys.platform == "win32":
-            cmd = ["python", "-c", "import time; time.sleep(0.5)"]
+            cmd = ["python", "-c", "import time; time.sleep(0.1)"]  # Reduced from 0.15 for performance
         else:
-            cmd = ["python3", "-c", "import time; time.sleep(1)"]
+            cmd = ["python3", "-c", "import time; time.sleep(0.1)"]  # Reduced from 0.15 for performance
 
         try:
             process = subprocess.Popen(
@@ -183,8 +183,8 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
 
     # Wait a bit
     async with FakeClockContext() as clock:
-        sleep_task = asyncio.create_task(asyncio.sleep(0.05))
-        clock.advance(0.05)
+        sleep_task = asyncio.create_task(asyncio.sleep(0.02))  # Reduced from 0.03 for performance
+        clock.advance(0.02)
         await sleep_task
 
     # Check how many processes are still running

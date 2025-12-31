@@ -6,9 +6,9 @@ This is critical as translation layers can accidentally buffer streams.
 
 from __future__ import annotations
 
-import asyncio
 import os
-from typing import cast
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -23,6 +23,64 @@ from tests.streaming_regression.emulators.gemini_emulator import GeminiStreaming
 from tests.streaming_regression.emulators.openai_emulator import (
     OpenAIStreamingEmulator,
 )
+
+
+class _ASGIBodySendRecorder:
+    """Wrap an ASGI app and record response body send messages.
+
+    Timing-based assertions are flaky under xdist and in-process ASGI transports.
+    Recording ASGI `http.response.body` messages gives a deterministic signal that
+    the server produced multiple body segments (i.e. did not buffer the stream
+    into a single body message).
+    """
+
+    def __init__(self, app: Any) -> None:
+        self._app = app
+        self.body_parts: list[bytes] = []
+
+    async def __call__(
+        self,
+        scope: dict[str, Any],
+        receive: Callable[[], Awaitable[dict[str, Any]]],
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+    ) -> None:
+        async def send_wrapper(message: dict[str, Any]) -> None:
+            if message.get("type") == "http.response.body":
+                body = message.get("body") or b""
+                if body:
+                    self.body_parts.append(body)
+            await send(message)
+
+        await self._app(scope, receive, send_wrapper)
+
+    @property
+    def non_empty_body_parts_count(self) -> int:
+        return len(self.body_parts)
+
+
+async def _collect_sse_events_from_response(response) -> list[str]:
+    """Collect SSE events from an httpx streaming response.
+
+    This parses the SSE event separator (`\\n\\n`) from the raw byte stream and
+    is resilient to httpx chunk coalescing.
+    """
+
+    events: list[str] = []
+    buffer = b""
+    async for chunk in response.aiter_bytes():
+        if not chunk:
+            continue
+        buffer += chunk
+        buffer = buffer.replace(b"\r\n", b"\n")
+        while b"\n\n" in buffer:
+            raw_event, buffer = buffer.split(b"\n\n", 1)
+            if raw_event.strip():
+                events.append(raw_event.decode("utf-8", errors="replace"))
+
+    if buffer.strip():
+        events.append(buffer.decode("utf-8", errors="replace"))
+
+    return events
 
 
 def _build_streaming_test_app():
@@ -77,12 +135,13 @@ async def test_openai_frontend_gemini_backend_streaming() -> None:
     )
 
     backend = GeminiStreamingEmulator(
-        chunks=chunks, chunk_delay=0.01
-    )  # Reduced from 0.02 for performance
+        chunks=chunks, chunk_delay=0.015
+    )  # Set to 15ms to ensure it's above the 10ms buffering detection threshold
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 
-    transport = ASGITransport(app=app)
+    recorder = _ASGIBodySendRecorder(app)
+    transport = ASGITransport(app=recorder)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "model": "gemini:gemini-pro",
@@ -92,7 +151,6 @@ async def test_openai_frontend_gemini_backend_streaming() -> None:
         headers = {"x-goog-api-key": "test-key"}
 
         received_chunks = []
-        chunk_times = []
 
         async with client.stream(
             "POST", "/v1/chat/completions", json=payload, headers=headers
@@ -101,26 +159,12 @@ async def test_openai_frontend_gemini_backend_streaming() -> None:
                 pytest.skip("Authentication required")
             assert response.status_code == 200
 
-            async for chunk in response.aiter_text():
-                if chunk.strip():
-                    received_chunks.append(chunk)
-                    chunk_times.append(asyncio.get_event_loop().time())
+            received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-
-    stats = backend.get_timing_stats()
-    if stats["chunks_sent"] > 1:
-        assert stats["all_at_once"] is False, (
-            "Backend stream appears buffered: "
-            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
-        )
-
-    print(
-        f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
-    )
-    print(
-        f"[OK] Translation: Test client received {len(received_chunks)} aggregated chunks"
-    )
+    assert (
+        recorder.non_empty_body_parts_count > 1
+    ), "Response stream appears buffered: only a single ASGI body part was sent"
 
 
 @pytest.mark.asyncio
@@ -133,12 +177,13 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
     )
 
     backend = AnthropicStreamingEmulator(
-        chunks=chunks, chunk_delay=0.01
-    )  # Optimized: reduced from 0.2 to 0.01 for faster execution
+        chunks=chunks, chunk_delay=0.015
+    )  # Set to 15ms to ensure it's above the 10ms buffering detection threshold
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 
-    transport = ASGITransport(app=app)
+    recorder = _ASGIBodySendRecorder(app)
+    transport = ASGITransport(app=recorder)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "model": "anthropic:claude-3-5-sonnet-20241022",
@@ -148,7 +193,6 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
         headers = {"x-goog-api-key": "test-key"}
 
         received_chunks = []
-        chunk_times = []
 
         async with client.stream(
             "POST", "/v1/chat/completions", json=payload, headers=headers
@@ -157,26 +201,12 @@ async def test_openai_frontend_anthropic_backend_streaming() -> None:
                 pytest.skip("Authentication required")
             assert response.status_code == 200
 
-            async for chunk in response.aiter_text():
-                if chunk.strip():
-                    received_chunks.append(chunk)
-                    chunk_times.append(asyncio.get_event_loop().time())
+            received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-
-    stats = backend.get_timing_stats()
-    if stats["chunks_sent"] > 1:
-        assert stats["all_at_once"] is False, (
-            "Backend stream appears buffered: "
-            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
-        )
-
-    print(
-        f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
-    )
-    print(
-        f"[OK] Translation: Test client received {len(received_chunks)} aggregated chunks"
-    )
+    assert (
+        recorder.non_empty_body_parts_count > 1
+    ), "Response stream appears buffered: only a single ASGI body part was sent"
 
 
 @pytest.mark.asyncio
@@ -194,7 +224,8 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 
-    transport = ASGITransport(app=app)
+    recorder = _ASGIBodySendRecorder(app)
+    transport = ASGITransport(app=recorder)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "model": "openai:gpt-4",
@@ -205,7 +236,6 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
         headers = {"x-api-key": "test-key", "anthropic-version": "2023-06-01"}
 
         received_chunks = []
-        chunk_times = []
 
         async with client.stream(
             "POST", "/anthropic/v1/messages", json=payload, headers=headers
@@ -214,26 +244,12 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
                 pytest.skip("Authentication required")
             assert response.status_code == 200
 
-            async for chunk in response.aiter_text():
-                if chunk.strip():
-                    received_chunks.append(chunk)
-                    chunk_times.append(asyncio.get_event_loop().time())
+            received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-
-    stats = backend.get_timing_stats()
-    if stats["chunks_sent"] > 1:
-        assert stats["all_at_once"] is False, (
-            "Backend stream appears buffered: "
-            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
-        )
-
-    print(
-        f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
-    )
-    print(
-        f"[OK] Translation: Test client received {len(received_chunks)} aggregated chunks"
-    )
+    assert (
+        recorder.non_empty_body_parts_count > 1
+    ), "Response stream appears buffered: only a single ASGI body part was sent"
 
 
 @pytest.mark.asyncio
@@ -251,7 +267,8 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "gemini")
 
-    transport = ASGITransport(app=app)
+    recorder = _ASGIBodySendRecorder(app)
+    transport = ASGITransport(app=recorder)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "model": "gemini:gemini-pro",
@@ -262,7 +279,6 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
         headers = {"x-api-key": "test-key", "anthropic-version": "2023-06-01"}
 
         received_chunks = []
-        chunk_times = []
 
         async with client.stream(
             "POST", "/anthropic/v1/messages", json=payload, headers=headers
@@ -271,26 +287,12 @@ async def test_anthropic_frontend_gemini_backend_streaming() -> None:
                 pytest.skip("Authentication required")
             assert response.status_code == 200
 
-            async for chunk in response.aiter_text():
-                if chunk.strip():
-                    received_chunks.append(chunk)
-                    chunk_times.append(asyncio.get_event_loop().time())
+            received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-
-    stats = backend.get_timing_stats()
-    if stats["chunks_sent"] > 1:
-        assert stats["all_at_once"] is False, (
-            "Backend stream appears buffered: "
-            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
-        )
-
-    print(
-        f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
-    )
-    print(
-        f"[OK] Translation: Test client received {len(received_chunks)} aggregated chunks"
-    )
+    assert (
+        recorder.non_empty_body_parts_count > 1
+    ), "Response stream appears buffered: only a single ASGI body part was sent"
 
 
 @pytest.mark.asyncio
@@ -303,12 +305,13 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
     )
 
     backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.1
-    )  # Reduced from 0.02 for performance
+        chunks=chunks, chunk_delay=0.05
+    )  # Reduced from 0.1 for performance
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 
-    transport = ASGITransport(app=app)
+    recorder = _ASGIBodySendRecorder(app)
+    transport = ASGITransport(app=recorder)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "contents": [{"role": "user", "parts": [{"text": "test"}]}],
@@ -317,7 +320,6 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
         headers = {"x-goog-api-key": "test-key"}
 
         received_chunks = []
-        chunk_times = []
 
         async with client.stream(
             "POST",
@@ -329,26 +331,12 @@ async def test_gemini_frontend_openai_backend_streaming() -> None:
                 pytest.skip("Authentication required")
             assert response.status_code == 200
 
-            async for chunk in response.aiter_text():
-                if chunk.strip():
-                    received_chunks.append(chunk)
-                    chunk_times.append(asyncio.get_event_loop().time())
+            received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-
-    stats = backend.get_timing_stats()
-    if stats["chunks_sent"] > 1:
-        assert stats["all_at_once"] is False, (
-            "Backend stream appears buffered: "
-            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
-        )
-
-    print(
-        f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
-    )
-    print(
-        f"[OK] Translation: Test client received {len(received_chunks)} aggregated chunks"
-    )
+    assert (
+        recorder.non_empty_body_parts_count > 1
+    ), "Response stream appears buffered: only a single ASGI body part was sent"
 
 
 @pytest.mark.asyncio
@@ -364,12 +352,13 @@ async def test_gemini_frontend_anthropic_backend_streaming() -> None:
     )
 
     backend = AnthropicStreamingEmulator(
-        chunks=chunks, chunk_delay=0.01
-    )  # Reduced from 0.02 for performance
+        chunks=chunks, chunk_delay=0.015
+    )  # Set to 15ms to ensure it's above the 10ms buffering detection threshold
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "anthropic")
 
-    transport = ASGITransport(app=app)
+    recorder = _ASGIBodySendRecorder(app)
+    transport = ASGITransport(app=recorder)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         payload = {
             "contents": [{"role": "user", "parts": [{"text": "test"}]}],
@@ -378,7 +367,6 @@ async def test_gemini_frontend_anthropic_backend_streaming() -> None:
         headers = {"x-goog-api-key": "test-key"}
 
         received_chunks = []
-        chunk_times = []
 
         async with client.stream(
             "POST",
@@ -390,23 +378,9 @@ async def test_gemini_frontend_anthropic_backend_streaming() -> None:
                 pytest.skip("Authentication required")
             assert response.status_code == 200
 
-            async for chunk in response.aiter_text():
-                if chunk.strip():
-                    received_chunks.append(chunk)
-                    chunk_times.append(asyncio.get_event_loop().time())
+            received_chunks = await _collect_sse_events_from_response(response)
 
     assert count_sse_events(received_chunks) > 0, "Should receive chunks"
-
-    stats = backend.get_timing_stats()
-    if stats["chunks_sent"] > 1:
-        assert stats["all_at_once"] is False, (
-            "Backend stream appears buffered: "
-            f"max_delay={stats['max_delay']:.3f}s avg_delay={stats['avg_delay']:.3f}s"
-        )
-
-    print(
-        f"[OK] Translation: Backend sent {stats['chunks_sent']} chunks with avg delay {stats['avg_delay']:.3f}s"
-    )
-    print(
-        f"[OK] Translation: Test client received {len(received_chunks)} aggregated chunks"
-    )
+    assert (
+        recorder.non_empty_body_parts_count > 1
+    ), "Response stream appears buffered: only a single ASGI body part was sent"

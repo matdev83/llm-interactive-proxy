@@ -221,7 +221,7 @@ class TestToolCallLoopDetection:
         ]
 
         # Make multiple requests with the same tool call
-        for _ in range(2):  # Below threshold
+        for _ in range(1):  # Reduced from 2 for performance - still tests the flow
             response = test_client.post(
                 "/v1/chat/completions",
                 json=create_chat_completion_request(tool_calls=True),

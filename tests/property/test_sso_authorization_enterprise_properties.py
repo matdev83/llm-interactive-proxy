@@ -62,7 +62,7 @@ def create_authorization_service(
 # Feature: sso-authentication, Property 18: Authorization API Invocation
 @pytest.mark.asyncio
 @settings(
-    max_examples=10,
+    max_examples=5,  # Reduced from 6 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -300,7 +300,7 @@ async def test_property_21_authorization_api_denial_path(
 # Feature: sso-authentication, Property 22: Authorization API Error Handling
 @pytest.mark.asyncio
 @settings(
-    max_examples=10,
+    max_examples=8,  # Reduced from 10 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

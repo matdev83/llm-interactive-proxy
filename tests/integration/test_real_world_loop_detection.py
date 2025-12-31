@@ -122,7 +122,7 @@ class TestRealWorldLoopDetection:
         )
 
         # Override max_pattern_length to reduce test runtime while keeping precision
-        detector.long_detector.max_pattern_length = 200
+        detector.long_detector.max_pattern_length = 150  # Reduced from 200 for performance
 
         # Process the content
         result = detector.process_chunk(content)

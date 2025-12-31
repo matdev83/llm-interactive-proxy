@@ -177,7 +177,12 @@ class ConfiguredRulesPolicy(ISteeringPolicy):
                 )
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Error compiling steering rule %s: %s", rule.name, e)
+                    logger.warning(
+                        "Error compiling steering rule %s: %s",
+                        rule.name,
+                        e,
+                        exc_info=True,
+                    )
 
         # Sort by priority (highest first)
         return sorted(compiled, key=lambda r: r.priority, reverse=True)

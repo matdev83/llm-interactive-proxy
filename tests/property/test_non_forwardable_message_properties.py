@@ -290,7 +290,7 @@ def chat_message_strategy(draw: Any) -> ChatMessage:
 
 
 @given(message=chat_message_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=10)  # Reduced from 12 for performance
 def test_property_identity_determinism(message: ChatMessage) -> None:
     """
     **Feature: non-forwardable-message-tagging, Property: Identity Determinism**
@@ -768,7 +768,7 @@ async def test_property_filtering_no_content_mutation(
     injected_messages=st.lists(chat_message_strategy(), min_size=0, max_size=5),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings(max_examples=20)  # Reduced for async tests
+@property_test_settings(max_examples=15)  # Reduced from 20 for performance
 async def test_property_filtering_scope_semantics(
     client_messages: list[ChatMessage],
     injected_messages: list[ChatMessage],

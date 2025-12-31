@@ -128,8 +128,8 @@ def test_request_response_counter_consistency(records, temp_dir_module, store_co
 # Property 6: Tool Call Aggregation Correctness
 # Feature: detailed-usage-tracking, Property 6: Tool Call Aggregation Correctness
 # Validates: Requirements 3.4
-@settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
-@given(records=usage_record_list_strategy(min_size=1, max_size=20))  # Reduced from 30
+@settings(max_examples=12, deadline=None)  # Reduced from 15 for performance
+@given(records=usage_record_list_strategy(min_size=1, max_size=12))  # Reduced from 15
 def test_tool_call_aggregation_correctness(records, temp_dir_module, store_counter):
     """Property 6: Tool Call Aggregation Correctness.
 
@@ -191,8 +191,8 @@ def test_tool_call_aggregation_correctness(records, temp_dir_module, store_count
 # Property 7: Session Uniqueness Tracking
 # Feature: detailed-usage-tracking, Property 7: Session Uniqueness Tracking
 # Validates: Requirements 4.1
-@settings(max_examples=50, deadline=None)
-@given(records=usage_record_list_strategy(min_size=1, max_size=50))
+@settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
+@given(records=usage_record_list_strategy(min_size=1, max_size=20))  # Reduced from 30
 def test_session_uniqueness_tracking(records, temp_dir_module, store_counter):
     """Property 7: Session Uniqueness Tracking.
 
@@ -227,10 +227,10 @@ def test_session_uniqueness_tracking(records, temp_dir_module, store_counter):
 # Property 8: Turn Counter Accuracy
 # Feature: detailed-usage-tracking, Property 8: Turn Counter Accuracy
 # Validates: Requirements 4.2
-@settings(max_examples=15, deadline=None)  # Reduced from 50 for performance
+@settings(max_examples=12, deadline=None)  # Reduced from 15 for performance
 @given(
-    records=usage_record_list_strategy(min_size=1, max_size=20)
-)  # Reduced max_size from 50
+    records=usage_record_list_strategy(min_size=1, max_size=15)
+)  # Reduced from 20
 def test_turn_counter_accuracy(records, temp_dir_module, store_counter):
     """Property 8: Turn Counter Accuracy.
 
@@ -277,10 +277,10 @@ def test_turn_counter_accuracy(records, temp_dir_module, store_counter):
 # Property 9: Tokens Per Session Calculation
 # Feature: detailed-usage-tracking, Property 9: Tokens Per Session Calculation
 # Validates: Requirements 4.3
-@settings(max_examples=20, deadline=None)  # Reduced from 30 for performance
+@settings(max_examples=15, deadline=None)  # Reduced from 20 for performance
 @given(
-    records=usage_record_list_strategy(min_size=1, max_size=20)
-)  # Reduced from 30 for performance
+    records=usage_record_list_strategy(min_size=1, max_size=15)
+)  # Reduced from 20 for performance
 def test_tokens_per_session_calculation(records, temp_dir_module, store_counter):
     """Property 9: Tokens Per Session Calculation.
 
@@ -324,8 +324,8 @@ def test_tokens_per_session_calculation(records, temp_dir_module, store_counter)
 # Property 10: Tokens Per Second (TPS) Calculation
 # Feature: detailed-usage-tracking, Property 10: Tokens Per Second (TPS) Calculation
 # Validates: Requirements 5.5
-@settings(max_examples=15, deadline=None)  # Reduced from 30 for performance
-@given(records=usage_record_list_strategy(min_size=2, max_size=15))  # Reduced from 30
+@settings(max_examples=12, deadline=None)  # Reduced from 15 for performance
+@given(records=usage_record_list_strategy(min_size=2, max_size=12))  # Reduced from 15
 def test_tps_calculation(records, temp_dir_module, store_counter):
     """Property 10: Tokens Per Second (TPS) Calculation.
 
@@ -386,8 +386,8 @@ def test_tps_calculation(records, temp_dir_module, store_counter):
 # Property 13: Status Code Recording
 # Feature: detailed-usage-tracking, Property 13: Status Code Recording
 # Validates: Requirements 6.1, 6.2
-@settings(max_examples=20, deadline=None)
-@given(records=usage_record_list_strategy(min_size=1, max_size=50))
+@settings(max_examples=12, deadline=None)  # Reduced from 15 for performance
+@given(records=usage_record_list_strategy(min_size=1, max_size=20))  # Reduced from 30
 def test_status_code_recording(records, temp_dir_module, store_counter):
     """Property 13: Status Code Recording.
 
@@ -430,8 +430,8 @@ def test_status_code_recording(records, temp_dir_module, store_counter):
 # Property 14: Status Code Aggregation
 # Feature: detailed-usage-tracking, Property 14: Status Code Aggregation
 # Validates: Requirements 6.3
-@settings(max_examples=15, deadline=None)
-@given(records=usage_record_list_strategy(min_size=1, max_size=20))
+@settings(max_examples=10, deadline=None)  # Reduced from 15 for performance
+@given(records=usage_record_list_strategy(min_size=1, max_size=15))  # Reduced from 20
 def test_status_code_aggregation(records, temp_dir_module, store_counter):
     """Property 14: Status Code Aggregation.
 

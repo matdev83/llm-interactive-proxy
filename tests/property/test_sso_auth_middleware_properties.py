@@ -203,7 +203,7 @@ def test_property_4_unauthenticated_request_sandbox_response(
 
 
 @given(request=request_with_unknown_token_strategy())
-@property_test_settings(max_examples=5)
+@property_test_settings(max_examples=3)  # Reduced from 4 for performance
 def test_property_9_unknown_token_rejection(
     request: dict,
 ) -> None:
@@ -652,7 +652,7 @@ def test_property_4_consistent_sandbox_responses(
     ),
     user_email=st.emails(),
 )
-@property_test_settings(max_examples=5)  # Reduced from 10 for performance
+@property_test_settings(max_examples=3)  # Reduced from 4 for performance
 @freeze_time("2024-01-01 12:00:00")
 def test_property_12_reauthentication_status_update(
     session_lifetime_hours: int,

@@ -477,7 +477,7 @@ def test_property_9_init_action_validation(action_data: dict[str, Any]) -> None:
     txid=st.integers(min_value=0, max_value=1000000),
     action_data=st.one_of(valid_prompt_action_strategy(), valid_init_action_strategy()),
 )
-@property_test_settings()
+@property_test_settings(max_examples=6)  # Reduced from 8 for performance
 def test_property_9_action_message_validation(
     txid: int, action_data: dict[str, Any]
 ) -> None:

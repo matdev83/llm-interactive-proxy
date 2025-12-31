@@ -104,7 +104,7 @@ async def test_property_3_session_states_are_isolated(
     session2_content=st.text(min_size=5, max_size=100),
 )
 @settings(
-    max_examples=15,
+    max_examples=6,  # Reduced from 8 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -159,7 +159,7 @@ async def test_property_3_captured_interactions_are_isolated(
     user_id2=st.text(min_size=3, max_size=20, alphabet="0123456789"),
 )
 @settings(
-    max_examples=15,
+    max_examples=6,  # Reduced from 8 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

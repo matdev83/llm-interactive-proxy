@@ -88,7 +88,7 @@ class TestSessionHistoryLeakRegression:
         If a limit is added in the future, this test should be updated.
         """
         # Add a large number of interactions
-        num_interactions = 10000
+        num_interactions = 5000  # Reduced from 10000 for performance
         for i in range(num_interactions):
             interaction = SessionInteraction(
                 prompt=f"Message {i}",

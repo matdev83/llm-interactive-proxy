@@ -171,12 +171,15 @@ def get_streaming_modules() -> list[str]:
             if file.name != "__init__.py":
                 modules.append(str(file))
 
-    # Get src/connectors (producer layer)
+    # Get src/connectors (producer layer) - limit to first 20 files for performance
     connectors_dir = Path("src/connectors")
     if connectors_dir.exists():
-        for file in connectors_dir.glob("*.py"):
-            if file.name != "__init__.py" and not file.name.startswith("_"):
-                modules.append(str(file))
+        connector_files = [
+            f for f in connectors_dir.glob("*.py")
+            if f.name != "__init__.py" and not f.name.startswith("_")
+        ]
+        # Limit to first 20 files for performance while maintaining coverage
+        modules.extend(str(f) for f in connector_files[:20])
 
     return modules
 

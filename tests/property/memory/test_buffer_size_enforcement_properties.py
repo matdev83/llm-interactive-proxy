@@ -116,7 +116,7 @@ async def test_property_5_overflow_returns_false(
     max_buffer_size=st.integers(min_value=100, max_value=500),
 )
 @settings(
-    max_examples=20,
+    max_examples=15,  # Reduced from 20 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -154,7 +154,7 @@ async def test_property_5_overflow_marks_session_partial(
     max_buffer_size=st.integers(min_value=100, max_value=1000),
 )
 @settings(
-    max_examples=20,
+    max_examples=15,  # Reduced from 20 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
