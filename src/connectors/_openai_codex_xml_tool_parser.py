@@ -193,19 +193,19 @@ class XMLToolParser:
         if start_line:
             try:
                 arguments["start_line"] = int(start_line)
-            except ValueError:
+            except ValueError as e:
                 raise XMLParseError(
                     f"Invalid start_line value: {start_line}", raw_xml
-                ) from None
+                ) from e
 
         end_line = self._extract_nested_tag(content, "end_line")
         if end_line:
             try:
                 arguments["end_line"] = int(end_line)
-            except ValueError:
+            except ValueError as e:
                 raise XMLParseError(
                     f"Invalid end_line value: {end_line}", raw_xml
-                ) from None
+                ) from e
 
         return ParsedToolInvocation(
             canonical_name="read_file",
@@ -267,10 +267,10 @@ class XMLToolParser:
         if depth_content:
             try:
                 arguments["depth"] = int(depth_content)
-            except ValueError:
+            except ValueError as e:
                 raise XMLParseError(
                     f"Invalid depth value: {depth_content}", raw_xml
-                ) from None
+                ) from e
 
         return ParsedToolInvocation(
             canonical_name="list_files",
@@ -334,19 +334,19 @@ class XMLToolParser:
         if timeout_match:
             try:
                 arguments["timeout"] = int(timeout_match.group(1))
-            except ValueError:
+            except ValueError as e:
                 raise XMLParseError(
                     f"Invalid timeout value: {timeout_match.group(1)}", raw_xml
-                ) from None
+                ) from e
         else:
             timeout_content = self._extract_nested_tag(content, "timeout")
             if timeout_content:
                 try:
                     arguments["timeout"] = int(timeout_content)
-                except ValueError:
+                except ValueError as e:
                     raise XMLParseError(
                         f"Invalid timeout value: {timeout_content}", raw_xml
-                    ) from None
+                    ) from e
 
         return ParsedToolInvocation(
             canonical_name="execute_command",
@@ -699,10 +699,10 @@ class XMLToolParser:
                 if position:
                     try:
                         arguments["position"] = int(position)
-                    except ValueError:
+                    except ValueError as e:
                         raise XMLParseError(
                             f"Invalid position value: {position}", raw_xml
-                        ) from None
+                        ) from e
 
         return ParsedToolInvocation(
             canonical_name=tag,
