@@ -1082,7 +1082,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             )
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to extract Gemini usage: %s", e)
+                logger.debug("Failed to extract Gemini usage: %s", e, exc_info=True)
             return None
 
     # StreamProducer protocol implementation

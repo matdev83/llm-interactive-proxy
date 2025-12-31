@@ -496,6 +496,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                         logger.warning(
                                             "Failed to parse XML tool call in stream: %s",
                                             e,
+                                            exc_info=True,
                                         )
 
                     if tool_calls and first_chunk_type is not None:
@@ -1182,7 +1183,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         except Exception as exc:  # pragma: no cover - defensive guardrail
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Unexpected error reading Antigravity state db %s: %s", db_path, exc
+                    "Unexpected error reading Antigravity state db %s: %s", db_path, exc, exc_info=True
                 )
             return None
 
