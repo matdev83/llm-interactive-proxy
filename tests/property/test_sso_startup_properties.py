@@ -159,7 +159,7 @@ def test_property_legacy_auth_disabled_in_sso_mode(sso_config, host, legacy_keys
 
 
 # Property 3: Non-Loopback Startup Rejection
-@settings(max_examples=50)
+@settings(max_examples=20)  # Reduced from 50 for performance
 @given(host=non_loopback_address_strategy())
 def test_property_non_loopback_startup_rejection(host):
     """

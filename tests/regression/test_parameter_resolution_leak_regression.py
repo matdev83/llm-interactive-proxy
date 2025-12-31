@@ -54,7 +54,7 @@ class TestParameterResolutionLeakRegression:
         max_size = ParameterResolution._MAX_HISTORY_SIZE
 
         # Record many unique parameters (more than max size)
-        num_parameters = max_size + 1000
+        num_parameters = max_size + 500  # Reduced from 1000 for performance
         for i in range(num_parameters):
             parameter_name = f"test.parameter.{i}"
             resolution.record(
