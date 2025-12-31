@@ -534,7 +534,7 @@ class ToolCallRepairService(IToolCallRepairService):
                         )
                     sanitized = self._sanitize_xml_for_parsing(xml_snippet)
                     root = ElementTree.fromstring(sanitized)
-            except Exception:
+            except (ElementTree.ParseError, ValueError):
                 # Fallback to lenient parsing if XML parsing fails completely
                 # Log this as it might indicate malformed XML that we're patching up
                 if logger.isEnabledFor(logging.WARNING):

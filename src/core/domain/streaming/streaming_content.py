@@ -13,6 +13,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import pydantic
+
 from src.core.domain.usage_summary import UsageSummary
 
 if TYPE_CHECKING:
@@ -367,7 +369,7 @@ class StreamingContent:
                     elif isinstance(tc, dict):
                         try:
                             tool_calls.append(ToolCall(**tc))
-                        except Exception:
+                        except (pydantic.ValidationError, TypeError, ValueError):
                             # If conversion fails, skip this tool call
                             logger.warning(
                                 f"Failed to convert tool call dict to ToolCall: {tc}",
@@ -388,7 +390,7 @@ class StreamingContent:
                 }
                 try:
                     error = StreamingErrorInfo(**valid_fields)
-                except Exception:
+                except (pydantic.ValidationError, TypeError, ValueError):
                     logger.warning(
                         f"Failed to convert error dict to StreamingErrorInfo: {error_dict}",
                         exc_info=True,
@@ -402,7 +404,7 @@ class StreamingContent:
         if usage_dict and isinstance(usage_dict, dict):
             try:
                 usage = StreamingUsage(**usage_dict)
-            except Exception:
+            except (pydantic.ValidationError, TypeError, ValueError):
                 logger.warning(
                     f"Failed to convert usage dict to StreamingUsage: {usage_dict}",
                     exc_info=True,
