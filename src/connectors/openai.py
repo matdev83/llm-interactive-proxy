@@ -22,7 +22,11 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
-from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
+from src.core.common.exceptions import (
+    AuthenticationError,
+    InvalidRequestError,
+    ServiceUnavailableError,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.models_listing import ModelsListingResponse
@@ -549,6 +553,8 @@ class OpenAIConnector(LLMBackend):
             return await self._chat_completions_canonical(request)
 
         # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
+        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
+        # This connector should only receive canonical domain models (never dicts).
         request_data = request
         processed_messages = args[0] if args else kwargs.get("processed_messages", [])
         effective_model = (
@@ -572,60 +578,48 @@ class OpenAIConnector(LLMBackend):
         }
 
         # Ensure processed_messages is a Sequence[ChatMessage]
-        # It may already be ChatMessage objects or dicts
-        if processed_messages and not isinstance(processed_messages[0], ChatMessage):
-            # Convert dicts to ChatMessage objects
-            processed_messages = [
-                (
-                    ChatMessage(**msg)
-                    if isinstance(msg, dict)
-                    else ChatMessage(role="user", content=str(msg))
+        # ConnectorInvoker guarantees typed messages, but legacy path may receive mixed types
+        if processed_messages:
+            if not isinstance(processed_messages[0], ChatMessage):
+                # Legacy path should not receive dict messages (coercion centralized at invoker)
+                raise InvalidRequestError(
+                    message="Legacy connector API received non-canonical processed_messages. "
+                    "Expected Sequence[ChatMessage], but received dicts or other types.",
+                    details={
+                        "received_type": type(processed_messages[0]).__name__,
+                        "connector": "openai",
+                    },
                 )
-                for msg in processed_messages
-            ]
 
-        # Convert request_data to domain object if it's a dict
+        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
         if isinstance(request_data, dict):
-            # Ensure model is set from effective_model if not in dict
-            request_dict = dict(request_data)
-            if "model" not in request_dict and effective_model:
-                request_dict["model"] = effective_model
-            # Ensure messages are set - use processed_messages if available, otherwise from dict
-            if "messages" not in request_dict:
-                request_dict["messages"] = (
-                    processed_messages if processed_messages else []
-                )
-            # If messages are still empty, add a dummy message to satisfy validation
-            # (backend functionality checks will handle actual validation)
-            if not request_dict.get("messages"):
-                request_dict["messages"] = [{"role": "user", "content": ""}]
-            # Use translation service to convert dict to CanonicalChatRequest
-            if self.translation_service:
-                domain_request = self.translation_service.to_domain_request(
-                    request_dict, "openai"
-                )
-            else:
-                # Fallback: create a minimal CanonicalChatRequest
-                domain_request = CanonicalChatRequest(**request_dict)
-        elif isinstance(request_data, ChatRequest | CanonicalChatRequest):
-            # Already a domain object, use as-is
-            if isinstance(request_data, ChatRequest):
-                domain_request = CanonicalChatRequest.model_validate(
-                    request_data.model_dump()
-                )
-            else:
-                domain_request = request_data
+            raise InvalidRequestError(
+                message="Legacy connector API received dict input. "
+                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": "dict",
+                    "connector": "openai",
+                },
+            )
+
+        # Accept only canonical domain models
+        if isinstance(request_data, ChatRequest):
+            domain_request = CanonicalChatRequest.model_validate(
+                request_data.model_dump()
+            )
+        elif isinstance(request_data, CanonicalChatRequest):
+            domain_request = request_data
         else:
-            # For other types, try to convert via translation service
-            if self.translation_service:
-                domain_request = self.translation_service.to_domain_request(
-                    request_data, "openai"
-                )
-            else:
-                raise TypeError(
-                    f"Cannot convert {type(request_data).__name__} to domain request. "
-                    "Expected dict, ChatRequest, or CanonicalChatRequest."
-                )
+            # Reject other types - invoker should only pass canonical models
+            raise InvalidRequestError(
+                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": type(request_data).__name__,
+                    "connector": "openai",
+                },
+            )
 
         canonical_request = ConnectorChatCompletionsRequest(
             request=domain_request,

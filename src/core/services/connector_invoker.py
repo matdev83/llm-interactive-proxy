@@ -112,7 +112,12 @@ class ConnectorInvoker:
         """Check if backend implements ICanonicalChatCompletionsBackend.
 
         Uses structural typing check: verifies that the backend has a
-        chat_completions method with the canonical signature (single request parameter).
+        chat_completions method with the canonical signature (first parameter
+        named "request" with ConnectorChatCompletionsRequest type).
+
+        Handles backward-compatible signatures like:
+        - chat_completions(request: ConnectorChatCompletionsRequest)
+        - chat_completions(request: ConnectorChatCompletionsRequest, *args, **kwargs)
 
         Args:
             backend: Backend instance to check
@@ -130,7 +135,6 @@ class ConnectorInvoker:
 
         # Get method signature
         # Note: inspect.signature on a bound method doesn't include 'self'
-        # So canonical API will have 1 parameter (request), legacy will have many
         try:
             sig = inspect.signature(method)
         except (ValueError, TypeError):
@@ -138,17 +142,29 @@ class ConnectorInvoker:
             return False
 
         params = list(sig.parameters.values())
-        
-        # Canonical API: chat_completions(self, request: ConnectorChatCompletionsRequest)
-        # When inspecting bound method, this shows as 1 parameter (request)
-        # Legacy API: chat_completions(self, request_data, processed_messages, effective_model, ...)
-        # When inspecting bound method, this shows as many parameters
-        if len(params) != 1:
+
+        # Filter out varargs (*args) and varkwargs (**kwargs) for counting
+        # Canonical API may have: chat_completions(request, *args, **kwargs)
+        # We only care about required positional/keyword parameters
+        required_params = [
+            p
+            for p in params
+            if p.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            )
+        ]
+
+        # Canonical API should have exactly 1 required parameter (request)
+        # Legacy API has many required parameters (request_data, processed_messages, etc.)
+        if len(required_params) != 1:
             return False
 
-        # Check the single parameter
-        request_param = params[0]
-        
+        # Check the first required parameter
+        request_param = required_params[0]
+
         # Parameter name should be "request" for canonical API
         # Legacy API uses "request_data" as first parameter
         if request_param.name != "request":
@@ -162,7 +178,10 @@ class ConnectorInvoker:
             return True
 
         # Handle string annotations (forward references)
-        if isinstance(param_annotation, str) and "ConnectorChatCompletionsRequest" in param_annotation:
+        if (
+            isinstance(param_annotation, str)
+            and "ConnectorChatCompletionsRequest" in param_annotation
+        ):
             return True
 
         # Check if annotation is a type that matches (handle Union, etc.)
@@ -177,8 +196,8 @@ class ConnectorInvoker:
         except (AttributeError, TypeError):
             pass
 
-        # If we have exactly 1 parameter named "request", it's likely canonical
-        # even if annotation is missing/incomplete
+        # If we have exactly 1 required parameter named "request", it's likely canonical
+        # even if annotation is missing/incomplete (allows for gradual typing migration)
         return True
 
     async def invoke(

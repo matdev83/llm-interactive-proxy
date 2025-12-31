@@ -33,6 +33,10 @@ jobs:
         pip install -e .[dev]
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
+    - name: Check boundary types
+      run: |
+        python dev/scripts/check_boundary_types.py
+
     - name: Run unit tests with coverage
       env:
         OPENAI_API_KEY: dummy_key

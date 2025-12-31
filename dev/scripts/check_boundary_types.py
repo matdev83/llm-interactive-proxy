@@ -79,7 +79,7 @@ class AllowlistEntry:
         # Normalize paths for comparison
         violation_path = violation.file_path.replace("\\", "/")
         allowlist_file = self.file.replace("\\", "/")
-        
+
         # Check if paths match (exact match or violation path ends with allowlist file)
         file_match = (
             violation_path == allowlist_file
@@ -88,7 +88,9 @@ class AllowlistEntry:
         )
         violation_match = self.violation == violation_type
         symbol_match = (
-            self.symbol is None or violation.symbol is None or self.symbol == violation.symbol
+            self.symbol is None
+            or violation.symbol is None
+            or self.symbol == violation.symbol
         )
 
         return file_match and violation_match and symbol_match
@@ -186,11 +188,81 @@ class BoundaryTypeChecker(ast.NodeVisitor):
         returns: ast.expr | None,
     ) -> None:
         """Check function signature for Any and dict[str, Any]."""
-        # Check arguments
+        # Check positional-only arguments
+        for arg in args.posonlyargs:
+            if arg.annotation:
+                violation_msg, violation_type = self._check_type_annotation(
+                    arg.annotation,
+                    f"Function '{name}' positional-only parameter '{arg.arg}'",
+                )
+                if violation_msg:
+                    self.violations.append(
+                        Violation(
+                            file_path=self.current_file,
+                            line=node.lineno,
+                            column=node.col_offset,
+                            message=violation_msg,
+                            symbol=name,
+                        )
+                    )
+
+        # Check regular positional/keyword arguments
         for arg in args.args:
             if arg.annotation:
                 violation_msg, violation_type = self._check_type_annotation(
                     arg.annotation, f"Function '{name}' parameter '{arg.arg}'"
+                )
+                if violation_msg:
+                    self.violations.append(
+                        Violation(
+                            file_path=self.current_file,
+                            line=node.lineno,
+                            column=node.col_offset,
+                            message=violation_msg,
+                            symbol=name,
+                        )
+                    )
+
+        # Check *args parameter
+        if args.vararg:
+            if args.vararg.annotation:
+                violation_msg, violation_type = self._check_type_annotation(
+                    args.vararg.annotation, f"Function '{name}' *args parameter"
+                )
+                if violation_msg:
+                    self.violations.append(
+                        Violation(
+                            file_path=self.current_file,
+                            line=node.lineno,
+                            column=node.col_offset,
+                            message=violation_msg,
+                            symbol=name,
+                        )
+                    )
+
+        # Check keyword-only arguments
+        for arg in args.kwonlyargs:
+            if arg.annotation:
+                violation_msg, violation_type = self._check_type_annotation(
+                    arg.annotation,
+                    f"Function '{name}' keyword-only parameter '{arg.arg}'",
+                )
+                if violation_msg:
+                    self.violations.append(
+                        Violation(
+                            file_path=self.current_file,
+                            line=node.lineno,
+                            column=node.col_offset,
+                            message=violation_msg,
+                            symbol=name,
+                        )
+                    )
+
+        # Check **kwargs parameter
+        if args.kwarg:
+            if args.kwarg.annotation:
+                violation_msg, violation_type = self._check_type_annotation(
+                    args.kwarg.annotation, f"Function '{name}' **kwargs parameter"
                 )
                 if violation_msg:
                     self.violations.append(
@@ -264,7 +336,9 @@ class BoundaryTypeChecker(ast.NodeVisitor):
         if isinstance(annotation, ast.BinOp) and isinstance(
             annotation.op, ast.BitOr
         ):  # Python 3.10+ union syntax
-            left_violation, left_type = self._check_type_annotation(annotation.left, context)
+            left_violation, left_type = self._check_type_annotation(
+                annotation.left, context
+            )
             if left_violation:
                 return (left_violation, left_type)
             right_violation, right_type = self._check_type_annotation(
@@ -431,7 +505,7 @@ def is_in_scope(file_path: Path, scope_config: dict[str, TypingAny]) -> bool:
     """
     # Normalize path to use forward slashes for consistent matching
     path_str = str(file_path).replace("\\", "/")
-    
+
     # Extract relative portion from absolute paths
     # Look for common path segments like "src/" to extract relative portion
     relative_path_str = path_str
@@ -439,13 +513,15 @@ def is_in_scope(file_path: Path, scope_config: dict[str, TypingAny]) -> bool:
         # Try to make it relative to project root
         try:
             project_root = Path(__file__).parent.parent.parent
-            relative_path_str = str(file_path.relative_to(project_root)).replace("\\", "/")
+            relative_path_str = str(file_path.relative_to(project_root)).replace(
+                "\\", "/"
+            )
         except ValueError:
             # If we can't make it relative to project root, try to extract
             # relative portion by finding "src/" in the path
             if "/src/" in path_str:
                 idx = path_str.index("/src/")
-                relative_path_str = path_str[idx + 1:]  # Remove leading "/"
+                relative_path_str = path_str[idx + 1 :]  # Remove leading "/"
             elif path_str.endswith("/src/"):
                 # Edge case: path ends with src/
                 relative_path_str = path_str
@@ -457,7 +533,9 @@ def is_in_scope(file_path: Path, scope_config: dict[str, TypingAny]) -> bool:
     # Check explicit files first (highest precedence)
     # Match if path ends with explicit file or matches exactly
     for explicit_file in explicit_files:
-        if relative_path_str == explicit_file or relative_path_str.endswith("/" + explicit_file):
+        if relative_path_str == explicit_file or relative_path_str.endswith(
+            "/" + explicit_file
+        ):
             return True
         # Also check absolute path ending
         if path_str.endswith(explicit_file):
@@ -465,10 +543,14 @@ def is_in_scope(file_path: Path, scope_config: dict[str, TypingAny]) -> bool:
 
     # Check if excluded
     for exclude_pattern in exclude_globs:
-        if fnmatch(relative_path_str, exclude_pattern) or fnmatch(path_str, exclude_pattern):
+        if fnmatch(relative_path_str, exclude_pattern) or fnmatch(
+            path_str, exclude_pattern
+        ):
             # Explicit files override excludes - check if this is an explicit file
             is_explicit = any(
-                relative_path_str == ef or relative_path_str.endswith("/" + ef) or path_str.endswith(ef)
+                relative_path_str == ef
+                or relative_path_str.endswith("/" + ef)
+                or path_str.endswith(ef)
                 for ef in explicit_files
             )
             if not is_explicit:
@@ -477,7 +559,9 @@ def is_in_scope(file_path: Path, scope_config: dict[str, TypingAny]) -> bool:
     # Check include globs
     if include_globs:
         for include_pattern in include_globs:
-            if fnmatch(relative_path_str, include_pattern) or fnmatch(path_str, include_pattern):
+            if fnmatch(relative_path_str, include_pattern) or fnmatch(
+                path_str, include_pattern
+            ):
                 return True
         # If include_globs is non-empty and no match, exclude
         return False
@@ -576,7 +660,9 @@ def check_boundary_types(
     unallowlisted_violations: list[Violation] = []
     for violation in all_violations:
         violation_type = extract_violation_type(violation.message)
-        is_allowed, entry = is_violation_allowlisted(violation, violation_type, allowlist)
+        is_allowed, entry = is_violation_allowlisted(
+            violation, violation_type, allowlist
+        )
         if is_allowed and entry:
             allowlisted_violations.append((violation, entry))
         else:

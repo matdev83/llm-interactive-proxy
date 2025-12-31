@@ -21,6 +21,7 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_service import BackendService as _BackendService
+from src.core.services.connector_invoker import ConnectorInvoker
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -229,16 +230,66 @@ class MockBackendStage(BaseTestBackendStage):
                         await mock_backend_service._get_or_create_backend(backend_type)
                     )
 
+                    # BOUNDARY HARDENING: Use ConnectorInvoker instead of direct backend calls
+                    # to ensure consistent boundary contract handling in tests.
+                    from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
                     # The real chat_completions method needs specific arguments.
                     # The RequestProcessorService should have already translated the messages.
                     processed_messages = kwargs.get("processed_messages", [])
 
-                    # The connector's method is what's patched by the test.
+                    # Ensure request is a CanonicalChatRequest
                     if request and effective_model:
-                        return await backend.chat_completions(
-                            request_data=request,
-                            processed_messages=processed_messages,
+                        # Convert to CanonicalChatRequest if needed
+                        if not isinstance(request, CanonicalChatRequest):
+                            from src.core.domain.chat import ChatRequest
+
+                            if isinstance(request, ChatRequest):
+                                canonical_request = CanonicalChatRequest.model_validate(
+                                    request.model_dump()
+                                )
+                            else:
+                                # Fallback: create minimal canonical request
+                                canonical_request = CanonicalChatRequest(
+                                    model=effective_model,
+                                    messages=(
+                                        processed_messages
+                                        if processed_messages
+                                        else [ChatMessage(role="user", content="")]
+                                    ),
+                                )
+                        else:
+                            canonical_request = request
+
+                        # Ensure processed_messages is a list of ChatMessage
+                        typed_messages = (
+                            processed_messages
+                            if isinstance(processed_messages, list)
+                            and all(
+                                isinstance(m, ChatMessage) for m in processed_messages
+                            )
+                            else (
+                                [
+                                    ChatMessage(**m) if isinstance(m, dict) else m
+                                    for m in processed_messages
+                                ]
+                                if processed_messages
+                                else canonical_request.messages
+                            )
+                        )
+
+                        # Use ConnectorInvoker for consistent boundary handling
+                        invoker = ConnectorInvoker()
+                        return await invoker.invoke(
+                            backend=backend,
+                            domain_request=canonical_request,
+                            canonical_request=canonical_request,
                             effective_model=effective_model,
+                            identity=None,
+                            cancellation_token=None,
+                            cancellation_coordinator=None,
+                            context=None,
+                            options={},
                         )
                     # Fallback to the generic mock response if request or effective_model is None
                     logger.warning(
