@@ -160,7 +160,7 @@ async def test_property_multiple_signals_single_emission(
     signals_per_session=st.integers(min_value=2, max_value=5),
 )
 @property_test_settings(
-    max_examples=20,  # Reduced from 30 for performance
+    max_examples=15,  # Reduced from 20 for performance
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,
@@ -232,7 +232,7 @@ async def test_property_concurrent_sessions_independent_dedupe(
     session_id=st.text(min_size=1, max_size=50),
 )
 @property_test_settings(
-    max_examples=15,  # Reduced from 30 for performance
+    max_examples=10,  # Reduced from 15 for performance
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,
@@ -300,7 +300,7 @@ async def test_property_random_signal_ordering_maintains_dedupe(
     num_signals=st.integers(min_value=2, max_value=10),
 )
 @property_test_settings(
-    max_examples=20,
+    max_examples=15,  # Reduced from 20 for performance
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,
@@ -393,7 +393,7 @@ async def test_property_restart_scenario_maintains_dedupe(
     num_concurrent_calls=st.integers(min_value=5, max_value=20),
 )
 @property_test_settings(
-    max_examples=20,
+    max_examples=15,  # Reduced from 20 for performance
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,

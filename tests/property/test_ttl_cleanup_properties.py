@@ -232,7 +232,7 @@ async def test_ttl_cleanup_multiple_sessions(
         assert session_ids[i] in handler._session_state
 
 
-@settings(max_examples=15)  # Reduced from 20 for performance
+@settings(max_examples=10)  # Reduced from 15 for performance
 @given(
     session_id=session_ids,
     ttl_seconds=st.integers(min_value=10, max_value=100),

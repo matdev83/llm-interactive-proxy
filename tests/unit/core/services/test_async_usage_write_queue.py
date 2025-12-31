@@ -285,8 +285,9 @@ class TestAsyncUsageWriteQueuePerformance:
         )
 
         # Add 25 records
+        # Use create_test_record_fast() to avoid freeze_time overhead
         for _ in range(25):
-            queue.enqueue_insert(create_test_record())
+            queue.enqueue_insert(create_test_record_fast())
 
         await queue.start()
         async with FakeClockContext() as clock:

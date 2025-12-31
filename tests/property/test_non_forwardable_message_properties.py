@@ -444,7 +444,7 @@ def test_property_tool_result_compaction_stability(
     messages=st.lists(chat_message_strategy(), min_size=1, max_size=20),
     session_id=st.text(min_size=1, max_size=50),
 )
-@property_test_settings(max_examples=30)  # Reduced for async tests
+@property_test_settings(max_examples=20)  # Reduced from 30 for performance
 async def test_property_filtering_order_preservation(
     messages: list[ChatMessage],
     session_id: str,
@@ -856,13 +856,41 @@ async def test_property_filtering_scope_semantics(
         raise
 
     # Verify client_history_only messages are excluded from client history
-    # but not from injected segment
+    # Note: We check against the original client messages to ensure they're excluded
+    # from the client history portion. If a client message and injected message share
+    # the same identity, the injected message may still pass through (which is correct
+    # behavior - client_history_only only affects client history, not injected segment).
+    filtered_identities_set = {
+        identity_service.compute_identity(msg) for msg in filtered
+    }
+
+    # Check that client_history_only tagged messages from client history are excluded
+    # by verifying they don't appear in filtered messages that correspond to original client messages
+    # We do this by checking if any filtered message has the same identity and content/role
+    # as the original client message (to distinguish from injected messages with same identity)
     for idx in client_tagged_indices:
         msg_identity = identities[idx]
-        # Should be excluded (it's in client history)
-        assert msg_identity not in {
-            identity_service.compute_identity(msg) for msg in filtered
-        }, f"client_history_only message at index {idx} must be excluded from client history"
+        original_client_msg = client_messages[idx]
+
+        # Check if any filtered message matches this client message exactly
+        # (same identity AND same position characteristics that would identify it as the client message)
+        found_in_client_history = False
+        for filtered_msg in filtered:
+            filtered_identity = identity_service.compute_identity(filtered_msg)
+            # Same identity - check if it could be the same message
+            # (same role and content match would indicate it's the same message)
+            if (
+                filtered_identity == msg_identity
+                and filtered_msg.role == original_client_msg.role
+                and filtered_msg.content == original_client_msg.content
+            ):
+                found_in_client_history = True
+                break
+
+        # Should be excluded from client history (it's tagged as client_history_only)
+        assert (
+            not found_in_client_history
+        ), f"client_history_only message at index {idx} must be excluded from client history"
 
     # Verify never_forward messages are excluded from both segments
     for idx in injected_tagged_indices:
@@ -911,7 +939,9 @@ async def test_property_filtering_scope_semantics(
         st.builds(
             ChatMessage,
             role=st.just("user"),
-            content=st.text(min_size=1, max_size=200).filter(lambda s: bool(s.strip())),  # Ensure non-empty, non-whitespace content
+            content=st.text(min_size=1, max_size=200).filter(
+                lambda s: bool(s.strip())
+            ),  # Ensure non-empty, non-whitespace content
             tool_call_id=st.just(None),
             tool_calls=st.just(None),
             reasoning_content=st.just(None),

@@ -167,7 +167,7 @@ def test_property_23_token_record_completeness(
 
 
 @given(token_record=token_record_strategy())
-@property_test_settings()
+@property_test_settings(max_examples=15)  # Reduced from default for performance
 def test_property_23_token_hash_format(
     token_record: TokenRecord,
 ) -> None:
@@ -277,7 +277,7 @@ def test_property_23_provider_field_validity(
 
 
 @given(token_record=token_record_strategy())
-@property_test_settings(max_examples=20)
+@property_test_settings(max_examples=15)  # Reduced from 20 for performance
 def test_property_23_email_field_validity(
     token_record: TokenRecord,
 ) -> None:

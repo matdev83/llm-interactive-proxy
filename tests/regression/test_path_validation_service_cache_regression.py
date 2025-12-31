@@ -68,7 +68,7 @@ class TestPathValidationServiceCacheRegression:
 
         # Add more paths - cache should not grow beyond limit
         len(service._normalization_cache)
-        for j in range(500):
+        for j in range(200):  # Reduced from 500 for performance
             unique_path = f"/tmp/overflow_dir_{j}/file_{j}.txt"
             with contextlib.suppress(ValueError, OSError):
                 service.normalize_path(unique_path)

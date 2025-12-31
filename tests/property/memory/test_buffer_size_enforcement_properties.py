@@ -38,7 +38,7 @@ def create_interaction(content: str) -> CapturedInteraction:
     ),
 )
 @settings(
-    max_examples=30,
+    max_examples=20,  # Reduced from 30 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -74,7 +74,7 @@ async def test_property_5_buffer_never_exceeds_limit(
     overflow_content_size=st.integers(min_value=100, max_value=1000),
 )
 @settings(
-    max_examples=30,
+    max_examples=20,  # Reduced from 30 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

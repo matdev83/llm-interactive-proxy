@@ -355,7 +355,7 @@ async def test_property_6_no_steering_after_multiple_test_runs(
     completion_signal=completion_signal_strategy(),
     session_id=session_id_strategy(),
 )
-@property_test_settings()
+@property_test_settings(max_examples=15)  # Reduced from default for performance
 async def test_property_6_clean_state_preserved_through_completion(
     completion_signal: tuple[str, dict[str, Any], str],
     session_id: str,

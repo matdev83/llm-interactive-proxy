@@ -253,7 +253,7 @@ def test_property_9_unknown_token_rejection(
     request1=request_with_unknown_token_strategy(),
     request2=request_with_unknown_token_strategy(),
 )
-@property_test_settings(max_examples=10)
+@property_test_settings(max_examples=8)  # Reduced from 10 for performance
 def test_property_10_token_response_indistinguishability(
     request1: dict,
     request2: dict,

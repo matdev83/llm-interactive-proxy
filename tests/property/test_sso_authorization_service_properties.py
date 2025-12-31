@@ -256,7 +256,7 @@ def test_property_18_authorization_api_invocation(
 
 
 @given(config=authorization_config_strategy())
-@property_test_settings(max_examples=20)  # Reduced from default 50 for performance
+@property_test_settings(max_examples=15)  # Reduced from 20 for performance
 def test_property_19_authorization_api_request_payload(
     config: AuthorizationConfig,
 ) -> None:

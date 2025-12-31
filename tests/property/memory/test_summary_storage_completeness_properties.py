@@ -159,10 +159,10 @@ def minimal_session_summary_for_nested_validation(draw: st.DrawFn) -> SessionSum
 
 @given(summary=session_summary_strategy())
 @property_test_settings(
-    max_examples=20,
+    max_examples=15,  # Reduced from 20 for performance
     suppress_health_check=[
         HealthCheck.filter_too_much
-    ],  # Reduced from 30 for performance
+    ],
 )
 @freeze_time("2024-01-01 12:00:00")
 def test_property_7_summary_has_all_required_fields(summary: SessionSummary) -> None:

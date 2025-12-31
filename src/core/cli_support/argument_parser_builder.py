@@ -417,7 +417,7 @@ class ArgumentParserBuilder:
             dest="disable_accounting",
             action="store_true",
             default=None,
-            help=argparse.SUPPRESS,  # Alias for --disable-accounting
+            help="Disable LLM accounting (usage tracking and audit logging) (alias for --disable-accounting)",
         )
         parser.add_argument(
             "--strict-command-detection",

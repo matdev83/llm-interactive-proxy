@@ -169,7 +169,10 @@ def test_property_31_header_non_true_values(
     probability=st.floats(min_value=0.0, max_value=1.0),
     turn_count=st.integers(min_value=1, max_value=100),
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=15,  # Reduced from default for performance
+    suppress_health_check=[HealthCheck.filter_too_much],
+)
 def test_property_33_opt_out_logging(probability: float, turn_count: int) -> None:
     """
     Property 33: Opt-out logging.

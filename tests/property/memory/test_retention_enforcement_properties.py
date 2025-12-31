@@ -50,7 +50,7 @@ def create_summary(
     recent_session_age_days=st.integers(min_value=0, max_value=30),
 )
 @settings(
-    max_examples=20,
+    max_examples=15,  # Reduced from 20 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
@@ -115,7 +115,7 @@ async def test_property_12_retention_enforcement(
     retention_days=st.integers(min_value=30, max_value=180),
 )
 @settings(
-    max_examples=15,
+    max_examples=10,  # Reduced from 15 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )

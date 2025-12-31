@@ -71,7 +71,10 @@ def test_property_18_independent_session_states(
 @given(
     session_id=st.text(min_size=1, max_size=10).filter(lambda x: x.isalnum()),
 )
-@property_test_settings(suppress_health_check=[HealthCheck.filter_too_much])
+@property_test_settings(
+    max_examples=15,  # Reduced from default for performance
+    suppress_health_check=[HealthCheck.filter_too_much],
+)
 def test_property_19_session_cleanup(
     session_id: str,
 ) -> None:

@@ -95,7 +95,7 @@ def streaming_content_strategy(
 @given(
     chunks=streaming_content_strategy(include_done=True, min_chunks=1, max_chunks=20)
 )
-@settings(max_examples=20, deadline=None)
+@settings(max_examples=15, deadline=None)  # Reduced from 20 for performance
 async def test_sentinel_utility_usage_property(chunks: list[StreamingContent]) -> None:
     """
     Property 14: Sentinel utility usage

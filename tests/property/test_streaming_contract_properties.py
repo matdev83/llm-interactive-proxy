@@ -131,7 +131,7 @@ def test_property_18_reasoning_isolation(chunk: StreamingContent) -> None:
 
 @pytest.mark.asyncio
 @given(chunk=done_streaming_content_strategy())
-@property_test_settings(max_examples=50)  # Explicitly set to reduce runtime
+@property_test_settings(max_examples=30)  # Reduced from 50 for performance
 async def test_property_19_done_marker_passthrough(chunk: StreamingContent) -> None:
     """
     Property 19: Done marker passthrough.

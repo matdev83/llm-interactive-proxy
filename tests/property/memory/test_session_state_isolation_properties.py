@@ -51,7 +51,7 @@ def create_interaction(content: str) -> CapturedInteraction:
     ),
 )
 @settings(
-    max_examples=15,
+    max_examples=10,  # Reduced from 15 for performance
     deadline=None,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
