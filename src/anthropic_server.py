@@ -102,6 +102,12 @@ def create_anthropic_app(config: AppConfig) -> FastAPI:
             return future.result()
     except RuntimeError:
         # No running loop, we can use asyncio.run directly
+        logger = logging.getLogger(__name__)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "No running event loop detected during Anthropic server creation - using asyncio.run",
+                exc_info=True,
+            )
         return asyncio.run(create_anthropic_app_async(config))
 
 

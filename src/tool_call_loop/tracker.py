@@ -91,6 +91,11 @@ class ToolCallSignature:
             try:
                 return limited_repr(arguments)
             except RecursionError:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "RecursionError while attempting limited_repr for tool arguments - using placeholder",
+                        exc_info=True,
+                    )
                 return "<unrepresentable arguments>"
 
     @staticmethod
@@ -119,12 +124,26 @@ class ToolCallSignature:
 
             try:
                 repaired_arguments = repair_json(arguments)
-            except (TypeError, ValueError, RecursionError):
+            except (TypeError, ValueError):
+                return arguments
+            except RecursionError:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "RecursionError during JSON repair - using original arguments",
+                        exc_info=True,
+                    )
                 return arguments
 
             try:
                 parsed_arguments = json.loads(repaired_arguments)
-            except (json.JSONDecodeError, TypeError, RecursionError, ValueError):
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return arguments
+            except RecursionError:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "RecursionError during JSON parsing - using original arguments",
+                        exc_info=True,
+                    )
                 return arguments
 
             try:
@@ -134,7 +153,14 @@ class ToolCallSignature:
                 if len(result) > MAX_ARG_LENGTH:
                     return cls._hash_fallback(result)
                 return result
-            except (TypeError, ValueError, RecursionError):
+            except (TypeError, ValueError):
+                return cls._hash_fallback(arguments)
+            except RecursionError:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "RecursionError during JSON serialization - using hash fallback",
+                        exc_info=True,
+                    )
                 return cls._hash_fallback(arguments)
 
         if isinstance(arguments, Mapping) or (
@@ -151,7 +177,15 @@ class ToolCallSignature:
                 if len(result) > MAX_ARG_LENGTH:
                     return cls._hash_fallback(result)
                 return result
-            except (TypeError, ValueError, RecursionError):
+            except (TypeError, ValueError):
+                raw_value = cls._stringify_raw_arguments(arguments)
+                return cls._hash_fallback(raw_value)
+            except RecursionError:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "RecursionError during JSON serialization of mapping/sequence - using hash fallback",
+                        exc_info=True,
+                    )
                 raw_value = cls._stringify_raw_arguments(arguments)
                 return cls._hash_fallback(raw_value)
 
@@ -161,6 +195,11 @@ class ToolCallSignature:
                 return cls._hash_fallback(result)
             return result
         except RecursionError:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "RecursionError while converting tool arguments to string - using hash fallback",
+                    exc_info=True,
+                )
             return cls._hash_fallback("<unrepresentable>")
 
 

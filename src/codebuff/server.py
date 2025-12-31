@@ -268,6 +268,10 @@ class CodebuffWebSocketServer:
             return validated_message.clientSessionId
 
         except WebSocketDisconnect:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "WebSocket disconnected while waiting for identify message"
+                )
             return None
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
