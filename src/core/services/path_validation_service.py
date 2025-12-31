@@ -116,7 +116,7 @@ class PathValidationService(IPathValidator):
             return normalized
 
         except (ValueError, OSError, RuntimeError) as e:
-            self._logger.error(f"Failed to normalize path '{path}': {e}")
+            self._logger.error(f"Failed to normalize path '{path}': {e}", exc_info=True)
             raise ValueError(f"Invalid path: {path}") from e
 
     def is_within_boundary(

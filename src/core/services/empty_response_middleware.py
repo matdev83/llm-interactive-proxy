@@ -129,7 +129,7 @@ class EmptyResponseFeature(IResponseFeature):
                 )
 
         except OSError as e:
-            logger.error("Error loading recovery prompt: %s", e)
+            logger.error("Error loading recovery prompt: %s", e, exc_info=True)
             self._recovery_prompt = (
                 "The previous response was empty. Please provide a valid response "
                 "with either text content or tool calls. Never return an empty response."
@@ -497,7 +497,7 @@ class EmptyResponseMiddleware(IResponseMiddleware):
                 )
 
         except OSError as e:
-            logger.error(f"Error loading recovery prompt: {e}")
+            logger.error(f"Error loading recovery prompt: {e}", exc_info=True)
             self._recovery_prompt = (
                 "The previous response was empty. Please provide a valid response "
                 "with either text content or tool calls. Never return an empty response."

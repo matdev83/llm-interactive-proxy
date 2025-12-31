@@ -104,7 +104,7 @@ class GeminiPersonalCredentialsFileHandler(FileSystemEventHandler):
                     self.connector._schedule_credentials_reload()
             except Exception as e:  # pragma: no cover - defensive logging
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Error processing file modification event: {e}")
+                    logger.error(f"Error processing file modification event: {e}", exc_info=True)
 
 
 class _StaticTokenCreds:
