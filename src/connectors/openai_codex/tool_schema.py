@@ -137,7 +137,9 @@ class ToolSchemaResolver(IToolSchemaResolver):
                 )
                 tools.extend(self._dict_tools_to_schemas(universal_tool_schemas))
             except Exception as e:
-                logger.warning("Failed to get universal tool schemas: %s", e)
+                logger.warning(
+                    "Failed to get universal tool schemas: %s", e, exc_info=True
+                )
 
         return tools
 

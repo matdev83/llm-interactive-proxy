@@ -182,10 +182,10 @@ class OpencodeZenConnector(OpenAIConnector):
             return True
 
         except json.JSONDecodeError as e:
-            logger.error("Invalid JSON in OpenCode credentials: %s", e)
+            logger.error("Invalid JSON in OpenCode credentials: %s", e, exc_info=True)
             return False
         except Exception as e:
-            logger.error("Error loading OpenCode credentials: %s", e)
+            logger.error("Error loading OpenCode credentials: %s", e, exc_info=True)
             return False
 
     def _is_token_expired(
@@ -270,7 +270,11 @@ class OpencodeZenConnector(OpenAIConnector):
             return True
 
         except Exception as e:
-            logger.error("OpenCode Zen health check failed - unexpected error: %s", e)
+            logger.error(
+                "OpenCode Zen health check failed - unexpected error: %s",
+                e,
+                exc_info=True,
+            )
             return False
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -590,7 +594,9 @@ class OpencodeZenConnector(OpenAIConnector):
 
         # Update request_data with the stripped model name to ensure it propagates to streaming logic
         # which might extract the model from request_data directly
-        if hasattr(request_data, "model_copy") and callable(getattr(request_data, "model_copy", None)):
+        if hasattr(request_data, "model_copy") and callable(
+            getattr(request_data, "model_copy", None)
+        ):
             # It's a Pydantic model, create a copy with updated field
             request_data = request_data.model_copy(update={"model": model_name})  # type: ignore[attr-defined]
         elif isinstance(request_data, dict):
