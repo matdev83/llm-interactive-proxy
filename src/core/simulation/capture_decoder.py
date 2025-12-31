@@ -357,8 +357,12 @@ class CaptureDecoder:
                     exc_info=True,
                 )
             return False
-        except Exception:
-            # Unexpected errors during SSE format detection (defensive guard)
+        except (ValueError, TypeError, AttributeError, OverflowError):
+            # Data processing errors during SSE format detection
+            # ValueError: from invalid string operations
+            # TypeError: from unexpected type for string operations
+            # AttributeError: from missing method on data object
+            # OverflowError: from extremely large data length calculations
             # Log with context and return False (best-effort decoding)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(

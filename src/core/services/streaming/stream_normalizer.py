@@ -37,12 +37,16 @@ class StreamNormalizer(IProcessingStreamNormalizer):
             if callable(reset_method):
                 try:
                     reset_method()
-                except Exception as exc:  # pragma: no cover - defensive logging
+                except (RuntimeError, ValueError, TypeError):
+                    # Common exceptions from processor reset operations
+                    # RuntimeError: from processor state management issues
+                    # ValueError: from invalid state transitions
+                    # TypeError: from type mismatch in reset implementation
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             "Failed to reset stream processor %s: %s",
                             type(processor).__name__,
-                            exc,
+                            "reset method raised exception",
                             exc_info=True,
                         )
 
@@ -108,7 +112,11 @@ class StreamNormalizer(IProcessingStreamNormalizer):
                 ):
                     try:
                         processor.cancel_callback = cancel_callback  # type: ignore[attr-defined]
-                    except Exception:  # pragma: no cover - defensive guard
+                    except (AttributeError, TypeError, ValueError):
+                        # Exceptions when setting cancel_callback on processor
+                        # AttributeError: if cancel_callback is a read-only property
+                        # TypeError: if type mismatch in assignment
+                        # ValueError: if assignment validation fails
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 "Failed to set cancel_callback on processor %s",

@@ -231,11 +231,14 @@ class BackendHealthNotifier:
                     api_url,
                     type(backend).__name__,
                 )
-            except Exception:
-                # Unexpected errors during backend notification (defensive guard)
+            except (ConnectionError, TimeoutError, NotImplementedError):
+                # Network or method implementation errors during backend notification
+                # ConnectionError: network connectivity issues
+                # TimeoutError: operation timed out
+                # NotImplementedError: backend doesn't implement health notification method
                 # Log with full context and continue to notify other backends
                 logger.exception(
-                    "Unexpected error notifying backend about health change: api_url=%s, backend_type=%s",
+                    "Network or implementation error notifying backend about health change: api_url=%s, backend_type=%s",
                     api_url,
                     type(backend).__name__,
                 )
