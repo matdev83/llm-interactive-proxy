@@ -318,7 +318,15 @@ def render_tool_call(tool_call: ToolCall) -> str | None:
         fallback_renderer = get_renderer(fallback_name)
         try:
             return fallback_renderer.render(tool_call)
-        except Exception:  # pragma: no cover - defensive
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Fallback renderer failed", exc_info=True)
+        except (AttributeError, TypeError, ValueError) as exc:
+            # Renderer-specific errors - log with context and return None
+            function_name = tool_call.function.name if tool_call.function else "unknown"
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Fallback renderer %s failed for tool call %s: %s",
+                    fallback_name,
+                    function_name,
+                    exc,
+                    exc_info=True,
+                )
     return None

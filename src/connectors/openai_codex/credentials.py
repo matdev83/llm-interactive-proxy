@@ -69,8 +69,12 @@ class OpenAICredentialsFileHandler(FileSystemEventHandler):
                     auth_path_attr = getattr(self._target, "_auth_path", None)
                     if isinstance(auth_path_attr, Path):
                         auth_path = auth_path_attr.resolve()
-                except Exception:
-                    pass
+                except (AttributeError, OSError) as exc:
+                    logger.debug(
+                        "Could not resolve auth_path from target: %s",
+                        exc,
+                        exc_info=True,
+                    )
 
                 # Fallback: get from credential manager if target doesn't have it
                 if auth_path is None and hasattr(self._target, "_credential_manager"):
@@ -80,8 +84,12 @@ class OpenAICredentialsFileHandler(FileSystemEventHandler):
                             auth_path_attr = getattr(cred_mgr, "_auth_path", None)
                             if isinstance(auth_path_attr, Path):
                                 auth_path = auth_path_attr.resolve()
-                    except Exception:
-                        pass
+                    except (AttributeError, OSError) as exc:
+                        logger.debug(
+                            "Could not resolve auth_path from credential manager: %s",
+                            exc,
+                            exc_info=True,
+                        )
 
                 if auth_path and event_path == auth_path:
                     logger.debug(

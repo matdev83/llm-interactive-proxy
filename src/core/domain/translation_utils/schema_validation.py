@@ -10,14 +10,15 @@ def validate_json_against_schema(
 
     try:
         import jsonschema
-
-        jsonschema.validate(json_data, schema)
-        return True, None
     except ImportError:
         return basic_schema_validation(json_data, schema)
-    except Exception as exc:
-        if "jsonschema" in str(exc) and "ValidationError" in str(exc):
-            return False, str(exc)
+
+    try:
+        jsonschema.validate(json_data, schema)
+        return True, None
+    except jsonschema.ValidationError as exc:
+        return False, str(exc)
+    except (jsonschema.SchemaError, ValueError, TypeError) as exc:
         return False, f"Schema validation error: {exc!s}"
 
 
@@ -47,5 +48,5 @@ def basic_schema_validation(
                     return False, f"Missing required property: {prop}"
 
         return True, None
-    except Exception as exc:
+    except (ValueError, TypeError, KeyError) as exc:
         return False, f"Basic validation error: {exc!s}"
