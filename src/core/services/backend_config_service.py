@@ -72,7 +72,9 @@ class BackendConfigService:
                 )
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Failed to apply Gemini generation config: %s", e)
+                    logger.warning(
+                        "Failed to apply Gemini generation config: %s", e, exc_info=True
+                    )
 
         # Add the generation config to the extra params
         extra_body["gemini_generation_config"] = gemini_config.to_dict()

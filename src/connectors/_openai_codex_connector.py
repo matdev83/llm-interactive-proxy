@@ -1536,7 +1536,11 @@ class OpenAICodexConnector(OpenAIConnector):
                 else:
                     self._degrade(["Failed to reload credentials from file"])
             except Exception as exc:
-                logger.error("Error during OpenAI Codex credentials reload: %s", exc)
+                logger.error(
+                    "Error during OpenAI Codex credentials reload: %s",
+                    exc,
+                    exc_info=True,
+                )
                 self._degrade([f"Credentials reload failed: {exc}"])
 
         loop = self._event_loop
@@ -1585,13 +1589,16 @@ class OpenAICodexConnector(OpenAIConnector):
                     logger.warning(
                         "Failed to schedule OpenAI Codex credentials reload: %s",
                         exc,
+                        exc_info=True,
                     )
                     self._reload_scheduling_event.clear()
 
             loop.call_soon_threadsafe(schedule_task)
         except RuntimeError as exc:
             logger.warning(
-                "Failed to schedule OpenAI Codex credentials reload: %s", exc
+                "Failed to schedule OpenAI Codex credentials reload: %s",
+                exc,
+                exc_info=True,
             )
             self._reload_scheduling_event.clear()
 
