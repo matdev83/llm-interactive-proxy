@@ -186,6 +186,7 @@ class PhaseExecutor:
                         "reasoning_model": reasoning_model,
                         "error": str(param_error),
                     },
+                    exc_info=True,
                 )
 
         # Prepare canonical request for backend service
@@ -314,6 +315,7 @@ class PhaseExecutor:
                             "reasoning_model": reasoning_model,
                             "error": str(e),
                         },
+                        exc_info=True,
                     )
 
             elapsed_time = time.time() - start_time
@@ -450,8 +452,7 @@ class PhaseExecutor:
             if not isinstance(result, CanonicalChatRequest):
                 result = self.translation_service.to_domain_request(result, "openai")
             # Type narrowing: result is now guaranteed to be CanonicalChatRequest
-            # Use cast for type checker since we've verified the type
-            return cast(CanonicalChatRequest, result)
+            return result
 
         # Normal path: use internal implementation
         request_obj: Any = request_data
@@ -620,6 +621,7 @@ class PhaseExecutor:
                         "execution_model": execution_model,
                         "error": str(param_error),
                     },
+                    exc_info=True,
                 )
 
         try:
