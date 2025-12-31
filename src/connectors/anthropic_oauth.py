@@ -188,6 +188,14 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 f"No permission to read OAuth credentials file: {creds_path}"
             )
         except Exception as e:
+            # Log with full stack trace for unexpected errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Unexpected error reading OAuth credentials file: %s",
+                    e,
+                    exc_info=True,
+                    extra={"credentials_path": str(creds_path)},
+                )
             return ValidationResult.failure(
                 f"Error reading OAuth credentials file: {e}"
             )
@@ -273,7 +281,8 @@ class AnthropicOAuthBackend(AnthropicBackend):
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    f"Failed to start file watching for Anthropic OAuth credentials: {e}"
+                    f"Failed to start file watching for Anthropic OAuth credentials: {e}",
+                    exc_info=True,
                 )
 
     def _stop_file_watching(self) -> None:
@@ -284,7 +293,11 @@ class AnthropicOAuthBackend(AnthropicBackend):
                 self._file_observer.join(timeout=1.0)
             except Exception as e:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Error stopping Anthropic OAuth file watcher: %s", e)
+                    logger.debug(
+                        "Error stopping Anthropic OAuth file watcher: %s",
+                        e,
+                        exc_info=True,
+                    )
             finally:
                 self._file_observer = None
 
