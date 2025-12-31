@@ -694,7 +694,9 @@ class BackendStage(InitializationStage):
                         logger.debug("Cleaned up validation HTTP client")
             except Exception as e:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Error cleaning up validation HTTP client: %s", e)
+                    logger.debug(
+                        "Error cleaning up validation HTTP client: %s", e, exc_info=True
+                    )
 
         # Wait for any pending cleanup tasks to complete
         # Ensure all tasks are properly awaited/cancelled even if cleanup fails

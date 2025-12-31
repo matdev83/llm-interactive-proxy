@@ -519,7 +519,7 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error starting usage write queue: %s", e)
+                logger.warning("Error starting usage write queue: %s", e, exc_info=True)
 
     async def _stop_usage_tracking_services(self) -> None:
         """Stop usage tracking services and drain pending records.
@@ -546,7 +546,7 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error stopping usage write queue: %s", e)
+                logger.warning("Error stopping usage write queue: %s", e, exc_info=True)
 
         # Stop InMemoryUsageStore persistence thread to prevent thread leaks
         try:
@@ -562,7 +562,9 @@ class AppLifecycle:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Error stopping InMemoryUsageStore persistence thread: %s", e
+                    "Error stopping InMemoryUsageStore persistence thread: %s",
+                    e,
+                    exc_info=True,
                 )
 
     async def _start_health_checks(self) -> None:
@@ -630,7 +632,9 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error starting health check services: %s", e)
+                logger.warning(
+                    "Error starting health check services: %s", e, exc_info=True
+                )
 
     def _start_background_tasks(self) -> None:
         """Start background tasks."""
@@ -773,7 +777,9 @@ class AppLifecycle:
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error awaiting pending backend shutdown tasks: %s", e
+                        "Error awaiting pending backend shutdown tasks: %s",
+                        e,
+                        exc_info=True,
                     )
 
             if logger.isEnabledFor(logging.INFO):
@@ -824,7 +830,9 @@ class AppLifecycle:
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error stopping connection tracker cleanup scheduler: %s", e
+                        "Error stopping connection tracker cleanup scheduler: %s",
+                        e,
+                        exc_info=True,
                     )
 
             # Stop backend notifier
@@ -854,7 +862,9 @@ class AppLifecycle:
             pass
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error shutting down health check services: %s", e)
+                logger.warning(
+                    "Error shutting down health check services: %s", e, exc_info=True
+                )
 
     async def _session_cleanup_task(self, interval: int, max_age: int) -> None:
         """Background task for cleaning up expired sessions.
