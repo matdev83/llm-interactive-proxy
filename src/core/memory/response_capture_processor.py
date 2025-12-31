@@ -101,6 +101,7 @@ class ResponseCaptureProcessor(IStreamProcessor):
                         "Failed to capture response for session %s: %s",
                         self._session_id,
                         e,
+                        exc_info=True,
                     )
 
         return content

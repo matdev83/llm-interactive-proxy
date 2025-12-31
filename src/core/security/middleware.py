@@ -283,7 +283,7 @@ class APIKeyMiddleware(BaseHTTPMiddleware):
             masked: str | None = api_key[:4] + "..." if api_key else None
             logger.debug("Detected API key in request: %s", masked)
         except Exception as e:
-            logger.debug("Error masking API key for logging: %s", e)
+            logger.debug("Error masking API key for logging: %s", e, exc_info=True)
 
         # Check for Gemini API key in x-goog-api-key header
         if not api_key:

@@ -147,6 +147,7 @@ class ContextInjectionMiddleware:
                 "Failed to inject context for session %s: %s",
                 session_id,
                 e,
+                exc_info=True,
             )
             self._injected_sessions.add(session_id)
             return request
