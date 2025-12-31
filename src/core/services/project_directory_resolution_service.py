@@ -16,7 +16,7 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.domain.session import Session
 from src.core.interfaces.backend_service import IBackendService
 from src.core.interfaces.session_service_interface import ISessionService
-from src.core.utils.xml_safety import safe_xml_parse
+from src.core.utils.xml_safety import XMLSafetyError, safe_xml_parse
 
 logger = logging.getLogger(__name__)
 
@@ -922,7 +922,13 @@ class ProjectDirectoryResolutionService:
     ) -> tuple[str | None, str | None]:
         try:
             root = safe_xml_parse(response_text.strip())
-        except Exception as e:
+        except XMLSafetyError as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to parse XML in directory response: %s",
+                    e,
+                    exc_info=True,
+                )
             return None, f"invalid XML: {e}"
         if root.tag != "directory-resolution-response":
             return None, "unexpected root tag"

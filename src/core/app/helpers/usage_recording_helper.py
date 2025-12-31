@@ -202,7 +202,9 @@ def extract_tool_calls_from_response(response: Any) -> ExtractedToolCalls:
                                             tool_names.append(name)
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to extract tool calls from response: %s", e)
+            logger.warning(
+                "Failed to extract tool calls from response: %s", e, exc_info=True
+            )
 
     return ExtractedToolCalls(count=tool_call_count, names=tool_names)
 
@@ -243,6 +245,8 @@ def extract_backend_reported_usage(response: Any) -> OpenRouterUsage | None:
 
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Failed to extract backend-reported usage: %s", e)
+            logger.warning(
+                "Failed to extract backend-reported usage: %s", e, exc_info=True
+            )
 
     return None
