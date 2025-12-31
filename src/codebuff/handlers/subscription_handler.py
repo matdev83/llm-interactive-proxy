@@ -99,12 +99,44 @@ class SubscriptionHandler:
         except CodebuffSessionError:
             # Re-raise session errors
             raise
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+            # Expected errors from connection manager operations
             logger.error(
-                "Error subscribing session %s: %s",
+                "Subscription validation failed for session %s: %s",
                 session.session_id,
                 str(e),
                 exc_info=True,
+            )
+            raise CodebuffError(
+                f"Subscription validation failed: {e!s}",
+                details={
+                    "session_id": session.session_id,
+                    "topics": topics,
+                },
+            ) from e
+        except (ConnectionError, OSError) as e:
+            # Connection errors during subscription
+            logger.error(
+                "Connection error during subscription for session %s: %s",
+                session.session_id,
+                str(e),
+                exc_info=True,
+            )
+            raise CodebuffError(
+                f"Connection error during subscription: {e!s}",
+                details={
+                    "session_id": session.session_id,
+                    "topics": topics,
+                },
+            ) from e
+        except Exception as e:
+            # Unexpected errors - log with full traceback for debugging
+            logger.error(
+                "Unexpected error subscribing session %s: %s",
+                session.session_id,
+                str(e),
+                exc_info=True,
+                extra={"error_code": "SUBSCRIBE_UNEXPECTED"},
             )
             raise CodebuffError(
                 f"Failed to subscribe to topics: {e!s}",
@@ -170,12 +202,44 @@ class SubscriptionHandler:
         except CodebuffSessionError:
             # Re-raise session errors
             raise
-        except Exception as e:
+        except (AttributeError, TypeError, ValueError, RuntimeError) as e:
+            # Expected errors from connection manager operations
             logger.error(
-                "Error unsubscribing session %s: %s",
+                "Unsubscription validation failed for session %s: %s",
                 session.session_id,
                 str(e),
                 exc_info=True,
+            )
+            raise CodebuffError(
+                f"Unsubscription validation failed: {e!s}",
+                details={
+                    "session_id": session.session_id,
+                    "topics": topics,
+                },
+            ) from e
+        except (ConnectionError, OSError) as e:
+            # Connection errors during unsubscription
+            logger.error(
+                "Connection error during unsubscription for session %s: %s",
+                session.session_id,
+                str(e),
+                exc_info=True,
+            )
+            raise CodebuffError(
+                f"Connection error during unsubscription: {e!s}",
+                details={
+                    "session_id": session.session_id,
+                    "topics": topics,
+                },
+            ) from e
+        except Exception as e:
+            # Unexpected errors - log with full traceback for debugging
+            logger.error(
+                "Unexpected error unsubscribing session %s: %s",
+                session.session_id,
+                str(e),
+                exc_info=True,
+                extra={"error_code": "UNSUBSCRIBE_UNEXPECTED"},
             )
             raise CodebuffError(
                 f"Failed to unsubscribe from topics: {e!s}",

@@ -78,7 +78,9 @@ if sys.platform.startswith("win"):
             # Windows-specific asyncio extensions not available
             logger = logging.getLogger(__name__)
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("asyncio.windows_events not available, skipping event loop policy change")
+                logger.debug(
+                    "asyncio.windows_events not available, skipping event loop policy change"
+                )
         else:
             policy = asyncio.get_event_loop_policy()
             if not isinstance(policy, windows_events.WindowsProactorEventLoopPolicy):
@@ -94,7 +96,9 @@ if sys.platform.startswith("win"):
                 asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
                 logger = logging.getLogger(__name__)
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info("Switched to WindowsSelectorEventLoopPolicy for improved shutdown behavior")
+                    logger.info(
+                        "Switched to WindowsSelectorEventLoopPolicy for improved shutdown behavior"
+                    )
 
     except (AttributeError, TypeError) as e:
         # Expected errors from attribute access or type checking

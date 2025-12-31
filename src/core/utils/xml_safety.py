@@ -119,7 +119,26 @@ def safe_xml_parse(
             "XML nesting depth caused stack overflow",
             details={"error": "xml_stack_overflow"},
         ) from e
+    except (AttributeError, ValueError, TypeError) as e:
+        # Expected errors from XML parsing operations
+        raise XMLSafetyError(
+            f"XML data validation error: {e!s}",
+            details={"error": "xml_validation_error", "validation_error": str(e)},
+        ) from e
+    except MemoryError as e:
+        # Memory exhaustion from large XML despite size checks
+        raise XMLSafetyError(
+            "XML parsing exhausted available memory",
+            details={"error": "xml_memory_error"},
+        ) from e
     except Exception as e:
+        # Unexpected errors - log with full traceback for debugging
+        logger.error(
+            "Unexpected error parsing XML (may indicate vulnerability): %s",
+            e,
+            exc_info=True,
+            extra={"error_code": "XML_PARSE_UNEXPECTED"},
+        )
         raise XMLSafetyError(
             f"Unexpected error parsing XML: {e!s}",
             details={"error": "xml_unexpected_error"},
