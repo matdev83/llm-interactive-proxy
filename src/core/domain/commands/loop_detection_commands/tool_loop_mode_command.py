@@ -70,7 +70,10 @@ class ToolLoopModeCommand(StatelessCommandBase, BaseCommand):
             )
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error setting tool loop mode: {e}")
+                logger.error(
+                    f"Error setting tool loop mode: {e}",
+                    exc_info=True,
+                )
             return CommandResult(
                 success=False,
                 message=f"Error setting tool loop mode: {e}",
