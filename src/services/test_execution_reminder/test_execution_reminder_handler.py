@@ -468,5 +468,6 @@ class TestExecutionReminderHandler(IToolCallHandler):
                 "Error extracting command from tool %s: %s",
                 tool_name,
                 str(e),
+                exc_info=True,
             )
             return None

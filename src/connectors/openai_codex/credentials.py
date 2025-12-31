@@ -243,7 +243,9 @@ class CredentialWatcher:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning("Failed to reload credentials from file")
             except Exception as e:
-                logger.error(f"Error during OpenAI Codex credentials reload: {e}")
+                logger.error(
+                    f"Error during OpenAI Codex credentials reload: {e}", exc_info=True
+                )
 
         loop = self._event_loop
         if loop is None:
@@ -681,7 +683,11 @@ class CredentialManager(ICredentialManager):
             try:
                 token_response = response.json()
             except Exception as exc:
-                logger.warning("Failed to parse OAuth token refresh response: %s", exc)
+                logger.warning(
+                    "Failed to parse OAuth token refresh response: %s",
+                    exc,
+                    exc_info=True,
+                )
                 return False
 
             access_token = token_response.get("access_token")

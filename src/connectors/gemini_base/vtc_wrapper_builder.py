@@ -77,7 +77,11 @@ class GeminiVtcWrapperBuilder(IVtcWrapperBuilder):
             arguments_parser = provider.get_service(IToolArgumentsParser)  # type: ignore[type-abstract]
             arguments_fixup_pipeline = provider.get_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
         except Exception as exc:
-            logger.warning("Failed to get tool call reactor services for VTC: %s", exc)
+            logger.warning(
+                "Failed to get tool call reactor services for VTC: %s",
+                exc,
+                exc_info=True,
+            )
 
         reactor_context = {
             "backend_name": self._backend_type,
