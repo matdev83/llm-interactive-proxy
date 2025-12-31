@@ -794,7 +794,7 @@ class AnthropicBackend(LLMBackend):
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
-            )
+            ) from e
 
         if response.status_code >= 400:
             from src.core.common.exceptions import BackendError
@@ -1084,7 +1084,7 @@ class AnthropicBackend(LLMBackend):
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
-            )
+            ) from e
 
         if response.status_code >= 400:
             from src.core.common.exceptions import BackendError
@@ -1216,7 +1216,7 @@ class AnthropicBackend(LLMBackend):
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
-            )
+            ) from e
 
         # Check for errors before streaming
         if response.status_code >= 400:
@@ -1273,8 +1273,8 @@ class AnthropicBackend(LLMBackend):
                     yield line
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
-                message=f"Streaming connection interrupted: {e}"
-            )
+                message=f"Could not connect to Anthropic API: {e}"
+            ) from e
         finally:
             with contextlib.suppress(Exception):
                 await response.aclose()

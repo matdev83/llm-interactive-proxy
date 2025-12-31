@@ -157,7 +157,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         if isinstance(part, MessageContentPartText):
             # Text content is already processed by middleware
             return {"text": part.text}
-        
+
         # Must be MessageContentPartImage
         url = part.image_url.url
         # Data URL -> inlineData
@@ -174,9 +174,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 b64_data = ""
             return {"inlineData": {"mimeType": mime, "data": b64_data}}
         # Otherwise treat as remote file URI
-        return {
-            "fileData": {"mimeType": "application/octet-stream", "fileUri": url}
-        }
+        return {"fileData": {"mimeType": "application/octet-stream", "fileUri": url}}
         data = part.model_dump(exclude_unset=True)
         if data.get("type") == "text" and "text" in data:
             # Text content is already processed by middleware
@@ -344,7 +342,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         except httpx.RequestError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})") from e
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini ({e})"
+            ) from e
         except (AttributeError, TypeError):
             request = self.client.build_request(
                 "POST", url, json=payload, headers=request_headers
@@ -712,9 +712,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 prompt_tokens = count_tokens(prompt_text, model=effective_model)
             except Exception:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Failed to calculate prompt tokens", exc_info=True
-                    )
+                    logger.warning("Failed to calculate prompt tokens", exc_info=True)
 
             # Integrate with streaming pipeline
             from src.core.ports.streaming_integration import (
@@ -997,7 +995,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})") from e
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini ({e})"
+            ) from e
 
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
@@ -1047,7 +1047,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             return ModelsListingResponse(object="list", data=model_infos)
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini ({e})"
+            ) from e
 
     def _extract_gemini_usage(
         self, response_data: dict[str, Any]
@@ -1150,7 +1152,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             response = await self.client.send(http_request, stream=True)
         except httpx.RequestError as e:
             logger.error("Request error connecting to Gemini: %s", e, exc_info=True)
-            raise ServiceUnavailableError(message=f"Could not connect to Gemini ({e})")
+            raise ServiceUnavailableError(
+                message=f"Could not connect to Gemini ({e})"
+            ) from e
 
         # Check for errors
         if response.status_code >= 400:
