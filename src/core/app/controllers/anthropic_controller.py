@@ -5,7 +5,6 @@ Handles Anthropic API endpoints.
 """
 
 import asyncio
-import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
@@ -27,6 +26,7 @@ from src.core.app.controllers.request_processor_resolver import (
 from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
+    ServiceResolutionError,
 )
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.di_interface import IServiceProvider
@@ -232,13 +232,25 @@ class AnthropicController:
                 ctx.session_id = chat_request.session_id
 
             if self._wire_capture and self._wire_capture.enabled():
-                with contextlib.suppress(Exception):
+                # Wire capture is optional - log unexpected errors but don't fail request
+                try:
                     await self._wire_capture.capture_inbound_request(
                         context=ctx,
                         session_id=getattr(ctx, "session_id", None),
                         request_payload=chat_request,
                         raw_body=raw_body_bytes,
                     )
+                except (AttributeError, RuntimeError):
+                    # Wire capture service not available or disabled
+                    pass
+                except Exception as e:
+                    # Unexpected error - log for debugging
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Unexpected error capturing inbound request, continuing without wire capture: %s",
+                            e,
+                            exc_info=True,
+                        )
 
             # Process the request using the request processor
             response = await self._processor.process_request(ctx, chat_request)
@@ -465,7 +477,8 @@ class AnthropicController:
 
                     # Wrap the final stream with wire capture if enabled
                     if self._wire_capture and self._wire_capture.enabled():
-                        with contextlib.suppress(Exception):
+                        # Wire capture is optional - log unexpected errors but don't fail request
+                        try:
                             final_stream = self._wire_capture.wrap_outbound_stream(
                                 context=ctx,
                                 session_id=session_id,
@@ -474,6 +487,17 @@ class AnthropicController:
                                 key_name=None,
                                 stream=final_stream,
                             )
+                        except (AttributeError, RuntimeError):
+                            # Wire capture service not available or disabled
+                            pass
+                        except Exception as e:
+                            # Unexpected error - log for debugging
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Unexpected error wrapping outbound stream with wire capture, continuing without wire capture: %s",
+                                    e,
+                                    exc_info=True,
+                                )
 
                     headers = dict(adapted_response.headers)
                     headers["content-type"] = sse_content_type
@@ -603,11 +627,23 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
             ) from exc
 
         wire_capture = None
-        import contextlib
         from typing import cast
 
-        with contextlib.suppress(Exception):
+        # Wire capture is optional - get it if available
+        try:
             wire_capture = service_provider.get_service(cast(type, IWireCapture))
+        except (ServiceResolutionError, AttributeError):
+            # Service not registered or provider doesn't have get_service method
+            # This is expected when wire capture is disabled
+            pass
+        except Exception as e:
+            # Unexpected error during service resolution - log for debugging
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error getting wire capture service, continuing without wire capture: %s",
+                    e,
+                    exc_info=True,
+                )
 
         return AnthropicController(request_processor, wire_capture=wire_capture)
     except Exception as e:

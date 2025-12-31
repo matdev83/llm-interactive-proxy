@@ -16,7 +16,11 @@ from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.app.controllers.request_processor_resolver import (
     resolve_request_processor,
 )
-from src.core.common.exceptions import InitializationError, LLMProxyError
+from src.core.common.exceptions import (
+    InitializationError,
+    LLMProxyError,
+    ServiceResolutionError,
+)
 from src.core.domain.chat import (
     CanonicalChatRequest,
     ChatCompletionChoice,
@@ -95,7 +99,9 @@ class ChatController:
                         exc_info=True,
                     )
                 return None
-            except Exception as exc:  # pragma: no cover - defensive guard for unexpected errors
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - defensive guard for unexpected errors
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL,
@@ -157,7 +163,9 @@ class ChatController:
                         exc,
                         exc_info=True,
                     )
-            except Exception as exc:  # pragma: no cover - defensive guard for unexpected errors
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - defensive guard for unexpected errors
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL,
@@ -541,7 +549,9 @@ class ChatController:
                             exc,
                             exc_info=True,
                         )
-                except Exception as exc:  # pragma: no cover - defensive guard for unexpected errors
+                except (
+                    Exception
+                ) as exc:  # pragma: no cover - defensive guard for unexpected errors
                     # Unexpected errors during wire capture - log at DEBUG level for visibility
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -1028,9 +1038,21 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
         raise InitializationError("Could not find or create RequestProcessor") from exc
 
     wire_capture = None
-    import contextlib
 
-    with contextlib.suppress(Exception):
+    # Wire capture is optional - get it if available
+    try:
         wire_capture = service_provider.get_service(cast(type, IWireCapture))
+    except (ServiceResolutionError, AttributeError):
+        # Service not registered or provider doesn't have get_service method
+        # This is expected when wire capture is disabled
+        pass
+    except Exception as e:
+        # Unexpected error during service resolution - log for debugging
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Unexpected error getting wire capture service, continuing without wire capture: %s",
+                e,
+                exc_info=True,
+            )
 
     return ChatController(request_processor, wire_capture=wire_capture)

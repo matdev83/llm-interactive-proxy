@@ -254,26 +254,32 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 # Try get_setting method first (for test mocks), then fallback to app_config attribute
                 cfg = None
                 # Try get_setting method (for test mocks that support it)
-                # Use try/except to handle secure state services that raise on attribute access
-                with contextlib.suppress(Exception):
+                # Secure state services may raise on attribute access - catch AttributeError specifically
+                try:
                     get_setting = getattr(app_state, "get_setting", None)
                     if get_setting is not None and callable(get_setting):
-                        with contextlib.suppress(Exception):
+                        with contextlib.suppress(AttributeError, RuntimeError, TypeError):
                             cfg = get_setting("app_config")
+                except (AttributeError, RuntimeError):
+                    # App state doesn't have get_setting method or not accessible
+                    pass
                 if cfg is None:
-                    with contextlib.suppress(Exception):
-                        # Secure state service - cannot access app_config directly
+                    with contextlib.suppress(AttributeError, RuntimeError):
+                        # Secure state service - may raise on direct app_config access
                         cfg = getattr(app_state, "app_config", None)
                 if cfg is not None:
                     session_cfg = getattr(cfg, "session", None)
                     if session_cfg:
                         angel_model_spec = getattr(session_cfg, "angel_model", None)
                         angel_frequency = getattr(session_cfg, "angel_frequency", 1)
-        except AttributeError:
-            logger.warning(
-                "Failed to extract Angel configuration, using defaults",
-                exc_info=True,
-            )
+        except Exception as e:
+            # Unexpected error during config extraction - log and use defaults
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to extract Angel configuration, using defaults: %s",
+                    e,
+                    exc_info=True,
+                )
         return angel_model_spec, angel_frequency
 
     def _wrap_with_middleware(
