@@ -177,7 +177,8 @@ class ReasoningStreamProcessor:
                                     else str(raw_content)
                                 ),
                             )
-                        except Exception:
+                        except (TypeError, ValueError):
+                            # Content not serializable for string formatting
                             logger.debug(
                                 "Reasoning stream raw chunk could not be normalized (non-serializable)",
                                 exc_info=True,
@@ -195,7 +196,8 @@ class ReasoningStreamProcessor:
                             chunk.get("model"),
                             len(chunk.get("choices", [])),
                         )
-                    except Exception:
+                    except (TypeError, ValueError, AttributeError):
+                        # Chunk data not serializable for logging
                         logger.log(
                             TRACE_LEVEL,
                             "Reasoning stream chunk parsed (non-serializable)",
@@ -212,7 +214,8 @@ class ReasoningStreamProcessor:
                             "Reasoning stream chunk missing 'choices': %s",
                             json.dumps(chunk)[:500],
                         )
-                    except Exception:
+                    except (TypeError, ValueError):
+                        # Chunk not serializable for JSON dumps
                         logger.debug(
                             "Reasoning stream chunk missing 'choices' (non-serializable)",
                             exc_info=True,
@@ -223,7 +226,8 @@ class ReasoningStreamProcessor:
                                 "Original raw reasoning chunk: %s",
                                 str(raw_content),
                             )
-                        except Exception:
+                        except (TypeError, ValueError):
+                            # Content not convertible to string
                             logger.debug(
                                 "Original raw reasoning chunk not serializable",
                                 exc_info=True,
@@ -241,7 +245,8 @@ class ReasoningStreamProcessor:
                                     else str(raw_content)
                                 ),
                             )
-                        except Exception:
+                        except (TypeError, ValueError):
+                            # Content not serializable for JSON dumps or string conversion
                             logger.warning(
                                 "Reasoning stream chunk reported error with non-serializable raw content",
                                 exc_info=True,
@@ -472,10 +477,12 @@ class ReasoningStreamProcessor:
                     exc_info=True,
                 )
             streaming_chunk = None
-        except Exception:  # pragma: no cover - defensive guard for unexpected errors
+        except (OSError, RuntimeError) as exc:  # pragma: no cover - defensive guard
+            # Unexpected system-level errors
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to create StreamingContent from chunk in _extract_content_from_chunk (unexpected error)",
+                    "Failed to create StreamingContent from chunk in _extract_content_from_chunk (unexpected system error): %s",
+                    exc,
                     exc_info=True,
                 )
             streaming_chunk = None
@@ -570,10 +577,12 @@ class ReasoningStreamProcessor:
                         exc_info=True,
                     )
                 return None
-            except Exception:  # pragma: no cover - defensive guard for unexpected errors
+            except (OSError, RuntimeError) as exc:  # pragma: no cover - defensive guard
+                # Unexpected system-level errors during decoding
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Failed to decode bytes content in _normalize_chunk (unexpected error)",
+                        "Failed to decode bytes content in _normalize_chunk (unexpected system error): %s",
+                        exc,
                         exc_info=True,
                     )
                 return None

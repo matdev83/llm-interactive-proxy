@@ -1,14 +1,17 @@
 """
 ASGI wrapper for AssessmentMiddleware to make it compatible with FastAPI/Starlette.
 
-This wrapper adapts the AssessmentMiddleware to the ASGI protocol required by FastAPI.
+This wrapper adapts AssessmentMiddleware to ASGI protocol required by FastAPI.
 """
 
+import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 from fastapi import Request, Response
 from src.core.app.middleware.assessment_middleware import AssessmentMiddleware
+from src.core.common.exceptions import LLMProxyError
 from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.interfaces.assessment_service_interface import (
     IAssessmentService,
@@ -18,6 +21,8 @@ from src.core.interfaces.non_forwardable_interface import (
     INonForwardableMessageIdentityService,
     INonForwardableMessageRegistry,
 )
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -77,7 +82,7 @@ class AssessmentMiddlewareASGIWrapper:
         # This is a simplified approach - in a real implementation, you might need
         # to extract the ChatRequest from request state or convert properly
         try:
-            # Process the request through the assessment middleware
+            # Process the request through assessment middleware
             # Since the original AssessmentMiddleware.process method expects a ChatRequest,
             # we need to adapt the FastAPI request to the expected format
             if hasattr(request.state, "chat_request") and request.state.chat_request:
@@ -87,10 +92,28 @@ class AssessmentMiddlewareASGIWrapper:
                 )
                 # Update the request state with the processed chat request
                 request.state.chat_request = processed_chat_request
-        except Exception:
-            # If conversion or processing fails, continue with the original request
-            # Log the error but don't fail the request
-            pass
+        except asyncio.CancelledError:
+            # Propagate cancellation - don't swallow it
+            raise
+        except (AttributeError, TypeError, LLMProxyError) as e:
+            # Expected errors during request processing:
+            # - AttributeError: request.state attribute access failures
+            # - TypeError: Type mismatches in request conversion
+            # - LLMProxyError: Known proxy errors from assessment services
+            # Log the error but continue with the original request (graceful degradation)
+            logger.warning(
+                "Assessment middleware processing error (continuing with original request): %s",
+                e,
+                exc_info=True,
+            )
+        except Exception as e:
+            # Unexpected errors - log at error level for debugging
+            # Continue with the original request to avoid breaking the request pipeline
+            logger.error(
+                "Unexpected error in assessment middleware (continuing with original request): %s",
+                e,
+                exc_info=True,
+            )
 
         # Call the next middleware or endpoint with the request
         response = await call_next(request)

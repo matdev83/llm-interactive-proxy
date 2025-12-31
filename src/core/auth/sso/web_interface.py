@@ -28,6 +28,7 @@ from src.core.auth.sso.exceptions import (
     AuthenticationError,
     AuthorizationError,
     ConfigurationError,
+    SSOException,
 )
 from src.core.auth.sso.rate_limit_service import RateLimitService
 from src.core.auth.sso.sso_service import SSOService
@@ -251,7 +252,9 @@ def create_sso_router(
             raise
         except ConfigurationError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("SSO configuration error during login: %s", e, exc_info=True)
+                logger.error(
+                    "SSO configuration error during login: %s", e, exc_info=True
+                )
             return HTMLResponse(
                 content=_render_error_page(
                     "Configuration Error",
@@ -748,6 +751,24 @@ def create_sso_router(
                 ),
                 status_code=500,
             )
+        except asyncio.CancelledError:
+            # Propagate cancellation - don't suppress it
+            raise
+        except SSOException as e:
+            # Known SSO authentication errors - log with context
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "SSO error during callback processing: %s",
+                    e,
+                    exc_info=True,
+                )
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Authentication Error",
+                    f"Failed to complete authentication: {e!s}",
+                ),
+                status_code=500,
+            )
         except Exception:
             # Fallback for truly unexpected errors - log with full context
             logger.exception("Unexpected error during callback processing")
@@ -871,7 +892,8 @@ def create_sso_router(
 
                     # Redirect to success page with token
                     return RedirectResponse(
-                        url=f"/auth/success?token={generated.plaintext}", status_code=302
+                        url=f"/auth/success?token={generated.plaintext}",
+                        status_code=302,
                     )
 
             else:
@@ -943,6 +965,24 @@ def create_sso_router(
                 content=_render_error_page(
                     "Internal Error",
                     "An unexpected error occurred. Please try again.",
+                ),
+                status_code=500,
+            )
+        except asyncio.CancelledError:
+            # Propagate cancellation - don't suppress it
+            raise
+        except SSOException as e:
+            # Known SSO authentication errors - log with context
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "SSO error during confirmation code processing: %s",
+                    e,
+                    exc_info=True,
+                )
+            return HTMLResponse(
+                content=_render_error_page(
+                    "Authentication Error",
+                    f"Failed to process confirmation: {e!s}",
                 ),
                 status_code=500,
             )
