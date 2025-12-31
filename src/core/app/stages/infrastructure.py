@@ -298,7 +298,7 @@ class InfrastructureStage(InitializationStage):
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
             except Exception as e:
                 if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Cleanup task gather failed: %s", e)
+                    logger.debug("Cleanup task gather failed: %s", e, exc_info=True)
                 for task in pending_tasks:
                     if not task.done():
                         task.cancel()
