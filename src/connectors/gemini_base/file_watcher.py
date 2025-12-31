@@ -218,7 +218,9 @@ class FileWatcher:
                 task = loop.create_task(reload_task())  # type: ignore[union-attr]
                 _assign_task(task)
             except Exception as exc:
-                logger.warning("Failed to schedule credentials reload: %s", exc)
+                logger.warning(
+                    "Failed to schedule credentials reload: %s", exc, exc_info=True
+                )
                 with state.reload_task_lock:
                     # Clear any existing task that might be dangling
                     if state.pending_reload_task:

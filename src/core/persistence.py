@@ -182,6 +182,7 @@ class ServiceProviderBackendBinder(BackendBinderProtocol):
                 "Failed to resolve backend instance for '%s': %s",
                 backend_name,
                 exc,
+                exc_info=True,
             )
             return
         except Exception as exc:  # pragma: no cover - defensive best effort
@@ -193,6 +194,7 @@ class ServiceProviderBackendBinder(BackendBinderProtocol):
                 "Unexpected error while binding backend '%s': %s",
                 backend_name,
                 exc,
+                exc_info=True,
             )
             return
 
@@ -642,11 +644,15 @@ class ConfigManager:
                 )
             except ServiceResolutionError as exc:
                 logger.warning(
-                    "Failed to get interactive mode for persistence: %s", exc
+                    "Failed to get interactive mode for persistence: %s",
+                    exc,
+                    exc_info=True,
                 )
             except Exception as exc:
                 logger.warning(
-                    "Unexpected error getting interactive mode for persistence: %s", exc
+                    "Unexpected error getting interactive mode for persistence: %s",
+                    exc,
+                    exc_info=True,
                 )
         session_data = {"default_interactive_mode": interactive_mode}
 

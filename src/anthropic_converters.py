@@ -569,7 +569,11 @@ def _normalize_openai_response_to_dict(openai_response: Any) -> dict[str, Any]:
             msg_obj["tool_calls"] = converted_calls
         except (AttributeError, TypeError) as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to convert tool_calls using model_dump: %s", e)
+                logger.warning(
+                    "Failed to convert tool_calls using model_dump: %s",
+                    e,
+                    exc_info=True,
+                )
             msg_obj["tool_calls"] = list(tool_calls or [])
     usage_obj = getattr(openai_response, "usage", None)
     return {
