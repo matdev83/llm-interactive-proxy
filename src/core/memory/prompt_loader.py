@@ -132,7 +132,9 @@ class PromptLoader:
                     logger.debug("Loaded prompt from %s", path)
                     return content
                 except Exception as e:
-                    logger.warning("Failed to read prompt from %s: %s", path, e)
+                    logger.warning(
+                        "Failed to read prompt from %s: %s", path, e, exc_info=True
+                    )
 
         logger.info("Using default fallback prompt for %s", default_filename)
         return fallback_content

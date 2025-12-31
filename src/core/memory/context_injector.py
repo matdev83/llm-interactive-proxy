@@ -417,7 +417,7 @@ class ContextInjector:
                 return None
             return response if response else None
         except Exception as e:
-            logger.warning("Failed to generate context with LLM: %s", e)
+            logger.warning("Failed to generate context with LLM: %s", e, exc_info=True)
             metrics_service.inc("memory.context.llm_failure")
             return None
 

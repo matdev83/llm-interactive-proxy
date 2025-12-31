@@ -624,7 +624,9 @@ class AppLifecycle:
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error starting connection tracker cleanup scheduler: %s", e
+                        "Error starting connection tracker cleanup scheduler: %s",
+                        e,
+                        exc_info=True,
                     )
 
         except ImportError:
@@ -904,7 +906,9 @@ class AppLifecycle:
 
                 except Exception as e:
                     if logger.isEnabledFor(logging.ERROR):
-                        logger.error("Error during session cleanup: %s", e)
+                        logger.error(
+                            "Error during session cleanup: %s", e, exc_info=True
+                        )
 
         except asyncio.CancelledError:
             if logger.isEnabledFor(logging.DEBUG):
