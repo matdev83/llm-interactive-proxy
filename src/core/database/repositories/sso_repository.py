@@ -67,7 +67,7 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
                 auth_expires_at=token_record.auth_expires_at,
             )
             await self.create(table_record)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to store token record",
                 details={"token_id": token_record.id, "error": str(e)},
@@ -89,7 +89,7 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
                 if result is None:
                     return None
                 return self._table_to_record(result)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to get token by ID",
                 details={"token_id": token_id, "error": str(e)},
@@ -125,7 +125,7 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
                 if row is None:
                     return None
                 return self._table_to_record(row)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to find token by user ID",
                 details={"user_id": user_id, "error": str(e)},
@@ -165,7 +165,7 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
                 if matching_row is None:
                     return None
                 return self._table_to_record(matching_row)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to find token by hash",
                 details={"error": str(e)},
@@ -196,7 +196,7 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
                     row.last_authenticated_at = datetime.now(timezone.utc)
                     row.auth_expires_at = expiry
                     session.add(row)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to update authentication status",
                 details={"token_id": token_id, "error": str(e)},
@@ -218,7 +218,7 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
                 if row:
                     row.is_active = False
                     session.add(row)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to revoke token",
                 details={"token_id": token_id, "error": str(e)},
@@ -241,7 +241,7 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
                 )
                 result = await session.execute(statement)
                 return [row[0] for row in result.all()]
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to get token hashes",
                 details={"error": str(e)},
@@ -277,7 +277,7 @@ class SQLModelTokenRepository(AsyncRepository[AgentTokenTable]):
             async with self._engine.session() as session:
                 session.add(table_record)
             return token
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to create login token",
                 details={"error": str(e)},
@@ -400,7 +400,7 @@ class SQLModelRateLimitRepository(AsyncRepository[RateLimitTable]):
                     )
 
                 return RateLimitResult(allowed=True, retry_after=0)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to check rate limit",
                 details={"identifier": identifier, "error": str(e)},
@@ -438,7 +438,7 @@ class SQLModelRateLimitRepository(AsyncRepository[RateLimitTable]):
                 row.last_attempt_at = datetime.now(timezone.utc)
                 row.blocked_until = blocked_until
                 session.add(row)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to record failed attempt",
                 details={"identifier": identifier, "error": str(e)},
@@ -459,7 +459,7 @@ class SQLModelRateLimitRepository(AsyncRepository[RateLimitTable]):
                 row = await session.get(RateLimitTable, identifier)
                 if row:
                     await session.delete(row)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to reset rate limit",
                 details={"identifier": identifier, "error": str(e)},
@@ -528,7 +528,7 @@ class SQLModelAuthorizationRepository(AsyncRepository[PendingAuthorizationTable]
             )
             async with self._engine.session() as session:
                 session.add(table_record)
-        except Exception as e:
+        except sqlalchemy.exc.SQLAlchemyError as e:
             raise SSOException(
                 "Failed to create pending authorization",
                 details={"error": str(e)},

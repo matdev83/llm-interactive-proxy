@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from fastapi import FastAPI
+from pydantic import ValidationError
 
 from src.command_prefix import validate_command_prefix
 from src.core.common.exceptions import (
@@ -472,7 +473,7 @@ class ConfigManager:
 
             try:
                 model_defaults = ModelDefaults(**defaults_config)
-            except Exception as exc:
+            except (ValidationError, ValueError, TypeError) as exc:
                 logger.error(
                     "Invalid model defaults for '%s': %s",
                     model_name,

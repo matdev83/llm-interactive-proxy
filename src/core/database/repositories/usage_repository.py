@@ -15,6 +15,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+import sqlalchemy.exc
 from sqlalchemy import func, select, update
 
 from src.core.database.models.usage import SessionMetricsTable, UsageRecordTable
@@ -80,7 +81,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
 
                 return len(records)
 
-            except Exception as e:
+            except sqlalchemy.exc.SQLAlchemyError as e:
                 logger.error("Failed to batch insert records: %s", e, exc_info=True)
                 raise
 
@@ -158,7 +159,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
 
                 return updated_count
 
-            except Exception as e:
+            except sqlalchemy.exc.SQLAlchemyError as e:
                 logger.error("Failed to batch update records: %s", e, exc_info=True)
                 raise
 
@@ -746,7 +747,7 @@ class SessionMetricsRepository(AsyncRepository[SessionMetricsTable]):
                 # Return True if any row was updated (claim succeeded)
                 # Context manager handles commit automatically
                 return result.rowcount > 0
-            except Exception as e:
+            except sqlalchemy.exc.SQLAlchemyError as e:
                 logger.error(
                     "Failed to claim EoS emission for session %s: %s",
                     session_id,
@@ -780,7 +781,7 @@ class SessionMetricsRepository(AsyncRepository[SessionMetricsTable]):
                 eos_emitted_at = result.scalar_one_or_none()
 
                 return eos_emitted_at is not None
-            except Exception as e:
+            except sqlalchemy.exc.SQLAlchemyError as e:
                 logger.error(
                     "Failed to check EoS status for session %s: %s",
                     session_id,
