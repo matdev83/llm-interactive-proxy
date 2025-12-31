@@ -175,7 +175,7 @@ This section is the **canonical contract** for where each identifier may appear.
 | Session-scoped state store | `Session.id` / repository key | `a_session_id` | Must never be keyed by `b_session_id` or `request_id`. |
 | Backend-attempt boundary | Backend attempt context (new) | `a_session_id` + `b_session_id` + `b_seq` | `b_session_id` allocated immediately before each outbound attempt. |
 | Connector boundary (canonical) | `ConnectorRequestContext.session_id` | `b_session_id` | Never pass `client_session_id` to connectors; keep it in proxy-only state. |
-| Connector boundary (diagnostics) | `ConnectorRequestContext.extensions["b2bua"]` | `{ "a_session_id": ..., "b_session_id": ..., "b_seq": ... }` | Must omit `client_session_id` to prevent accidental upstream propagation by connectors. |
+| Connector boundary (diagnostics) | `ConnectorRequestContext.extensions["b2bua"]` | `{ "b_seq": ... }` | Optional; must omit `client_session_id` and should omit `a_session_id` to reduce leak risk (a-leg correlation remains available via `b_session_id`). |
 | Outbound provider request payload | request/provider “session_id” fields | `b_session_id` (or derived) | Must never use `a_session_id` or `client_session_id`. |
 | Response header echo (diagnostic) | `x-b2bua-session-id` (configurable name) | `a_session_id` | Emitted only when enabled; ignored inbound for identity. |
 | Structured logs | log fields | `a_session_id`, `b_session_id`, `b_seq` | Must not substitute `request_id` for missing session ids. |
@@ -346,6 +346,26 @@ class IAuthScopeResolver(ABC):
         ...
 ```
 
+#### ConnectorInvoker (connector-facing session projection)
+
+| Field | Detail |
+|-------|--------|
+| Intent | Ensure canonical connector context uses `b_session_id` without mutating A-leg identity |
+| Requirements | 6.1, 6.3, 6.4, 7.4 |
+| Interface | n/a (existing `ConnectorInvoker` service) |
+| DI Lifetime | Singleton |
+
+**Responsibilities & Constraints**
+- When B2BUA is enabled and an attempt-scoped `b_session_id` is available, `ConnectorRequestContext.session_id` shall be set to `b_session_id` (not to `RequestContext.session_id`).
+- `RequestContext.session_id` shall remain `a_session_id` at all times in B2BUA mode.
+- Connector-facing `extensions` shall not include `client_session_id` and should not include `a_session_id`.
+
+**Projection rule (pseudocode)**
+```text
+connector_session_id =
+  context.b2bua_identity.b_session_id if present else context.session_id
+```
+
 #### BlegAllocator
 
 | Field | Detail |
@@ -410,6 +430,17 @@ class ISessionEchoService(ABC):
 - A-leg identity (session state key, per-session backend cache key): `a_session_id` (from `RequestContext.session_id` in B2BUA mode).
 - B-leg identity (provider correlation id, connector-facing context, outbound request fields): `b_session_id`.
 
+**Required split of responsibilities (avoid `session_id_for_backend` conflation)**
+Existing orchestration currently uses a single “session id” value for multiple jobs (session state lookup, per-session caches, and backend correlation). In B2BUA mode, these responsibilities must be explicitly split:
+
+| Responsibility | Must use |
+|---|---|
+| Session-scoped state lookup/update | `a_session_id` |
+| Per-session backend instance/cache keys | `a_session_id` |
+| Per-session enforcement registries (e.g., non-forwardable tracking) | `a_session_id` |
+| Outbound provider conversation/session correlation | `b_session_id` |
+| Connector-facing correlation (`ConnectorRequestContext.session_id`) | `b_session_id` |
+
 **Backend attempt context**
 - Each outbound attempt must operate on an **attempt-scoped context object** that carries `b_session_id`/`b_seq` without mutating the shared A-leg context.
 - Rationale: A single A-leg may create multiple B-legs, including under concurrency (Requirement 2.5). Attempt-scoped context avoids races where a single `RequestContext` would otherwise be overwritten with different `b_session_id` values.
@@ -421,9 +452,23 @@ class ISessionEchoService(ABC):
 - Immediately before invoking a backend attempt, allocate B-leg and:
   - Overwrite outbound request session fields with `b_session_id` (including `request.session_id` and `extra_body.session_id`).
   - Pass `b_session_id` to connector-facing context projection (canonical connectors) by ensuring `ConnectorRequestContext.session_id == b_session_id` for the attempt.
-  - Populate `ConnectorRequestContext.extensions["b2bua"]` with a connector-safe subset for diagnostics: `a_session_id`, `b_session_id`, `b_seq` (and never `client_session_id`).
+  - Optionally populate `ConnectorRequestContext.extensions["b2bua"]` with connector-safe diagnostics (for example `b_seq`), and never include `client_session_id`.
   - Ensure `RequestContext.session_id` remains `a_session_id` and is never temporarily overwritten with `b_session_id`.
   - Emit structured logs containing both `a_session_id` and `b_session_id`.
+
+## Ingress Ordering & Protocol Consistency
+
+In B2BUA mode, correct identity propagation depends on **consistent ordering**:
+1) resolve internal `a_session_id`, 2) then perform side effects (wire capture/logging), 3) then perform backend attempts.
+
+**Design contract**
+- No controller should finalize **inbound** wire capture metadata before `a_session_id` has been resolved by the session resolution pipeline.
+- All HTTP controllers (OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, Gemini) shall route requests through `IRequestProcessor` (preferred) or call the session resolution collaborator that sets `RequestContext.session_id = a_session_id` before:
+  - capturing inbound request metadata,
+  - invoking backend completion flow,
+  - reading/updating session-scoped state.
+
+This prevents capturing/leaking client-provided identifiers as “session ids” and ensures Requirement 7.5 is satisfiable on all protocol frontends.
 
 ## Data Models
 
@@ -521,7 +566,7 @@ All errors extend `LLMProxyError`.
   - Usage records attributed to A-leg with per-attempt B-leg metadata (7.6, 7.10).
 
 ## Security Considerations
-- Treat all client-provided session identifiers as untrusted input; never accept inbound echo header as identity input (3.4, NFR 4).
+- Treat all client-provided session identifiers as untrusted input; never accept inbound echo header as identity input (3.4, 13.1, 13.2).
 - Ensure outbound payload/session fields are overwritten with `b_session_id` and never carry `a_session_id` or `client_session_id` (6.1-6.5).
 - Scope continuity mapping to `auth_scope_id` to prevent cross-token session fixation and session confusion (4.1-4.3).
 
