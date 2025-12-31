@@ -293,7 +293,22 @@ class ThoughtSignatureManager:
                 len(tool_call_summaries),
                 tool_call_summaries[:5],
             )
-        except Exception:
+        except (
+            AttributeError,
+            KeyError,
+            TypeError,
+            ValueError,
+            IndexError,
+            UnicodeDecodeError,
+            UnicodeEncodeError,
+        ):
+            # Expected exceptions during debug logging:
+            # - AttributeError: message/tool_calls/sig attributes missing
+            # - KeyError: dict.get() (though we use safe .get())
+            # - TypeError: str() conversion or slice failures
+            # - ValueError: string slice indices invalid
+            # - IndexError: string slice out of bounds
+            # - UnicodeError: encoding/decoding failures
             logger.debug("Failed to log tool call signature state", exc_info=True)
 
     def _clean_expired_entries(self, current_time: float | None = None) -> int:

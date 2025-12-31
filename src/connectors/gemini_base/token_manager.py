@@ -382,13 +382,28 @@ class TokenManager:
                             import contextlib
 
                             with contextlib.suppress(
-                                subprocess.TimeoutExpired, Exception
+                                subprocess.TimeoutExpired, OSError
                             ):
                                 process.wait(timeout=5)
-                except Exception:
-                    # Suppress all exceptions during interpreter shutdown
-                    # The logging system may already be torn down
+                except (OSError, ProcessLookupError, AttributeError):
+                    # Expected exceptions during subprocess cleanup:
+                    # - OSError: process operations may fail during shutdown
+                    # - ProcessLookupError: process already terminated
+                    # - AttributeError: partial initialization state
+                    # Suppress these as they're cleanup-time artifacts
                     pass
+                except Exception as e:
+                    # Truly unexpected exceptions during interpreter shutdown.
+                    # Logging system may be down, so use stderr as fallback.
+                    # Still let system-level exceptions propagate (SystemExit, KeyboardInterrupt, etc.)
+                    try:  # noqa: SIM105  # Intentional - try to log before suppressing
+                        print(
+                            f"TokenManager __del__ encountered unexpected error: {e!r}",
+                            file=__import__("sys").stderr,
+                        )
+                    except Exception:
+                        # Even print might fail during interpreter shutdown
+                        pass
                 finally:
                     # Always clear the reference to prevent leaks
                     self._cli_refresh_process = None

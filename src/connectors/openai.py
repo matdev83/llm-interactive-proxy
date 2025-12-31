@@ -1159,7 +1159,18 @@ class OpenAIConnector(LLMBackend):
                                             ),
                                             extra=log_extra if log_extra else None,
                                         )
-                                except Exception:
+                                except (
+                                    TypeError,
+                                    ValueError,
+                                    UnicodeDecodeError,
+                                    UnicodeEncodeError,
+                                    IndexError,
+                                ):  # Exception types listed for documentation
+                                    # Expected exceptions during debug logging:
+                                    # - TypeError: message/obj not subscriptable or str() failed
+                                    # - ValueError: slice indices invalid
+                                    # - UnicodeError: encoding/decoding failed
+                                    # - IndexError: string slice out of bounds
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
                                             "Streaming chunk translation returned error but raw chunk not serializable",
@@ -1186,7 +1197,18 @@ class OpenAIConnector(LLMBackend):
                                         chunk[:500],
                                         extra=log_extra if log_extra else None,
                                     )
-                                except Exception:
+                                except (
+                                    TypeError,
+                                    ValueError,
+                                    UnicodeDecodeError,
+                                    UnicodeEncodeError,
+                                    IndexError,
+                                ):  # Exception types listed for documentation
+                                    # Expected exceptions during debug logging:
+                                    # - TypeError: chunk not subscriptable or str() failed
+                                    # - ValueError: slice indices invalid
+                                    # - UnicodeError: encoding/decoding failed
+                                    # - IndexError: string slice out of bounds
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
                                             "Streaming chunk translation returned error but raw chunk not serializable",
@@ -1216,7 +1238,17 @@ class OpenAIConnector(LLMBackend):
             finally:
                 try:
                     await response.aclose()
-                except Exception:
+                except (
+                    httpx.HTTPStatusError,
+                    httpx.HTTPError,
+                    httpx.StreamError,
+                    OSError,
+                    RuntimeError,
+                ):
+                    # Expected exceptions during cleanup:
+                    # - httpx.*: HTTP connection closing errors
+                    # - OSError: socket/stream closure errors
+                    # - RuntimeError: event loop or stream state issues
                     # Log cleanup errors but don't let them mask the original error
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
