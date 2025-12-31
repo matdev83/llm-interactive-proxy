@@ -1556,6 +1556,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                             from typing import cast
 
                             from pydantic.types import JsonValue
+
                             quota_code = 503
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
@@ -1571,7 +1572,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                     "code": quota_code,
                                 },
                             }
-                            error_chunk_content: dict[str, JsonValue] = cast(dict[str, JsonValue], error_chunk)
+                            error_chunk_content: dict[str, JsonValue] = cast(
+                                dict[str, JsonValue], error_chunk
+                            )
                             yield ProcessedResponse(content=error_chunk_content)
                             return
                         else:
@@ -1585,6 +1588,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                             from typing import cast
 
                             from pydantic.types import JsonValue
+
                             error_chunk = {
                                 "id": f"chatcmpl-error-{int(time.time())}",
                                 "object": "chat.completion.chunk",
@@ -1599,7 +1603,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                                     "code": response.status_code,
                                 },
                             }
-                            error_chunk_content_api: dict[str, JsonValue] = cast(dict[str, JsonValue], error_chunk)
+                            error_chunk_content_api: dict[str, JsonValue] = cast(
+                                dict[str, JsonValue], error_chunk
+                            )
                             yield ProcessedResponse(content=error_chunk_content_api)
                             return
 
@@ -1908,7 +1914,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             )
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Failed to extract Code Assist usage: %s", e)
+                logger.debug(
+                    "Failed to extract Code Assist usage: %s", e, exc_info=True
+                )
             return None
 
     def __del__(self):

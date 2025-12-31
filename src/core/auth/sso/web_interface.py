@@ -376,7 +376,7 @@ def create_sso_router(
 
         except ConfigurationError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Provider configuration error: {e}")
+                logger.error("Provider configuration error: %s", e, exc_info=True)
             raise HTTPException(status_code=400, detail=str(e)) from e
         except (ValueError, TypeError, KeyError, AttributeError) as e:
             # Catch common data validation/access errors
@@ -530,7 +530,9 @@ def create_sso_router(
 
             if not sso_result.success:
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error("SSO callback failed: %s", sso_result.error)
+                    logger.error(
+                        "SSO callback failed: %s", sso_result.error, exc_info=True
+                    )
                 return HTMLResponse(
                     content=_render_error_page(
                         "Authentication Failed",
@@ -541,7 +543,9 @@ def create_sso_router(
 
             if not sso_result.user_id or not sso_result.user_email:
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error("SSO callback missing user info: %s", sso_result)
+                    logger.error(
+                        "SSO callback missing user info: %s", sso_result, exc_info=True
+                    )
                 return HTMLResponse(
                     content=_render_error_page(
                         "Authentication Failed",
@@ -699,7 +703,7 @@ def create_sso_router(
 
         except AuthenticationError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Authentication error: %s", e)
+                logger.error("Authentication error: %s", e, exc_info=True)
             return HTMLResponse(
                 content=_render_error_page(
                     "Authentication Error", f"Authentication failed: {e!s}"
@@ -708,7 +712,7 @@ def create_sso_router(
             )
         except AuthorizationError as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Authorization error: %s", e)
+                logger.error("Authorization error: %s", e, exc_info=True)
             return HTMLResponse(
                 content=_render_error_page(
                     "Authorization Error", f"Authorization failed: {e!s}"
