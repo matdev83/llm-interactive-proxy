@@ -180,15 +180,43 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                 session_prefix = getattr(session_state, "command_prefix_override", None)
                 if isinstance(session_prefix, str):
                     return session_prefix
-        except Exception:
-            pass
+        except (AttributeError, TypeError) as e:
+            # Expected exceptions when session state is unavailable or has wrong type
+            # Continue to app_state fallback
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Could not get command prefix from session state: %s", e, exc_info=False
+                )
+        except Exception as e:
+            # Unexpected errors - log with full context for visibility
+            # Still continue to app_state fallback to preserve fail-open behavior
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error getting command prefix from session state: %s",
+                    e,
+                    exc_info=True,
+                )
 
         # Fall back to app_state
         if self._app_state is not None:
             try:
                 return self._app_state.get_command_prefix()
-            except Exception:
-                pass
+            except (AttributeError, TypeError) as e:
+                # Expected exceptions when get_command_prefix is unavailable or returns wrong type
+                # Fall back to None
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Could not get command prefix from app_state: %s", e, exc_info=False
+                    )
+            except Exception as e:
+                # Unexpected errors - log with full context for visibility
+                # Still fall back to None to preserve fail-open behavior
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error getting command prefix from app_state: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         return None
 

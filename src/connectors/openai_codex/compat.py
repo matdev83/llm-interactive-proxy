@@ -520,7 +520,23 @@ class CompatibilityLayer(ICompatibilityLayer):
             if callable(get_parser):
                 try:
                     xml_parser = get_parser()
-                except Exception:
+                except (AttributeError, TypeError, RuntimeError) as e:
+                    # Expected exceptions when XML parser is unavailable or misconfigured
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Could not get XML parser via get_xml_parser: %s",
+                            e,
+                            exc_info=False,
+                        )
+                    xml_parser = None
+                except Exception as e:
+                    # Unexpected errors - log with full context for visibility
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Unexpected error getting XML parser via get_xml_parser: %s",
+                            e,
+                            exc_info=True,
+                        )
                     xml_parser = None
         if not isinstance(xml_parser, _XMLParserLike):
             logger.debug("XMLToolParser not available")
@@ -686,14 +702,46 @@ class CompatibilityLayer(ICompatibilityLayer):
             if callable(ensure_parser):
                 try:
                     xml_parser = ensure_parser()
-                except Exception:
+                except (AttributeError, TypeError, RuntimeError) as e:
+                    # Expected exceptions when XML parser is unavailable or misconfigured
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Could not get XML parser via ensure_xml_parser: %s",
+                            e,
+                            exc_info=False,
+                        )
+                    xml_parser = None
+                except Exception as e:
+                    # Unexpected errors - log with full context for visibility
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Unexpected error getting XML parser via ensure_xml_parser: %s",
+                            e,
+                            exc_info=True,
+                        )
                     xml_parser = None
             if xml_parser is None:
                 get_parser = getattr(self._kilo_translator, "get_xml_parser", None)
                 if callable(get_parser):
                     try:
                         xml_parser = get_parser()
-                    except Exception:
+                    except (AttributeError, TypeError, RuntimeError) as e:
+                        # Expected exceptions when XML parser is unavailable or misconfigured
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Could not get XML parser via get_xml_parser: %s",
+                                e,
+                                exc_info=False,
+                            )
+                        xml_parser = None
+                    except Exception as e:
+                        # Unexpected errors - log with full context for visibility
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Unexpected error getting XML parser via get_xml_parser: %s",
+                                e,
+                                exc_info=True,
+                            )
                         xml_parser = None
             supported_tags = getattr(xml_parser, "SUPPORTED_TAGS", None)
             if supported_tags:

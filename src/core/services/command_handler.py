@@ -205,8 +205,22 @@ class CommandHandler(ICommandHandler):
                 prefix = self._app_state.get_command_prefix()
                 if prefix and isinstance(prefix, str):
                     command_prefix = prefix
-            except Exception:
-                pass
+            except (AttributeError, TypeError) as e:
+                # Expected exceptions when get_command_prefix is unavailable or returns wrong type
+                # Fallback to default prefix
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Could not get command prefix from app_state: %s", e, exc_info=False
+                    )
+            except Exception as e:
+                # Unexpected errors - log with full context for visibility
+                # Still fallback to default prefix to preserve fail-open behavior
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error getting command prefix from app_state: %s",
+                        e,
+                        exc_info=True,
+                    )
 
         parser = CommandParser(command_prefix=command_prefix)
         filtered_messages = []
