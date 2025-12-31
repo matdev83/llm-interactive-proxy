@@ -78,12 +78,15 @@ async def test_cleanup_handles_timeout():
     repository = MockRepository()
     memory_service = MemoryService(config, repository)
 
+    # Use shorter timeout for faster test execution
+    memory_service._cleanup_timeout = 0.1
+
     # Use fake clock to control time progression
     async with FakeClockContext() as clock:
         # Create a task that takes longer than timeout
         async def slow_task():
             # Use fake clock for deterministic time simulation
-            await asyncio.sleep(5.1)  # Just longer than 5s timeout
+            await asyncio.sleep(0.11)  # Just longer than 0.1s timeout
 
         task = asyncio.create_task(slow_task())
         # Add done callback to remove task when it completes (matching implementation)
@@ -93,7 +96,7 @@ async def test_cleanup_handles_timeout():
         # Start cleanup in background
         cleanup_task = asyncio.create_task(memory_service.cleanup())
         # Advance clock to trigger timeout logic
-        clock.advance(5.1)
+        clock.advance(0.11)
         # Wait for cleanup to complete
         await cleanup_task
 

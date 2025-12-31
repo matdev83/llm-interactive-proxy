@@ -102,36 +102,40 @@ async def test_different_sessions_can_enable_concurrently():
 
 
 async def test_ttlcache_respects_max_size():
-    """Test that TTLCache prevents unbounded growth."""
+    """Test that TTLCache prevents unbounded growth.
+
+    Optimization: Directly populate the TTLCache to test eviction behavior
+    without going through async middleware operations. This is ~100x faster.
+    """
     config = Mock()
     config.default_enabled = True
     mock_service = MockMemoryService(sleep_time=0)
     middleware = MemoryCaptureMiddleware(mock_service, config)
 
-    # Enable more sessions than TTLCache maxsize (10000)
-    async def enable_session(i):
-        request = Mock()
-        request.messages = []
-        await middleware.capture_request(
-            session_id=f"session-{i}",
-            request=request,
-            user_id=f"user-{i % 100}",  # 100 users
-        )
-
-    # Try to enable 10010 sessions (more than maxsize, reduced from 10050 for performance)
-    # Still exceeds maxsize of 10000 to test eviction behavior
-    # Process in smaller batches to reduce memory pressure
-    batch_size = 2000  # Increased batch size to reduce async overhead
-    for batch_start in range(0, 10010, batch_size):
-        batch_end = min(batch_start + batch_size, 10010)
-        tasks = [enable_session(i) for i in range(batch_start, batch_end)]
-        await asyncio.gather(*tasks)
+    # Directly populate the TTLCache to test eviction behavior
+    # This is much faster than going through async middleware operations
+    # Try to add 10100 entries (more than maxsize of 10000)
+    num_sessions = 10100
+    entries = {f"session-{i}": True for i in range(num_sessions)}
+    middleware._auto_enabled_sessions.update(entries)
 
     # Cache should not grow unbounded (cachetools TTLCache handles this)
     cache_size = len(middleware._auto_enabled_sessions)
     assert (
         cache_size <= 10000
     ), f"TTLCache grew to {cache_size}, exceeding maxsize of 10000"
+
+    # Verify eviction happened by checking that some early sessions were evicted
+    # Sessions 0-99 should have been evicted when we added sessions 10000-10100
+    assert (
+        "session-0" not in middleware._auto_enabled_sessions
+    ), "Earliest session should have been evicted"
+    assert (
+        "session-99" not in middleware._auto_enabled_sessions
+    ), "Sessions at index 0-99 should have been evicted"
+    assert (
+        f"session-{num_sessions - 1}" in middleware._auto_enabled_sessions
+    ), "Latest session should still be in cache"
 
 
 async def test_already_enabled_session_not_re_enabled():

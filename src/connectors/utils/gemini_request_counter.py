@@ -18,8 +18,13 @@ class DailyRequestCounter:
         self.count = 0
         self._thresholds = self._calculate_thresholds()
         self._logged_thresholds: set[int] = set()
-        self.last_reset_date = self._get_current_pacific_date()
+        # Don't initialize last_reset_date here - let _load_state() set it first
+        # This prevents race condition where _reset_if_needed() compares against wrong date
+        self.last_reset_date = ""
         self._load_state()
+        # If _load_state() didn't set last_reset_date (file didn't exist), initialize it now
+        if not self.last_reset_date:
+            self.last_reset_date = self._get_current_pacific_date()
         with self._lock:
             self._reset_if_needed()
             if self._check_thresholds():

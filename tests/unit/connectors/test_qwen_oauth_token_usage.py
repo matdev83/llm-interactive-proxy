@@ -195,21 +195,31 @@ class TestQwenOAuthTokenUsage:
     @pytest.mark.asyncio
     async def test_chat_completions_augments_missing_usage(self, qwen_connector):
         """Test that chat_completions augments missing token usage."""
-        # Mock the parent method
+        # Mock the parent method and internal methods
         with (
-            patch(
-                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
-                autospec=True,
-            ) as mock_parent,
+            patch.object(
+                qwen_connector,
+                "_chat_completions_canonical",
+                wraps=qwen_connector._chat_completions_canonical,
+            ),
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,
             patch.object(qwen_connector, "_refresh_token_if_needed", return_value=True),
             patch.object(
                 qwen_connector, "_validate_runtime_credentials", return_value=True
             ),
+            patch.object(
+                qwen_connector,
+                "_enable_qwen_oauth_backend_debugging_override",
+                True,
+            ),
+            # Mock the parent OpenAIConnector's _handle_non_streaming_response to return zero usage
+            patch(
+                "src.connectors.openai.OpenAIConnector._handle_non_streaming_response",
+                new_callable=AsyncMock,
+            ) as mock_handle,
         ):
-
             # Setup mock parent response with zero usage
-            mock_parent.return_value = ResponseEnvelope(
+            mock_handle.return_value = ResponseEnvelope(
                 content={
                     "choices": [
                         {"message": {"role": "assistant", "content": "Test response"}}
@@ -234,7 +244,7 @@ class TestQwenOAuthTokenUsage:
 
             result = await qwen_connector.chat_completions(
                 request_data=request,
-                processed_messages=[{"role": "user", "content": "test"}],
+                processed_messages=[ChatMessage(role="user", content="test")],
                 effective_model="qwen-turbo",
             )
 
@@ -251,8 +261,9 @@ class TestQwenOAuthTokenUsage:
         """Test that chat_completions preserves existing non-zero usage."""
         # Mock the parent method
         with (
-            patch(
-                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
+            patch.object(
+                qwen_connector,
+                "_chat_completions_canonical",
                 autospec=True,
             ) as mock_parent,
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,
@@ -286,7 +297,7 @@ class TestQwenOAuthTokenUsage:
 
             result = await qwen_connector.chat_completions(
                 request_data=request,
-                processed_messages=[{"role": "user", "content": "test"}],
+                processed_messages=[ChatMessage(role="user", content="test")],
                 effective_model="qwen-turbo",
             )
 
@@ -297,21 +308,32 @@ class TestQwenOAuthTokenUsage:
     @pytest.mark.asyncio
     async def test_chat_completions_handles_partial_zero_usage(self, qwen_connector):
         """Test that chat_completions recalculates when some usage values are zero."""
-        # Mock the parent method
+        # Mock the parent method and internal methods
         with (
-            patch(
-                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
-                autospec=True,
-            ) as mock_parent,
+            patch.object(
+                qwen_connector,
+                "_chat_completions_canonical",
+                wraps=qwen_connector._chat_completions_canonical,
+            ),
             patch.object(qwen_connector, "_calculate_token_usage") as mock_calculate,
             patch.object(qwen_connector, "_refresh_token_if_needed", return_value=True),
             patch.object(
                 qwen_connector, "_validate_runtime_credentials", return_value=True
             ),
+            patch.object(
+                qwen_connector,
+                "_enable_qwen_oauth_backend_debugging_override",
+                True,
+            ),
+            # Mock the parent OpenAIConnector's _handle_non_streaming_response to return partial zero usage
+            patch(
+                "src.connectors.openai.OpenAIConnector._handle_non_streaming_response",
+                new_callable=AsyncMock,
+            ) as mock_handle,
         ):
 
             # Setup mock parent response with partial zero usage
-            mock_parent.return_value = ResponseEnvelope(
+            mock_handle.return_value = ResponseEnvelope(
                 content={
                     "choices": [
                         {"message": {"role": "assistant", "content": "Test response"}}
@@ -340,7 +362,7 @@ class TestQwenOAuthTokenUsage:
 
             result = await qwen_connector.chat_completions(
                 request_data=request,
-                processed_messages=[{"role": "user", "content": "test"}],
+                processed_messages=[ChatMessage(role="user", content="test")],
                 effective_model="qwen-turbo",
             )
 

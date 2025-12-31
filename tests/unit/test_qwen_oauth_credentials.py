@@ -376,8 +376,9 @@ class TestQwenOAuthCredentials:
                 patch.object(
                     connector, "_refresh_token_if_needed", new_callable=AsyncMock
                 ) as mock_refresh,
-                patch(
-                    "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
+                patch.object(
+                    connector,
+                    "_chat_completions_canonical",
                     new_callable=AsyncMock,
                 ) as mock_parent_chat,
             ):

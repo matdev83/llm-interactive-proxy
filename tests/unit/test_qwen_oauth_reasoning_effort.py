@@ -81,9 +81,9 @@ class TestQwenOAuthReasoningEffort:
         )
 
         processed_messages = [
-            {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi there"},
-            {"role": "user", "content": "What is 2+2?"},
+            ChatMessage(role="user", content="Hello"),
+            ChatMessage(role="assistant", content="Hi there"),
+            ChatMessage(role="user", content="What is 2+2?"),
         ]
 
         # Call chat_completions
@@ -94,7 +94,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that the last user message was modified
-        assert processed_messages[-1]["content"] == "What is 2+2? /think"
+        assert processed_messages[-1].content == "What is 2+2? /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -106,7 +106,7 @@ class TestQwenOAuthReasoningEffort:
             reasoning_effort="medium",
         )
 
-        processed_messages = [{"role": "user", "content": "Solve this puzzle"}]
+        processed_messages = [ChatMessage(role="user", content="Solve this puzzle")]
 
         response = await connector.chat_completions(
             request_data=request,
@@ -115,7 +115,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that the message was modified
-        assert processed_messages[0]["content"] == "Solve this puzzle /think"
+        assert processed_messages[0].content == "Solve this puzzle /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -127,7 +127,7 @@ class TestQwenOAuthReasoningEffort:
             reasoning_effort="high",
         )
 
-        processed_messages = [{"role": "user", "content": "Complex problem"}]
+        processed_messages = [ChatMessage(role="user", content="Complex problem")]
 
         response = await connector.chat_completions(
             request_data=request,
@@ -136,7 +136,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that the message was modified
-        assert processed_messages[0]["content"] == "Complex problem /think"
+        assert processed_messages[0].content == "Complex problem /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -148,7 +148,7 @@ class TestQwenOAuthReasoningEffort:
             reasoning_effort="low",
         )
 
-        processed_messages = [{"role": "user", "content": "Simple question"}]
+        processed_messages = [ChatMessage(role="user", content="Simple question")]
 
         response = await connector.chat_completions(
             request_data=request,
@@ -157,7 +157,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that the message was NOT modified
-        assert processed_messages[0]["content"] == "Simple question"
+        assert processed_messages[0].content == "Simple question"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -169,7 +169,7 @@ class TestQwenOAuthReasoningEffort:
             reasoning_effort=None,
         )
 
-        processed_messages = [{"role": "user", "content": "Normal message"}]
+        processed_messages = [ChatMessage(role="user", content="Normal message")]
 
         response = await connector.chat_completions(
             request_data=request,
@@ -178,7 +178,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that the message WAS modified (default behavior)
-        assert processed_messages[0]["content"] == "Normal message /think"
+        assert processed_messages[0].content == "Normal message /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -192,7 +192,7 @@ class TestQwenOAuthReasoningEffort:
             reasoning_effort="",
         )
 
-        processed_messages = [{"role": "user", "content": "Another message"}]
+        processed_messages = [ChatMessage(role="user", content="Another message")]
 
         response = await connector.chat_completions(
             request_data=request,
@@ -201,7 +201,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that the message WAS modified (empty string is not "low")
-        assert processed_messages[0]["content"] == "Another message /think"
+        assert processed_messages[0].content == "Another message /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -228,19 +228,19 @@ class TestQwenOAuthReasoningEffort:
         )
 
         processed_messages = [
-            {"role": "user", "content": "Use a tool"},
-            {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
+            ChatMessage(role="user", content="Use a tool"),
+            ChatMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[
                     {
                         "id": "call_1",
                         "type": "function",
                         "function": {"name": "test_tool", "arguments": "{}"},
                     }
                 ],
-            },
-            {"role": "tool", "content": "Tool result", "tool_call_id": "call_1"},
+            ),
+            ChatMessage(role="tool", content="Tool result", tool_call_id="call_1"),
         ]
 
         response = await connector.chat_completions(
@@ -250,8 +250,8 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that ' /think' was appended to the user message, not the tool message
-        assert processed_messages[0]["content"] == "Use a tool /think"
-        assert processed_messages[2]["content"] == "Tool result"
+        assert processed_messages[0].content == "Use a tool /think"
+        assert processed_messages[2].content == "Tool result"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -266,7 +266,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         processed_messages = [
-            {"role": "system", "content": "You are a helpful assistant"}
+            ChatMessage(role="system", content="You are a helpful assistant")
         ]
 
         response = await connector.chat_completions(
@@ -276,7 +276,7 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that the system message was modified
-        assert processed_messages[0]["content"] == "You are a helpful assistant /think"
+        assert processed_messages[0].content == "You are a helpful assistant /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio
@@ -295,9 +295,9 @@ class TestQwenOAuthReasoningEffort:
         )
 
         processed_messages = [
-            {"role": "user", "content": "First question"},
-            {"role": "assistant", "content": "First answer"},
-            {"role": "user", "content": "Second question"},
+            ChatMessage(role="user", content="First question"),
+            ChatMessage(role="assistant", content="First answer"),
+            ChatMessage(role="user", content="Second question"),
         ]
 
         response = await connector.chat_completions(
@@ -307,9 +307,9 @@ class TestQwenOAuthReasoningEffort:
         )
 
         # Verify that only the last user message was modified
-        assert processed_messages[0]["content"] == "First question"
-        assert processed_messages[1]["content"] == "First answer"
-        assert processed_messages[2]["content"] == "Second question /think"
+        assert processed_messages[0].content == "First question"
+        assert processed_messages[1].content == "First answer"
+        assert processed_messages[2].content == "Second question /think"
         assert isinstance(response, ResponseEnvelope)
 
     @pytest.mark.asyncio

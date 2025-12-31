@@ -1541,6 +1541,9 @@ class QwenOAuthConnector(OpenAIConnector):
         effective_model = (
             args[1] if len(args) > 1 else kwargs.get("effective_model", "")
         )
+        # Strip qwen-oauth: prefix from effective_model if present
+        if effective_model and effective_model.startswith("qwen-oauth:"):
+            effective_model = effective_model[len("qwen-oauth:") :]
         identity = kwargs.get("identity")
         cancellation_token = kwargs.get("cancellation_token")
         cancellation_coordinator = kwargs.get("cancellation_coordinator")
@@ -1606,21 +1609,60 @@ class QwenOAuthConnector(OpenAIConnector):
                             f"Appended ' /think' to last client message (reasoning_effort={reasoning_effort or 'default'})"
                         )
 
+        # Ensure token is refreshed and credentials are validated before making the API call
+        # This matches the behavior in _chat_completions_canonical for consistency
+        if not await self._refresh_token_if_needed():
+            raise AuthenticationError(
+                message="Failed to refresh Qwen OAuth token",
+                details={
+                    "backend": "qwen-oauth",
+                    "reason": "Token refresh failed for both CLI and API methods",
+                },
+            )
+
+        # Validate runtime credentials and backend functionality
+        if not await self._validate_runtime_credentials():
+            # Check if we have specific validation errors
+            if self._credential_validation_errors:
+                error_detail = f"No valid OAuth credentials found for backend qwen-oauth: {'; '.join(self._credential_validation_errors)}"
+            else:
+                error_detail = "No valid OAuth credentials found for backend qwen-oauth: Backend is not functional"
+            raise BackendError(
+                message=error_detail,
+                details={
+                    "backend_name": "qwen-oauth",
+                    "credential_validation_errors": self._credential_validation_errors,
+                },
+            )
+
         # Call parent's chat_completions with legacy parameters
         # This ensures the parent method is called (for test mocking) and will
         # convert to canonical and call _chat_completions_canonical, which we override
         # to do Qwen-specific processing (token refresh, credential validation, model name processing)
         # Pass all parameters as keyword arguments to match test expectations
-        return await super().chat_completions(
-            request_data=request_data,
-            processed_messages=processed_messages,
-            effective_model=effective_model,
-            identity=identity,
-            cancellation_token=cancellation_token,
-            cancellation_coordinator=cancellation_coordinator,
-            context=context,
-            **options,
-        )
+        try:
+            return await super().chat_completions(
+                request_data=request_data,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                identity=identity,
+                cancellation_token=cancellation_token,
+                cancellation_coordinator=cancellation_coordinator,
+                context=context,
+                **options,
+            )
+        except (BackendError, HTTPException, AuthenticationError, ServiceUnavailableError):
+            # Re-raise domain exceptions as-is
+            raise
+        except Exception as e:
+            # Wrap other exceptions in BackendError for consistent error handling
+            logger.error(
+                f"Error in Qwen OAuth chat_completions (legacy path): {e}, type: {type(e).__name__}",
+                exc_info=True,
+            )
+            raise BackendError(
+                message=f"Qwen OAuth chat completion failed: {e!s}"
+            ) from e
 
     def _calculate_token_usage(
         self,

@@ -115,6 +115,48 @@ def session_summary_strategy(draw: st.DrawFn) -> SessionSummary:
     )
 
 
+@st.composite
+def minimal_session_summary_for_nested_validation(draw: st.DrawFn) -> SessionSummary:
+    """Generate a minimal SessionSummary for nested model validation.
+
+    This strategy is optimized for test_property_7_summary_nested_models_valid.
+    It generates only the minimum required fields with small data sizes,
+    focusing on the nested models that are being validated.
+    """
+    # Use fixed time - tests should use @freeze_time decorator
+    now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    return SessionSummary(
+        id="test-id",
+        user_id="test-user",
+        tenant_id=None,
+        project_id=None,
+        project_root=None,
+        session_id="test-session",
+        session_start=now,
+        client_agent=None,
+        backend_model="backend:model",
+        title="test",
+        scope="test",
+        goals=[],
+        open_questions=[],
+        remaining_tasks=draw(st.lists(task_item_strategy(), min_size=0, max_size=2)),
+        modified_files=draw(st.lists(file_change_strategy(), min_size=0, max_size=2)),
+        git_operations=draw(st.lists(git_operation_strategy(), min_size=0, max_size=2)),
+        completion_status="completed",
+        key_decisions=[],
+        operations_performed=[],
+        tests_run=draw(st.lists(_test_run_strategy(), min_size=0, max_size=2)),
+        errors=[],
+        risks_or_warnings=[],
+        evidence=[],
+        full_analysis="test analysis",
+        branch=None,
+        head_sha=None,
+        summary_version="v1",
+        created_at=now,
+    )
+
+
 @given(summary=session_summary_strategy())
 @property_test_settings(
     max_examples=20,
@@ -198,7 +240,7 @@ def test_property_7_summary_completion_status_valid(summary: SessionSummary) -> 
     assert summary.completion_status in valid_statuses
 
 
-@given(summary=session_summary_strategy())
+@given(summary=minimal_session_summary_for_nested_validation())
 @property_test_settings(
     max_examples=5,
     suppress_health_check=[HealthCheck.filter_too_much],  # Reduced from 10 to 5

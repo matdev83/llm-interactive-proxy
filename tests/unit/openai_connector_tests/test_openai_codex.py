@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from src.connectors.openai import OpenAIConnector
 from src.connectors.openai_codex import OpenAICodexConnector
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.services.translation_service import TranslationService
 
 
@@ -40,7 +41,11 @@ def test_openai_codex_degrades_on_http_auth_error(monkeypatch):
 
     async def invoke_chat_completion() -> None:
         with pytest.raises(HTTPException):
-            await connector.chat_completions({}, [], "gpt-test")
+            request = CanonicalChatRequest(
+                model="gpt-test",
+                messages=[ChatMessage(role="user", content="test")],
+            )
+            await connector.chat_completions(request, [], "gpt-test")
 
     asyncio.run(invoke_chat_completion())
 

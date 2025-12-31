@@ -34,6 +34,26 @@ def create_test_record(record_id: str | None = None) -> UsageRecord:
         )
 
 
+def create_test_record_fast(record_id: str | None = None) -> UsageRecord:
+    """Create a test usage record without freeze_time for performance.
+
+    This version creates the datetime directly without using freeze_time,
+    which is significantly faster when creating many records.
+    """
+    return UsageRecord(
+        id=record_id or str(uuid.uuid4()),
+        timestamp=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        session_id="test-session",
+        turn_number=1,
+        backend_type="openai",
+        model="gpt-4",
+        frontend_type="openai",
+        leg=TrafficLeg.CLIENT_TO_PROXY,
+        verbatim_prompt_tokens=100,
+        total_tokens=100,
+    )
+
+
 @pytest.mark.asyncio
 class TestAsyncUsageWriteQueueBasic:
     """Basic tests for AsyncUsageWriteQueue."""
@@ -209,7 +229,7 @@ class TestAsyncUsageWriteQueueAsync:
         # Concurrently enqueue many records
         async def enqueue_batch(count: int):
             for _ in range(count):
-                queue.enqueue_insert(create_test_record())
+                queue.enqueue_insert(create_test_record_fast())
 
         # Run multiple concurrent tasks
         tasks = [enqueue_batch(50) for _ in range(10)]
@@ -234,7 +254,8 @@ class TestAsyncUsageWriteQueuePerformance:
 
         import time
 
-        records = [create_test_record(f"record-{i}") for i in range(1000)]
+        # Use fast version to avoid repeated freeze_time context overhead
+        records = [create_test_record_fast(f"record-{i}") for i in range(1000)]
 
         # Enqueue 1000 records and measure time
         start = time.perf_counter()

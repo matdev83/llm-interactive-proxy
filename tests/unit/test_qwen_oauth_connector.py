@@ -211,10 +211,13 @@ class TestQwenOAuthConnectorUnit:
             }
             mock_response.headers = {"content-type": "application/json"}
             mock_client.post = AsyncMock(return_value=mock_response)
-            # Mock the refresh token logic to ensure it doesn't interfere
+            # Mock the refresh token logic and validation to ensure they don't interfere
             with (
                 patch.object(
                     connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
+                ),
+                patch.object(
+                    connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
                 ),
                 patch.object(
                     connector,
@@ -227,7 +230,7 @@ class TestQwenOAuthConnectorUnit:
             ):
                 response = await connector.chat_completions(
                     request_data=request_data,
-                    processed_messages=[test_message.model_dump()],
+                    processed_messages=[test_message],
                     effective_model="qwen3-coder-plus",
                 )
 
@@ -278,6 +281,9 @@ class TestQwenOAuthConnectorUnit:
                     connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
                 ),
                 patch.object(
+                    connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+                ),
+                patch.object(
                     connector,
                     "_prepare_payload",
                     return_value={
@@ -288,7 +294,7 @@ class TestQwenOAuthConnectorUnit:
             ):
                 response = await connector.chat_completions(
                     request_data=request_data,
-                    processed_messages=[test_message.model_dump()],
+                    processed_messages=[test_message],
                     effective_model="qwen-oauth:qwen3-coder-plus",
                 )
 
@@ -370,7 +376,7 @@ class TestQwenOAuthConnectorUnit:
             ):
                 response = await connector.chat_completions(
                     request_data=request_data,
-                    processed_messages=[test_message.model_dump()],
+                    processed_messages=[test_message],
                     effective_model="qwen3-coder-plus",
                 )
 
@@ -407,6 +413,9 @@ class TestQwenOAuthConnectorUnit:
                     connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
                 ),
                 patch.object(
+                    connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+                ),
+                patch.object(
                     connector,
                     "_prepare_payload",
                     return_value={
@@ -422,13 +431,13 @@ class TestQwenOAuthConnectorUnit:
                     )
                 )
 
-            with pytest.raises(ServiceUnavailableError) as exc_info:
-                await connector.chat_completions(
-                    request_data=request_data,
-                    processed_messages=[test_message.model_dump()],
-                    effective_model="qwen3-coder-plus",
-                )
-            assert "Could not connect to backend" in str(exc_info.value)
+                with pytest.raises(ServiceUnavailableError) as exc_info:
+                    await connector.chat_completions(
+                        request_data=request_data,
+                        processed_messages=[test_message],
+                        effective_model="qwen3-coder-plus",
+                    )
+                assert "Could not connect to backend" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_file_modification_reloads_token(

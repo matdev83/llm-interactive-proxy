@@ -49,10 +49,11 @@ class TestQwenOAuthToolCallingEnhanced:
         return connector
 
     @pytest.fixture
-    def mock_parent_chat_completions(self):
+    def mock_parent_chat_completions(self, connector):
         """Fixture to mock the parent OpenAIConnector's _chat_completions_canonical method."""
-        with patch(
-            "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
+        with patch.object(
+            connector,
+            "_chat_completions_canonical",
             new_callable=AsyncMock,
         ) as mock_chat_completions:
             yield mock_chat_completions

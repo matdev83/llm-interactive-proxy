@@ -61,14 +61,16 @@ async def test_openai_payload_uses_processed_messages_with_list_content(
     connector.api_key = "test-api-key"
     req = ChatRequest(model="gpt-4", messages=_messages())
 
+    from src.core.domain.chat import MessageContentPartText
+
     processed_messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Hello"},
-                {"type": "text", "text": "World"},
+        ChatMessage(
+            role="user",
+            content=[
+                MessageContentPartText(text="Hello"),
+                MessageContentPartText(text="World"),
             ],
-        }
+        )
     ]
 
     captured_payload: dict[str, Any] = {}
@@ -83,7 +85,15 @@ async def test_openai_payload_uses_processed_messages_with_list_content(
 
     await connector.chat_completions(req, processed_messages, req.model)
 
-    assert captured_payload.get("messages") == processed_messages
+    # Verify the payload contains normalized messages
+    payload_messages = captured_payload.get("messages")
+    assert payload_messages is not None
+    assert len(payload_messages) == 1
+    assert payload_messages[0]["role"] == "user"
+    assert payload_messages[0]["content"] == [
+        {"type": "text", "text": "Hello"},
+        {"type": "text", "text": "World"},
+    ]
 
 
 @pytest.mark.asyncio

@@ -124,6 +124,8 @@ class MemoryService:
         # Use WeakSet to allow garbage collection of completed tasks, preventing unbounded accumulation
         # Tasks are kept alive by done callbacks until completion, then automatically removed
         self._cleanup_tasks: WeakSet[asyncio.Task[None]] = WeakSet()
+        # Timeout for cleanup task completion (configurable for testing)
+        self._cleanup_timeout: float = 5.0
 
     def is_available(self) -> bool:
         """Check if memory feature is globally available."""
@@ -589,7 +591,7 @@ class MemoryService:
             try:
                 await asyncio.wait_for(
                     asyncio.gather(*pending_tasks, return_exceptions=True),
-                    timeout=5.0,
+                    timeout=self._cleanup_timeout,
                 )
             except asyncio.TimeoutError:
                 # Cancel tasks that didn't complete in time

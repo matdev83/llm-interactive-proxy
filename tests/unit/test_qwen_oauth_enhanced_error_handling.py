@@ -128,8 +128,9 @@ class TestQwenOAuthEnhancedErrorHandling:
             patch.object(
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
-            patch(
-                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
+            patch.object(
+                connector,
+                "_chat_completions_canonical",
                 AsyncMock(side_effect=Exception("Test error")),
             ),
             pytest.raises(BackendError) as exc_info,
@@ -166,8 +167,9 @@ class TestQwenOAuthEnhancedErrorHandling:
             patch.object(
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
-            patch(
-                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
+            patch.object(
+                connector,
+                "_chat_completions_canonical",
                 AsyncMock(
                     return_value=ResponseEnvelope(content={"id": "test"}, headers={})
                 ),
@@ -215,8 +217,9 @@ class TestQwenOAuthEnhancedErrorHandling:
             patch.object(
                 connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
             ),
-            patch(
-                "src.connectors.openai.OpenAIConnector._chat_completions_canonical",
+            patch.object(
+                connector,
+                "_chat_completions_canonical",
                 AsyncMock(side_effect=backend_error),
             ),
         ):

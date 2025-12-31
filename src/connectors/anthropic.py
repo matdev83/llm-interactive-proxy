@@ -21,6 +21,7 @@ from src.connectors.contracts import (
 from src.core.common.exceptions import (
     AuthenticationError,
     ConfigurationError,
+    InvalidRequestError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
@@ -379,17 +380,17 @@ class AnthropicBackend(LLMBackend):
         For backward compatibility, also accepts legacy signature:
         chat_completions(request_data, processed_messages, effective_model, ...)
         """
-        
+
         # Handle legacy API called with keyword arguments only (request_data=...)
         if request is None and "request_data" in kwargs:
             request = kwargs.pop("request_data")
-        
+
         # Check if this is a canonical request (ConnectorChatCompletionsRequest)
         if isinstance(request, ConnectorChatCompletionsRequest):
             return await self._chat_completions_canonical(request)
-        
+
         # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
-        
+
         request_data = request
         processed_messages = args[0] if args else kwargs.get("processed_messages", [])
         effective_model = (
@@ -412,21 +413,62 @@ class AnthropicBackend(LLMBackend):
             ]
         }
 
+        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
+        # This connector should only receive canonical domain models (never dicts).
+
         # Ensure processed_messages is a Sequence[ChatMessage]
-        # It may already be ChatMessage objects or dicts
-        if processed_messages and not isinstance(processed_messages[0], ChatMessage):
-                # Convert dicts to ChatMessage objects
-                processed_messages = [
-                    (
-                        ChatMessage(**msg)
-                        if isinstance(msg, dict)
-                        else ChatMessage(role="user", content=str(msg))
-                    )
-                    for msg in processed_messages
-                ]
+        # ConnectorInvoker guarantees typed messages, but legacy path may receive mixed types
+        # Validate all elements to ensure consistent typed representation (Requirement 4.2)
+        if processed_messages:
+            invalid_messages = [
+                (i, type(msg).__name__)
+                for i, msg in enumerate(processed_messages)
+                if not isinstance(msg, ChatMessage)
+            ]
+            if invalid_messages:
+                # Legacy path should not receive dict messages (coercion centralized at invoker)
+                raise InvalidRequestError(
+                    message="Legacy connector API received non-canonical processed_messages. "
+                    "Expected Sequence[ChatMessage], but received mixed types.",
+                    details={
+                        "invalid_indices": [idx for idx, _ in invalid_messages],
+                        "invalid_types": [typ for _, typ in invalid_messages],
+                        "connector": "anthropic",
+                    },
+                )
+
+        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
+        if isinstance(request_data, dict):
+            raise InvalidRequestError(
+                message="Legacy connector API received dict input. "
+                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": "dict",
+                    "connector": "anthropic",
+                },
+            )
+
+        # Accept only canonical domain models
+        if isinstance(request_data, ChatRequest):
+            domain_request = CanonicalChatRequest.model_validate(
+                request_data.model_dump()
+            )
+        elif isinstance(request_data, CanonicalChatRequest):
+            domain_request = request_data
+        else:
+            # Reject other types - invoker should only pass canonical models
+            raise InvalidRequestError(
+                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": type(request_data).__name__,
+                    "connector": "anthropic",
+                },
+            )
 
         canonical_request = ConnectorChatCompletionsRequest(
-            request=request_data,
+            request=domain_request,
             processed_messages=processed_messages,
             effective_model=effective_model,
             identity=identity,

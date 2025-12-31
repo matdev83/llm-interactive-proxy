@@ -70,8 +70,9 @@ class DangerousCommandHandler(IToolCallHandler):
                 exc_info=True,
             )
             return False
-        except (RuntimeError, OSError, KeyError, NameError):
+        except (RuntimeError, OSError, KeyError, NameError, Exception):
             # Fallback for unexpected exceptions - log at error level for visibility
+            # Catch Exception as well to ensure fail-safe behavior for any scanning errors
             logger.error(
                 "DangerousCommandHandler.can_handle encountered unexpected error during scan",
                 exc_info=True,
@@ -93,8 +94,9 @@ class DangerousCommandHandler(IToolCallHandler):
                 exc_info=True,
             )
             return ToolCallReactionResult(should_swallow=False)
-        except (RuntimeError, OSError, KeyError, NameError):
+        except (RuntimeError, OSError, KeyError, NameError, Exception):
             # Fallback for unexpected exceptions - log at error level for visibility
+            # Catch Exception as well to ensure fail-safe behavior for any scanning errors
             logger.error(
                 "DangerousCommandHandler.handle encountered unexpected error during scan",
                 exc_info=True,

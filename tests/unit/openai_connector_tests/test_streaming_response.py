@@ -312,7 +312,7 @@ async def test_streaming_response_async_iterator(
 
     # Call the method
     result = await connector.chat_completions(
-        request_data, [{"role": "user", "content": "test"}], "test-model"
+        request_data, [ChatMessage(role="user", content="test")], "test-model"
     )
 
     # Check the result
@@ -416,7 +416,7 @@ async def test_streaming_response_sync_iterator(
 
     # Call the method
     result = await connector.chat_completions(
-        request_data, [{"role": "user", "content": "test"}], "test-model"
+        request_data, [ChatMessage(role="user", content="test")], "test-model"
     )
 
     # Check the result
@@ -522,7 +522,7 @@ async def test_streaming_response_coroutine(
 
     # Call the method
     result = await connector.chat_completions(
-        request_data, [{"role": "user", "content": "test"}], "test-model"
+        request_data, [ChatMessage(role="user", content="test")], "test-model"
     )
 
     # Check the result
@@ -593,7 +593,7 @@ async def test_streaming_response_error(
 
     # Call the method
     result = await connector.chat_completions(
-        request_data, [{"role": "user", "content": "test"}], "test-model"
+        request_data, [ChatMessage(role="user", content="test")], "test-model"
     )
 
     # Verify the result is an error chunk
@@ -647,7 +647,7 @@ async def test_streaming_response_error_closes_response(
 
     result = await connector.chat_completions(
         request_data,
-        [{"role": "user", "content": "test"}],
+        [ChatMessage(role="user", content="test")],
         "test-model",
     )
 
@@ -679,7 +679,7 @@ async def test_streaming_response_request_error(
 
     result = await connector.chat_completions(
         request_data,
-        [{"role": "user", "content": "test"}],
+        [ChatMessage(role="user", content="test")],
         "test-model",
     )
 
@@ -731,7 +731,7 @@ async def test_streaming_response_midstream_request_error(
 
     result = await connector.chat_completions(
         request_data,
-        [{"role": "user", "content": "test"}],
+        [ChatMessage(role="user", content="test")],
         "test-model",
     )
 
@@ -776,7 +776,7 @@ async def test_streaming_response_no_auth(connector: OpenAIConnector) -> None:
 
     # Call the method
     result = await connector.chat_completions(
-        request_data, [{"role": "user", "content": "test"}], "test-model"
+        request_data, [ChatMessage(role="user", content="test")], "test-model"
     )
 
     # Verify the result is an error chunk

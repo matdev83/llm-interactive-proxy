@@ -579,14 +579,21 @@ class OpenAIConnector(LLMBackend):
 
         # Ensure processed_messages is a Sequence[ChatMessage]
         # ConnectorInvoker guarantees typed messages, but legacy path may receive mixed types
+        # Validate all elements to ensure consistent typed representation (Requirement 4.2)
         if processed_messages:
-            if not isinstance(processed_messages[0], ChatMessage):
+            invalid_messages = [
+                (i, type(msg).__name__)
+                for i, msg in enumerate(processed_messages)
+                if not isinstance(msg, ChatMessage)
+            ]
+            if invalid_messages:
                 # Legacy path should not receive dict messages (coercion centralized at invoker)
                 raise InvalidRequestError(
                     message="Legacy connector API received non-canonical processed_messages. "
-                    "Expected Sequence[ChatMessage], but received dicts or other types.",
+                    "Expected Sequence[ChatMessage], but received mixed types.",
                     details={
-                        "received_type": type(processed_messages[0]).__name__,
+                        "invalid_indices": [idx for idx, _ in invalid_messages],
+                        "invalid_types": [typ for _, typ in invalid_messages],
                         "connector": "openai",
                     },
                 )

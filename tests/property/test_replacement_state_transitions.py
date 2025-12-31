@@ -9,7 +9,7 @@ Validates: Requirements 4.1, 4.2, 4.5
 
 from __future__ import annotations
 
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 from src.core.domain.replacement_state import ReplacementState
 from tests.utils.hypothesis_config import property_test_settings
@@ -154,7 +154,17 @@ def test_property_14_deactivation_on_counter_expiry(
     original_pair=backend_model_pair_strategy(),
     replacement_pair=backend_model_pair_strategy(),
 )
-@property_test_settings()
+@example(
+    turn_count=1,
+    original_pair=("anthropic", "claude-3-5-sonnet"),
+    replacement_pair=("openai", "gpt-4"),
+)
+@example(
+    turn_count=10,
+    original_pair=("gemini", "gemini-2.0-flash"),
+    replacement_pair=("qwen-oauth", "qwen3-coder-plus"),
+)
+@property_test_settings(max_examples=20)
 def test_property_14_deactivation_stops_further_decrements(
     turn_count: int,
     original_pair: tuple[str, str],

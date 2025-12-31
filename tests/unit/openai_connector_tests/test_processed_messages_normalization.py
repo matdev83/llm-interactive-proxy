@@ -69,13 +69,13 @@ async def test_prepare_payload_handles_sequence_content(
     )
 
     processed_messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "first"},
-                {"type": "text", "text": "second"},
+        ChatMessage(
+            role="user",
+            content=[
+                MessageContentPartText(text="first"),
+                MessageContentPartText(text="second"),
             ],
-        }
+        )
     ]
 
     await connector.chat_completions(
@@ -87,6 +87,7 @@ async def test_prepare_payload_handles_sequence_content(
 
     assert observed_payloads, "Expected payload normalization to occur"
     payload = observed_payloads[0]
+    # The payload should contain normalized content
     assert payload["messages"][0]["content"] == [
         {"type": "text", "text": "first"},
         {"type": "text", "text": "second"},

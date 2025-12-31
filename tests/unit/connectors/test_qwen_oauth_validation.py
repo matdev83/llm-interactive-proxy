@@ -26,6 +26,7 @@ import pytest
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 from tests.utils.fake_clock import FakeClock, FakeClockContext
 
@@ -485,7 +486,11 @@ class TestErrorResponses(TestQwenOAuthCredentialValidation):
             ),
         ):
             with pytest.raises(BackendError) as exc_info:
-                await connector.chat_completions({}, [], "test-model")
+                request = CanonicalChatRequest(
+                    model="test-model",
+                    messages=[ChatMessage(role="user", content="test")],
+                )
+                await connector.chat_completions(request, [], "test-model")
 
             assert "No valid OAuth credentials found for backend qwen-oauth" in str(
                 exc_info.value
@@ -509,7 +514,11 @@ class TestErrorResponses(TestQwenOAuthCredentialValidation):
             ),
         ):
             with pytest.raises(BackendError) as exc_info:
-                await connector.chat_completions({}, [], "test-model")
+                request = CanonicalChatRequest(
+                    model="test-model",
+                    messages=[ChatMessage(role="user", content="test")],
+                )
+                await connector.chat_completions(request, [], "test-model")
 
             assert "No valid OAuth credentials found for backend qwen-oauth" in str(
                 exc_info.value
@@ -527,7 +536,11 @@ class TestErrorResponses(TestQwenOAuthCredentialValidation):
             patch.object(connector, "_refresh_token_if_needed", return_value=False),
             pytest.raises(AuthenticationError) as exc_info,
         ):
-            await connector.chat_completions({}, [], "test-model")
+            request = CanonicalChatRequest(
+                model="test-model",
+                messages=[ChatMessage(role="user", content="test")],
+            )
+            await connector.chat_completions(request, [], "test-model")
 
         assert "Failed to refresh Qwen OAuth token" in str(exc_info.value)
 

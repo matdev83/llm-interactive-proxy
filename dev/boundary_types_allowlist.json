@@ -137,6 +137,22 @@
       "reason": "Accepts raw response content and context for capture. Internal capture boundary, not cross-layer contract exchange.",
       "expires_at": "2026-06-30T00:00:00Z",
       "tracking": "typed-contracts-boundary-hardening Phase 2"
+    },
+    {
+      "file": "src/connectors/base.py",
+      "symbol": "initialize",
+      "violation": "Any-in-signature",
+      "reason": "Abstract method for backend initialization accepts backend-specific configuration parameters. Different backends require different initialization parameters (api_key, api_base_url, gemini_api_base_url, key_name, etc.), making typed kwargs impractical. This is internal connector initialization, not a cross-layer boundary contract.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 0/1"
+    },
+    {
+      "file": "src/core/domain/request_context.py",
+      "symbol": "with_processing_context",
+      "violation": "Any-in-signature",
+      "reason": "Method to update processing context with middleware data. Middleware passes arbitrary context data (session_id, response_type, app_state, stream_id, calling_agent, etc.) for internal processing coordination. This is internal middleware context passing, not a cross-layer boundary contract exchange.",
+      "expires_at": "2026-06-30T00:00:00Z",
+      "tracking": "typed-contracts-boundary-hardening Phase 0/1"
     }
   ]
 }

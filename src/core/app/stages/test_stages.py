@@ -262,21 +262,11 @@ class MockBackendStage(BaseTestBackendStage):
                             canonical_request = request
 
                         # Ensure processed_messages is a list of ChatMessage
-                        typed_messages = (
-                            processed_messages
-                            if isinstance(processed_messages, list)
-                            and all(
-                                isinstance(m, ChatMessage) for m in processed_messages
-                            )
-                            else (
-                                [
-                                    ChatMessage(**m) if isinstance(m, dict) else m
-                                    for m in processed_messages
-                                ]
-                                if processed_messages
-                                else canonical_request.messages
-                            )
-                        )
+                        # TEST-SPECIFIC EXCEPTION (Requirement 5.1-5.2):
+                        # Test staging allows dict→ChatMessage conversion for test compatibility.
+                        # This is a test boundary conversion point, not a production boundary.
+                        # Production code (ConnectorInvoker) receives only typed ChatMessage objects.
+                        # Note: processed_messages conversion handled inline where needed
 
                         # Use ConnectorInvoker for consistent boundary handling
                         invoker = ConnectorInvoker()
