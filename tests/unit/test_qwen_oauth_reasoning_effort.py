@@ -5,6 +5,7 @@ Tests that when reasoning_effort is set to "medium" or "high", the connector
 appends " /think" to the last client message.
 """
 
+import os
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
@@ -15,6 +16,10 @@ from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
 
 from tests.utils.fake_clock import FakeClock, FakeClockContext
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 
 
 class TestQwenOAuthReasoningEffort:

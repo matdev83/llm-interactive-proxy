@@ -41,7 +41,7 @@ class PayloadAndMetadata(NamedTuple):
     """
 
     payload: Any
-    metadata: dict[str, Any]
+    metadata: dict[str, JsonValue]
 
 
 class StreamingContentConverter:
@@ -168,7 +168,7 @@ class StreamingContentConverter:
         return PayloadAndMetadata(chunk.content, chunk.metadata or {})
 
     def _extract_usage_from_metadata(
-        self, metadata: dict[str, Any] | None
+        self, metadata: dict[str, JsonValue] | None
     ) -> dict[str, Any] | None:
         """Extract usage dict from metadata.
 
@@ -184,8 +184,8 @@ class StreamingContentConverter:
         return usage_block if isinstance(usage_block, dict) else None
 
     def _merge_metadata_from_payload(
-        self, payload: Any, metadata: dict[str, Any] | None
-    ) -> dict[str, Any]:
+        self, payload: Any, metadata: dict[str, JsonValue] | None
+    ) -> dict[str, JsonValue]:
         """Merge metadata hints from decoded payload.
 
         Args:
@@ -195,7 +195,7 @@ class StreamingContentConverter:
         Returns:
             Merged metadata dictionary
         """
-        merged: dict[str, Any] = dict(metadata) if metadata else {}
+        merged: dict[str, JsonValue] = dict(metadata) if metadata else {}
 
         if isinstance(payload, dict):
             if "finish_reason" not in merged:
@@ -287,7 +287,7 @@ class StreamingContentConverter:
         return ""
 
     def _resolve_prompt_hint(
-        self, metadata: dict[str, Any] | None, envelope_meta: dict[str, Any]
+        self, metadata: dict[str, JsonValue] | None, envelope_meta: dict[str, JsonValue]
     ) -> int:
         """Resolve prompt token hint from metadata.
 
@@ -315,7 +315,7 @@ class StreamingContentConverter:
                     continue
         return 0
 
-    def _resolve_stream_key(self, metadata: dict[str, Any]) -> str:
+    def _resolve_stream_key(self, metadata: dict[str, JsonValue]) -> str:
         """Resolve stream identifier from metadata.
 
         Args:
@@ -332,7 +332,7 @@ class StreamingContentConverter:
         return "anonymous-stream"
 
     def _chunk_signals_done(
-        self, content: Any, metadata: dict[str, Any] | None
+        self, content: Any, metadata: dict[str, JsonValue] | None
     ) -> bool:
         """Detect if chunk signals stream completion.
 
@@ -363,7 +363,12 @@ class StreamingContentConverter:
                 first_choice: dict[str, Any] = choices[0]
                 if isinstance(first_choice, dict):
                     choice_finish = first_choice.get("finish_reason")
-                    if choice_finish in ("stop", "length", "content_filter", "tool_calls"):
+                    if choice_finish in (
+                        "stop",
+                        "length",
+                        "content_filter",
+                        "tool_calls",
+                    ):
                         return True
 
         return False
@@ -686,11 +691,16 @@ class StreamingContentConverter:
                     if isinstance(best_usage, dict)
                     else None
                 )
+                # Extract stream_id with type check
+                stream_id_value = metadata.get("stream_id") if metadata else None
+                stream_id: str | None = (
+                    stream_id_value if isinstance(stream_id_value, str) else None
+                )
                 streaming_content = StreamingContent(
                     content=enriched,
                     metadata=metadata,
                     is_done=is_done,
-                    stream_id=metadata.get("stream_id") if metadata else None,
+                    stream_id=stream_id,
                     usage=usage_summary,
                 )
 

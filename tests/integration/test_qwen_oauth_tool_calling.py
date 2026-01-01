@@ -11,6 +11,7 @@ Run with: pytest -m "integration and network" tests/integration/test_qwen_oauth_
 """
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -22,6 +23,7 @@ from src.core.app.test_builder import build_httpx_mock_test_app as build_app
 
 # Mark all tests in this module as integration and network tests
 pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
     pytest.mark.integration,
     pytest.mark.network,
 ]

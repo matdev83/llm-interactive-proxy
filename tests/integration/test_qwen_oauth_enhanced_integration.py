@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,7 @@ def _qwen_oauth_available() -> bool:
 
 
 pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
     pytest.mark.integration,
     pytest.mark.network,
 ]

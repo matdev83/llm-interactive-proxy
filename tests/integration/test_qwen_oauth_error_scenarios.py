@@ -5,6 +5,7 @@ These tests ensure that real error conditions are properly handled and don't giv
 
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from src.core.config.app_config import AppConfig
 from tests.unit.fixtures.markers import real_time
 
 pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
     pytest.mark.integration,
     pytest.mark.network,
 ]

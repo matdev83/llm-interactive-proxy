@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +9,7 @@ import httpx
 import pytest
 
 pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
     pytest.mark.xdist_group("qwen_oauth_tool_calling"),
     pytest.mark.no_global_mock,
 ]
@@ -45,7 +47,9 @@ class TestQwenOAuthToolCallingEnhanced:
             "refresh_token": "test-refresh-token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": int((time.time() + 3600) * 1000),  # Dynamic: now + 1 hour in ms
+            "expiry_date": int(
+                (time.time() + 3600) * 1000
+            ),  # Dynamic: now + 1 hour in ms
         }
         return connector
 
@@ -314,7 +318,9 @@ class TestQwenOAuthToolCallingEnhanced:
             # Verify request contained the expected tool_choice
             called_request = mock_parent_chat_completions.call_args[0][0]
             assert called_request.request.tool_choice["type"] == "function"
-            assert called_request.request.tool_choice["function"]["name"] == "get_weather"
+            assert (
+                called_request.request.tool_choice["function"]["name"] == "get_weather"
+            )
 
             # Verify response contains the expected tool call
             assert "choices" in response_data

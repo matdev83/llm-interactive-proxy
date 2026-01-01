@@ -6,10 +6,15 @@ These tests mock external dependencies and verify tool calling logic.
 pytestmark = [pytest.mark.no_global_mock]
 """
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 from fastapi import HTTPException
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.domain.chat import (

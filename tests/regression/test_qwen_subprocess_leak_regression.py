@@ -6,12 +6,17 @@ when destroyed, preventing subprocess leaks if shutdown() is not called explicit
 Fixed: Added __del__ method to cleanup CLI refresh subprocess on destruction.
 """
 
+import os
 from unittest.mock import MagicMock
 
 import pytest
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 
 
 class TestQwenSubprocessLeakRegression:

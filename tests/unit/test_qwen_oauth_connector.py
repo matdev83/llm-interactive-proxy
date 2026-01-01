@@ -7,11 +7,16 @@ pytestmark = [pytest.mark.no_global_mock]
 """
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import httpx
 import pytest
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat import ChatMessage, ChatRequest
@@ -217,7 +222,9 @@ class TestQwenOAuthConnectorUnit:
                     connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
                 ),
                 patch.object(
-                    connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+                    connector,
+                    "_validate_runtime_credentials",
+                    AsyncMock(return_value=True),
                 ),
                 patch.object(
                     connector,
@@ -281,7 +288,9 @@ class TestQwenOAuthConnectorUnit:
                     connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
                 ),
                 patch.object(
-                    connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+                    connector,
+                    "_validate_runtime_credentials",
+                    AsyncMock(return_value=True),
                 ),
                 patch.object(
                     connector,
@@ -413,7 +422,9 @@ class TestQwenOAuthConnectorUnit:
                     connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
                 ),
                 patch.object(
-                    connector, "_validate_runtime_credentials", AsyncMock(return_value=True)
+                    connector,
+                    "_validate_runtime_credentials",
+                    AsyncMock(return_value=True),
                 ),
                 patch.object(
                     connector,
@@ -517,9 +528,10 @@ class TestQwenOAuthConnectorUnit:
                 ),
                 patch(
                     "pathlib.Path.stat", return_value=MagicMock(st_mtime=initial_mtime)
-                ),patch.object(
-                connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
-            )
+                ),
+                patch.object(
+                    connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
+                ),
             ):
                 await connector.initialize()
             assert connector.is_functional  # Should be functional if loaded

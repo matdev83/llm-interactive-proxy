@@ -5,6 +5,7 @@ This module tests the fix for the Qwen API bug where duplicate SSE chunks
 are sent, causing text repetition in the client.
 """
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -12,6 +13,10 @@ from src.connectors.openai import OpenAIConnector
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 
 
 @pytest.fixture

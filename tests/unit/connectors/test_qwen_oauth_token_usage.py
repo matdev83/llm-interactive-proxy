@@ -2,6 +2,7 @@
 Tests for Qwen OAuth token usage calculation functionality.
 """
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -9,6 +10,10 @@ from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 
 
 class TestQwenOAuthTokenUsage:

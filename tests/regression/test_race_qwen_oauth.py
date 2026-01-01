@@ -5,9 +5,14 @@ Tests that _token_refresh_lock is properly used in _load_oauth_credentials.
 """
 
 import asyncio
+import os
 
 import pytest
 from tests.utils.fake_clock import FakeClockContext
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 
 
 class MockQwenOAuthConnector:

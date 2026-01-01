@@ -9,6 +9,7 @@ These tests focus on the unique aspects of the QwenOAuthConnector:
 
 import asyncio
 import json
+import os
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
 import httpx
@@ -20,6 +21,7 @@ from tests.utils.fake_clock import FakeClock, FakeClockContext
 
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
 pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
     pytest.mark.filterwarnings(
         "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
     ),
@@ -150,7 +152,9 @@ class TestQwenOAuthCredentials:
             assert connector._is_token_expired() is False
 
             # Test with past expiry date
-            connector._oauth_credentials = {"expiry_date": int(clock.now() * 1000) - 1000}
+            connector._oauth_credentials = {
+                "expiry_date": int(clock.now() * 1000) - 1000
+            }
             assert connector._is_token_expired() is True
 
     @pytest.mark.asyncio
@@ -160,7 +164,8 @@ class TestQwenOAuthCredentials:
             connector._oauth_credentials = {
                 "access_token": "test-access-token",
                 "refresh_token": "test-refresh-token",
-                "expiry_date": int(clock.now() * 1000) + 3600000,  # 1 hour in the future
+                "expiry_date": int(clock.now() * 1000)
+                + 3600000,  # 1 hour in the future
             }
 
             with patch.object(connector, "_is_token_expired", return_value=False):
@@ -209,8 +214,12 @@ class TestQwenOAuthCredentials:
 
                 # Verify the token was refreshed via CLI
                 assert result is True
-                assert connector._oauth_credentials["access_token"] == "new-access-token"
-                assert connector._oauth_credentials["refresh_token"] == "new-refresh-token"
+                assert (
+                    connector._oauth_credentials["access_token"] == "new-access-token"
+                )
+                assert (
+                    connector._oauth_credentials["refresh_token"] == "new-refresh-token"
+                )
                 assert connector.api_base_url == "https://new.portal.qwen.ai/v1"
                 mock_launch.assert_called_once()
 
@@ -291,7 +300,9 @@ class TestQwenOAuthCredentials:
                     connector._oauth_credentials["expiry_date"] = int(
                         (clock.now() + 3600) * 1000
                     )
-                    connector._oauth_credentials["access_token"] = f"new-token-{load_calls}"
+                    connector._oauth_credentials["access_token"] = (
+                        f"new-token-{load_calls}"
+                    )
                 return True
 
             connector._load_oauth_credentials = AsyncMock(  # type: ignore[assignment]
@@ -393,6 +404,7 @@ class TestQwenOAuthCredentials:
                 mock_refresh.return_value = True
                 mock_refresh.side_effect = mock_refresh_side_effect
                 from src.core.domain.responses import ResponseEnvelope
+
                 mock_parent_chat.return_value = ResponseEnvelope(
                     content={"id": "test-id", "choices": []},
                 )

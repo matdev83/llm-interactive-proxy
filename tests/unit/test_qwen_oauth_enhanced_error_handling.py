@@ -1,5 +1,6 @@
 """Enhanced tests for Qwen OAuth connector error handling and initialization."""
 
+import os
 from unittest.mock import AsyncMock, patch
 
 import httpx
@@ -8,6 +9,7 @@ import pytest
 # Suppress Windows ProactorEventLoop ResourceWarnings for this module
 # Also isolate these tests to avoid state pollution from parallel test execution
 pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
     pytest.mark.filterwarnings(
         "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
     ),

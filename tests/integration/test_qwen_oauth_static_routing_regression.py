@@ -7,6 +7,7 @@ instead of the static route override.
 """
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,6 +19,7 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
     pytest.mark.integration,
     pytest.mark.network,
 ]

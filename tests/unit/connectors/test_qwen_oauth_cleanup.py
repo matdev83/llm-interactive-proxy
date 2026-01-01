@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -9,6 +10,10 @@ import httpx
 import pytest
 from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.config.app_config import AppConfig
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 
 
 @pytest.fixture

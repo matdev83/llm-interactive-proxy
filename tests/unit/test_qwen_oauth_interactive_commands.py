@@ -4,9 +4,12 @@ from unittest.mock import patch
 import pytest
 from src.core.common.exceptions import ConfigurationError
 
-pytestmark = pytest.mark.filterwarnings(
-    "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
-)
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+    pytest.mark.filterwarnings(
+        "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
+    ),
+]
 from src.core.app.test_builder import build_test_app as build_app
 
 

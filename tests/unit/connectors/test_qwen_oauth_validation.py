@@ -15,6 +15,7 @@ Tests all the enhanced OAuth credential validation features:
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 from collections.abc import Generator
 from pathlib import Path
@@ -27,6 +28,10 @@ from src.connectors.qwen_oauth import QwenOAuthConnector
 from src.core.common.exceptions import AuthenticationError, BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
+]
 
 from tests.utils.fake_clock import FakeClock, FakeClockContext
 

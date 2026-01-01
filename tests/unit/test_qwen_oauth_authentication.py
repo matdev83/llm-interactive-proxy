@@ -6,6 +6,7 @@ token management, refresh mechanisms, and error handling.
 """
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, mock_open, patch
 
@@ -16,6 +17,7 @@ from src.core.common.exceptions import AuthenticationError
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 pytestmark = [
+    pytest.mark.skipif(os.name != "nt", reason="Windows-specific test"),
     pytest.mark.no_global_mock,
     pytest.mark.xdist_group("qwen_oauth_serial"),
 ]
@@ -63,6 +65,7 @@ class TestQwenOAuthAuthentication:
     async def test_token_refresh_exact_expiry(self, connector):
         """Test token refresh right at expiration boundary."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set expiry to exactly 30 seconds from now (the refresh buffer time)
             current_time_ms = int(clock.now() * 1000)
@@ -82,6 +85,7 @@ class TestQwenOAuthAuthentication:
     async def test_token_refresh_before_expiry(self, connector):
         """Test token refresh check just before expiration boundary."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set expiry to 31 seconds from now (just beyond the refresh buffer time)
             current_time_ms = int(clock.now() * 1000)
@@ -101,6 +105,7 @@ class TestQwenOAuthAuthentication:
     async def test_token_refresh_flow_success(self, connector, mock_client):
         """Test complete token refresh flow with success."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set up expired credentials
             connector._oauth_credentials = {
@@ -141,6 +146,7 @@ class TestQwenOAuthAuthentication:
     async def test_token_refresh_no_refresh_token(self, connector):
         """Test token refresh when no refresh token is available."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set up expired credentials without refresh token
             connector._oauth_credentials = {
@@ -161,6 +167,7 @@ class TestQwenOAuthAuthentication:
     async def test_token_refresh_http_error(self, connector, mock_client):
         """Test token refresh when CLI process fails with subprocess error."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set up expired credentials
             connector._oauth_credentials = {
@@ -186,12 +193,15 @@ class TestQwenOAuthAuthentication:
 
             # Original credentials should remain unchanged
             assert connector._oauth_credentials["access_token"] == "expired-token"
-            assert connector._oauth_credentials["refresh_token"] == "invalid-refresh-token"
+            assert (
+                connector._oauth_credentials["refresh_token"] == "invalid-refresh-token"
+            )
 
     @pytest.mark.asyncio
     async def test_token_refresh_network_error(self, connector, mock_client):
         """Test token refresh with CLI process failure."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set up expired credentials
             connector._oauth_credentials = {
@@ -220,6 +230,7 @@ class TestQwenOAuthAuthentication:
     async def test_token_refresh_malformed_response(self, connector, mock_client):
         """Test token refresh when CLI fails to produce valid token."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set up expired credentials
             connector._oauth_credentials = {
@@ -248,6 +259,7 @@ class TestQwenOAuthAuthentication:
     async def test_chat_completion_token_refresh_check(self, connector, mock_client):
         """Test that chat_completions checks and refreshes token first."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set up expired credentials
             connector._oauth_credentials = {
@@ -273,6 +285,7 @@ class TestQwenOAuthAuthentication:
                 mock_validate.return_value = True
                 mock_refresh.return_value = True
                 from src.core.domain.responses import ResponseEnvelope
+
                 mock_chat.return_value = ResponseEnvelope(
                     content={"id": "test-id", "choices": []},
                 )
@@ -336,6 +349,7 @@ class TestQwenOAuthAuthentication:
     async def test_credential_persistence(self, connector, mock_credentials):
         """Test persisting credentials to file system."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         connector._oauth_credentials = mock_credentials
 
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
@@ -381,13 +395,15 @@ class TestQwenOAuthAuthentication:
     async def test_credential_persistence_error(self, connector, mock_credentials):
         """Test error handling during credential persistence."""
         from tests.utils.fake_clock import FakeClock, FakeClockContext
+
         connector._oauth_credentials = mock_credentials
 
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             with (
                 patch("pathlib.Path.home") as mock_home,
                 patch(
-                    "pathlib.Path.mkdir", side_effect=PermissionError("Permission denied")
+                    "pathlib.Path.mkdir",
+                    side_effect=PermissionError("Permission denied"),
                 ),
             ):
                 mock_home.return_value = Path("/mock/home")
