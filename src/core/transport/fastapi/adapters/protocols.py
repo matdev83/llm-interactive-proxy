@@ -13,6 +13,7 @@ from pydantic.types import JsonValue
 
 if TYPE_CHECKING:
     from src.core.domain.openrouter_usage import OpenRouterUsage
+    from src.core.domain.request_context import RequestContext
     from src.core.transport.fastapi.adapters.sse.models import DecodedSSE
 
 
@@ -20,6 +21,7 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.streaming.streaming_content import StreamingContent
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 # SSE Layer Protocols
 
@@ -27,7 +29,7 @@ from src.core.domain.streaming.streaming_content import StreamingContent
 class ISSEFormatter(Protocol):
     """Format content as SSE bytes."""
 
-    def format_chunk(self, content: dict | bytes | str) -> bytes:
+    def format_chunk(self, content: dict[str, Any] | bytes | str) -> bytes:
         """Format a single chunk as SSE bytes.
 
         Args:
@@ -52,7 +54,6 @@ class ISSEDecoder(Protocol):
             DecodedSSE containing content, metadata, and is_done flag
         """
         ...
-
 
 
 # Metadata Layer Protocols
@@ -113,7 +114,6 @@ class IUsageNormalizer(Protocol):
             Normalized usage with standard fields as integers
         """
         ...
-
 
     def merge_streaming_usage(
         self, existing: dict[str, int], new: dict[str, Any]
@@ -271,13 +271,19 @@ class IStreamingContentConverter(Protocol):
     """Convert raw stream chunks to StreamingContent."""
 
     async def convert_stream(
-        self, raw_stream: AsyncIterator[Any], context: dict[str, JsonValue]
+        self,
+        raw_stream: AsyncIterator[ProcessedResponse],
+        context: dict[str, JsonValue | RequestContext | None],
     ) -> AsyncIterator[StreamingContent]:
         """Convert raw chunks to StreamingContent.
 
         Args:
-            raw_stream: Raw stream iterator
-            context: Conversion context
+            raw_stream: Raw stream iterator of ProcessedResponse chunks
+            context: Conversion context containing:
+                    - envelope_metadata: dict[str, JsonValue] with envelope metadata
+                    - context: RequestContext | None for usage recalculation
+                    Note: RequestContext is allowed here as it's needed for usage
+                    recalculation logic, but envelope_metadata must be JSON-safe.
 
         Yields:
             StreamingContent chunks

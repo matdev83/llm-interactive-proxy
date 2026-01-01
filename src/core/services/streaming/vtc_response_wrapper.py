@@ -25,8 +25,13 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from pydantic.types import JsonValue
+
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
 from src.core.services.vtc_xml_parser import (
     detect_complete_tool_call,
     has_partial_xml_pattern,
@@ -316,6 +321,27 @@ class VTCResponseStreamWrapper:
         text_content = delta.get("content", "")
         return text_content if isinstance(text_content, str) else ""
 
+    @staticmethod
+    def _normalize_metadata(metadata: dict[str, Any] | None) -> dict[str, JsonValue]:
+        """Normalize metadata to dict[str, JsonValue] for boundary safety.
+
+        Args:
+            metadata: Raw metadata dictionary or None
+
+        Returns:
+            Normalized metadata with JSON-serializable values only
+        """
+        from src.core.domain.translation_utils.json_utils import (
+            sanitize_dict_for_json,
+        )
+
+        if metadata is None:
+            return {}
+
+        # Sanitize metadata to ensure all values are JSON-serializable
+        sanitized = sanitize_dict_for_json(metadata)
+        return sanitized
+
     def _inject_text(
         self, chunk: ProcessedResponse, new_text: str
     ) -> ProcessedResponse:
@@ -332,12 +358,16 @@ class VTCResponseStreamWrapper:
         content = chunk.content
         if not isinstance(content, dict):
             # Can't inject into non-dict content, create minimal structure
+            dict_content = {
+                "choices": [{"delta": {"content": new_text}}],
+            }
+            normalized_content = normalize_to_processed_chunk_content(dict_content)
+            # Normalize metadata to dict[str, JsonValue]
+            normalized_metadata = self._normalize_metadata(chunk.metadata)
             return ProcessedResponse(
-                content={
-                    "choices": [{"delta": {"content": new_text}}],
-                },
+                content=normalized_content,
                 usage=chunk.usage,
-                metadata=chunk.metadata,
+                metadata=normalized_metadata,
             )
 
         # Deep copy the content structure
@@ -364,26 +394,29 @@ class VTCResponseStreamWrapper:
                 continue
 
             new_choice: dict[str, Any] = {}
-            for k, v in choice.items():
+            for k, v in choice.items():  # type: ignore[reportUnknownVariableType]
                 if k != "delta":
                     new_choice[k] = v
 
-            delta = choice.get("delta", {})
-            if isinstance(delta, dict):
-                new_delta = dict(delta)
-                new_delta["content"] = new_text
-                new_choice["delta"] = new_delta
-            else:
-                new_choice["delta"] = {"content": new_text}
+            delta_val: Any = choice.get("delta", {})  # type: ignore[assignment]
+            delta: dict[str, Any] = delta_val if isinstance(delta_val, dict) else {}
+            new_delta = dict(delta)
+            new_delta["content"] = new_text
+            new_choice["delta"] = new_delta
 
             new_choices.append(new_choice)
 
         new_content["choices"] = new_choices
 
+        # Normalize content and metadata to ensure boundary safety
+        normalized_content = normalize_to_processed_chunk_content(new_content)
+        normalized_metadata = self._normalize_metadata(
+            dict(chunk.metadata) if chunk.metadata else {}
+        )
         return ProcessedResponse(
-            content=new_content,
+            content=normalized_content,
             usage=chunk.usage,
-            metadata=dict(chunk.metadata) if chunk.metadata else {},
+            metadata=normalized_metadata,
         )
 
     async def _invoke_reactor(
@@ -790,26 +823,31 @@ class VTCResponseStreamWrapper:
             chunk = self._inject_text(self._last_chunk_template, text)
             # Merge metadata into the chunk
             if metadata:
-                if chunk.metadata:
-                    # Merge all metadata fields
-                    chunk.metadata.update(metadata)
-                else:
-                    # Create new chunk with metadata
-                    chunk = ProcessedResponse(
-                        content=chunk.content,
-                        usage=chunk.usage,
-                        metadata=metadata,
-                    )
+                # Normalize content and metadata to ensure boundary safety
+                # Preserve copy-on-write behavior by creating new ProcessedResponse
+                normalized_content = normalize_to_processed_chunk_content(chunk.content)
+                # Merge existing chunk metadata with new metadata, then normalize
+                merged_metadata = dict(chunk.metadata) if chunk.metadata else {}
+                merged_metadata.update(metadata)
+                normalized_metadata = self._normalize_metadata(merged_metadata)
+                chunk = ProcessedResponse(
+                    content=normalized_content,
+                    usage=chunk.usage,
+                    metadata=normalized_metadata,
+                )
             return chunk
 
         # Fallback: create minimal chunk structure
+        dict_content = {
+            "id": "chatcmpl-vtc",
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": text}}],
+        }
+        normalized_content = normalize_to_processed_chunk_content(dict_content)
+        normalized_metadata = self._normalize_metadata(metadata)
         return ProcessedResponse(
-            content={
-                "id": "chatcmpl-vtc",
-                "object": "chat.completion.chunk",
-                "choices": [{"index": 0, "delta": {"content": text}}],
-            },
-            metadata=metadata,
+            content=normalized_content,
+            metadata=normalized_metadata,
         )
 
     def reset(self) -> None:

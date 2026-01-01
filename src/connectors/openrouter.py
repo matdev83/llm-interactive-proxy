@@ -5,19 +5,22 @@ from collections.abc import Callable, Mapping
 from typing import Any, cast
 
 import httpx
+from pydantic.types import JsonValue
 
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+)
 from src.connectors.openai import OpenAIConnector
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     ConfigurationError,
-    ServiceUnavailableError,
+    InvalidRequestError,
 )
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.session_key import SessionKey
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
@@ -75,7 +78,6 @@ class OpenRouterBackend(OpenAIConnector):
         for header_name, value in headers.items():
             if (
                 header_name.lower() == "authorization"
-                and isinstance(value, str)
                 and api_key in value
             ):
                 return True
@@ -116,12 +118,6 @@ class OpenRouterBackend(OpenAIConnector):
                     exc_info=True,
                 )
                 errors.append(exc)
-                return None
-
-            if not isinstance(result, Mapping):
-                errors.append(
-                    TypeError("OpenRouter headers provider must return a mapping."),
-                )
                 return None
 
             headers = dict(result)
@@ -208,7 +204,7 @@ class OpenRouterBackend(OpenAIConnector):
             Callable[[str, str], dict[str, str]],
             kwargs.get("openrouter_headers_provider"),
         )
-        key_name = cast(str, kwargs.get("key_name"))
+        key_name = kwargs.get("key_name")
         api_base_url = kwargs.get("openrouter_api_base_url") or kwargs.get(
             "api_base_url"
         )
@@ -240,42 +236,107 @@ class OpenRouterBackend(OpenAIConnector):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
-        project: str | None = None,
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        # Structural enforcement: check cancellation immediately if coordinator and token provided
-        if cancellation_coordinator is not None and cancellation_token is not None:
-            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
-        # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
-        # (the frontend controller converts from frontend-specific format to domain format)
-        # Backends should ONLY convert FROM domain TO backend-specific format
-        # Type assertion: we know from architectural design that request_data is ChatRequest-like
-        from typing import cast
+        """Canonical connector API implementation with backward compatibility.
 
-        from src.core.domain.chat import CanonicalChatRequest, ChatRequest
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        For backward compatibility, also accepts legacy signature:
+        chat_completions(request_data, processed_messages, effective_model, ...)
+        """
+        # Handle legacy API called with keyword arguments only (request_data=...)
+        if request is None and "request_data" in kwargs:
+            request = kwargs.pop("request_data")
 
-        if not isinstance(request_data, ChatRequest):
-            raise TypeError(
-                f"Expected ChatRequest or CanonicalChatRequest, got {type(request_data).__name__}. "
-                "Backend connectors should only receive domain-format requests."
+        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            return await self._chat_completions_canonical(request)
+
+        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
+        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
+        # This connector should only receive canonical domain models (never dicts).
+
+        request_data = request
+        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
+        effective_model = (
+            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        )
+        identity = kwargs.get("identity")
+        cancellation_token = kwargs.get("cancellation_token")
+        cancellation_coordinator = kwargs.get("cancellation_coordinator")
+        context = None  # Legacy API doesn't provide context
+        options = {
+            k: v
+            for k, v in kwargs.items()
+            if k
+            not in [
+                "identity",
+                "cancellation_token",
+                "cancellation_coordinator",
+                "processed_messages",
+                "effective_model",
+                "request_data",
+                "project",
+            ]
+        }
+
+        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
+        if isinstance(request_data, dict):
+            raise InvalidRequestError(
+                message="Legacy connector API received dict input. "
+                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": "dict",
+                    "connector": "openrouter",
+                },
             )
-        # Cast to CanonicalChatRequest for mypy compatibility with translation service signature
-        domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
 
-        # Allow tests and callers to provide per-call OpenRouter settings via kwargs
-        headers_provider = kwargs.pop("openrouter_headers_provider", None)
-        key_name = kwargs.pop("key_name", None)
-        api_key = kwargs.pop("api_key", None)
-        api_base_url = kwargs.pop("openrouter_api_base_url", None)
+        # Ensure processed_messages is a Sequence[ChatMessage]
+        if processed_messages:
+            invalid_messages = [
+                (i, type(msg).__name__)
+                for i, msg in enumerate(processed_messages)
+                if not isinstance(msg, ChatMessage)
+            ]
+            if invalid_messages:
+                raise InvalidRequestError(
+                    message="Legacy connector API received non-canonical processed_messages. "
+                    "Expected Sequence[ChatMessage], but received mixed types.",
+                    details={
+                        "invalid_indices": [idx for idx, _ in invalid_messages],
+                        "invalid_types": [typ for _, typ in invalid_messages],
+                        "connector": "openrouter",
+                    },
+                )
 
+        # Accept only canonical domain models
+        if isinstance(request_data, ChatRequest):
+            domain_request = CanonicalChatRequest.model_validate(
+                request_data.model_dump()
+            )
+        elif isinstance(request_data, CanonicalChatRequest):
+            domain_request = request_data
+        else:
+            raise InvalidRequestError(
+                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": type(request_data).__name__,
+                    "connector": "openrouter",
+                },
+            )
+
+        # Extract OpenRouter-specific options from kwargs
+        headers_provider = kwargs.get("openrouter_headers_provider")
+        key_name = kwargs.get("key_name")
+        api_key = kwargs.get("api_key")
+        api_base_url = kwargs.get("openrouter_api_base_url")
+
+        # JSON-SAFETY: Callables must remain as instance attributes, not in options.
+        # Set instance attributes temporarily for this call (will be used by _chat_completions_canonical)
         original_headers_provider = self.headers_provider
         original_key_name = self.key_name
         original_api_key = self.api_key
@@ -283,19 +344,124 @@ class OpenRouterBackend(OpenAIConnector):
 
         try:
             if headers_provider is not None:
-                self.headers_provider = cast(
-                    Callable[[Any, str], dict[str, str]], headers_provider
-                )
+                self.headers_provider = headers_provider
             if key_name is not None:
-                self.key_name = cast(str, key_name)
+                self.key_name = key_name
             if api_key is not None:
-                self.api_key = cast(str, api_key)
-            if api_base_url:
-                self.api_base_url = cast(str, api_base_url)
+                self.api_key = api_key
+            if api_base_url is not None:
+                self.api_base_url = api_base_url
 
-            # Compute explicit headers for this call and ensure the exact
-            # Authorization header and URL used by tests are passed to the
-            # parent's streaming/non-streaming implementation.
+            # Only JSON-safe values go in options
+            if key_name is not None:
+                options["key_name"] = key_name
+            if api_key is not None:
+                options["api_key"] = api_key
+            if api_base_url is not None:
+                options["openrouter_api_base_url"] = api_base_url
+
+            canonical_request = ConnectorChatCompletionsRequest(
+                request=domain_request,
+                processed_messages=processed_messages,
+                effective_model=effective_model,
+                identity=identity,
+                cancellation_token=cancellation_token,
+                cancellation_coordinator=cancellation_coordinator,
+                context=context,
+                options=options,
+            )
+
+            return await self._chat_completions_canonical(canonical_request)
+        finally:
+            # Restore original values
+            self.headers_provider = original_headers_provider
+            self.key_name = original_key_name
+            self.api_key = original_api_key
+            self.api_base_url = original_api_base_url
+
+    async def _chat_completions_canonical(
+        self,
+        request: ConnectorChatCompletionsRequest,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Canonical connector API implementation.
+
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        It applies OpenRouter-specific payload modifications before delegating
+        to parent OpenAIConnector's canonical method.
+        """
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if (
+            request.cancellation_coordinator is not None
+            and request.cancellation_token is not None
+        ):
+            request.cancellation_coordinator.ensure_not_cancelled(
+                request.cancellation_token
+            )
+
+        # Extract OpenRouter-specific options from canonical request
+        # JSON-SAFETY: Options contain only JSON-serializable values.
+        # Callables (headers_provider) are handled via instance attributes, not options.
+        options = request.options or {}
+        key_name_val = options.get("key_name")
+        key_name: str | None = (
+            key_name_val if isinstance(key_name_val, str) else None
+        )
+        api_key_val = options.get("api_key")
+        api_key: str | None = (
+            api_key_val if isinstance(api_key_val, str) else None
+        )
+        api_base_url_val = options.get("openrouter_api_base_url")
+        api_base_url: str | None = (
+            api_base_url_val if isinstance(api_base_url_val, str) else None
+        )
+
+        # Use instance attributes for callables (JSON-safety: callables not in options)
+        headers_provider = self.headers_provider
+
+        # Fallback to instance attributes if not in options
+        if key_name is None:
+            key_name = self.key_name
+        if api_key is None:
+            api_key = self.api_key
+        if api_base_url is None:
+            api_base_url = self.api_base_url
+
+        # After fallback, api_base_url is guaranteed to be str (not None)
+        # Type narrowing: self.api_base_url is str, so api_base_url is now str
+        assert api_base_url is not None, "api_base_url should be set from options or instance"
+
+        original_headers_provider = self.headers_provider
+        original_key_name = self.key_name
+        original_api_key = self.api_key
+        original_api_base_url = self.api_base_url
+
+        try:
+            # Temporarily set instance attributes for this call
+            if headers_provider is not None:
+                self.headers_provider = headers_provider
+            if key_name is not None:
+                self.key_name = key_name
+            if api_key is not None:
+                self.api_key = api_key
+            # api_base_url is guaranteed to be str after fallback above
+            self.api_base_url = api_base_url
+
+            # Build modified canonical request with OpenRouter-specific options merged
+            # JSON-SAFETY: Only include JSON-serializable values in options.
+            # Callables (headers_provider) must remain as instance attributes, not in options.
+            merged_options = dict(request.options or {})
+            merged_options.update(
+                {
+                    # JSON-safe values only - callables are handled via instance attributes
+                    "key_name": key_name,
+                    "api_key": api_key,
+                    "openrouter_api_base_url": api_base_url,
+                    "headers_override": None,  # Will be computed below
+                    "openai_url": api_base_url,
+                }
+            )
+
+            # Compute explicit headers for this call
             headers_override: dict[str, str] | None = None
             if self.headers_provider:
                 try:
@@ -304,7 +470,7 @@ class OpenRouterBackend(OpenAIConnector):
                     headers_override = None
                 except Exception as exc:
                     logger.error(
-                        "Unexpected error resolving headers from provider in chat_completions()",
+                        "Unexpected error resolving headers from provider in _chat_completions_canonical()",
                         exc_info=True,
                     )
                     raise BackendError(
@@ -319,14 +485,14 @@ class OpenRouterBackend(OpenAIConnector):
             if self.api_key:
                 headers_override.setdefault("Authorization", f"Bearer {self.api_key}")
 
-            if identity is not None:
+            if request.identity is not None:
                 try:
-                    identity_headers = identity.get_resolved_headers(None)
+                    identity_headers = request.identity.get_resolved_headers(None)
                     if identity_headers:
                         headers_override.update(identity_headers)
                 except (AttributeError, TypeError, ValueError) as exc:
                     logger.error(
-                        "Failed to resolve identity headers in chat_completions()",
+                        "Failed to resolve identity headers in _chat_completions_canonical()",
                         exc_info=True,
                     )
                     raise ConfigurationError(
@@ -335,7 +501,7 @@ class OpenRouterBackend(OpenAIConnector):
                     ) from exc
                 except Exception as exc:
                     logger.error(
-                        "Unexpected error resolving identity headers in chat_completions()",
+                        "Unexpected error resolving identity headers in _chat_completions_canonical()",
                         exc_info=True,
                     )
                     raise ConfigurationError(
@@ -346,100 +512,25 @@ class OpenRouterBackend(OpenAIConnector):
             if not headers_override:
                 headers_override = None
 
-            # Determine the exact URL to call so tests that mock it see the
-            # same value. The parent expects `openai_url` kwarg for URL
-            # override; for OpenRouter we set it to our `api_base_url`.
-            call_kwargs = dict(kwargs)
-            call_kwargs["headers_override"] = headers_override
-            call_kwargs["openai_url"] = self.api_base_url
+            # Update merged_options with computed headers_override
+            # Type cast needed: dict[str, str] | None -> JsonValue
+            merged_options["headers_override"] = cast(JsonValue, headers_override)
 
-            # Translate to a base payload using the shared hook so that
-            # processed_messages, effective_model and extra_body are applied
-            # consistently (and tests can patch _prepare_payload).
-            # Note: OpenRouterBackend uses legacy chat_completions signature,
-            # so context is not available here. Pass None for backward compatibility.
-            payload = await self._prepare_payload(
-                domain_request, processed_messages, effective_model, context=None
+            modified_request = ConnectorChatCompletionsRequest(
+                request=request.request,
+                processed_messages=request.processed_messages,
+                effective_model=request.effective_model,
+                identity=request.identity,
+                cancellation_token=request.cancellation_token,
+                cancellation_coordinator=request.cancellation_coordinator,
+                context=request.context,
+                options=merged_options,
             )
 
-            # Add OpenRouter-specific parameters to the payload
-            if domain_request.top_k is not None:
-                payload["top_k"] = domain_request.top_k
-            if domain_request.seed is not None:
-                payload["seed"] = domain_request.seed
-            if domain_request.reasoning_effort is not None:
-                payload["reasoning_effort"] = domain_request.reasoning_effort
-
-            # Add frequency_penalty and presence_penalty if specified
-            if domain_request.frequency_penalty is not None:
-                payload["frequency_penalty"] = domain_request.frequency_penalty
-            if domain_request.presence_penalty is not None:
-                payload["presence_penalty"] = domain_request.presence_penalty
-
-            # OpenAI API parity: additional parameters
-            if domain_request.max_completion_tokens is not None:
-                payload["max_completion_tokens"] = domain_request.max_completion_tokens
-            if domain_request.logprobs is not None:
-                payload["logprobs"] = domain_request.logprobs
-            if domain_request.top_logprobs is not None:
-                payload["top_logprobs"] = domain_request.top_logprobs
-            if domain_request.parallel_tool_calls is not None:
-                payload["parallel_tool_calls"] = domain_request.parallel_tool_calls
-            if domain_request.service_tier is not None:
-                payload["service_tier"] = domain_request.service_tier
-            if domain_request.response_format is not None:
-                payload["response_format"] = domain_request.response_format
-
-            # Phase 3: Advanced OpenAI API parity parameters
-            if domain_request.store is not None:
-                payload["store"] = domain_request.store
-            if domain_request.request_metadata is not None:
-                payload["metadata"] = domain_request.request_metadata
-            if domain_request.prediction is not None:
-                payload["prediction"] = domain_request.prediction
-            if domain_request.modalities is not None:
-                payload["modalities"] = domain_request.modalities
-            if domain_request.audio is not None:
-                payload["audio"] = domain_request.audio
-
-            # Handle extra_body from the request (takes precedence)
-            if hasattr(domain_request, "extra_body") and domain_request.extra_body:
-                for key, value in domain_request.extra_body.items():
-                    payload[key] = value
-
-            # Handle reasoning config
-            if hasattr(domain_request, "reasoning") and domain_request.reasoning:
-                payload["reasoning"] = domain_request.reasoning
-
-            payload = self._clean_openai_payload(payload)
-
-            # Manually call the appropriate handler from the parent class
-            api_base = call_kwargs.get("openai_url") or self.api_base_url
-            url = f"{api_base.rstrip('/')}/chat/completions"
-
-            if domain_request.stream:
-                stream_handle = await self._handle_streaming_response(
-                    url,
-                    payload,
-                    headers_override,
-                    domain_request.session_id or "",
-                    "openai",
-                )
-                return StreamingResponseEnvelope(
-                    content=stream_handle.iterator,
-                    media_type="text/event-stream",
-                    headers={},
-                    cancel_callback=stream_handle.cancel_callback,
-                )
-            else:
-                return await self._handle_non_streaming_response(
-                    url, payload, headers_override, domain_request.session_id or ""
-                )
-        except ServiceUnavailableError:
-            raise
-        except BackendError:
-            raise
+            # Delegate to parent's canonical method
+            return await super()._chat_completions_canonical(modified_request)
         finally:
+            # Restore original values
             self.headers_provider = original_headers_provider
             self.key_name = original_key_name
             self.api_key = original_api_key

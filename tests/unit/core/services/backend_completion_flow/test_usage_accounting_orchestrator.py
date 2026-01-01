@@ -94,7 +94,11 @@ class TestUsageAccountingOrchestrator:
         self, orchestrator, usage_tracking_service
     ):
         # Arrange
-        response = ResponseEnvelope(content="foo", usage={"completion_tokens": 50})
+        from src.core.domain.usage_summary import UsageSummary
+
+        response = ResponseEnvelope(
+            content="foo", usage=UsageSummary.from_dict({"completion_tokens": 50})
+        )
         usage_tracking_service.record_response = AsyncMock()
 
         # Act

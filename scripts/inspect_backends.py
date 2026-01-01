@@ -10,6 +10,7 @@ import argparse
 import sys
 import time
 from datetime import datetime
+from typing import Any
 
 import httpx
 from rich import box
@@ -20,12 +21,12 @@ from rich.text import Text
 from rich.tree import Tree
 
 
-def get_diagnostics(url: str) -> dict:
+def get_diagnostics(url: str) -> dict[str, Any]:
     """Fetch diagnostics from the API."""
     try:
         response = httpx.get(url, timeout=5.0)
         response.raise_for_status()
-        return response.json()
+        return response.json()  # type: ignore[no-any-return]
     except httpx.RequestError as e:
         print(f"Error connecting to {url}: {e}")
         print("Is the LLM Proxy server running?")
@@ -35,7 +36,7 @@ def get_diagnostics(url: str) -> dict:
         sys.exit(1)
 
 
-def create_summary_panel(instances: list) -> Panel:
+def create_summary_panel(instances: list[dict[str, Any]]) -> Panel:
     """Create a summary panel."""
     total = len(instances)
     active = sum(
@@ -62,7 +63,7 @@ def create_summary_panel(instances: list) -> Panel:
     return Panel(grid, title="[bold]System Overview[/bold]", border_style="blue")
 
 
-def display_diagnostics(data: dict):
+def display_diagnostics(data: dict[str, Any]) -> None:
     """Display diagnostics using Rich."""
     console = Console()
 
@@ -97,7 +98,7 @@ def display_diagnostics(data: dict):
     console.print()
 
     # Group by connector type
-    by_type = {}
+    by_type: dict[str, list[dict[str, Any]]] = {}
     for inst in instances:
         ctype = inst.get("connector_type", "unknown")
         if ctype not in by_type:
@@ -112,7 +113,7 @@ def display_diagnostics(data: dict):
             f"[bold cyan]{ctype.upper()}[/bold cyan] [dim]({len(backend_list)})[/dim]"
         )
 
-        for inst in sorted(backend_list, key=lambda x: x.get("name")):
+        for inst in sorted(backend_list, key=lambda x: str(x.get("name", ""))):  # type: ignore[arg-type]
             name = inst.get("name")
             is_functional = inst.get("is_functional", True)
             is_limited = inst.get("is_rate_limited", False)

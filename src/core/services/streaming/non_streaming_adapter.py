@@ -20,8 +20,32 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.ports.streaming_contracts import StreamingContent
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_metadata(metadata: dict[str, Any] | None) -> dict[str, JsonValue]:
+    """Normalize metadata to dict[str, JsonValue] for boundary safety.
+
+    Args:
+        metadata: Raw metadata dictionary or None
+
+    Returns:
+        Normalized metadata with JSON-serializable values only
+    """
+    from src.core.domain.translation_utils.json_utils import (
+        sanitize_dict_for_json,
+    )
+
+    if metadata is None:
+        return {}
+
+    # Sanitize metadata to ensure all values are JSON-serializable
+    sanitized = sanitize_dict_for_json(metadata)
+    return sanitized
 
 
 class NonStreamingAdapter:
@@ -106,21 +130,29 @@ class NonStreamingAdapter:
         # Optimization for single chunk (common in non-streaming)
         if len(collected_chunks) == 1:
             chunk = collected_chunks[0]
-            if isinstance(chunk, StreamingContent | ProcessedResponse) and isinstance(
-                chunk.content, dict
-            ):
+            if isinstance(chunk, StreamingContent | ProcessedResponse):
                 # Check for StopChunkWithUsage special case
                 from src.core.ports.streaming_contracts import StopChunkWithUsage
 
-                if not isinstance(chunk.content, StopChunkWithUsage):
+                # chunk.content is ProcessedChunkContent (bytes | str | dict[str, JsonValue] | None)
+                # After checking for str and bytes above, if we get here it must be dict[str, JsonValue]
+                if isinstance(chunk.content, dict) and not isinstance(
+                    chunk.content, StopChunkWithUsage
+                ):
                     # Remove internal flags from output metadata
                     metadata = dict(chunk.metadata) if chunk.metadata else {}
                     metadata.pop("non_streaming", None)
 
+                    # Normalize content and metadata to ensure boundary safety
+                    normalized_content = normalize_to_processed_chunk_content(
+                        chunk.content
+                    )
+                    normalized_metadata = _normalize_metadata(metadata)
+
                     return ProcessedResponse(
-                        content=chunk.content,
+                        content=normalized_content,
                         usage=chunk.usage,
-                        metadata=metadata,
+                        metadata=normalized_metadata,
                     )
 
         # Process accumulated chunks - use list to avoid O(n²) string concatenation
@@ -142,9 +174,9 @@ class NonStreamingAdapter:
                             content_parts.append(chunk.content.decode("utf-8"))
                         except UnicodeDecodeError:
                             content_parts.append(chunk.content.decode("latin-1"))
-                    elif isinstance(chunk.content, dict):
-                        # For dict content, check for StopChunkWithUsage first
-                        # to avoid leaking usage data into accumulated content
+                    else:
+                        # chunk.content is dict[str, JsonValue] at this point (ProcessedChunkContent = bytes | str | dict[str, JsonValue] | None)
+                        # Check for StopChunkWithUsage first to avoid leaking usage data into accumulated content
                         import json
 
                         from src.core.ports.streaming_contracts import (
@@ -165,8 +197,10 @@ class NonStreamingAdapter:
                     final_usage = chunk.usage
                 if chunk.metadata:
                     final_metadata.update(cast(dict[str, JsonValue], chunk.metadata))
-            elif isinstance(chunk, ProcessedResponse):
+            else:
+                # chunk is ProcessedResponse at this point (collected_chunks: list[StreamingContent | ProcessedResponse | bytes])
                 # Handle ProcessedResponse directly
+                # Type narrowing: after checking bytes and StreamingContent, chunk must be ProcessedResponse
                 if chunk.content:
                     content_parts.append(str(chunk.content))
                 if chunk.usage:
@@ -180,10 +214,13 @@ class NonStreamingAdapter:
         # Remove internal flags from output metadata
         final_metadata.pop("non_streaming", None)
 
+        # Normalize metadata to ensure boundary safety
+        normalized_metadata = _normalize_metadata(final_metadata)
+
         return ProcessedResponse(
             content=final_content,
             usage=final_usage,
-            metadata=final_metadata,
+            metadata=normalized_metadata,
         )
 
 
@@ -200,13 +237,11 @@ def _extract_content(response: Any) -> str:
                 return content.decode("utf-8")
             except UnicodeDecodeError:
                 return content.decode("latin-1")
-        if isinstance(content, dict):
-            # Use safe_json_dumps to handle StopChunkWithUsage correctly
-            from src.core.ports.streaming_contracts import StopChunkWithUsage
+        # content is dict[str, JsonValue] at this point (ProcessedChunkContent = bytes | str | dict[str, JsonValue] | None)
+        # Use safe_json_dumps to handle StopChunkWithUsage correctly
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
 
-            return StopChunkWithUsage.safe_json_dumps(content)
-        # Fallback: convert any remaining type to string
-        return str(content) if content else ""
+        return StopChunkWithUsage.safe_json_dumps(content)  # type: ignore[arg-type]
 
     if isinstance(response, StreamingContent):
         content = response.content
@@ -217,18 +252,17 @@ def _extract_content(response: Any) -> str:
                 return content.decode("utf-8")
             except UnicodeDecodeError:
                 return content.decode("latin-1")
-        if isinstance(content, dict):
-            # Use safe_json_dumps to handle StopChunkWithUsage correctly
-            from src.core.ports.streaming_contracts import StopChunkWithUsage
+        # content is dict[str, JsonValue] at this point
+        # Use safe_json_dumps to handle StopChunkWithUsage correctly
+        from src.core.ports.streaming_contracts import StopChunkWithUsage
 
-            return StopChunkWithUsage.safe_json_dumps(content)
-        return str(content) if content else ""
+        return StopChunkWithUsage.safe_json_dumps(content)  # type: ignore[arg-type]
 
     if isinstance(response, dict):
         # OpenAI-style response
-        choices = response.get("choices", [])
+        choices: list[Any] = response.get("choices", [])  # type: ignore[assignment]
         if choices and isinstance(choices, list) and len(choices) > 0:
-            choice = choices[0]
+            choice: dict[str, Any] = choices[0]
             if isinstance(choice, dict):
                 # Check for message.content (non-streaming)
                 message = choice.get("message")
@@ -291,9 +325,9 @@ def _extract_metadata(response: Any) -> dict[str, Any]:
             if key in response:
                 metadata[key] = response[key]
         # Extract finish_reason from choices
-        choices = response.get("choices", [])
+        choices: list[Any] = response.get("choices", [])  # type: ignore[assignment]
         if choices and isinstance(choices, list) and len(choices) > 0:
-            choice = choices[0]
+            choice: dict[str, Any] = choices[0]
             if isinstance(choice, dict):
                 finish_reason = choice.get("finish_reason")
                 if finish_reason:
@@ -321,27 +355,27 @@ def _extract_tool_calls(response: Any) -> list[dict[str, Any]] | None:
     if isinstance(response, StreamingContent):
         tool_calls = response.metadata.get("tool_calls")
         if isinstance(tool_calls, list) and all(
-            isinstance(item, dict) for item in tool_calls
+            isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
         ):
             return cast(list[dict[str, Any]], tool_calls)
 
     if isinstance(response, dict):
         # Check in choices[0].message.tool_calls (OpenAI format)
-        choices = response.get("choices", [])
+        choices: list[Any] = response.get("choices", [])  # type: ignore[assignment]
         if choices and isinstance(choices, list) and len(choices) > 0:
-            choice = choices[0]
+            choice: dict[str, Any] = choices[0]
             if isinstance(choice, dict):
                 message = choice.get("message")
                 if isinstance(message, dict):
                     tool_calls = message.get("tool_calls")
                     if isinstance(tool_calls, list) and all(
-                        isinstance(item, dict) for item in tool_calls
+                        isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
                     ):
                         return cast(list[dict[str, Any]], tool_calls)
         # Check direct tool_calls field
         tool_calls = response.get("tool_calls")
         if isinstance(tool_calls, list) and all(
-            isinstance(item, dict) for item in tool_calls
+            isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
         ):
             return cast(list[dict[str, Any]], tool_calls)
 

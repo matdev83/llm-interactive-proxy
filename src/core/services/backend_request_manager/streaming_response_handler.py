@@ -367,7 +367,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         try:
             # Extract RequestContext from middleware_context for cancellation gate
             request_context: RequestContext | None = None
-            if middleware_context and isinstance(middleware_context, dict):
+            if middleware_context:
                 request_context = middleware_context.get("request_context")
                 if not isinstance(request_context, RequestContext):
                     request_context = None
@@ -747,44 +747,28 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 original_request_payload = None
 
             async for chunk in monitored_stream():
-                if isinstance(chunk, ProcessedResponse):
-                    # OPTIMIZATION: Modify metadata in-place to avoid copying dicts per-token
-                    if chunk.metadata is None:
-                        chunk.metadata = {}
+                # monitored_stream() returns AsyncIterator[ProcessedResponse], so chunk is always ProcessedResponse
+                # NFR1.3: Preserve copy-on-write behavior - create new instance instead of mutating
+                # Start with existing metadata or empty dict
+                processed_metadata = dict(chunk.metadata) if chunk.metadata else {}
 
-                    # We own this chunk (transient), so in-place modification is safe and faster
-                    processed_metadata = chunk.metadata  # type: ignore
-
-                    if original_request_payload is not None:
-                        processed_metadata.setdefault(
-                            "original_request", original_request_payload
-                        )
+                if original_request_payload is not None:
                     processed_metadata.setdefault(
-                        "session_id", processing_context.session_id
+                        "original_request", original_request_payload
                     )
-                    if processing_context.client_os:
-                        processed_metadata.setdefault(
-                            "client_os", cast(JsonValue, processing_context.client_os)
-                        )
-                    # No need to re-assign chunk.metadata as we modified it in place
-                    yield chunk
-                else:
-                    metadata: dict[str, JsonValue] = {}
-                    if hasattr(chunk, "metadata"):
-                        raw_metadata = chunk.metadata
-                        if isinstance(raw_metadata, dict):
-                            metadata = cast(dict[str, JsonValue], dict(raw_metadata))
-                    if original_request_payload is not None:
-                        metadata.setdefault(
-                            "original_request", original_request_payload
-                        )
-                    metadata.setdefault("session_id", processing_context.session_id)
-                    if processing_context.client_os:
-                        metadata.setdefault(
-                            "client_os", cast(JsonValue, processing_context.client_os)
-                        )
-                    content_value = getattr(chunk, "content", chunk)
-                    yield ProcessedResponse(content=content_value, metadata=metadata)
+                processed_metadata.setdefault(
+                    "session_id", processing_context.session_id
+                )
+                if processing_context.client_os:
+                    processed_metadata.setdefault(
+                        "client_os", cast(JsonValue, processing_context.client_os)
+                    )
+                # Create new ProcessedResponse instance with updated metadata (copy-on-write)
+                yield ProcessedResponse(
+                    content=chunk.content,
+                    usage=chunk.usage,
+                    metadata=processed_metadata,
+                )
 
         # Gate empty stream
         async def gate_empty_stream() -> AsyncIterator[ProcessedResponse]:

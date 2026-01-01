@@ -32,9 +32,19 @@ Default stage order:
 
 ### Dependency injection (DI)
 - Container: `ServiceCollection` in `src/core/di/container.py`
-- Bulk registrations: `src/core/di/services.py`
+- Public registration facade: `src/core/di/services.py` (`register_core_services`)
+- Registration orchestrator: `src/core/di/registrations/_orchestrator.py` (calls into focused registrars under `src/core/di/registrations/`)
 - Interfaces: `src/core/interfaces/` (`I*` naming, used for DI/test seams)
 - Factory style: some registrations use an `IServiceProvider` factory for complex wiring
+
+### Hexagonal boundaries (ports/adapters vs interfaces)
+Refactors introduced a clearer “core vs transport” split:
+
+- `src/core/interfaces/`: DI/test seams (`I*` contracts), typically class-based and service-oriented
+- `src/core/ports/`: transport-neutral protocol normalization + streaming primitives (used by services/transports)
+- `src/core/adapters/`: small adapter helpers for translating external payloads into domain models (transports may re-export)
+
+Guiding rule: keep transport-specific types (FastAPI/Starlette HTTP request/response) in `src/core/transport/*` and `src/core/app/*`; keep reusable transformation logic transport-neutral where possible.
 
 ### Request processing (ProcessorStage)
 The HTTP request path is orchestrated by a small “orchestrator” plus a set of internal phase components. Source of truth:
@@ -65,7 +75,7 @@ Backend calls are orchestrated via a dedicated coordinator that centralizes fail
 
 - Base exception: `LLMProxyError` in `src/core/common/exceptions.py`
 - Pattern: domain/service code raises `LLMProxyError` subclasses; FastAPI layer maps to JSON responses.
-- Adapters/handlers: see `src/core/app/error_handlers.py` and `src/core/transport/fastapi/exception_adapters.py`
+- Adapters/handlers: see `src/core/app/error_handlers.py` and `src/core/transport/fastapi/exception_adapters.py` (transport-specific mapping)
 
 ## Configuration & Schemas
 
@@ -139,3 +149,6 @@ Use the in-repo venv interpreter:
 _Updated: 2025-12-27_
 _Reason: Add explicit TDD + “tests as executable specification” guidance_
 _Keep this file factual: describe stable patterns and point to sources of truth_
+
+_Updated: 2026-01-01_
+_Reason: Document ports/adapters split added during refactors (hexagonal boundary clarification)_

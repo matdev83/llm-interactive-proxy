@@ -17,6 +17,9 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import IStreamProcessor, handle_streaming_error
 from src.core.ports.streaming_orchestrator import create_pipeline_for_provider
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
 from src.core.ports.streaming_processors import (
     LoopDetectionProcessor as PortsLoopDetectionProcessor,
 )
@@ -172,7 +175,10 @@ async def integrate_streaming_pipeline(
         )
 
         async def error_stream() -> AsyncIterator[ProcessedResponse]:
-            yield ProcessedResponse(content=error_chunk.to_bytes())
+            normalized_content = normalize_to_processed_chunk_content(
+                error_chunk.to_bytes()
+            )
+            yield ProcessedResponse(content=normalized_content)
 
         return StreamingResponseEnvelope(
             content=error_stream(),
@@ -198,7 +204,10 @@ async def integrate_streaming_pipeline(
         error_chunk = await handle_streaming_error(e, stream_id, provider)
 
         async def error_stream() -> AsyncIterator[ProcessedResponse]:
-            yield ProcessedResponse(content=error_chunk.to_bytes())
+            normalized_content = normalize_to_processed_chunk_content(
+                error_chunk.to_bytes()
+            )
+            yield ProcessedResponse(content=normalized_content)
 
         return StreamingResponseEnvelope(
             content=error_stream(),
@@ -216,9 +225,11 @@ async def integrate_streaming_pipeline(
                 stream_id=stream_id,
                 output_format="sse",
             ):
-                # Wrap SSE bytes in ProcessedResponse for compatibility
+                # Normalize SSE bytes to ProcessedChunkContent before wrapping
+                normalized_content = normalize_to_processed_chunk_content(sse_bytes)
+                # Wrap normalized content in ProcessedResponse for compatibility
                 # The response adapter will handle these correctly
-                yield ProcessedResponse(content=sse_bytes)
+                yield ProcessedResponse(content=normalized_content)
         except Exception as e:
             logger.error(
                 "Error in streaming pipeline",
@@ -230,7 +241,10 @@ async def integrate_streaming_pipeline(
                 },
             )
             error_chunk = await handle_streaming_error(e, stream_id, provider)
-            yield ProcessedResponse(content=error_chunk.to_bytes())
+            normalized_content = normalize_to_processed_chunk_content(
+                error_chunk.to_bytes()
+            )
+            yield ProcessedResponse(content=normalized_content)
             return
         finally:
             # Ensure raw stream is closed

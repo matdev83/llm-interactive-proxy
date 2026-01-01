@@ -15,6 +15,9 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from src.connectors.base import LLMBackend
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+)
 from src.connectors.hybrid_backend.compatibility import (
     HybridConnectorCompatibilityMixin,
 )
@@ -35,11 +38,10 @@ from src.connectors.hybrid_backend.services import (
     ResponseBuilder,
     ResponseFilter,
 )
+from src.core.common.exceptions import InvalidRequestError
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.session_key import SessionKey
-from src.core.interfaces.configuration_interface import IAppIdentityConfig
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 
 if TYPE_CHECKING:
@@ -203,44 +205,142 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
         """
         return []
 
-    async def chat_completions(
+    async def chat_completions(  # type: ignore[override]
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
-        processed_messages: list,
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        # Structural enforcement: check cancellation immediately if coordinator and token provided
-        if cancellation_coordinator is not None and cancellation_token is not None:
-            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
-        """Execute the two-phase hybrid completion.
+        """Canonical connector API implementation with backward compatibility.
 
-        Args:
-            request_data: Original request
-            processed_messages: Messages after command processing
-            effective_model: Format "hybrid:[backend:model,backend:model]"
-            identity: Optional identity configuration
-            **kwargs: Additional arguments
-
-        Returns:
-            Response envelope (streaming or non-streaming) with execution model's response
-
-        Raises:
-            ValueError: If model specification is invalid
-            ConfigurationError: If hybrid backend is disabled
-            BackendError: If either phase fails (HTTP 502)
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        For backward compatibility, also accepts legacy signature:
+        chat_completions(request_data, processed_messages, effective_model, ...)
         """
-        return await self._orchestrator.execute(
-            request_data=request_data,
+        # Handle legacy API called with keyword arguments only (request_data=...)
+        if request is None and "request_data" in kwargs:
+            request = kwargs.pop("request_data")
+
+        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            return await self._chat_completions_canonical(request)
+
+        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
+        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
+        # This connector should only receive canonical domain models (never dicts).
+        request_data = request
+        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
+        effective_model = (
+            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        )
+        identity = kwargs.get("identity")
+        cancellation_token = kwargs.get("cancellation_token")
+        cancellation_coordinator = kwargs.get("cancellation_coordinator")
+        context = None  # Legacy API doesn't provide context
+        options = {
+            k: v
+            for k, v in kwargs.items()
+            if k
+            not in [
+                "identity",
+                "cancellation_token",
+                "cancellation_coordinator",
+                "processed_messages",
+                "effective_model",
+                "request_data",
+            ]
+        }
+
+        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
+        if isinstance(request_data, dict):
+            raise InvalidRequestError(
+                message="Legacy connector API received dict input. "
+                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": "dict",
+                    "connector": "hybrid",
+                },
+            )
+
+        # Ensure processed_messages is a Sequence[ChatMessage]
+        if processed_messages:
+            invalid_messages = [
+                (i, type(msg).__name__)
+                for i, msg in enumerate(processed_messages)
+                if not isinstance(msg, ChatMessage)
+            ]
+            if invalid_messages:
+                raise InvalidRequestError(
+                    message="Legacy connector API received non-canonical processed_messages. "
+                    "Expected Sequence[ChatMessage], but received mixed types.",
+                    details={
+                        "invalid_indices": [idx for idx, _ in invalid_messages],
+                        "invalid_types": [typ for _, typ in invalid_messages],
+                        "connector": "hybrid",
+                    },
+                )
+
+        # Accept only canonical domain models
+        if isinstance(request_data, ChatRequest):
+            domain_request = CanonicalChatRequest.model_validate(
+                request_data.model_dump()
+            )
+        elif isinstance(request_data, CanonicalChatRequest):
+            domain_request = request_data
+        else:
+            raise InvalidRequestError(
+                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": type(request_data).__name__,
+                    "connector": "hybrid",
+                },
+            )
+
+        canonical_request = ConnectorChatCompletionsRequest(
+            request=domain_request,
             processed_messages=processed_messages,
             effective_model=effective_model,
             identity=identity,
-            **kwargs,
+            cancellation_token=cancellation_token,
+            cancellation_coordinator=cancellation_coordinator,
+            context=context,
+            options=options,
+        )
+
+        return await self._chat_completions_canonical(canonical_request)
+
+    async def _chat_completions_canonical(
+        self,
+        request: ConnectorChatCompletionsRequest,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Canonical connector API implementation.
+
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        It delegates to the orchestrator with canonical request data.
+        """
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if (
+            request.cancellation_coordinator is not None
+            and request.cancellation_token is not None
+        ):
+            request.cancellation_coordinator.ensure_not_cancelled(
+                request.cancellation_token
+            )
+
+        # Extract options for orchestrator
+        options = request.options or {}
+
+        # Delegate to orchestrator with canonical request fields
+        # The orchestrator's execute method accepts legacy signature, so we pass
+        # the canonical request fields as separate parameters
+        return await self._orchestrator.execute(
+            request_data=request.request,
+            processed_messages=list(request.processed_messages),
+            effective_model=request.effective_model,
+            identity=request.identity,
+            **options,
         )
 
 

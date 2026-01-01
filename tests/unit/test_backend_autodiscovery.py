@@ -37,7 +37,7 @@ class TestBackendAutoDiscovery:
                 del sys.modules[module_name]
 
             # Import connectors to trigger auto-discovery
-            import src.connectors  # noqa: F401
+            import src.connectors  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
             # Get all registered backends
             registered = test_registry.get_registered_backends()
@@ -164,7 +164,7 @@ class TestBackendAutoDiscovery:
                 del sys.modules[module_name]
 
             # Import connectors
-            import src.connectors  # noqa: F401
+            import src.connectors  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
             # base.py should not register any backend
             registered = test_registry.get_registered_backends()
@@ -227,9 +227,11 @@ class TestBackendRegistryInterface:
                 processed_messages: list[dict[str, Any]],
                 effective_model: str,
                 identity: IAppIdentityConfig | None = None,
+                cancellation_token: Any | None = None,
+                cancellation_coordinator: Any | None = None,
                 **kwargs: Any,
             ) -> ResponseEnvelope | StreamingResponseEnvelope:
-                return ResponseEnvelope(content={}, usage={})
+                return ResponseEnvelope(content={}, usage=None)
 
             async def stream_chat_completions(
                 self,
@@ -279,9 +281,11 @@ class TestBackendRegistryInterface:
                 processed_messages: list[dict[str, Any]],
                 effective_model: str,
                 identity: IAppIdentityConfig | None = None,
+                cancellation_token: Any | None = None,
+                cancellation_coordinator: Any | None = None,
                 **kwargs: Any,
             ) -> ResponseEnvelope | StreamingResponseEnvelope:
-                return ResponseEnvelope(content={}, usage={})
+                return ResponseEnvelope(content={}, usage=None)
 
             async def stream_chat_completions(
                 self,
@@ -343,9 +347,11 @@ class TestBackendRegistryInterface:
                 processed_messages: list[dict[str, Any]],
                 effective_model: str,
                 identity: IAppIdentityConfig | None = None,
+                cancellation_token: Any | None = None,
+                cancellation_coordinator: Any | None = None,
                 **kwargs: Any,
             ) -> ResponseEnvelope | StreamingResponseEnvelope:
-                return ResponseEnvelope(content={}, usage={})
+                return ResponseEnvelope(content={}, usage=None)
 
             async def stream_chat_completions(
                 self,

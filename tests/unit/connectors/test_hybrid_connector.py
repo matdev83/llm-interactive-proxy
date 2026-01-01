@@ -843,11 +843,15 @@ class TestErrorHandling:
         with pytest.raises(ConfigurationError) as exc_info:
             # Use asyncio to run the async method
             import asyncio
+            from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
             asyncio.run(
                 connector.chat_completions(
-                    request_data={"model": "hybrid:[openai:gpt-4,openai:gpt-3.5]"},
-                    processed_messages=[{"role": "user", "content": "test"}],
+                    request_data=CanonicalChatRequest(
+                        model="hybrid:[openai:gpt-4,openai:gpt-3.5]",
+                        messages=[ChatMessage(role="user", content="test")],
+                    ),
+                    processed_messages=[ChatMessage(role="user", content="test")],
                     effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5]",
                 )
             )
@@ -902,9 +906,13 @@ class TestErrorHandling:
         """Test execution phase API failure."""
         # Mock BackendService to raise an error when call_completion is called
         mock_backend_service = AsyncMock()
+
         # Make call_completion an async function that raises BackendError with execution context
         async def failing_call_completion(*args, **kwargs):
-            raise BackendError("Execution phase failed: API Error", backend_name="openai")
+            raise BackendError(
+                "Execution phase failed: API Error", backend_name="openai"
+            )
+
         mock_backend_service.call_completion = failing_call_completion
 
         # Patch get_required_service at the module where it's imported from
@@ -1256,11 +1264,14 @@ class TestHybridToolCallShortCircuit:
     async def test_streaming_skip_execution_on_tool_call(
         self, hybrid_connector
     ) -> None:
-        request_payload = {
-            "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
-            "messages": [{"role": "user", "content": "Plan the steps"}],
-            "stream": True,
-        }
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_payload = CanonicalChatRequest(
+            model="hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+            messages=[ChatMessage(role="user", content="Plan the steps")],
+            stream=True,
+        )
+        processed_messages = [ChatMessage(role="user", content="Plan the steps")]
         tool_calls = [
             {
                 "id": "call_123",
@@ -1294,8 +1305,8 @@ class TestHybridToolCallShortCircuit:
         ):
             response = await hybrid_connector.chat_completions(
                 request_payload,
-                processed_messages=request_payload["messages"],
-                effective_model=request_payload["model"],
+                processed_messages=processed_messages,
+                effective_model=request_payload.model,
             )
 
         assert isinstance(response, StreamingResponseEnvelope)
@@ -1312,11 +1323,14 @@ class TestHybridToolCallShortCircuit:
     async def test_non_streaming_skip_execution_on_tool_call(
         self, hybrid_connector
     ) -> None:
-        request_payload = {
-            "model": "hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
-            "messages": [{"role": "user", "content": "Plan the steps"}],
-            "stream": False,
-        }
+        from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
+        request_payload = CanonicalChatRequest(
+            model="hybrid:[minimax:MiniMax-M2,qwen-oauth:qwen3-coder-plus]",
+            messages=[ChatMessage(role="user", content="Plan the steps")],
+            stream=False,
+        )
+        processed_messages = [ChatMessage(role="user", content="Plan the steps")]
         tool_calls = [
             {
                 "id": "call_456",
@@ -1350,12 +1364,19 @@ class TestHybridToolCallShortCircuit:
         ):
             response = await hybrid_connector.chat_completions(
                 request_payload,
-                processed_messages=request_payload["messages"],
-                effective_model=request_payload["model"],
+                processed_messages=processed_messages,
+                effective_model=request_payload.model,
             )
 
         assert isinstance(response, ResponseEnvelope)
+        assert isinstance(response.content, dict)
+        assert "choices" in response.content
+        assert isinstance(response.content["choices"], list)
+        assert len(response.content["choices"]) > 0
         choice = response.content["choices"][0]
+        assert isinstance(choice, dict)
+        assert "message" in choice
+        assert isinstance(choice["message"], dict)
         assert choice["message"]["tool_calls"] == tool_calls
         assert choice["message"]["content"] == ""
         assert choice["finish_reason"] == "tool_calls"

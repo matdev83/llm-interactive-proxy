@@ -7,6 +7,8 @@ import logging
 import time
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.connectors.base import LLMBackend
 from src.core.common.exceptions import (
     AuthenticationError,
@@ -38,6 +40,9 @@ from src.core.interfaces.usage_normalization_service_interface import (
 from src.core.interfaces.usage_tracking_interface import IUsageTrackingService
 from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingWrapper
 from src.core.services.resilience.scope import build_resilience_instance_id
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
 from src.core.utils.usage_recalculation import calculate_outbound_tokens
 
 logger = logging.getLogger(__name__)
@@ -57,7 +62,7 @@ def _to_usage_summary(usage: Any) -> UsageSummary | None:
     if isinstance(usage, UsageSummary):
         return usage
     if isinstance(usage, dict):
-        return UsageSummary.from_dict(usage)
+        return UsageSummary.from_dict(usage)  # type: ignore[reportUnknownArgumentType]
     # Try to extract dict from Pydantic models
     if hasattr(usage, "model_dump"):
         return UsageSummary.from_dict(usage.model_dump())
@@ -70,6 +75,27 @@ def _to_usage_summary(usage: Any) -> UsageSummary | None:
 
 class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
     """Handles usage accounting, response wrapping, and lifecycle updates."""
+
+    @staticmethod
+    def _normalize_metadata(metadata: dict[str, Any] | None) -> dict[str, JsonValue]:
+        """Normalize metadata to dict[str, JsonValue] for boundary safety.
+
+        Args:
+            metadata: Raw metadata dictionary or None
+
+        Returns:
+            Normalized metadata with JSON-serializable values only
+        """
+        from src.core.domain.translation_utils.json_utils import (
+            sanitize_dict_for_json,
+        )
+
+        if metadata is None:
+            return {}
+
+        # Sanitize metadata to ensure all values are JSON-serializable
+        sanitized = sanitize_dict_for_json(metadata)
+        return sanitized
 
     def __init__(
         self,
@@ -241,11 +267,11 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                     ):
                         usage_dict = usage.model_dump()  # type: ignore[attr-defined]
                     elif isinstance(usage, dict):
-                        usage_dict = usage
+                        usage_dict = usage  # type: ignore[reportUnknownVariableType]
                     else:
                         usage_dict = {}
 
-                    completion_tokens_raw = usage_dict.get("completion_tokens", 0)
+                    completion_tokens_raw = usage_dict.get("completion_tokens", 0)  # type: ignore[reportUnknownMemberType]
                     completion_tokens = (
                         int(completion_tokens_raw)
                         if isinstance(completion_tokens_raw, int | float | str)
@@ -257,7 +283,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         await self._usage_tracking_service.record_response(
                             record_id=ptb_record_id,
                             completion_tokens=completion_tokens,
-                            backend_reported_usage=usage_dict,
+                            backend_reported_usage=usage_dict,  # type: ignore[reportUnknownArgumentType]
                             http_status_code=getattr(result, "status_code", 200),
                             total_duration_ms=duration_ms,
                         )
@@ -266,7 +292,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         await self._usage_tracking_service.record_response(
                             record_id=ctp_record_id,
                             completion_tokens=completion_tokens,
-                            backend_reported_usage=usage_dict,
+                            backend_reported_usage=usage_dict,  # type: ignore[reportUnknownArgumentType]
                             http_status_code=getattr(result, "status_code", 200),
                             total_duration_ms=duration_ms,
                         )
@@ -375,56 +401,47 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             try:
                 if original_content:
                     async for chunk in original_content:  # type: ignore
-                        if isinstance(chunk, ProcessedResponse):
-                            # Merge session_id into existing metadata
-                            metadata = dict(chunk.metadata or {})
-                            if session_id and "session_id" not in metadata:
-                                metadata["session_id"] = session_id
-                            if session_id and "stream_id" not in metadata:
-                                metadata["stream_id"] = session_id
+                        # chunk is ProcessedResponse from AsyncIterator[ProcessedResponse]
+                        # Merge session_id into existing metadata
+                        metadata = dict(chunk.metadata or {})
+                        if session_id and "session_id" not in metadata:
+                            metadata["session_id"] = session_id
+                        if session_id and "stream_id" not in metadata:
+                            metadata["stream_id"] = session_id
 
-                            # Track usage from chunks
-                            if chunk.usage:
-                                accumulated_usage = _to_usage_summary(chunk.usage)
+                        # Track usage from chunks
+                        if chunk.usage:
+                            accumulated_usage = _to_usage_summary(chunk.usage)
 
-                            # Check for error metadata (take precedence over exception-based classification)
-                            if isinstance(metadata, dict):
-                                error_info = metadata.get("error")
-                                if error_info and isinstance(error_info, dict):
-                                    error_type = error_info.get("type", "")
-                                    if isinstance(error_type, str):
-                                        error_type_lower = error_type.lower()
-                                        if "timeout" in error_type_lower:
-                                            error_classification = "timeout"
-                                        elif (
-                                            "backenderror" in error_type_lower
-                                            or "backend_error" in error_type_lower
-                                        ):
-                                            error_classification = "backend_error"
-                                        elif (
-                                            "connectionerror" in error_type_lower
-                                            or "connection_error" in error_type_lower
-                                        ):
-                                            error_classification = "connection_error"
+                        # Check for error metadata (take precedence over exception-based classification)
+                        error_info = metadata.get("error")
+                        if error_info and isinstance(error_info, dict):
+                            error_type = error_info.get("type", "")
+                            if isinstance(error_type, str):
+                                error_type_lower = error_type.lower()
+                                if "timeout" in error_type_lower:
+                                    error_classification = "timeout"
+                                elif (
+                                    "backenderror" in error_type_lower
+                                    or "backend_error" in error_type_lower
+                                ):
+                                    error_classification = "backend_error"
+                                elif (
+                                    "connectionerror" in error_type_lower
+                                    or "connection_error" in error_type_lower
+                                ):
+                                    error_classification = "connection_error"
 
-                            yield ProcessedResponse(
-                                content=chunk.content,
-                                metadata=metadata,
-                                usage=_to_usage_summary(chunk.usage),
-                            )
-                        else:
-                            # Wrap raw chunk with session_id
-                            yield ProcessedResponse(
-                                content=chunk,
-                                metadata=(
-                                    {
-                                        "session_id": session_id,
-                                        "stream_id": session_id,
-                                    }
-                                    if session_id
-                                    else {}
-                                ),
-                            )
+                        # Normalize content and metadata to ensure boundary safety
+                        normalized_content = normalize_to_processed_chunk_content(
+                            chunk.content
+                        )
+                        normalized_metadata = self._normalize_metadata(metadata)
+                        yield ProcessedResponse(
+                            content=normalized_content,
+                            metadata=normalized_metadata,
+                            usage=_to_usage_summary(chunk.usage),
+                        )
 
                 # Stream completed successfully
                 completion_outcome = UsageCompletionOutcome.complete
@@ -432,10 +449,8 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                 # Client disconnected - this is expected
                 completion_outcome = UsageCompletionOutcome.incomplete
                 if context and context.processing_context:
-                    if context.processing_context.values is None:
-                        from src.core.domain.request_context import ProcessingContext
-
-                        context.processing_context = ProcessingContext(values={})
+                    # processing_context.values is dict[str, Any], not None, so no need to check
+                    pass
                     context.processing_context.values["cancel_reason"] = (
                         "client_disconnect"
                     )

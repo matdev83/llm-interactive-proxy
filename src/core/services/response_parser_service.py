@@ -2,7 +2,6 @@ import json
 import logging
 from typing import Any, cast
 
-from src.core.common.exceptions import ParsingError
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.response_parser_interface import IResponseParser
 
@@ -38,9 +37,9 @@ class ResponseParser(IResponseParser):
         if isinstance(raw_response, ChatResponse):
             metadata["model"] = raw_response.model
             metadata["id"] = raw_response.id
-            from datetime import datetime
+            from datetime import datetime, timezone
 
-            dt_object = datetime.utcfromtimestamp(raw_response.created)
+            dt_object = datetime.fromtimestamp(raw_response.created, tz=timezone.utc)
             metadata["created"] = dt_object.isoformat(timespec="seconds")
 
             if raw_response.choices:
@@ -64,7 +63,23 @@ class ResponseParser(IResponseParser):
             if response_content is not None and isinstance(response_content, dict):
                 # Explicitly cast to dict to help Mypy with type narrowing
                 response_content = cast(dict[str, Any], response_content)
-                choices = response_content.get("choices", [])
+                # Check for Responses API format (response.choices) first
+                # If it's a Responses API response, preserve the full structure in metadata
+                # so that the content converter can reconstruct it later
+                if "response" in response_content and isinstance(response_content.get("response"), dict):
+                    # This is a Responses API response - preserve the full structure
+                    metadata["original_responses_api_response"] = response_content
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "ResponseParser preserved Responses API response in metadata - response_id=%s",
+                            response_content.get("id", "unknown")
+                        )
+                    # Extract content from response.choices[0].message.content for compatibility
+                    response_wrapper = response_content.get("response", {})
+                    choices = response_wrapper.get("choices", [])
+                else:
+                    # Fall back to Chat Completions format (choices at top level)
+                    choices = response_content.get("choices", [])
                 if choices and isinstance(choices, list) and len(choices) > 0:
                     choice = choices[0]
                     if isinstance(choice, dict) and "message" in choice:
@@ -98,9 +113,9 @@ class ResponseParser(IResponseParser):
             metadata["id"] = raw_response.get("id", "")
             created_timestamp = raw_response.get("created", 0)
             if isinstance(created_timestamp, int | float):
-                from datetime import datetime
+                from datetime import datetime, timezone
 
-                dt_object = datetime.utcfromtimestamp(created_timestamp)
+                dt_object = datetime.fromtimestamp(created_timestamp, tz=timezone.utc)
                 metadata["created"] = dt_object.isoformat(timespec="seconds")
             else:
                 metadata["created"] = created_timestamp
@@ -145,11 +160,9 @@ class ResponseParser(IResponseParser):
 
         elif raw_response is None:
             content = ""
-
-        elif isinstance(raw_response, str):
-            content = raw_response
         else:
-            raise ParsingError(f"Unsupported response type: {type(raw_response)}")
+            # raw_response must be str at this point
+            content = raw_response
 
         return {"content": content, "usage": usage, "metadata": metadata}
 

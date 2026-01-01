@@ -14,7 +14,7 @@ def main():
     print(f"Type: {type(data)}")
     if isinstance(data, dict):
         print(f"Keys: {data.keys()}")
-        for key, value in data.items():
+        for key, value in data.items():  # type: ignore[reportUnknownVariableType]
             print(
                 f"  {key}: {type(value)}, len={len(value) if hasattr(value, '__len__') else 'N/A'}"
             )

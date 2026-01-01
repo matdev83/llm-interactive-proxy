@@ -48,6 +48,9 @@ from src.core.services.resilience.scope import (
     build_resilience_error_context,
     build_resilience_instance_id,
 )
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
@@ -128,7 +131,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._resilience = resilience_coordinator
         self._exception_normalizer = exception_normalizer
         self._stream_formatting_service = stream_formatting_service
-        self._eos_adapter = eos_adapter
+        self._eos_adapter = eos_adapter  # type: ignore[reportUnknownVariableType]
         self._cancellation_coordinator = cancellation_coordinator
         self._non_forwardable_enforcer = non_forwardable_enforcer
         self._connector_invoker = connector_invoker
@@ -176,7 +179,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
     ) -> Exception:
         candidate = self._exception_normalizer.normalize(exc, backend_type)
 
-        if isinstance(candidate, Exception) and isinstance(candidate, LLMProxyError):
+        if isinstance(candidate, LLMProxyError):
             # Preserve status_code from original exception if candidate doesn't have one
             if (
                 not hasattr(candidate, "status_code")
@@ -188,8 +191,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             return candidate
 
         if (
-            isinstance(candidate, Exception)
-            and isinstance(getattr(candidate, "status_code", None), int)
+            isinstance(getattr(candidate, "status_code", None), int)
             and not isinstance(candidate, LLMProxyError)
         ):
             # Fallback: ensure framework/transport exceptions (e.g. HTTPException) are
@@ -200,13 +202,10 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             fallback_candidate = ExceptionNormalizer().normalize(
                 candidate, backend_type
             )
-            if isinstance(fallback_candidate, Exception) and isinstance(
-                fallback_candidate, LLMProxyError
-            ):
+            if isinstance(fallback_candidate, LLMProxyError):
                 return fallback_candidate
 
-        if isinstance(candidate, Exception):
-            return candidate
+        return candidate
 
         # Preserve status_code from original exception when creating new BackendError
         original_status_code = getattr(exc, "status_code", None)
@@ -511,7 +510,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                             )
 
                             async for b in wrapped_stream:
-                                yield ProcessedResponse(content=b, metadata={})
+                                # Normalize bytes to ProcessedChunkContent before wrapping
+                                normalized_content = (
+                                    normalize_to_processed_chunk_content(b)
+                                )
+                                yield ProcessedResponse(
+                                    content=normalized_content, metadata={}
+                                )
 
                         result.content = _to_processed_with_capture()  # type: ignore[assignment]
 
@@ -572,7 +577,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     backend_type=backend_type,
                     effective_model=effective_model,
                     key_name=key_name,
-                    response_content=response_content,
+                    response_content=response_content,  # type: ignore[reportUnknownArgumentType]
                     canonical_usage=canonical_usage_for_capture,
                 )
 
@@ -609,13 +614,6 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 normalized_exc = self._normalize_backend_exception(
                     call_exc, backend_type
                 )
-                # Safety check: ensure normalized_exc is actually an Exception
-                if not isinstance(normalized_exc, Exception):
-                    normalized_exc = BackendError(
-                        message=f"Backend call failed: {call_exc!s}",
-                        backend_name=backend_type,
-                    )
-                    normalized_exc.__cause__ = call_exc
 
                 # Check if this is an authentication failure first
                 is_auth_failure = False
@@ -692,9 +690,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 )
 
                 # 3. Record EoS error termination signal (fail-open)
-                if self._eos_adapter is not None:
+                if self._eos_adapter is not None:  # type: ignore[reportUnknownVariableType]
                     try:
-                        await self._eos_adapter.record_error_termination(
+                        await self._eos_adapter.record_error_termination(  # type: ignore[reportUnknownMemberType]
                             error=normalized_exc,
                             session_id=session_id_for_backend,
                             backend_type=current_backend,
@@ -765,12 +763,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 self._record_failure(backend_type, effective_model, exc, context)
 
             # Record EoS error termination signal (fail-open)
-            if self._eos_adapter is not None:
+            if self._eos_adapter is not None:  # type: ignore[reportUnknownVariableType]
                 try:
                     session_id = (
                         getattr(context, "session_id", None) if context else None
                     )
-                    await self._eos_adapter.record_error_termination(
+                    await self._eos_adapter.record_error_termination(  # type: ignore[reportUnknownMemberType]
                         error=exc,
                         session_id=session_id,
                         backend_type=backend_type,
@@ -792,12 +790,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             normalized_exc = self._normalize_backend_exception(exc, backend_type)
 
             # Record EoS error termination signal (fail-open)
-            if self._eos_adapter is not None:
+            if self._eos_adapter is not None:  # type: ignore[reportUnknownVariableType]
                 try:
                     session_id = (
                         getattr(context, "session_id", None) if context else None
                     )
-                    await self._eos_adapter.record_error_termination(
+                    await self._eos_adapter.record_error_termination(  # type: ignore[reportUnknownMemberType]
                         error=normalized_exc,
                         session_id=session_id,
                         backend_type=backend_type,

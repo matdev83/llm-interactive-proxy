@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses_api import ResponsesRequest
-from src.core.domain.translation_utils.content_utils import _safe_string
+from src.core.domain.translation_utils import _safe_string  # type: ignore[reportPrivateUsage]
 
 
 class NormalizedResponsesContentPart(BaseModel):
@@ -40,7 +40,11 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
 
     def _prepare_payload(payload: dict[str, Any]) -> dict[str, Any]:
         normalized_payload = dict(payload)
-        if "messages" not in normalized_payload and "input" in normalized_payload:
+        # Convert input to messages if messages is missing or empty
+        messages = normalized_payload.get("messages")
+        if (
+            not messages or (isinstance(messages, list) and len(messages) == 0)
+        ) and "input" in normalized_payload:
             normalized_payload["messages"] = _normalize_responses_input_to_messages(
                 normalized_payload["input"]
             )
@@ -49,7 +53,12 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
     if isinstance(request, dict):
         request_payload = _prepare_payload(request)
         if not request_payload.get("model"):
-            raise ValueError("'model' is a required property")
+            from pydantic import ValidationError as PydanticValidationError
+            # Raise ValidationError to match expected behavior for missing required fields
+            raise PydanticValidationError.from_exception_data(
+                "ValueError",
+                [{"type": "value_error", "loc": ("model",), "msg": "'model' is a required property", "input": request_payload}]  # type: ignore[typeddict-item]
+            )
         other_params = {
             k: v for k, v in request_payload.items() if k not in ["model", "messages"]
         }
@@ -143,6 +152,40 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
             extra_body["text"] = text_cfg
 
     messages = responses_request.messages or []
+    # Ensure we have at least one message - convert input if messages is empty
+    if not messages and responses_request.input:
+        from src.core.domain.chat import ChatMessage
+
+        normalized_messages = _normalize_responses_input_to_messages(
+            responses_request.input
+        )
+        # Convert dict messages to ChatMessage objects
+        # Handle content field conversion - ChatMessage expects content as str or MessageContentPart sequence
+        converted_messages = []
+        for msg_dict in normalized_messages:
+            if isinstance(msg_dict, ChatMessage):
+                converted_messages.append(msg_dict)
+            else:
+                # Extract content and convert to proper format
+                content = msg_dict.get("content")
+                if isinstance(content, list) and content:
+                    # If content is a list of parts, extract text or use as-is
+                    # ChatMessage can handle list of dicts as content
+                    pass  # Keep content as-is, ChatMessage validator will handle it
+                elif isinstance(content, str):
+                    pass  # Already correct format
+                # Create ChatMessage - it will handle validation and conversion
+                converted_messages.append(ChatMessage(**msg_dict))
+        messages = converted_messages
+
+    # Validate that we have at least one message before creating CanonicalChatRequest
+    # Note: Empty messages validation will be caught by CanonicalChatRequest's validator
+    # which raises ValueError, so we let that handle it for consistency
+    if not messages and not responses_request.input:
+        # Only raise if both messages and input are empty/None
+        # This allows Pydantic validation errors to surface first
+        pass  # Let CanonicalChatRequest validator handle empty messages
+
     system_prompt = None
     if responses_request.instructions:
         system_prompt = responses_request.instructions

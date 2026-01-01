@@ -27,6 +27,7 @@ Acts as a transparent intermediary between LLM clients and backend providers, en
 ### 3. Intelligence & Safety
 - **Test Execution Reminder**: Automatically reminds agents to run tests (14+ languages)
 - **LLM Assessment**: Detects conversation loops and stuck patterns
+- **Angel Verification**: Optional response verification with automatic correction
 - **Dangerous Command Protection**: Blocks destructive git operations
 - **Tool Access Control**: Fine-grained control over LLM tool permissions
 - **File Access Sandboxing**: Restricts file operations to safe directories
@@ -82,3 +83,6 @@ Acts as a transparent intermediary between LLM clients and backend providers, en
 
 _Updated: 2025-12-22_
 _Focus on patterns and purpose; link out for exhaustive catalogs_
+
+_Updated: 2026-01-01_
+_Reason: Align product memory with current safety/quality feature set (Angel verification)_

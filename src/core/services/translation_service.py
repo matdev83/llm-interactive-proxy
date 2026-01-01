@@ -164,31 +164,8 @@ class TranslationService:
                     "Converting Responses API request to domain format - model=%s",
                     getattr(request, "model", "unknown"),
                 )
-
-            has_response_format = False
-            if isinstance(request, dict):
-                if request.get("response_format"):
-                    has_response_format = True
-            elif hasattr(request, "response_format") and getattr(
-                request, "response_format", None
-            ):
-                has_response_format = True
-
-            if not has_response_format:
-                raise ValidationError.from_exception_data(
-                    title="ResponsesRequest",
-                    line_errors=[
-                        {
-                            "type": "missing",
-                            "loc": ("response_format",),
-                            "input": (
-                                request
-                                if isinstance(request, dict)
-                                else getattr(request, "__dict__", {})
-                            ),
-                        }
-                    ],
-                )
+            # Note: response_format is optional in the Responses API specification
+            # We no longer require it here - let ResponsesRequest validation handle it
 
             try:
                 responses_converter = self._to_domain_request_converters["responses"]
@@ -318,17 +295,17 @@ class TranslationService:
 
         if isinstance(result, CanonicalStreamChunk):
             result = result.model_dump(exclude_none=True)
-        if isinstance(result, dict):
-            choices_val = result.get("choices")
-            if isinstance(choices_val, list):
-                result["choices"] = [
-                    c.model_dump(exclude_none=True) if hasattr(c, "model_dump") else c
-                    for c in choices_val
-                ]
+        # result is now dict[str, Any] after the above conversion
+        choices_val = result.get("choices")
+        if isinstance(choices_val, list):
+            result["choices"] = [
+                c.model_dump(exclude_none=True) if hasattr(c, "model_dump") else c  # type: ignore[arg-type]
+                for c in choices_val
+            ]
 
         if logger.isEnabledFor(TRACE_LEVEL):
             result_type = type(result).__name__
-            result_keys = list(result.keys()) if isinstance(result, dict) else "N/A"
+            result_keys = list(result.keys())
             logger.log(
                 TRACE_LEVEL,
                 "[STREAMING] TranslationService.to_domain_stream_chunk: "
@@ -337,7 +314,7 @@ class TranslationService:
                 result_keys,
             )
 
-        if source_format in canonical_formats and isinstance(result, dict):
+        if source_format in canonical_formats:
             return dict_to_canonical_stream_chunk(result)
         return result
 
@@ -360,22 +337,13 @@ class TranslationService:
         )
 
     def from_domain_to_openai_stream_chunk(self, chunk: Any) -> dict[str, Any]:
-        return cast(
-            dict[str, Any],
-            self._get_streaming_translator("openai").from_domain_stream_chunk(chunk),
-        )
+        return self._get_streaming_translator("openai").from_domain_stream_chunk(chunk)  # type: ignore[return-value]
 
     def from_domain_to_anthropic_stream_chunk(self, chunk: Any) -> dict[str, Any]:
-        return cast(
-            dict[str, Any],
-            self._get_streaming_translator("anthropic").from_domain_stream_chunk(chunk),
-        )
+        return self._get_streaming_translator("anthropic").from_domain_stream_chunk(chunk)  # type: ignore[return-value]
 
     def from_domain_to_gemini_stream_chunk(self, chunk: Any) -> dict[str, Any]:
-        return cast(
-            dict[str, Any],
-            self._get_streaming_translator("gemini").from_domain_stream_chunk(chunk),
-        )
+        return self._get_streaming_translator("gemini").from_domain_stream_chunk(chunk)  # type: ignore[return-value]
 
     def from_domain_to_openai_response(self, response: ChatResponse) -> dict[str, Any]:
         return self._registry.get("openai").from_domain_response(response)

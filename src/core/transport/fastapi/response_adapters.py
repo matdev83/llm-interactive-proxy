@@ -15,11 +15,14 @@ from collections.abc import AsyncIterator, Callable
 from typing import Any, TypeVar
 
 from fastapi.responses import Response
+from pydantic.types import JsonValue
 from starlette.responses import StreamingResponse
 
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.translation_utils.json_utils import sanitize_dict_for_json
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.wire_capture_interface import IWireCapture
 
@@ -149,19 +152,6 @@ def _get_json_builder() -> JSONResponseBuilder:
     return _json_builder
 
 
-def _get_streaming_builder() -> StreamingResponseBuilder:
-    """Get or create streaming response builder singleton."""
-    global _streaming_builder
-    if _streaming_builder is None:
-        with _streaming_builder_lock:
-            if _streaming_builder is None:
-                _streaming_builder = (
-                    _resolve_service(StreamingResponseBuilder)
-                    or StreamingResponseBuilder()
-                )
-    return _streaming_builder
-
-
 def _get_other_builder() -> OtherResponseBuilder:
     """Get or create other response builder singleton."""
     global _other_builder
@@ -234,36 +224,126 @@ def _get_wire_capture_coordinator(
     return _wire_capture_coordinator
 
 
+def _normalize_usage_to_summary(usage: Any) -> UsageSummary | None:
+    """Normalize usage to UsageSummary contract for boundary safety.
+
+    Args:
+        usage: UsageSummary instance, dict[str, Any], or None
+
+    Returns:
+        UsageSummary instance or None
+    """
+    if usage is None:
+        return None
+    if isinstance(usage, UsageSummary):
+        return usage
+    if isinstance(usage, dict):
+        return UsageSummary.from_dict(usage)
+    # Fallback: try to convert to dict if it has dict-like interface
+    if hasattr(usage, "get"):
+        return UsageSummary.from_dict(dict(usage))  # type: ignore[arg-type]
+    return None
+
+
+def _normalize_metadata_to_json_safe(metadata: Any) -> dict[str, JsonValue] | None:
+    """Normalize metadata to JSON-safe dict[str, JsonValue] for boundary safety.
+
+    Args:
+        metadata: dict[str, JsonValue], dict[str, Any], or None
+
+    Returns:
+        dict[str, JsonValue] or None
+    """
+    if metadata is None:
+        return None
+    if isinstance(metadata, dict):
+        # Sanitize to ensure all values are JSON-serializable
+        sanitized = sanitize_dict_for_json(metadata)
+        # Type narrowing: sanitize_dict_for_json returns dict[str, Any] but
+        # we know it's JSON-safe, so we can safely cast to dict[str, JsonValue]
+        return sanitized  # type: ignore[return-value]
+    # Fallback: try to convert to dict if it has dict-like interface
+    if hasattr(metadata, "items"):
+        sanitized = sanitize_dict_for_json(dict(metadata))  # type: ignore[arg-type]
+        return sanitized  # type: ignore[return-value]
+    return None
+
+
 def _normalize_response_envelope(
     domain_response: (
-        ResponseEnvelope | StreamingResponseEnvelope | ProcessedResponse | ChatResponse
+        ResponseEnvelope
+        | StreamingResponseEnvelope
+        | ProcessedResponse
+        | ChatResponse
+        | dict[str, Any]
+        | Any
     ),
 ) -> ResponseEnvelope:
-    """Normalize various response types to ResponseEnvelope."""
+    """Normalize various response types to ResponseEnvelope.
+
+    Ensures usage is normalized to UsageSummary | None and metadata is normalized
+    to dict[str, JsonValue] | None for boundary safety (Requirement 2.4, 6.1, 6.2).
+    """
     if isinstance(domain_response, ResponseEnvelope):
-        return domain_response
+        # Already a ResponseEnvelope - ensure usage and metadata are normalized
+        return ResponseEnvelope(
+            content=domain_response.content,
+            headers=domain_response.headers,
+            status_code=domain_response.status_code,
+            media_type=domain_response.media_type,
+            usage=_normalize_usage_to_summary(domain_response.usage),
+            metadata=_normalize_metadata_to_json_safe(domain_response.metadata),
+            canonical_usage=domain_response.canonical_usage,
+        )
     elif isinstance(domain_response, ChatResponse):
+        # ChatResponse already has typed usage: UsageSummary | None
+        # Normalize metadata to JSON-safe
+        chat_metadata: dict[str, JsonValue] | None = None
+        if domain_response.model:
+            chat_metadata = _normalize_metadata_to_json_safe(
+                {"model": domain_response.model}
+            )
         return ResponseEnvelope(
             content=domain_response.model_dump(),
             headers=None,
             status_code=200,
-            usage=domain_response.usage,
-            metadata=(
-                {"model": domain_response.model} if domain_response.model else None
-            ),
+            usage=_normalize_usage_to_summary(domain_response.usage),
+            metadata=chat_metadata,
         )
     elif isinstance(domain_response, ProcessedResponse):
+        # ProcessedResponse already has typed usage and metadata, but normalize to ensure consistency
         return ResponseEnvelope(
             content=domain_response.content,
             headers=None,
             status_code=200,
-            usage=domain_response.usage,
-            metadata=domain_response.metadata,
+            usage=_normalize_usage_to_summary(domain_response.usage),
+            metadata=_normalize_metadata_to_json_safe(domain_response.metadata),
         )
     elif isinstance(domain_response, dict):
-        return ResponseEnvelope(content=domain_response, headers=None, status_code=200)
+        # Extract usage and metadata from dict if present
+        dict_usage: UsageSummary | None = None
+        dict_metadata: dict[str, JsonValue] | None = None
+        if "usage" in domain_response:
+            dict_usage = _normalize_usage_to_summary(domain_response["usage"])
+        if "metadata" in domain_response:
+            dict_metadata = _normalize_metadata_to_json_safe(
+                domain_response["metadata"]
+            )
+        return ResponseEnvelope(
+            content=domain_response,
+            headers=None,
+            status_code=200,
+            usage=dict_usage,
+            metadata=dict_metadata,
+        )
     else:
         # Handle StreamingResponseEnvelope or other types
+        other_usage: UsageSummary | None = None
+        other_metadata: dict[str, JsonValue] | None = None
+        if hasattr(domain_response, "usage"):
+            other_usage = _normalize_usage_to_summary(getattr(domain_response, "usage", None))
+        if hasattr(domain_response, "metadata"):
+            other_metadata = _normalize_metadata_to_json_safe(getattr(domain_response, "metadata", None))
         if hasattr(domain_response, "model_dump"):
             content_dict = domain_response.model_dump()  # type: ignore[attr-defined]
             return ResponseEnvelope(
@@ -274,8 +354,16 @@ def _normalize_response_envelope(
                 ),
                 headers=None,
                 status_code=200,
+                usage=other_usage,
+                metadata=other_metadata,
             )
-        return ResponseEnvelope(content=str(domain_response), headers=None, status_code=200)  # type: ignore[arg-type]
+        return ResponseEnvelope(
+            content=str(domain_response),
+            headers=None,
+            status_code=200,
+            usage=other_usage,
+            metadata=other_metadata,
+        )  # type: ignore[arg-type]
 
 
 def _apply_content_converter(
@@ -308,9 +396,9 @@ def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
             if isinstance(usage_block, dict):
                 return True
 
-            choices = payload.get("choices")
+            choices: list[Any] = payload.get("choices", [])  # type: ignore[assignment]
             if isinstance(choices, list) and choices:
-                first_choice = choices[0]
+                first_choice: dict[str, Any] = choices[0]
                 if isinstance(first_choice, dict):
                     delta = first_choice.get("delta") or first_choice.get("message")
                     if isinstance(delta, dict) and any(
@@ -363,7 +451,7 @@ def _chunk_signals_done(content: Any, metadata: dict[str, Any] | None) -> bool:
         # Check finish_reason in choices
         choices = content.get("choices")
         if isinstance(choices, list) and choices:
-            for choice in choices:
+            for choice in choices:  # type: ignore[reportUnknownVariableType]
                 if isinstance(choice, dict):
                     choice_finish = choice.get("finish_reason")
                     if choice_finish:
@@ -400,12 +488,15 @@ def to_fastapi_response(
 
     # Apply content converter if provided (legacy support)
     if content_converter:
+        converted_content = _apply_content_converter(envelope.content, content_converter)
         envelope = ResponseEnvelope(
-            content=_apply_content_converter(envelope.content, content_converter),
+            content=converted_content,
             headers=envelope.headers,
             status_code=envelope.status_code,
+            media_type=envelope.media_type,
             usage=envelope.usage,
             metadata=envelope.metadata,
+            canonical_usage=envelope.canonical_usage,
         )
 
     # Determine media type
@@ -462,7 +553,7 @@ def to_fastapi_streaming_response(
     Returns:
         A FastAPI streaming response
     """
-    envelope_metadata = (
+    envelope_metadata: dict[str, JsonValue] = (
         domain_response.metadata if isinstance(domain_response.metadata, dict) else {}
     )
 
@@ -493,7 +584,9 @@ def to_fastapi_streaming_response(
 
     # Convert raw stream to StreamingContent using StreamingContentConverter
     converter = _get_content_converter()
-    conversion_context = {
+    # Context dict contains RequestContext for usage recalculation.
+    # Protocol allows RequestContext | None in context dict for this purpose.
+    conversion_context: dict[str, JsonValue | RequestContext | None] = {
         "envelope_metadata": envelope_metadata,
         "context": context,
     }
@@ -501,16 +594,16 @@ def to_fastapi_streaming_response(
     async def _convert_and_assemble() -> AsyncIterator[bytes]:
         """Convert raw stream to SSE bytes."""
 
-        # Ensure async iterator
+        # Ensure async iterator of ProcessedResponse
         async def _ensure_async_iterator(
-            source: AsyncIterator[Any] | Any,
-        ) -> AsyncIterator[Any]:
+            source: AsyncIterator[ProcessedResponse] | Any,
+        ) -> AsyncIterator[ProcessedResponse]:
             try:
                 if hasattr(source, "__aiter__"):
                     async for item in source:  # type: ignore[async-for]
                         yield item
                 elif hasattr(source, "__iter__"):
-                    # Handle sync iterables
+                    # Handle sync iterables (backward compatibility)
                     for item in source:  # type: ignore[union-attr]
                         yield item
                 else:
@@ -661,7 +754,7 @@ def _normalize_content(content: Any) -> Any:
     return injector._normalize_content(content)  # type: ignore[attr-defined]
 
 
-def _format_chunk_as_sse(content: dict | bytes | str) -> bytes:
+def _format_chunk_as_sse(content: dict[str, Any] | bytes | str) -> bytes:
     """Format content as SSE bytes (backward compatibility wrapper).
 
     This function is kept for backward compatibility with tests.

@@ -17,18 +17,21 @@ Where most cross-cutting proxy logic lives.
   - `controllers/`: HTTP route handlers (OpenAI/Anthropic/Gemini-compatible)
   - `middleware/`: FastAPI/Starlette middleware (exception shaping, etc.)
   - `stages/`: staged initialization (startup ordering, registrations)
+- `src/core/adapters/`: domain-centric adapter helpers shared across transports (transports may re-export)
 - `src/core/services/`: orchestration services (routing, safety, usage, captures, processing pipelines)
   - `src/core/services/backend_completion_flow/`: backend-call orchestration (failover/retry/capture/usage as a coordinator + collaborators)
 - `src/core/domain/`: domain models/envelopes (Pydantic models, response envelopes, wire-capture models)
 - `src/core/interfaces/`: `I*` interfaces used for DI boundaries and test seams
-- `src/core/di/`: DI container implementation + registrations
+- `src/core/di/`: DI container implementation + registrations (`registrations/`, `registration_helpers/`)
+- `src/core/ports/`: port-level protocol normalization and streaming primitives (transport-neutral)
 - `src/core/config/`: config models/loaders/validation and precedence logic
 - `src/core/auth/`: SSO authentication/authorization flow and supporting services
 - `src/core/security/`: security middleware and loop-prevention guardrails
 - `src/core/memory/`: session memory capture, summarization, and injection services
 - `src/core/transport/fastapi/`: adapters between domain envelopes and FastAPI request/response types
   - `adapters/`: modular layer components for response transformation (SSE, metadata, usage, sanitization, capture, streaming, response builders)
-  - `response_adapters.py`: thin facade delegating to adapters/ layer components
+  - `api_adapters.py`: thin re-export of `src/core/adapters/api_adapters.py` for transport usage
+  - `response_adapters.py`: thin facade delegating to adapters/ layer components (may depend on `src/core/ports/`)
 - `src/core/commands/`: chat-embedded command pipeline (parsing/execution/steering integration)
 - `src/core/simulation/`: replay/inspection utilities for debugging captured traffic
 - `src/core/database/`: SQLModel models + Alembic migrations + repositories
@@ -115,3 +118,6 @@ Default stage order:
 _Updated: 2025-12-27_
 _Reason: Link structure map to TDD/testing steering_
 _Document stable structure and change locations; avoid exhaustive file listings_
+
+_Updated: 2026-01-01_
+_Reason: Reflect ports/adapters split introduced by refactors (hexagonal/transport-neutral components)_

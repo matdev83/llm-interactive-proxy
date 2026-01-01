@@ -55,10 +55,16 @@ def extract_text_from_chunk(chunk: ProcessedResponse) -> str:
     if not isinstance(content, dict):
         return ""
     choices = content.get("choices", [])
-    if not choices:
+    if not choices or not isinstance(choices, list):
         return ""
-    delta = choices[0].get("delta", {})
-    return delta.get("content", "") or ""
+    first_choice = choices[0]
+    if not isinstance(first_choice, dict):
+        return ""
+    delta = first_choice.get("delta", {})
+    if not isinstance(delta, dict):
+        return ""
+    content_value = delta.get("content", "")
+    return str(content_value) if content_value else ""
 
 
 class TestVTCResponseStreamWrapperPassThrough:
@@ -930,3 +936,90 @@ class TestVTCReactorIntegration:
         assert mock_reactor.process_tool_call.called
         reactor_context = mock_reactor.process_tool_call.call_args[0][0]
         assert reactor_context.tool_arguments == {"command": "git status"}
+
+
+class TestVTCMetadataNormalization:
+    """Tests for VTC wrapper metadata normalization and copy-on-write behavior."""
+
+    def test_metadata_normalization_preserves_copy_on_write(self):
+        """Verify that VTC wrapper preserves copy-on-write behavior when merging metadata."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            VTCResponseStreamWrapper,
+        )
+
+        # Create a wrapper
+        wrapper = VTCResponseStreamWrapper(vtc_enabled=False)
+
+        # Create a chunk with existing metadata
+        original_chunk = ProcessedResponse(
+            content={"choices": [{"delta": {"content": "test"}}]},
+            metadata={"existing_key": "existing_value"},
+        )
+
+        # Store as template
+        wrapper._last_chunk_template = original_chunk
+
+        # Create chunk with new metadata
+        new_metadata = {"new_key": "new_value", "non_json": lambda x: x}
+
+        result_chunk = wrapper._create_chunk_with_text(
+            "test text", extra_metadata=new_metadata
+        )
+
+        # Verify original chunk metadata was not mutated (copy-on-write)
+        assert original_chunk.metadata == {"existing_key": "existing_value"}
+
+        # Verify result chunk has normalized metadata
+        assert isinstance(result_chunk.metadata, dict)
+        # All values should be JSON-serializable
+        for key, value in result_chunk.metadata.items():
+            assert isinstance(
+                value, str | int | float | bool | type(None) | dict | list
+            ), f"Value for key '{key}' is not JSON-serializable: {type(value)}"
+
+        # Verify metadata was merged
+        assert "existing_key" in result_chunk.metadata
+        assert result_chunk.metadata["existing_key"] == "existing_value"
+        assert "new_key" in result_chunk.metadata
+        assert result_chunk.metadata["new_key"] == "new_value"
+
+    def test_metadata_normalization_sanitizes_non_json_values(self):
+        """Verify that non-JSON-serializable values in metadata are sanitized."""
+        from src.core.services.streaming.vtc_response_wrapper import (
+            VTCResponseStreamWrapper,
+        )
+
+        # Create a wrapper
+        wrapper = VTCResponseStreamWrapper(vtc_enabled=False)
+
+        # Create a chunk template
+        wrapper._last_chunk_template = ProcessedResponse(
+            content={"choices": [{"delta": {"content": "test"}}]},
+            metadata={},
+        )
+
+        # Create metadata with non-JSON values
+        class NonJsonObject:
+            def __str__(self) -> str:
+                return "non-json-object"
+
+        non_json_metadata = {
+            "callable": lambda x: x,
+            "object": NonJsonObject(),
+            "valid_string": "test",
+        }
+
+        result_chunk = wrapper._create_chunk_with_text(
+            "test text", extra_metadata=non_json_metadata
+        )
+
+        # Verify metadata is normalized
+        assert isinstance(result_chunk.metadata, dict)
+        # All values should be JSON-serializable
+        for key, value in result_chunk.metadata.items():
+            assert isinstance(
+                value, str | int | float | bool | type(None) | dict | list
+            ), f"Value for key '{key}' is not JSON-serializable: {type(value)}"
+
+        # Valid string should be preserved
+        assert result_chunk.metadata.get("valid_string") == "test"

@@ -13,15 +13,20 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend, add_vendor_prefix
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+)
 from src.connectors.mixins.usage_calculation_mixin import UsageCalculationMixin
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
+    InvalidRequestError,
     ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig  # Added
 from src.core.domain.chat import (
     CanonicalChatRequest,
+    ChatMessage,
     ChatRequest,
     MessageContentPartImage,
     MessageContentPartText,
@@ -32,10 +37,7 @@ from src.core.domain.responses import (
     StreamingResponseEnvelope,
     StreamingResponseHandle,
 )
-from src.core.domain.session_key import SessionKey
 from src.core.domain.usage_summary import UsageSummary
-from src.core.interfaces.configuration_interface import IAppIdentityConfig
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
@@ -188,15 +190,15 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         for msg in processed_messages:
             # Handle both object and dict formats for backward compatibility
             if isinstance(msg, dict):
-                role = msg.get("role")
+                role = msg.get("role")  # type: ignore[reportUnknownMemberType]
                 # For dict format, check if it's already in Gemini format (has "parts")
                 # or in generic format (has "content")
                 if "parts" in msg:
                     # Already in Gemini format, use directly
-                    payload_contents.append({"role": role, "parts": msg["parts"]})
+                    payload_contents.append({"role": role, "parts": msg["parts"]})  # type: ignore[reportUnknownMemberType]
                     continue
                 else:
-                    content = msg.get("content")
+                    content = msg.get("content")  # type: ignore[reportUnknownMemberType]
             else:
                 role = getattr(msg, "role", None)
                 content = getattr(msg, "content", None)
@@ -233,7 +235,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                                 "name": (
                                     getattr(msg, "name", "tool") or "tool"
                                     if not isinstance(msg, dict)
-                                    else msg.get("name", "tool")
+                                    else msg.get("name", "tool")  # type: ignore[reportUnknownMemberType]
                                 ),
                                 "response": input_obj,
                             }
@@ -243,7 +245,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     # Content is already processed by middleware
                     parts = [{"text": content}]
             elif content is not None:
-                parts = [self._convert_part_for_gemini(part) for part in content]
+                parts = [self._convert_part_for_gemini(part) for part in content]  # type: ignore[reportUnknownArgumentType]
             else:
                 # Skip messages with no content
                 continue
@@ -257,13 +259,13 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             else:  # e.g., assistant
                 gemini_role = "model"
 
-            payload_contents.append({"role": gemini_role, "parts": parts})
-        return payload_contents
+            payload_contents.append({"role": gemini_role, "parts": parts})  # type: ignore[reportUnknownMemberType]
+        return payload_contents  # type: ignore[reportUnknownVariableType]
 
     @staticmethod
     def _coerce_stream_chunk(raw_chunk: Any) -> dict[str, Any] | None:
         if isinstance(raw_chunk, dict):
-            return raw_chunk
+            return raw_chunk  # type: ignore[reportUnknownVariableType]
 
         if isinstance(raw_chunk, bytes | bytearray):
             raw_chunk = raw_chunk.decode("utf-8", errors="ignore")
@@ -297,7 +299,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 continue
 
             if isinstance(parsed, dict):
-                return parsed
+                return parsed  # type: ignore[reportUnknownVariableType]
 
             if isinstance(parsed, str):
                 stripped_parsed = parsed.strip()
@@ -483,7 +485,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                         )
                     )
 
-                done_chunk = {
+                done_chunk: dict[str, Any] = {  # type: ignore[reportUnknownVariableType]
                     "candidates": [
                         {
                             "content": {"parts": []},
@@ -526,40 +528,66 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             headers=response_headers,
         )
 
-    async def chat_completions(  # type: ignore[override]
+    async def _chat_completions_canonical(
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
-        openrouter_api_base_url: str | None = None,
-        openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
-        key_name: str | None = None,
-        api_key: str | None = None,
-        project: str | None = None,
-        agent: str | None = None,
-        gemini_api_base_url: str | None = None,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        # Structural enforcement: check cancellation immediately if coordinator and token provided
-        if cancellation_coordinator is not None and cancellation_token is not None:
-            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
-        # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
-        # (the frontend controller converts from frontend-specific format to domain format)
-        # Backends should ONLY convert FROM domain TO backend-specific format
-        # Type assertion: we know from architectural design that request_data is ChatRequest-like
+        """Canonical connector API implementation.
 
-        if not isinstance(request_data, ChatRequest):
-            raise TypeError(
-                f"Expected ChatRequest or CanonicalChatRequest, got {type(request_data).__name__}. "
-                "Backend connectors should only receive domain-format requests."
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        It receives typed contracts and processes them without dict coercion.
+        """
+        # Structural enforcement: check cancellation immediately if coordinator and token provided
+        if (
+            request.cancellation_coordinator is not None
+            and request.cancellation_token is not None
+        ):
+            request.cancellation_coordinator.ensure_not_cancelled(
+                request.cancellation_token
             )
-        # Cast to CanonicalChatRequest for mypy compatibility with translation service signature
-        domain_request: CanonicalChatRequest = cast(CanonicalChatRequest, request_data)
+
+        # Extract options from canonical request
+        options = request.options or {}
+        gemini_api_base_url_val = options.get("gemini_api_base_url")
+        gemini_api_base_url: str | None = (
+            gemini_api_base_url_val if isinstance(gemini_api_base_url_val, str) else None
+        )
+        openrouter_api_base_url_val = options.get("openrouter_api_base_url")
+        openrouter_api_base_url: str | None = (
+            openrouter_api_base_url_val
+            if isinstance(openrouter_api_base_url_val, str)
+            else None
+        )
+        api_key_val = options.get("api_key")
+        api_key: str | None = (
+            api_key_val if isinstance(api_key_val, str) else None
+        )
+        key_name_val = options.get("key_name")
+        key_name: str | None = (
+            key_name_val if isinstance(key_name_val, str) else None
+        )
+
+        # JSON-SAFETY: Callables are NOT in options - use instance attributes instead
+        # Options contain only JSON-serializable values per Requirement 4.3
+        # Callables are temporarily stored as instance attributes in legacy path
+        # and extracted here for use in _resolve_gemini_api_config
+        openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = (
+            getattr(self, "openrouter_headers_provider", None)
+        )
+
+        # Fallback to instance attributes if not in options
+        if gemini_api_base_url is None:
+            gemini_api_base_url = getattr(self, "gemini_api_base_url", None)
+        if api_key is None:
+            api_key = getattr(self, "api_key", None)
+        if key_name is None:
+            key_name = getattr(self, "key_name", None)
+
+        domain_request = request.request
+        processed_messages = list(request.processed_messages)
+        effective_model = request.effective_model
+        identity = request.identity
+        context = request.context
 
         try:
             # Resolve base configuration
@@ -569,10 +597,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 api_key,
                 openrouter_headers_provider=openrouter_headers_provider,
                 key_name=key_name,
-                **kwargs,
             )
         except Exception as e:
-
             # If streaming was requested, we must return a streaming error response
             # instead of letting the exception bubble up (which would result in a JSON response)
             if domain_request.stream:
@@ -584,7 +610,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 ) -> AsyncGenerator[ProcessedResponse, None]:
                     chunk = await handle_streaming_error(
                         err,
-                        getattr(domain_request, "session_id", None),
+                        getattr(domain_request, "session_id", None)
+                        or (context.session_id if context else None),
                         self.get_provider_name(),
                     )
                     # Convert to SSE bytes and wrap in ProcessedResponse
@@ -646,7 +673,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                         and isinstance(merged["thinkingConfig"], dict)
                     ):
                         # Deep merge thinkingConfig
-                        merged["thinkingConfig"].update(value)
+                        merged["thinkingConfig"].update(value)  # type: ignore[reportUnknownMemberType]
                     elif key == "maxOutputTokens" and "maxOutputTokens" not in merged:
                         # Add maxOutputTokens if not present
                         merged["maxOutputTokens"] = value
@@ -722,7 +749,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             return await integrate_streaming_pipeline(
                 raw_stream=raw_stream,
                 provider=self.get_provider_name(),
-                stream_id=getattr(domain_request, "session_id", None),
+                stream_id=getattr(domain_request, "session_id", None)
+                or (context.session_id if context else None),
                 enable_loop_detection=True,
                 enable_tool_call_repair=True,
                 enable_think_tags=True,
@@ -739,6 +767,143 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         return self.ensure_usage_in_response(
             response_envelope, processed_messages, effective_model
         )
+
+    async def chat_completions(  # type: ignore[override]
+        self,
+        request: ConnectorChatCompletionsRequest | Any = None,
+        *args: Any,
+        **kwargs: Any,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Canonical connector API implementation with backward compatibility.
+
+        This method implements ICanonicalChatCompletionsBackend protocol.
+        For backward compatibility, also accepts legacy signature:
+        chat_completions(request_data, processed_messages, effective_model, ...)
+        """
+        # Handle legacy API called with keyword arguments only (request_data=...)
+        if request is None and "request_data" in kwargs:
+            request = kwargs.pop("request_data")
+
+        # Check if this is a canonical request (ConnectorChatCompletionsRequest)
+        if isinstance(request, ConnectorChatCompletionsRequest):
+            return await self._chat_completions_canonical(request)
+
+        # Legacy API: build ConnectorChatCompletionsRequest from legacy parameters
+        # BOUNDARY HARDENING: Legacy coercion is centralized at ConnectorInvoker.
+        # This connector should only receive canonical domain models (never dicts).
+        request_data = request
+        processed_messages = args[0] if args else kwargs.get("processed_messages", [])
+        effective_model = (
+            args[1] if len(args) > 1 else kwargs.get("effective_model", "")
+        )
+        identity = kwargs.get("identity")
+        cancellation_token = kwargs.get("cancellation_token")
+        cancellation_coordinator = kwargs.get("cancellation_coordinator")
+        context = None  # Legacy API doesn't provide context
+        # JSON-SAFETY: Filter out callables from options - they must not be stored in options dict
+        # Extract callable before building options dict (will be passed separately if needed)
+        openrouter_headers_provider_from_kwargs: (
+            Callable[[Any, str], dict[str, str]] | None
+        ) = (
+            kwargs.get("openrouter_headers_provider")
+            if callable(kwargs.get("openrouter_headers_provider"))
+            else None
+        )
+
+        options = {
+            k: v
+            for k, v in kwargs.items()
+            if k
+            not in [
+                "identity",
+                "cancellation_token",
+                "cancellation_coordinator",
+                "processed_messages",
+                "effective_model",
+                "request_data",
+                "openrouter_headers_provider",  # Exclude callable from options
+            ]
+            and not callable(v)  # Additional safety: exclude any callables
+        }
+
+        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
+        if isinstance(request_data, dict):
+            raise InvalidRequestError(
+                message="Legacy connector API received dict input. "
+                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": "dict",
+                    "connector": "gemini",
+                },
+            )
+
+        # Ensure processed_messages is a Sequence[ChatMessage]
+        # ConnectorInvoker guarantees typed messages, but legacy path may receive mixed types
+        # Validate all elements to ensure consistent typed representation (Requirement 4.2)
+        if processed_messages:
+            invalid_messages = [
+                (i, type(msg).__name__)
+                for i, msg in enumerate(processed_messages)
+                if not isinstance(msg, ChatMessage)
+            ]
+            if invalid_messages:
+                # Legacy path should not receive dict messages (coercion centralized at invoker)
+                raise InvalidRequestError(
+                    message="Legacy connector API received non-canonical processed_messages. "
+                    "Expected Sequence[ChatMessage], but received mixed types.",
+                    details={
+                        "invalid_indices": [idx for idx, _ in invalid_messages],
+                        "invalid_types": [typ for _, typ in invalid_messages],
+                        "connector": "gemini",
+                    },
+                )
+
+        # Accept only canonical domain models
+        if isinstance(request_data, ChatRequest):
+            domain_request = CanonicalChatRequest.model_validate(
+                request_data.model_dump()
+            )
+        elif isinstance(request_data, CanonicalChatRequest):
+            domain_request = request_data
+        else:
+            # Reject other types - invoker should only pass canonical models
+            raise InvalidRequestError(
+                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": type(request_data).__name__,
+                    "connector": "gemini",
+                },
+            )
+
+        canonical_request = ConnectorChatCompletionsRequest(
+            request=domain_request,
+            processed_messages=processed_messages,
+            effective_model=effective_model,
+            identity=identity,
+            cancellation_token=cancellation_token,
+            cancellation_coordinator=cancellation_coordinator,
+            context=context,
+            options=options,
+        )
+
+        # JSON-SAFETY: Callables cannot be in options, but we need to pass them to _resolve_gemini_api_config.
+        # Store callable temporarily as instance attribute for this call (similar to OpenRouter pattern).
+        # This preserves functionality while maintaining JSON-safety in options.
+        original_callable = getattr(self, "openrouter_headers_provider", None)
+        try:
+            if openrouter_headers_provider_from_kwargs is not None:
+                self.openrouter_headers_provider = (
+                    openrouter_headers_provider_from_kwargs
+                )
+            return await self._chat_completions_canonical(canonical_request)
+        finally:
+            # Restore original value (or remove if it didn't exist)
+            if original_callable is not None:
+                self.openrouter_headers_provider = original_callable
+            elif hasattr(self, "openrouter_headers_provider"):
+                delattr(self, "openrouter_headers_provider")
 
     def _build_openrouter_header_context(self) -> dict[str, str]:
         referer = "http://localhost:8000"
@@ -938,7 +1103,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         return model_name
 
     async def _handle_gemini_non_streaming_response(
-        self, base_url: str, payload: dict, headers: dict, effective_model: str
+        self, base_url: str, payload: dict[str, Any], headers: dict[str, Any], effective_model: str
     ) -> ResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:generateContent"
@@ -1036,10 +1201,10 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             model_infos = []
             for m in raw_models:
                 if isinstance(m, dict):
-                    model_infos.append(
+                    model_infos.append(  # type: ignore[reportUnknownMemberType]
                         ModelInfo(
-                            id=m.get("name") or "",
-                            name=m.get("displayName") or m.get("name"),
+                            id=m.get("name") or "",  # type: ignore[reportUnknownMemberType]
+                            name=m.get("displayName") or m.get("name"),  # type: ignore[reportUnknownMemberType]
                             object="model",
                             owned_by="google",
                         )

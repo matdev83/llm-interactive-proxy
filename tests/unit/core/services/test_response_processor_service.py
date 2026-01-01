@@ -10,6 +10,7 @@ pytestmark = pytest.mark.filterwarnings(
 )
 from src.core.common.exceptions import LoopDetectionError, ParsingError
 from src.core.domain.chat import StreamingChatResponse
+from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
@@ -152,7 +153,7 @@ class TestResponseProcessor:
                 content="test content",
                 is_done=True,
                 metadata={"model": "gpt-3.5"},
-                usage={"tokens": 10},
+                usage=UsageSummary(prompt_tokens=5, completion_tokens=5, total_tokens=10),
             )
 
         mock_normalizer = MagicMock(spec=IStreamNormalizer)
@@ -432,3 +433,129 @@ class TestResponseProcessor:
         # The processor should have a unified pipeline that resets the normalizer
         assert processor._unified_pipeline is not None
         assert processor._stream_normalizer is mock_normalizer
+
+    async def test_metadata_normalization_sanitizes_non_json_values(
+        self,
+        mock_response_parser: MagicMock,
+        mock_loop_detector: AsyncMock,
+        mock_stream_normalizer: MagicMock,
+    ) -> None:
+        """Verify that non-JSON-serializable values in source_metadata are sanitized."""
+
+        # Create a stream normalizer that yields StreamingContent with non-JSON metadata
+        async def _process_stream_with_non_json_metadata(
+            *args: Any, **kwargs: Any
+        ) -> AsyncGenerator[StreamingContent, None]:
+            # Include non-JSON-serializable values in metadata
+            class NonJsonObject:
+                def __str__(self) -> str:
+                    return "non-json-object"
+
+            yield StreamingContent(
+                content="test content",
+                is_done=True,
+                metadata={
+                    "model": "test-model",
+                    "id": "test-id",
+                    "non_json": NonJsonObject(),  # Non-JSON-serializable
+                    "callable": lambda x: x,  # Non-JSON-serializable
+                },
+            )
+
+        mock_stream_normalizer.process_stream = MagicMock(
+            side_effect=_process_stream_with_non_json_metadata
+        )
+
+        processor = ResponseProcessor(
+            response_parser=mock_response_parser,
+            loop_detector_factory=MagicMock(return_value=mock_loop_detector),
+            stream_normalizer=mock_stream_normalizer,
+        )
+
+        async def empty_stream() -> AsyncGenerator[Any, None]:
+            return
+            yield  # Make it a generator
+
+        chunks = [
+            chunk
+            async for chunk in processor.process_streaming_response(
+                empty_stream(), "session123"
+            )
+        ]
+
+        assert len(chunks) == 1
+        # Verify metadata is normalized and non-JSON values are sanitized
+        assert isinstance(chunks[0].metadata, dict)
+        # All values should be JSON-serializable (JsonValue)
+        for key, value in chunks[0].metadata.items():
+            assert isinstance(
+                value, str | int | float | bool | type(None) | dict | list
+            ), f"Value for key '{key}' is not JSON-serializable: {type(value)}"
+        # Non-JSON values should be converted to strings or removed
+        assert "non_json" not in chunks[0].metadata or isinstance(
+            chunks[0].metadata.get("non_json"), str | int | float | bool | type(None)
+        )
+        assert "callable" not in chunks[0].metadata or isinstance(
+            chunks[0].metadata.get("callable"), str | int | float | bool | type(None)
+        )
+
+    async def test_metadata_remains_json_safe_after_merge(
+        self,
+        mock_response_parser: MagicMock,
+        mock_loop_detector: AsyncMock,
+        mock_stream_normalizer: MagicMock,
+    ) -> None:
+        """Verify that metadata remains dict[str, JsonValue] after safe_merge_metadata operations."""
+
+        # Create a stream normalizer that yields StreamingContent with metadata
+        async def _process_stream_with_metadata(
+            *args: Any, **kwargs: Any
+        ) -> AsyncGenerator[StreamingContent, None]:
+            yield StreamingContent(
+                content="test content",
+                is_done=False,
+                is_cancellation=False,
+                stream_id="stream123",
+                metadata={
+                    "model": "test-model",
+                    "id": "test-id",
+                    "created": 1234567890,
+                },
+            )
+
+        mock_stream_normalizer.process_stream = MagicMock(
+            side_effect=_process_stream_with_metadata
+        )
+
+        processor = ResponseProcessor(
+            response_parser=mock_response_parser,
+            loop_detector_factory=MagicMock(return_value=mock_loop_detector),
+            stream_normalizer=mock_stream_normalizer,
+        )
+
+        async def empty_stream() -> AsyncGenerator[Any, None]:
+            return
+            yield  # Make it a generator
+
+        chunks = [
+            chunk
+            async for chunk in processor.process_streaming_response(
+                empty_stream(), "session123"
+            )
+        ]
+
+        assert len(chunks) == 1
+        # Verify metadata is normalized and contains expected fields
+        metadata = chunks[0].metadata
+        assert isinstance(metadata, dict)
+        assert metadata["session_id"] == "session123"
+        assert metadata["model"] == "test-model"
+        assert metadata["id"] == "test-id"
+        assert metadata["is_done"] is False
+        assert metadata["is_cancellation"] is False
+        assert metadata["stream_id"] == "stream123"
+        # Verify all values are JSON-serializable
+        for key, value in metadata.items():
+            assert isinstance(
+                value, str | int | float | bool | type(None) | dict | list
+            ), f"Value for key '{key}' is not JSON-serializable: {type(value)}"

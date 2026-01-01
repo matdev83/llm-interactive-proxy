@@ -8,6 +8,7 @@ import sre_parse
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from sre_constants import MAXREPEAT
+import json
 from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
@@ -139,15 +140,37 @@ class ResponsesController:
                     responses_request, source_format="responses"
                 )
             except ValidationError as exc:
+                # Log validation errors for debugging
+                error_details = exc.errors()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Validation error in translation - request_id={request_id}, errors={error_details}",
+                        exc_info=True,
+                    )
                 raise self._map_validation_error(exc) from exc
+            except ValueError as exc:
+                # Handle ValueError from responses_to_domain_request (e.g., empty messages)
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        f"Value error in translation - request_id={request_id}, error={exc}",
+                        exc_info=True,
+                    )
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": {
+                            "message": str(exc),
+                            "type": "invalid_request_error",
+                            "code": "invalid_request",
+                        }
+                    },
+                ) from exc
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     f"Request translation successful - request_id={request_id}, "
                     f"domain_model={domain_request.model}, processor_type={type(self._processor).__name__}"
                 )
-            if self._processor is None:
-                raise HTTPException(status_code=500, detail="Processor is None")
 
             ctx = self._build_request_context(
                 request=request,
@@ -234,11 +257,146 @@ class ResponsesController:
             def _ensure_responses_schema(content: object) -> object:
                 try:
                     from src.core.domain.chat import ChatResponse
+                    from src.core.domain.responses import ResponseEnvelope
+                    from src.core.interfaces.response_processor_interface import ProcessedResponse
 
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             f"Converting response to Responses API format - request_id={request_id}, content_type={type(content).__name__}"
                         )
+
+                    # CRITICAL: If content is a string, try to parse it as JSON and check if it's already a Responses API response
+                    if isinstance(content, str) and content.strip():
+                        try:
+                            parsed_content = json.loads(content)
+                            if isinstance(parsed_content, dict) and "response" in parsed_content:
+                                # Content is a JSON string containing a Responses API response
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        f"Restored Responses API format from JSON string content - request_id={request_id}"
+                                    )
+                                return parsed_content
+                        except (json.JSONDecodeError, ValueError):
+                            # Not a JSON string, proceed with other checks
+                            pass
+                    
+                    # Check if response has metadata with original Responses API response
+                    response_metadata = None
+                    if isinstance(response, (ResponseEnvelope, ProcessedResponse)):
+                        response_metadata = getattr(response, "metadata", None)
+                        if isinstance(response_metadata, dict) and "original_responses_api_response" in response_metadata:
+                            original_response: dict[str, Any] = response_metadata["original_responses_api_response"]  # type: ignore[assignment]
+                            if isinstance(original_response, dict) and "response" in original_response:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        f"Restored Responses API format from ResponseProcessor metadata - request_id={request_id}"
+                                    )
+                                return original_response
+
+                    # If content is already in Responses API format (has 'response' key), return as-is
+                    if isinstance(content, dict) and "response" in content:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Response already in Responses API format - request_id={request_id}"
+                            )
+                        return content
+                    
+                    # Check if content has metadata with original Responses API response
+                    if isinstance(content, dict) and "metadata" in content:
+                        metadata: dict[str, Any] = content.get("metadata", {})  # type: ignore[assignment]
+                        if isinstance(metadata, dict) and "original_responses_api_response" in metadata:
+                            original_response_from_content: dict[str, Any] = metadata["original_responses_api_response"]  # type: ignore[assignment]
+                            if isinstance(original_response_from_content, dict) and "response" in original_response_from_content:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        f"Restored Responses API format from metadata - request_id={request_id}"
+                                    )
+                                return original_response_from_content
+
+                    # Check if content is a Chat Completions response that was converted from Responses API
+                    # (content might be a JSON string containing Responses API response)
+                    if isinstance(content, dict) and "choices" in content and "response" not in content:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                f"Checking Chat Completions format for embedded Responses API response - request_id={request_id}, content_keys={list(content.keys())}"
+                            )
+                        # Check if message content contains a JSON string with Responses API format
+                        choices = content.get("choices", [])
+                        if choices and isinstance(choices, list) and len(choices) > 0 and isinstance(choices[0], dict):
+                            message = choices[0].get("message", {})
+                            if isinstance(message, dict):
+                                # First, check if the message has a 'parsed' field with Responses API format
+                                message_parsed = message.get("parsed")
+                                if isinstance(message_parsed, dict) and "response" in message_parsed:
+                                    # Extract the Responses API response from the parsed field
+                                    responses_response = dict(message_parsed)  # Make a copy
+                                    if "usage" not in responses_response and "usage" in content:
+                                        responses_response["usage"] = content["usage"]
+                                    # Preserve other top-level fields from outer response if missing
+                                    if "id" not in responses_response and "id" in content:
+                                        responses_response["id"] = content["id"]
+                                    if "created" not in responses_response and "created" in content:
+                                        responses_response["created"] = content["created"]
+                                    if "model" not in responses_response and "model" in content:
+                                        responses_response["model"] = content["model"]
+                                    if "object" not in responses_response:
+                                        responses_response["object"] = "response"
+                                    if logger.isEnabledFor(logging.INFO):
+                                        logger.info(
+                                            f"Successfully extracted Responses API format from message.parsed - request_id={request_id}"
+                                        )
+                                    return responses_response
+                                
+                                # If no parsed field, try to parse the content field as JSON
+                                message_content = message.get("content", "")
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        f"Found message content - request_id={request_id}, content_type={type(message_content).__name__}, content_preview={str(message_content)[:200] if isinstance(message_content, str) else 'N/A'}"
+                                    )
+                                if isinstance(message_content, str) and message_content.strip():
+                                    try:
+                                        # Try to parse the message content as JSON
+                                        parsed_content = json.loads(message_content)
+                                        if logger.isEnabledFor(logging.DEBUG):
+                                            logger.debug(
+                                                f"Parsed message content - request_id={request_id}, parsed_keys={list(parsed_content.keys()) if isinstance(parsed_content, dict) else 'N/A'}"
+                                            )
+                                        if isinstance(parsed_content, dict) and "response" in parsed_content:
+                                            # Extract the Responses API response from the JSON string
+                                            # Preserve usage from the outer response if available
+                                            responses_response = dict(parsed_content)  # Make a copy
+                                            if "usage" not in responses_response and "usage" in content:
+                                                responses_response["usage"] = content["usage"]
+                                            # Preserve other top-level fields from outer response if missing
+                                            if "id" not in responses_response and "id" in content:
+                                                responses_response["id"] = content["id"]
+                                            if "created" not in responses_response and "created" in content:
+                                                responses_response["created"] = content["created"]
+                                            if "model" not in responses_response and "model" in content:
+                                                responses_response["model"] = content["model"]
+                                            if "object" not in responses_response:
+                                                responses_response["object"] = "response"
+                                            if logger.isEnabledFor(logging.INFO):
+                                                logger.info(
+                                                    f"Successfully extracted Responses API format from message content - request_id={request_id}"
+                                                )
+                                            return responses_response
+                                        else:
+                                            if logger.isEnabledFor(logging.DEBUG):
+                                                logger.debug(
+                                                    f"Parsed content does not have 'response' key - request_id={request_id}, has_response={isinstance(parsed_content, dict) and 'response' in parsed_content}"
+                                                )
+                                    except (json.JSONDecodeError, ValueError, TypeError) as e:
+                                        if logger.isEnabledFor(logging.DEBUG):
+                                            logger.debug(
+                                                f"Failed to parse message content as JSON - request_id={request_id}, error={e}, content_preview={message_content[:200]}"
+                                            )
+                                        pass
+                                else:
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            f"Message content is not a non-empty string - request_id={request_id}, type={type(message_content).__name__}, is_empty={not (isinstance(message_content, str) and message_content.strip())}"
+                                        )
 
                     # If it's already a ChatResponse, use TranslationService to convert
                     if isinstance(content, ChatResponse):
@@ -290,7 +448,6 @@ class ResponsesController:
                             # If conversion fails, fall back to manual conversion
 
                     # Fallback: manual conversion for other formats
-                    import json as _json
                     import time as _time
                     import uuid as _uuid
 
@@ -325,12 +482,12 @@ class ResponsesController:
                         parsed = None
                         try:
                             if text.strip():
-                                parsed = _json.loads(text)
+                                parsed = json.loads(text)
                                 if logger.isEnabledFor(logging.DEBUG):
                                     logger.debug(
                                         f"Successfully parsed structured output - request_id={request_id}"
                                     )
-                        except (_json.JSONDecodeError, ValueError) as e:
+                        except (json.JSONDecodeError, ValueError) as e:
                             if logger.isEnabledFor(logging.DEBUG):
                                 logger.debug(
                                     f"Content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
@@ -372,7 +529,7 @@ class ResponsesController:
                     else:
                         # Best-effort stringify for non-dict/list types
                         try:
-                            text = _json.dumps(content)
+                            text = json.dumps(content)
                         except TypeError:
                             # Content is not JSON serializable (e.g., contains custom objects)
                             logger.debug(
@@ -385,12 +542,12 @@ class ResponsesController:
                     parsed = None
                     try:
                         if text.strip():
-                            parsed = _json.loads(text)
+                            parsed = json.loads(text)
                             if logger.isEnabledFor(logging.DEBUG):
                                 logger.debug(
                                     f"Successfully parsed fallback structured output - request_id={request_id}"
                                 )
-                    except (_json.JSONDecodeError, ValueError) as e:
+                    except (json.JSONDecodeError, ValueError) as e:
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 f"Fallback content is not valid JSON, leaving unparsed - request_id={request_id}, error={e}"
@@ -487,7 +644,7 @@ class ResponsesController:
                 if isinstance(request_data, ResponsesRequest)
                 else ResponsesRequest.model_validate(request_data)
             )
-            return cast(ResponsesRequest, responses_request)
+            return responses_request
         except ValidationError as exc:
             raise ResponsesController._map_validation_error(exc) from exc
 
@@ -574,8 +731,6 @@ class ResponsesController:
         ctx.request_id = request_id
 
         # Set protocol identifier for normalization (Requirement 1.10)
-        if ctx.extensions is None:
-            ctx.extensions = {}
         ctx.extensions["protocol"] = "openai-responses"
 
         self._attach_schema_context(
@@ -816,8 +971,8 @@ class ResponsesController:
                     return False
 
             async def _empty_chunk_iterator() -> AsyncIterator[Any]:
-                for _ in []:
-                    yield
+                return
+                yield  # type: ignore[unreachable]
 
             chunk_iterator: AsyncIterator[Any] = (
                 response.content
@@ -874,7 +1029,7 @@ class ResponsesController:
                         finish_reason = chunk_metadata.get("finish_reason")
                         delta: dict[str, Any] = {}
 
-                        if chunk_payload and isinstance(chunk_payload, dict):
+                        if chunk_payload:
                             chunk_id = chunk_payload.get("id", chunk_id)
                             chunk_model = chunk_payload.get("model", chunk_model)
                             chunk_created = chunk_payload.get("created", chunk_created)
@@ -968,19 +1123,19 @@ class ResponsesController:
 
                         # OPTIMIZATION: Use fast path for simple content chunks to avoid expensive json.dumps
                         # This avoids serializing the full dict structure for every token in high-volume streams
+                        choices_list = streaming_chunk.get("choices")
                         is_simple_chunk = (
-                            isinstance(streaming_chunk, dict)
-                            and len(streaming_chunk) == 5
+                            len(streaming_chunk) == 5
                             and "choices" in streaming_chunk
-                            and isinstance(streaming_chunk["choices"], list)
-                            and len(streaming_chunk["choices"]) == 1
-                            and isinstance(streaming_chunk["choices"][0], dict)
-                            and "delta" in streaming_chunk["choices"][0]
-                            and len(streaming_chunk["choices"][0]) == 2  # index and delta only
-                            and isinstance(streaming_chunk["choices"][0]["delta"], dict)
-                            and len(streaming_chunk["choices"][0]["delta"]) == 1
-                            and "content" in streaming_chunk["choices"][0]["delta"]
-                            and isinstance(streaming_chunk["choices"][0]["delta"]["content"], str)
+                            and isinstance(choices_list, list)
+                            and len(choices_list) == 1
+                            and isinstance(choices_list[0], dict)
+                            and "delta" in choices_list[0]
+                            and len(choices_list[0]) == 2  # index and delta only
+                            and isinstance(choices_list[0].get("delta"), dict)
+                            and len(choices_list[0].get("delta", {})) == 1
+                            and "content" in choices_list[0].get("delta", {})
+                            and isinstance(choices_list[0].get("delta", {}).get("content"), str)
                         )
 
                         if is_simple_chunk:
@@ -1132,9 +1287,6 @@ class ResponsesController:
         Raises:
             ValueError: If the schema is invalid
         """
-        if not isinstance(schema, dict):
-            raise ValueError("Schema must be a dictionary")
-
         enforce_schema_size_limits(schema)
 
         # Check for required fields
@@ -1372,7 +1524,7 @@ class ResponsesController:
             if operator == sre_parse.BRANCH:
                 # argument is a tuple, second element is list of branches
                 _, branches = cast(tuple, argument)  # type: ignore[misc]
-                for branch in cast(list, branches):
+                for branch in cast(list[Any], branches):
                     if ResponsesController._contains_nested_unbounded_repeat(
                         cast(sre_parse.SubPattern, branch),
                         inside_unbounded=inside_unbounded,

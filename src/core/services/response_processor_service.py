@@ -7,6 +7,8 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.core.common.exceptions import (
     LoopDetectionError,
     NonForwardableEnforcementError,
@@ -36,6 +38,9 @@ from src.core.interfaces.streaming_response_processor_interface import (
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 from src.core.memory.response_capture_processor import ResponseCaptureProcessor
 from src.core.services.response_pipeline import UnifiedResponsePipeline
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
@@ -239,7 +244,7 @@ class ResponseProcessor(IResponseProcessor):
             from typing import cast
 
             provider = get_service_provider()
-            backend_service: IBackendService = provider.get_required_service(
+            backend_service: IBackendService = provider.get_required_service(  # type: ignore[reportUnknownVariableType]
                 cast(type, IBackendService)
             )
 
@@ -256,7 +261,7 @@ class ResponseProcessor(IResponseProcessor):
                         return value.decode("utf-8", errors="ignore")
                 return str(value)
 
-            angel_response = await backend_service.chat_completions(
+            angel_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
                 verification_request,
                 stream=False,
                 allow_failover=True,
@@ -290,10 +295,10 @@ class ResponseProcessor(IResponseProcessor):
                 )
 
                 # Get registry and identity service from provider
-                non_forwardable_registry = provider.get_service(
+                non_forwardable_registry = provider.get_service(  # type: ignore[reportUnknownVariableType]
                     cast(type, INonForwardableMessageRegistry)
                 )
-                non_forwardable_identity_service = provider.get_service(
+                non_forwardable_identity_service = provider.get_service(  # type: ignore[reportUnknownVariableType]
                     cast(type, INonForwardableMessageIdentityService)
                 )
 
@@ -311,10 +316,10 @@ class ResponseProcessor(IResponseProcessor):
                 ):
                     session_id = request_context.session_id or "unknown"
                     try:
-                        identity = non_forwardable_identity_service.compute_identity(
+                        identity = non_forwardable_identity_service.compute_identity(  # type: ignore[reportUnknownMemberType]
                             steering_message
                         )
-                        await non_forwardable_registry.tag_identities(
+                        await non_forwardable_registry.tag_identities(  # type: ignore[reportUnknownMemberType]
                             session_id=session_id,
                             identities=[identity],
                             scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
@@ -322,8 +327,7 @@ class ResponseProcessor(IResponseProcessor):
                         )
                         # Set injection boundary
                         injection_start_index = len(original_request.messages)
-                        if request_context.extensions is None:
-                            request_context.extensions = {}
+                        # extensions is dict[str, JsonValue] (not None), so no need to check
                         request_context.extensions[
                             PROXY_INJECTED_MESSAGES_START_INDEX_KEY
                         ] = injection_start_index
@@ -348,7 +352,7 @@ class ResponseProcessor(IResponseProcessor):
                 if session_key:
                     self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            corrected_response = await backend_service.chat_completions(
+            corrected_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
                 correction_request,
                 stream=False,
                 allow_failover=True,
@@ -457,11 +461,17 @@ class ResponseProcessor(IResponseProcessor):
             usage = UsageSummary.from_dict(usage_dict) if usage_dict else None
             metadata = self._response_parser.extract_metadata(parsed_data) or {}
 
+            # Normalize content to ProcessedChunkContent before building ProcessedResponse
+            normalized_content = normalize_to_processed_chunk_content(content)
+
+            # Normalize metadata to dict[str, JsonValue]
+            normalized_metadata = self._normalize_metadata(metadata)
+
             # Build initial ProcessedResponse for pipeline
             initial_response = ProcessedResponse(
-                content=content,
+                content=normalized_content,
                 usage=usage,
-                metadata=metadata,
+                metadata=normalized_metadata,
             )
 
             # Prepare context metadata for the pipeline
@@ -503,10 +513,17 @@ class ResponseProcessor(IResponseProcessor):
                     )
                     if decision and decision.get("action") == "steer":
                         corrected = decision.get("corrected_content", "")
+                        # Normalize content and metadata to ensure boundary safety
+                        normalized_corrected = normalize_to_processed_chunk_content(
+                            corrected
+                        )
+                        normalized_metadata = self._normalize_metadata(
+                            processed_response.metadata
+                        )
                         processed_response = ProcessedResponse(
-                            content=corrected,
+                            content=normalized_corrected,
                             usage=processed_response.usage,
-                            metadata=processed_response.metadata,
+                            metadata=normalized_metadata,
                         )
             except (KeyError, TypeError, ValueError, AttributeError):
                 # Be conservative: do not break normal flow on Angel errors
@@ -590,14 +607,24 @@ class ResponseProcessor(IResponseProcessor):
                         merged_metadata = dict(chunk.metadata or {})
                         for key, value in context.items():
                             merged_metadata.setdefault(key, value)
+                        # Normalize content and metadata to ensure boundary safety
+                        normalized_content = normalize_to_processed_chunk_content(
+                            chunk.content
+                        )
+                        normalized_metadata = self._normalize_metadata(merged_metadata)
                         yield ProcessedResponse(
-                            content=chunk.content,
+                            content=normalized_content,
                             usage=chunk.usage,
-                            metadata=merged_metadata,
+                            metadata=normalized_metadata,
                         )
                     else:
                         # Wrap raw chunks in ProcessedResponse to carry context.
-                        yield ProcessedResponse(content=chunk, metadata=context)
+                        # Normalize chunk content and context metadata
+                        normalized_content = normalize_to_processed_chunk_content(chunk)
+                        normalized_metadata = self._normalize_metadata(context)
+                        yield ProcessedResponse(
+                            content=normalized_content, metadata=normalized_metadata
+                        )
 
             effective_iterator = _context_injector(response_iterator)
 
@@ -610,9 +637,14 @@ class ResponseProcessor(IResponseProcessor):
                     metadata: dict[str, Any] = {"model": chunk.model}
                     if session_id:
                         metadata["session_id"] = session_id
+                    # Normalize content and metadata to ensure boundary safety
+                    normalized_content = normalize_to_processed_chunk_content(
+                        chunk.content or ""
+                    )
+                    normalized_metadata = self._normalize_metadata(metadata)
                     yield ProcessedResponse(
-                        content=chunk.content or "",
-                        metadata=metadata,
+                        content=normalized_content,
+                        metadata=normalized_metadata,
                         usage=None,
                     )
                 elif isinstance(chunk, ProcessedResponse):
@@ -620,22 +652,32 @@ class ResponseProcessor(IResponseProcessor):
                     metadata = dict(chunk.metadata or {})
                     if session_id and "session_id" not in metadata:
                         metadata["session_id"] = session_id
+                    # Normalize content and metadata to ensure boundary safety
+                    normalized_content = normalize_to_processed_chunk_content(
+                        chunk.content
+                    )
+                    normalized_metadata = self._normalize_metadata(metadata)
                     yield ProcessedResponse(
-                        content=chunk.content,
-                        metadata=metadata,
+                        content=normalized_content,
+                        metadata=normalized_metadata,
                         usage=chunk.usage,
                     )
                 elif isinstance(chunk, dict) and "choices" in chunk:
                     content = ""
                     if (
-                        chunk.get("choices")
+                        chunk.get("choices")  # type: ignore[reportUnknownMemberType]
                         and "delta" in chunk["choices"][0]
                         and "content" in chunk["choices"][0]["delta"]
                     ):
-                        content = chunk["choices"][0]["delta"]["content"]
+                        content = chunk["choices"][0]["delta"]["content"]  # type: ignore[reportUnknownVariableType]
                     metadata = {"session_id": session_id} if session_id else {}
+                    # Normalize content and metadata to ensure boundary safety
+                    normalized_content = normalize_to_processed_chunk_content(content)
+                    normalized_metadata = self._normalize_metadata(metadata)
                     yield ProcessedResponse(
-                        content=content, metadata=metadata, usage=None
+                        content=normalized_content,
+                        metadata=normalized_metadata,
+                        usage=None,
                     )
                 elif isinstance(chunk, bytes):
                     # Try to parse as SSE
@@ -651,25 +693,47 @@ class ResponseProcessor(IResponseProcessor):
                                 and "content" in data["choices"][0]["delta"]
                             ):
                                 content = data["choices"][0]["delta"]["content"]
+                            # Normalize content and metadata to ensure boundary safety
+                            normalized_content = normalize_to_processed_chunk_content(
+                                content
+                            )
+                            chunk_metadata = (
+                                {"session_id": session_id} if session_id else {}
+                            )
+                            normalized_metadata = self._normalize_metadata(
+                                chunk_metadata
+                            )
                             yield ProcessedResponse(
-                                content=content,
-                                metadata=(
-                                    {"session_id": session_id} if session_id else {}
-                                ),
+                                content=normalized_content,
+                                metadata=normalized_metadata,
                                 usage=None,
                             )
                     except json.JSONDecodeError:
                         # Just yield the raw bytes as string
+                        # Normalize content and metadata to ensure boundary safety
+                        normalized_content = normalize_to_processed_chunk_content(
+                            str(chunk)
+                        )
+                        chunk_metadata = (
+                            {"session_id": session_id} if session_id else {}
+                        )
+                        normalized_metadata = self._normalize_metadata(chunk_metadata)
                         yield ProcessedResponse(
-                            content=str(chunk),
-                            metadata={"session_id": session_id} if session_id else {},
+                            content=normalized_content,
+                            metadata=normalized_metadata,
                             usage=None,
                         )
                 else:
                     # Default handling for unknown types
+                    # Normalize content and metadata to ensure boundary safety
+                    normalized_content = normalize_to_processed_chunk_content(  # type: ignore[reportUnknownArgumentType]
+                        str(chunk)
+                    )
+                    chunk_metadata = {"session_id": session_id} if session_id else {}
+                    normalized_metadata = self._normalize_metadata(chunk_metadata)
                     yield ProcessedResponse(
-                        content=str(chunk),
-                        metadata={"session_id": session_id} if session_id else {},
+                        content=normalized_content,
+                        metadata=normalized_metadata,
                         usage=None,
                     )
             return
@@ -718,54 +782,66 @@ class ResponseProcessor(IResponseProcessor):
                             logger.debug("Memory capture error: %s", e)
 
                 if isinstance(processed_chunk, StreamingContent):
-                    chunk_content: str | dict[str, Any] = self._normalize_chunk_text(
+                    # Normalize content to ProcessedChunkContent before wrapping
+                    chunk_content = normalize_to_processed_chunk_content(  # type: ignore[reportUnknownVariableType]
                         processed_chunk.content
                     )
                     source_metadata = processed_chunk.metadata or {}
-                    metadata = dict(source_metadata)
-                    if session_id:
-                        metadata.setdefault("session_id", session_id)
-                    metadata.setdefault("model", source_metadata.get("model"))
-                    metadata.setdefault("id", source_metadata.get("id"))
-                    metadata.setdefault("created", source_metadata.get("created"))
-                    metadata["is_done"] = processed_chunk.is_done
-                    metadata["is_cancellation"] = processed_chunk.is_cancellation
-                    # Preserve stream_id for downstream buffering correlation
-                    if processed_chunk.stream_id:
-                        metadata["stream_id"] = processed_chunk.stream_id
-                    elif "stream_id" in source_metadata:
-                        metadata["stream_id"] = source_metadata["stream_id"]
+                    # Normalize base metadata first
+                    metadata = self._normalize_metadata(dict(source_metadata))
+                    # Safely merge additional fields, ensuring all values are JSON-serializable
+                    metadata = self._safe_merge_metadata(
+                        metadata,
+                        source_metadata,
+                        ("is_done", processed_chunk.is_done),
+                        ("is_cancellation", processed_chunk.is_cancellation),
+                        *([("session_id", session_id)] if session_id else []),
+                        *(
+                            [("stream_id", processed_chunk.stream_id)]
+                            if processed_chunk.stream_id
+                            else []
+                        ),
+                    )
                     yield ProcessedResponse(
                         content=chunk_content,
                         usage=processed_chunk.usage,
                         metadata=metadata,
                     )
                 elif isinstance(processed_chunk, ProcessedResponse):
-                    # Extract content from ProcessedResponse
-                    normalized: str | dict[str, Any] = self._normalize_chunk_text(
+                    # Normalize content to ProcessedChunkContent (ensure it's already normalized)
+                    normalized_content = normalize_to_processed_chunk_content(
                         processed_chunk.content
                     )
-                    metadata = (
+                    # Normalize base metadata
+                    metadata = self._normalize_metadata(
                         dict(processed_chunk.metadata)
                         if processed_chunk.metadata
                         else {}
                     )
+                    # Safely merge session_id if provided
                     if session_id:
-                        metadata.setdefault("session_id", session_id)
+                        metadata = self._safe_merge_metadata(
+                            metadata, {}, ("session_id", session_id)
+                        )
                     yield ProcessedResponse(
-                        content=normalized,
+                        content=normalized_content,
                         usage=processed_chunk.usage,
                         metadata=metadata,
                     )
                 else:
-                    # Handle unexpected types
+                    # Handle unexpected types - normalize to ProcessedChunkContent
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             f"Unexpected chunk type from stream normalizer: {type(processed_chunk)}"
                         )
-                    metadata = {"session_id": session_id} if session_id else {}
+                    normalized_content = normalize_to_processed_chunk_content(
+                        processed_chunk
+                    )
+                    metadata = self._normalize_metadata(
+                        {"session_id": session_id} if session_id else {}
+                    )
                     yield ProcessedResponse(
-                        content=str(processed_chunk),
+                        content=normalized_content,
                         usage=None,
                         metadata=metadata,
                     )
@@ -779,37 +855,79 @@ class ResponseProcessor(IResponseProcessor):
         ) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(f"Error in stream processing: {e}", exc_info=True)
-            yield ProcessedResponse(
-                content=f"Error in stream processing: {e}",
-                usage=None,
-                metadata={
+            # Normalize error content and metadata
+            error_content = normalize_to_processed_chunk_content(
+                f"Error in stream processing: {e}"
+            )
+            error_metadata = self._normalize_metadata(
+                {
                     "error": True,
                     **({"session_id": session_id} if session_id else {}),
-                },
+                }
+            )
+            yield ProcessedResponse(
+                content=error_content,
+                usage=None,
+                metadata=error_metadata,
             )
 
     @staticmethod
-    def _normalize_chunk_text(chunk: Any) -> str | dict[str, Any]:
-        """Normalize streaming payloads into client-friendly form.
+    def _normalize_metadata(metadata: dict[str, Any]) -> dict[str, JsonValue]:
+        """Normalize metadata to dict[str, JsonValue] for boundary safety.
 
-        For OpenAI-format chunks (dicts with 'choices'), preserve the structure
-        so downstream code (e.g., to_bytes()) can handle them properly.
-        Other dicts are stringified to JSON.
+        Args:
+            metadata: Raw metadata dictionary
+
+        Returns:
+            Normalized metadata with JSON-serializable values only
         """
-        if chunk is None:
-            return ""
-        if isinstance(chunk, dict):
-            # Preserve OpenAI-format chunks as dicts for proper downstream handling
-            # This includes usage-only chunks (choices: []) and regular content chunks
-            if "choices" in chunk:
-                return chunk
-            # Other structured payloads become JSON strings
-            return json.dumps(chunk)
-        if isinstance(chunk, str):
-            return chunk
-        if isinstance(chunk, bytes | bytearray):
-            try:
-                return chunk.decode("utf-8")
-            except UnicodeDecodeError:
-                return chunk.decode("utf-8", errors="ignore")
-        return str(chunk)
+        from src.core.domain.translation_utils.json_utils import (
+            sanitize_dict_for_json,
+        )
+
+        # Sanitize metadata to ensure all values are JSON-serializable
+        sanitized = sanitize_dict_for_json(metadata)
+        return sanitized
+
+    @staticmethod
+    def _safe_merge_metadata(
+        normalized_metadata: dict[str, JsonValue],
+        source_metadata: dict[str, Any],
+        *additional_fields: tuple[str, Any],
+    ) -> dict[str, JsonValue]:
+        """Safely merge additional fields into normalized metadata.
+
+        This helper ensures that values from source_metadata and additional_fields
+        are normalized to JSON-serializable types before being added to the
+        normalized metadata dict.
+
+        Args:
+            normalized_metadata: Already normalized metadata dict
+            source_metadata: Source metadata dict that may contain non-JSON values
+            *additional_fields: Additional (key, value) tuples to merge
+
+        Returns:
+            Normalized metadata dict with all values JSON-serializable
+        """
+        from src.core.domain.translation_utils.json_utils import (
+            sanitize_dict_for_json,
+        )
+
+        # Create a dict with values to merge
+        to_merge: dict[str, Any] = {}
+
+        # Add values from source_metadata if they exist
+        for key in ["model", "id", "created", "stream_id"]:
+            if key in source_metadata:
+                to_merge[key] = source_metadata[key]
+
+        # Add additional fields
+        for key, value in additional_fields:
+            to_merge[key] = value
+
+        # Normalize the merged values
+        if to_merge:
+            normalized_merge = sanitize_dict_for_json(to_merge)
+            normalized_metadata = {**normalized_metadata, **normalized_merge}
+
+        return normalized_metadata

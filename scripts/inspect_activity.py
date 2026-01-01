@@ -15,6 +15,7 @@ import json
 import sys
 import time
 from datetime import datetime
+from typing import Any
 
 import httpx
 
@@ -24,9 +25,16 @@ try:
     from rich.panel import Panel
     from rich.table import Table
 
-    HAS_RICH = True
+    _has_rich_flag = True
 except ImportError:
-    HAS_RICH = False
+    _has_rich_flag = False
+    # Define placeholders for type checking - these will only be used when HAS_RICH is False
+    box = None  # type: ignore[assignment, misc]
+    Console = None  # type: ignore[assignment, misc]
+    Panel = None  # type: ignore[assignment, misc]
+    Table = None  # type: ignore[assignment, misc]
+
+HAS_RICH = _has_rich_flag
 
 
 def format_bytes(num_bytes: int) -> str:
@@ -53,12 +61,12 @@ def format_duration(seconds: float) -> str:
         return f"{hours}h {minutes}m"
 
 
-def get_diagnostics(url: str) -> dict:
+def get_diagnostics(url: str) -> dict[str, Any]:
     """Fetch diagnostics from the API."""
     try:
         response = httpx.get(url, timeout=5.0)
         response.raise_for_status()
-        return response.json()
+        return response.json()  # type: ignore[no-any-return]
     except httpx.RequestError as e:
         print(f"Error connecting to {url}: {e}")
         print("Is the LLM Proxy server running?")
@@ -68,7 +76,7 @@ def get_diagnostics(url: str) -> dict:
         sys.exit(1)
 
 
-def print_activity_plain(data: dict) -> None:
+def print_activity_plain(data: dict[str, Any]) -> None:
     """Print activity information without Rich formatting."""
     timestamp = data.get("timestamp", time.time())
     dt = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
@@ -144,11 +152,13 @@ def print_activity_plain(data: dict) -> None:
             print()
 
 
-def create_activity_table(data: dict) -> Table:
+def create_activity_table(data: dict[str, Any]) -> Any:  # type: ignore[return-type]
     """Create a Rich table showing activity."""
+    if not HAS_RICH:
+        raise ImportError("rich library is required for this function")
     table = Table(
         title="Active Connections",
-        box=box.ROUNDED,
+        box=box.ROUNDED,  # type: ignore[union-attr]
         show_header=True,
         header_style="bold cyan",
     )
@@ -191,8 +201,10 @@ def create_activity_table(data: dict) -> Table:
     return table
 
 
-def create_summary_panel(data: dict) -> Panel:
+def create_summary_panel(data: dict[str, Any]) -> Any:  # type: ignore[return-type]
     """Create a Rich panel showing summary."""
+    if not HAS_RICH:
+        raise ImportError("rich library is required for this function")
     # Check if activity tracking is enabled
     tracking_enabled = data.get("activity_tracking_enabled", False)
     global_activity = data.get("global_activity", {})
@@ -205,7 +217,7 @@ def create_summary_panel(data: dict) -> Panel:
             "[yellow]Activity tracking is DISABLED[/yellow]\n"
             "[dim]Enable with: --enable-activity-tracking or ENABLE_ACTIVITY_TRACKING=1[/dim]"
         )
-        return Panel(content, title="Connection Activity", border_style="yellow")
+        return Panel(content, title="Connection Activity", border_style="yellow")  # type: ignore[misc]
 
     total_conn = global_activity.get("total_active_connections", 0)
     total_rx = format_bytes(global_activity.get("total_bytes_rx", 0))
@@ -218,12 +230,14 @@ def create_summary_panel(data: dict) -> Panel:
         f"[dim]Updated: {dt}[/dim]"
     )
 
-    return Panel(content, title="Connection Activity", border_style="blue")
+    return Panel(content, title="Connection Activity", border_style="blue")  # type: ignore[misc]
 
 
-def display_activity_rich(data: dict) -> Console:
+def display_activity_rich(data: dict[str, Any]) -> Any:  # type: ignore[return-type]
     """Display activity using Rich."""
-    console = Console()
+    if not HAS_RICH:
+        raise ImportError("rich library is required for this function")
+    console = Console()  # type: ignore[misc]
     console.clear()
 
     console.print(create_summary_panel(data))
@@ -245,18 +259,7 @@ def watch_activity(url: str, interval: float = 1.0) -> None:
         print("Install with: pip install rich")
         sys.exit(1)
 
-    console = Console()
-
-    def generate_display() -> str:
-        """Generate display content for Live."""
-        try:
-            data = get_diagnostics(url)
-            return create_summary_panel(data), create_activity_table(data)
-        except Exception as e:
-            return (
-                Panel(f"[red]Error: {e}[/red]", title="Error", border_style="red"),
-                Table(),
-            )
+    console = Console()  # type: ignore[misc]
 
     console.print("[dim]Press Ctrl+C to stop watching...[/dim]\n")
 

@@ -14,6 +14,8 @@ import logging
 from collections.abc import AsyncIterator, Iterable
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+from pydantic.types import JsonValue
+
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.domain.streaming.streaming_content import StreamingContent
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -25,6 +27,8 @@ from src.core.transport.fastapi.adapters.protocols import (
 )
 
 if TYPE_CHECKING:
+    from src.core.domain.request_context import RequestContext
+else:
     from src.core.domain.request_context import RequestContext
 
 logger = logging.getLogger(__name__)
@@ -73,22 +77,38 @@ class StreamingContentConverter:
         self._tool_block_buffer = tool_block_buffer
 
     async def convert_stream(
-        self, raw_stream: AsyncIterator[Any], context: dict[str, Any]
+        self,
+        raw_stream: AsyncIterator[ProcessedResponse],
+        context: dict[str, JsonValue | RequestContext | None],
     ) -> AsyncIterator[StreamingContent]:
         """Convert raw chunks to StreamingContent.
 
         Args:
-            raw_stream: Raw stream iterator (ProcessedResponse or raw chunks)
+            raw_stream: Raw stream iterator of ProcessedResponse chunks
             context: Conversion context containing:
-                    - envelope_metadata: dict with envelope metadata
-                    - context: Optional RequestContext
-                    - Other conversion parameters
+                    - envelope_metadata: dict[str, JsonValue] with envelope metadata
+                    - context: RequestContext | None for usage recalculation
+                    Note: RequestContext is allowed here as it's needed for usage
+                    recalculation logic, but envelope_metadata must be JSON-safe.
 
         Yields:
             StreamingContent chunks
         """
-        envelope_metadata = context.get("envelope_metadata", {})
-        request_context = context.get("context")
+        envelope_metadata_raw = context.get("envelope_metadata", {})
+        request_context_raw = context.get("context")
+
+        # Extract typed values from context dict
+        # envelope_metadata should be dict[str, JsonValue]
+        envelope_metadata: dict[str, JsonValue] = (
+            envelope_metadata_raw if isinstance(envelope_metadata_raw, dict) else {}
+        )
+        # request_context should be RequestContext | None
+        request_context: RequestContext | None = (
+            request_context_raw
+            if isinstance(request_context_raw, RequestContext)
+            or request_context_raw is None
+            else None
+        )
 
         # Ensure async iterator
         async_stream = self._ensure_async_iterator(raw_stream)
@@ -100,15 +120,15 @@ class StreamingContentConverter:
             yield content
 
     async def _ensure_async_iterator(
-        self, source: AsyncIterator[Any] | Iterable[Any]
-    ) -> AsyncIterator[Any]:
+        self, source: AsyncIterator[ProcessedResponse] | Iterable[ProcessedResponse]
+    ) -> AsyncIterator[ProcessedResponse]:
         """Ensure source is an async iterator.
 
         Args:
-            source: Source iterator (async or sync)
+            source: Source iterator (async or sync) of ProcessedResponse chunks
 
         Yields:
-            Items from source iterator
+            ProcessedResponse chunks from source iterator
         """
         try:
             if hasattr(source, "__aiter__"):
@@ -132,26 +152,20 @@ class StreamingContentConverter:
                     await source.aclose()  # type: ignore[union-attr]
             raise
 
-    def _extract_payload_and_metadata(self, chunk: Any) -> PayloadAndMetadata:
-        """Extract payload and metadata from chunk.
+    def _extract_payload_and_metadata(
+        self, chunk: ProcessedResponse
+    ) -> PayloadAndMetadata:
+        """Extract payload and metadata from ProcessedResponse chunk.
 
         Args:
-            chunk: Chunk (ProcessedResponse, StreamingContent, or raw)
+            chunk: ProcessedResponse chunk (typed boundary contract)
 
         Returns:
             PayloadAndMetadata namedtuple with payload and metadata fields
         """
-        if isinstance(chunk, ProcessedResponse):
-            return PayloadAndMetadata(chunk.content, chunk.metadata or {})
-        if isinstance(chunk, StreamingContent):
-            # Preserve is_done and other attributes from StreamingContent
-            metadata = dict(chunk.metadata) if chunk.metadata else {}
-            if chunk.is_done:
-                metadata["is_done"] = True
-            if chunk.stream_id:
-                metadata["stream_id"] = chunk.stream_id
-            return PayloadAndMetadata(chunk.content, metadata)
-        return PayloadAndMetadata(chunk, {})
+        # At the transport adapter boundary, we only accept ProcessedResponse
+        # (per Requirement 2.5, 6.3 - typed contracts at boundaries)
+        return PayloadAndMetadata(chunk.content, chunk.metadata or {})
 
     def _extract_usage_from_metadata(
         self, metadata: dict[str, Any] | None
@@ -189,7 +203,7 @@ class StreamingContentConverter:
                 if not finish_reason:
                     choices = payload.get("choices")
                     if isinstance(choices, list):
-                        for choice in choices:
+                        for choice in choices:  # type: ignore[reportUnknownVariableType]
                             if isinstance(choice, dict):
                                 finish_reason = choice.get("finish_reason")
                                 if finish_reason:
@@ -217,10 +231,10 @@ class StreamingContentConverter:
         """
         if not isinstance(payload, dict):
             return None
-        choices = payload.get("choices")
+        choices: list[Any] = payload.get("choices", [])  # type: ignore[assignment]
         if not isinstance(choices, list) or not choices:
             return None
-        first_choice = choices[0]
+        first_choice: dict[str, Any] = choices[0]
         if not isinstance(first_choice, dict):
             return None
         delta = first_choice.get("delta")
@@ -241,7 +255,7 @@ class StreamingContentConverter:
             text_parts: list[str] = []
             choices = payload.get("choices")
             if isinstance(choices, list):
-                for choice in choices:
+                for choice in choices:  # type: ignore[reportUnknownVariableType]
                     if not isinstance(choice, dict):
                         continue
                     block = choice.get("delta") or choice.get("message") or {}
@@ -329,10 +343,29 @@ class StreamingContentConverter:
         Returns:
             True if chunk signals completion
         """
-        # Import the module-level function to reuse existing logic
-        from src.core.transport.fastapi.response_adapters import _chunk_signals_done
+        # Check for explicit done markers
+        if isinstance(metadata, dict):
+            if metadata.get("is_done") is True:
+                return True
+            if metadata.get("finish_reason") in ("stop", "length", "content_filter"):
+                return True
 
-        return _chunk_signals_done(content, metadata)
+        # Check content for finish_reason
+        if isinstance(content, dict):
+            finish_reason = content.get("finish_reason")
+            if finish_reason in ("stop", "length", "content_filter"):
+                return True
+
+            # Check choices array
+            choices: list[Any] = content.get("choices", [])  # type: ignore[assignment]
+            if isinstance(choices, list) and len(choices) > 0:
+                first_choice: dict[str, Any] = choices[0]
+                if isinstance(first_choice, dict):
+                    choice_finish = first_choice.get("finish_reason")
+                    if choice_finish in ("stop", "length", "content_filter"):
+                        return True
+
+        return False
 
     def _sanitize_multiline_tool_blocks(self, stream_key: str, payload: Any) -> None:
         """Sanitize multiline tool blocks in payload.
@@ -383,15 +416,15 @@ class StreamingContentConverter:
 
     async def _convert_to_streaming_content(
         self,
-        source: AsyncIterator[Any],
-        envelope_metadata: dict[str, Any],
+        source: AsyncIterator[ProcessedResponse],
+        envelope_metadata: dict[str, JsonValue],
         request_context: RequestContext | None,
     ) -> AsyncIterator[StreamingContent]:
         """Convert raw stream to StreamingContent.
 
         Args:
-            source: Source async iterator
-            envelope_metadata: Envelope metadata
+            source: Source async iterator of ProcessedResponse chunks
+            envelope_metadata: Envelope metadata (JSON-safe values)
             request_context: Optional request context
 
         Yields:
@@ -413,6 +446,12 @@ class StreamingContentConverter:
                 payload = payload_and_metadata.payload
                 metadata = payload_and_metadata.metadata
 
+                # Extract usage from ProcessedResponse if available
+                # chunk is always ProcessedResponse at this boundary
+                processed_response_usage = (
+                    chunk.usage if chunk.usage is not None else None
+                )
+
                 # Decode SSE payload
                 decoder = self._get_sse_decoder()
                 decoded_sse = decoder.decode_payload(payload)
@@ -430,9 +469,9 @@ class StreamingContentConverter:
                 metadata = self._merge_metadata_from_payload(decoded_payload, metadata)
 
                 # Add outbound_tokens from envelope if missing
+                # envelope_metadata is always dict[str, JsonValue] at this boundary
                 if (
-                    isinstance(envelope_metadata, dict)
-                    and "outbound_tokens" in envelope_metadata
+                    "outbound_tokens" in envelope_metadata
                     and "outbound_tokens" not in metadata
                 ):
                     with contextlib.suppress(Exception):
@@ -451,12 +490,20 @@ class StreamingContentConverter:
                 )
 
                 # Extract and merge usage
-                usage_payload = (
-                    enriched.get("usage") if isinstance(enriched, dict) else None
-                )
-                computed_usage = (
-                    usage_payload if isinstance(usage_payload, dict) else None
-                )
+                # Priority: ProcessedResponse.usage > payload usage > metadata usage
+                computed_usage = None
+                if processed_response_usage is not None:
+                    # Convert UsageSummary to dict format for merging
+                    computed_usage = processed_response_usage.to_dict()
+
+                if computed_usage is None:
+                    usage_payload = (
+                        enriched.get("usage") if isinstance(enriched, dict) else None
+                    )
+                    computed_usage = (
+                        usage_payload if isinstance(usage_payload, dict) else None
+                    )
+
                 if computed_usage is None:
                     computed_usage = self._extract_usage_from_metadata(metadata)
 
@@ -483,31 +530,28 @@ class StreamingContentConverter:
                     self._flush_pending_tool_blocks(stream_key, decoded_payload)
 
                     # Prepare for final usage recalculation
+                    # metadata is always dict[str, Any] at this point
                     accumulated_content = None
-                    if isinstance(metadata, dict):
-                        accumulated_value = metadata.get("accumulated_content")
-                        if isinstance(accumulated_value, str):
-                            accumulated_content = accumulated_value
+                    accumulated_value = metadata.get("accumulated_content")
+                    if isinstance(accumulated_value, str):
+                        accumulated_content = accumulated_value
 
                     model_name = None
-                    if isinstance(metadata, dict):
-                        model_candidate = metadata.get("model")
-                        if isinstance(model_candidate, str):
-                            model_name = model_candidate
+                    model_candidate = metadata.get("model")
+                    if isinstance(model_candidate, str):
+                        model_name = model_candidate
                     if model_name is None:
                         envelope_model = envelope_metadata.get("model")
                         if isinstance(envelope_model, str):
                             model_name = envelope_model
 
                     # Determine if usage recalculation is needed
-                    force_usage_recalc = False
-                    if (
-                        isinstance(metadata, dict)
-                        and metadata.get("allow_usage_recalculation")
+                    # envelope_metadata is always dict[str, JsonValue] at this boundary
+                    force_usage_recalc = bool(
+                        metadata.get("allow_usage_recalculation")
                         or envelope_metadata.get("allow_usage_recalculation")
-                    ):
-                        force_usage_recalc = True
-                    elif request_context is not None:
+                    )
+                    if not force_usage_recalc and request_context is not None:
                         try:
                             force_usage_recalc = (
                                 request_context.requires_usage_recalculation()
