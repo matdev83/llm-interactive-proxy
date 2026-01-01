@@ -17,6 +17,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from src.connectors.hybrid import HybridConnector
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -156,12 +157,12 @@ class TestHybridSentinelCoordination:
                 ):
                     # Call chat_completions
                     response = await connector.chat_completions(
-                        request_data={
-                            "model": "hybrid:[test:model1,test:model2]",
-                            "messages": [{"role": "user", "content": "test"}],
-                            "stream": True,
-                        },
-                        processed_messages=[{"role": "user", "content": "test"}],
+                        request_data=ChatRequest(
+                            model="hybrid:[test:model1,test:model2]",
+                            messages=[ChatMessage(role="user", content="test")],
+                            stream=True,
+                        ),
+                        processed_messages=[ChatMessage(role="user", content="test")],
                         effective_model="hybrid:[test:model1,test:model2]",
                         identity=None,
                     )
@@ -266,12 +267,12 @@ class TestHybridSentinelCoordination:
 
             # Call chat_completions
             response = await connector.chat_completions(
-                request_data={
-                    "model": "hybrid:[test:model1,test:model2]",
-                    "messages": [{"role": "user", "content": "test"}],
-                    "stream": True,
-                },
-                processed_messages=[{"role": "user", "content": "test"}],
+                request_data=ChatRequest(
+                    model="hybrid:[test:model1,test:model2]",
+                    messages=[ChatMessage(role="user", content="test")],
+                    stream=True,
+                ),
+                processed_messages=[ChatMessage(role="user", content="test")],
                 effective_model="hybrid:[test:model1,test:model2]",
                 identity=None,
             )
@@ -364,12 +365,12 @@ class TestHybridSentinelCoordination:
                 ):
                     # Call chat_completions
                     response = await connector.chat_completions(
-                        request_data={
-                            "model": "hybrid:[test:model1,test:model2]",
-                            "messages": [{"role": "user", "content": "test"}],
-                            "stream": True,
-                        },
-                        processed_messages=[{"role": "user", "content": "test"}],
+                        request_data=ChatRequest(
+                            model="hybrid:[test:model1,test:model2]",
+                            messages=[ChatMessage(role="user", content="test")],
+                            stream=True,
+                        ),
+                        processed_messages=[ChatMessage(role="user", content="test")],
                         effective_model="hybrid:[test:model1,test:model2]",
                         identity=None,
                     )

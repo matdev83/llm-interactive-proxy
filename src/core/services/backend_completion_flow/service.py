@@ -43,13 +43,13 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+from src.core.services.boundary_validation import (
+    log_boundary_validation_failure,
+)
 from src.core.services.connector_invoker import ConnectorInvoker
 from src.core.services.resilience.scope import (
     build_resilience_error_context,
     build_resilience_instance_id,
-)
-from src.core.services.boundary_validation import (
-    log_boundary_validation_failure,
 )
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,

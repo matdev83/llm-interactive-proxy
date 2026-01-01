@@ -162,11 +162,12 @@ class TestResponseAdapters:
     @pytest.mark.asyncio
     async def test_to_fastapi_streaming_response(self):
         """Test converting a domain streaming response envelope to a FastAPI streaming response."""
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
 
-        # Create an async generator for streaming content
+        # Create an async generator for streaming content with ProcessedResponse chunks
         async def content_generator():
-            yield b"Hello, "
-            yield b"world!"
+            yield ProcessedResponse(content="Hello, ", metadata={})
+            yield ProcessedResponse(content="world!", metadata={})
 
         # Create a domain streaming response envelope
         domain_response = StreamingResponseEnvelope(

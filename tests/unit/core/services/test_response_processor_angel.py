@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator
 from typing import Any, cast
 
 import pytest
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
@@ -124,7 +125,13 @@ async def test_response_processor_calls_angel_when_configured(monkeypatch) -> No
     original_req = ChatRequest(
         model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
     )
-    context = {"original_request": original_req}
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_req,
+    )
 
     # Process response
     pr = await proc.process_response(
@@ -175,7 +182,13 @@ async def test_response_processor_keeps_original_on_pass(monkeypatch) -> None:
     original_req = ChatRequest(
         model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
     )
-    context = {"original_request": original_req}
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_req,
+    )
 
     pr = await proc.process_response(
         {"content": "initial"}, session_id="s2", context=context
@@ -234,7 +247,13 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
     original_req = ChatRequest(
         model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
     )
-    context = {"original_request": original_req}
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_req,
+    )
 
     pr = await proc.process_response(
         {"content": "initial"}, session_id="s3", context=context
@@ -274,7 +293,13 @@ async def test_response_processor_respects_angel_frequency(monkeypatch) -> None:
         model="openai:gpt-4o-mini",
         messages=[ChatMessage(role="user", content="Hi")],
     )
-    context = {"original_request": original_req}
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_req,
+    )
 
     pr = await proc.process_response(
         {"content": "unverified"},

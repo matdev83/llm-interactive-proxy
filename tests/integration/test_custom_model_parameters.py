@@ -197,8 +197,8 @@ class TestCustomModelParameters:
         sent_request = mock_http_client.sent_request
         assert sent_request is not None
         payload = json.loads(sent_request.content)
-        assert "reasoning_effort" in payload
-        assert payload["reasoning_effort"] == "high"
+        assert "reasoning" in payload
+        assert payload["reasoning"]["effort"] == "high"
 
     @pytest.mark.asyncio
     async def test_gemini_reasoning_effort_parameter(

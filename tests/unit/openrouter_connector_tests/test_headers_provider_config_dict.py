@@ -97,7 +97,9 @@ async def test_chat_completions_supports_config_dict_headers(
             api_key="integration-key",
         )
 
-    req = httpx_mock.get_request()
+    requests = httpx_mock.get_requests()
+    assert len(requests) > 0
+    req = requests[0]
     assert req is not None
     assert req.headers.get("Authorization") == "Bearer integration-key"
     assert req.headers.get("HTTP-Referer") == "https://example.invalid/test"

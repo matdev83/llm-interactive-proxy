@@ -166,6 +166,11 @@ def _make_response_processor(config: AppConfig) -> ResponseProcessor:
 
 
 def _make_context(config: AppConfig) -> RequestContext:
+    extensions = {}
+    if config.session and hasattr(config.session, "angel_model") and config.session.angel_model:
+        extensions["angel_model"] = config.session.angel_model
+    if config.session and hasattr(config.session, "angel_frequency"):
+        extensions["angel_frequency"] = config.session.angel_frequency
     return RequestContext(
         headers={},
         cookies={},
@@ -175,6 +180,7 @@ def _make_context(config: AppConfig) -> RequestContext:
         session_id=None,
         agent=None,
         original_request=None,
+        extensions=extensions,
     )
 
 

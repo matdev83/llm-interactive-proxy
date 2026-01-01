@@ -161,6 +161,8 @@ def _register_backend_non_streaming_response_handler(
     def _backend_non_streaming_response_handler_factory(
         provider: IServiceProvider,
     ) -> BackendNonStreamingResponseHandler:
+        from src.core.interfaces.application_state_interface import IApplicationState
+
         response_processor: IResponseProcessor = provider.get_required_service(
             cast(type, IResponseProcessor)  # type: ignore[type-abstract]
         )
@@ -176,6 +178,9 @@ def _register_backend_non_streaming_response_handler(
         )
         backend_processor: IBackendProcessor = provider.get_required_service(
             cast(type, IBackendProcessor)  # type: ignore[type-abstract]
+        )
+        app_state: IApplicationState = provider.get_required_service(
+            cast(type, IApplicationState)  # type: ignore[type-abstract]
         )
 
         # Get cancellation coordinator (optional, registered in streaming phase)
@@ -209,6 +214,7 @@ def _register_backend_non_streaming_response_handler(
             structured_output_enforcer=structured_output_enforcer,
             tool_call_retry_coordinator=tool_call_retry_coordinator,
             backend_processor=backend_processor,
+            app_state=app_state,
             cancellation_coordinator=cancellation_coordinator,
         )
 

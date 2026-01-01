@@ -7,11 +7,9 @@ Requirement: 5.2 - Centralize legacy coercion at explicit adapter boundaries onl
 Requirement: 4.3 - Add deterministic boundary validation, errors, and structured logs.
 """
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from src.core.adapters.api_adapters import dict_to_domain_chat_request
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext

@@ -26,6 +26,7 @@ from src.connectors.hybrid_backend.protocols import (
     IResponseFilter,
 )
 from src.core.common.exceptions import BackendError, ConfigurationError
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
@@ -188,15 +189,15 @@ class TestHybridOrchestrator:
             MagicMock()
         )  # Not called for non-streaming
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
         identity = AppIdentityConfig(project="test-project")
 
         result = await orchestrator.execute(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "hello"}],
+            processed_messages=[ChatMessage(role="user", content="hello")],
             effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
             identity=identity,
         )
@@ -254,14 +255,14 @@ class TestHybridOrchestrator:
             return_value=tool_call_response
         )
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         result = await orchestrator.execute(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "hello"}],
+            processed_messages=[ChatMessage(role="user", content="hello")],
             effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
         )
 
@@ -301,14 +302,14 @@ class TestHybridOrchestrator:
             return_value=[{"role": "user", "content": "test"}]
         )
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         result = await orchestrator.execute(
             request_data=request_data,
-            processed_messages=[{"role": "assistant", "content": "hi"}],
+            processed_messages=[ChatMessage(role="assistant", content="hi")],
             effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
         )
 
@@ -359,14 +360,14 @@ class TestHybridOrchestrator:
             return_value=execution_response
         )
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         result = await orchestrator.execute(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "hello"}],
+            processed_messages=[ChatMessage(role="user", content="hello")],
             effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
         )
 
@@ -383,7 +384,9 @@ class TestHybridOrchestrator:
         """Test that invalid model spec raises ValueError."""
         model_spec_parser.parse = MagicMock(side_effect=ValueError("Invalid format"))
 
-        request_data = {"model": "invalid", "messages": []}
+        request_data = ChatRequest(
+            model="invalid", messages=[ChatMessage(role="user", content="test")]
+        )
 
         with pytest.raises(ValueError):
             await orchestrator.execute(
@@ -404,10 +407,10 @@ class TestHybridOrchestrator:
         config.backends.disable_hybrid_backend = True
         model_spec_parser.parse = MagicMock(return_value=mock_spec)
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         with pytest.raises(ConfigurationError) as exc_info:
             await orchestrator.execute(
@@ -435,10 +438,10 @@ class TestHybridOrchestrator:
         )
         model_spec_parser.parse = MagicMock(return_value=incompatible_spec)
 
-        request_data = {
-            "model": "hybrid:[gemini-oauth-plan:gemini-pro,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[gemini-oauth-plan:gemini-pro,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         with pytest.raises(BackendError) as exc_info:
             await orchestrator.execute(
@@ -475,15 +478,15 @@ class TestHybridOrchestrator:
             )
         )
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         with pytest.raises(BackendError) as exc_info:
             await orchestrator.execute(
                 request_data=request_data,
-                processed_messages=[{"role": "user", "content": "hello"}],
+                processed_messages=[ChatMessage(role="user", content="hello")],
                 effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
             )
 
@@ -520,15 +523,15 @@ class TestHybridOrchestrator:
             )
         )
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         with pytest.raises(BackendError) as exc_info:
             await orchestrator.execute(
                 request_data=request_data,
-                processed_messages=[{"role": "assistant", "content": "hi"}],
+                processed_messages=[ChatMessage(role="assistant", content="hi")],
                 effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
             )
 
@@ -581,15 +584,15 @@ class TestHybridOrchestrator:
             return_value=filtered_response
         )
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-            "stream": True,
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
 
         result = await orchestrator.execute(
             request_data=request_data,
-            processed_messages=[{"role": "assistant", "content": "hi"}],
+            processed_messages=[ChatMessage(role="assistant", content="hi")],
             effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
         )
 
@@ -626,15 +629,15 @@ class TestHybridOrchestrator:
             return_value=ResponseEnvelope(content={})
         )
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-            "extra_body": {"_temp_hybrid_reasoning_probability": 0.8},
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+            extra_body={"_temp_hybrid_reasoning_probability": 0.8},
+        )
 
         await orchestrator.execute(
             request_data=request_data,
-            processed_messages=[{"role": "assistant", "content": "hi"}],
+            processed_messages=[ChatMessage(role="assistant", content="hi")],
             effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
         )
 
@@ -685,14 +688,14 @@ class TestHybridOrchestrator:
         # Set low latency threshold to trigger backoff
         orchestrator.config.backends.hybrid_reasoning_latency_threshold = 0.001
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         await orchestrator.execute(
             request_data=request_data,
-            processed_messages=[{"role": "user", "content": "hello"}],
+            processed_messages=[ChatMessage(role="user", content="hello")],
             effective_model="hybrid:[openai:gpt-4,openai:gpt-3.5-turbo]",
         )
 
@@ -736,14 +739,14 @@ class TestHybridOrchestrator:
             return_value=ResponseEnvelope(content={})
         )
 
-        request_data = {
-            "model": "hybrid:[openai:gpt-4?reasoning_effort=high,openai:gpt-3.5-turbo?reasoning_effort=low]",
-            "messages": [],
-        }
+        request_data = ChatRequest(
+            model="hybrid:[openai:gpt-4?reasoning_effort=high,openai:gpt-3.5-turbo?reasoning_effort=low]",
+            messages=[ChatMessage(role="user", content="test")],
+        )
 
         await orchestrator.execute(
             request_data=request_data,
-            processed_messages=[{"role": "assistant", "content": "hi"}],
+            processed_messages=[ChatMessage(role="assistant", content="hi")],
             effective_model="hybrid:[openai:gpt-4?reasoning_effort=high,openai:gpt-3.5-turbo?reasoning_effort=low]",
         )
 

@@ -58,6 +58,8 @@ async def test_headers_plumbing(
     )
 
     # Assert
-    req = httpx_mock.get_request()
+    requests = httpx_mock.get_requests()
+    assert len(requests) > 0
+    req = requests[0]
     assert req is not None
     assert req.headers.get("Authorization") == "Bearer TEST-HEADER"

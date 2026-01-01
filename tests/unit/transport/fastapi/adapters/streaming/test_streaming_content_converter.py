@@ -422,7 +422,7 @@ class TestStreamingContentConverter:
 
         assert len(results) == 1
         assert isinstance(results[0], StreamingContent)
-        assert isinstance(results[0].content, bytes) or isinstance(results[0].content, str)
+        assert isinstance(results[0].content, bytes | str)
 
     @pytest.mark.asyncio
     async def test_typed_processed_response_str_content(self) -> None:

@@ -257,7 +257,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             angel_frequency_value = context.extensions.get("angel_frequency", 1)
             # Convert JsonValue to int safely
             if angel_frequency_value is not None:
-                if isinstance(angel_frequency_value, (int, float)):
+                if isinstance(angel_frequency_value, int | float):
                     angel_frequency = int(angel_frequency_value)
                 elif isinstance(angel_frequency_value, str):
                     try:
@@ -279,6 +279,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
     ) -> AsyncIterator[ProcessedResponse]:
         """Wrap stream with response processor middleware with fail-open behavior."""
         try:
+            # Update RequestContext with backend and model info from processing_context
+            request_context.backend = processing_context.backend_name
+            request_context.effective_model = processing_context.model_name
+            if processing_context.original_request:
+                request_context.original_request = processing_context.original_request
             return self._response_processor.process_streaming_response(
                 original_stream,
                 processing_context.session_id,

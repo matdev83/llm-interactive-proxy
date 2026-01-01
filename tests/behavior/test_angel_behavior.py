@@ -6,6 +6,7 @@ from typing import Any, cast
 import pytest
 from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.streaming.content_accumulation_processor import (
@@ -69,10 +70,17 @@ async def test_angel_disabled_does_not_call_backend(
         model="any",
         messages=[ChatMessage(role="user", content="Hello")],
     )
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_request,
+    )
     result = await processor.process_response(
         {"content": "World"},
         session_id="s1",
-        context={"original_request": original_request},
+        context=context,
     )
     assert result.content == "World"
     assert provider_called is False
@@ -110,10 +118,17 @@ async def test_override_marker_never_reaches_client(
         model="any",
         messages=[ChatMessage(role="user", content="Hello")],
     )
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_request,
+    )
     result = await processor.process_response(
         {"content": "Initial"},
         session_id="s2",
-        context={"original_request": original_request},
+        context=context,
     )
 
     assert "<override_angel>" not in (result.content or "")
@@ -151,10 +166,17 @@ async def test_client_never_sees_angel_xml(monkeypatch: pytest.MonkeyPatch) -> N
         model="any",
         messages=[ChatMessage(role="user", content="Hello")],
     )
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_request,
+    )
     result = await processor.process_response(
         {"content": "Initial"},
         session_id="s3",
-        context={"original_request": original_request},
+        context=context,
     )
 
     assert "<angels_steering_message>" not in (result.content or "")
@@ -183,9 +205,16 @@ async def test_angel_frequency_can_skip_turns(monkeypatch: pytest.MonkeyPatch) -
         model="any",
         messages=[ChatMessage(role="user", content="Hello")],
     )
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_request,
+    )
     result = await processor.process_response(
         {"content": "First turn"},
         session_id="s4",
-        context={"original_request": original_request},
+        context=context,
     )
     assert result.content == "First turn"

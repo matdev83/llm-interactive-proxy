@@ -163,9 +163,11 @@ class ResponseParser(IResponseParser):
 
         elif raw_response is None:
             content = ""
-        else:
-            # After checking ChatResponse, dict, and None, raw_response must be str
+        elif isinstance(raw_response, str):
+            # Handle string responses (e.g., JSON strings or plain text)
             content = raw_response
+            # Don't add default metadata for plain strings
+        else:
             # Unsupported type - raise ParsingError
             raise ParsingError(
                 f"Unsupported response type: {type(raw_response).__name__}",

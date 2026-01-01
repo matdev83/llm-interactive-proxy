@@ -100,7 +100,7 @@ class MockResponseProcessor:
         self,
         response: Any,
         session_id: str,
-        context: dict[str, Any] | None = None,
+        context: dict[str, Any] | Any | None = None,
     ) -> ProcessedResponse:
         """Process response and return ProcessedResponse."""
         if isinstance(response, str):
@@ -116,17 +116,24 @@ class MockResponseProcessor:
                 and self._empty_retry_count < self._max_empty_retries
             ):
                 self._empty_retry_count += 1
+                from src.core.domain.request_context import RequestContext
                 from src.core.services.empty_response_middleware import (
                     EmptyResponseRetryError,
                 )
+
+                # Extract original_request from context (can be dict or RequestContext)
+                original_request = None
+                if context:
+                    if isinstance(context, dict):
+                        original_request = context.get("original_request")
+                    elif isinstance(context, RequestContext):
+                        original_request = context.original_request or context.domain_request
 
                 raise EmptyResponseRetryError(
                     recovery_prompt="Please provide a meaningful response.",
                     session_id=session_id,
                     retry_count=self._empty_retry_count,
-                    original_request=(
-                        context.get("original_request") if context else None
-                    ),
+                    original_request=original_request,
                 )
             return ProcessedResponse(content=content, metadata=metadata)
         else:
@@ -183,6 +190,7 @@ def non_streaming_handler(
     app_config: AppConfig,
 ) -> BackendNonStreamingResponseHandler:
     """Create non-streaming response handler."""
+    from src.core.interfaces.application_state_interface import IApplicationState
     from src.core.services.structured_output_enforcer import StructuredOutputEnforcer
     from src.core.services.tool_call_retry_coordinator import ToolCallRetryCoordinator
 
@@ -191,12 +199,14 @@ def non_streaming_handler(
         backend_processor=mock_backend_processor,
     )
     structured_output_enforcer = StructuredOutputEnforcer(provider=MagicMock())
+    mock_app_state = MagicMock(spec=IApplicationState)
 
     return BackendNonStreamingResponseHandler(
         response_processor=mock_response_processor,
         structured_output_enforcer=structured_output_enforcer,
         tool_call_retry_coordinator=retry_coordinator,
         backend_processor=mock_backend_processor,
+        app_state=mock_app_state,
     )
 
 
@@ -936,6 +946,8 @@ class TestAngelVerification:
         mock_backend_processor.set_responses([stream_envelope])
 
         # Create context with Angel enabled but will fail
+        from src.core.domain.request_context import ProcessingContext
+
         context = RequestContext(
             headers={},
             cookies={},
@@ -944,7 +956,9 @@ class TestAngelVerification:
             session_id="test-session",
         )
         # Set processing context with Angel model (but verifier will fail)
-        context.processing_context = {"angel_model": "test-model"}
+        processing_context = ProcessingContext()
+        processing_context.values = {"angel_model": "test-model"}
+        context.processing_context = processing_context
 
         response = await backend_request_manager.process_backend_request(
             backend_request=request,

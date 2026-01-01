@@ -300,6 +300,7 @@ def test_cline_non_command_message(interactive_client: TestClient) -> None:
     """Test Cline request with non-command message."""
 
     # Patch the backend service instead of the backend instance
+    from src.core.domain.responses import ResponseEnvelope
     from src.core.interfaces.backend_service_interface import IBackendService
 
     backend_service = (
@@ -307,10 +308,32 @@ def test_cline_non_command_message(interactive_client: TestClient) -> None:
             IBackendService
         )
     )
+    mock_response = ResponseEnvelope(
+        content={
+            "id": "test-response",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Test LLM response"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15,
+            },
+        },
+        headers={},
+    )
     with patch.object(
         backend_service,
         "call_completion",
         new_callable=AsyncMock,
+        return_value=mock_response,
     ) as mock_method:
         # First establish Cline agent detection
         establish_payload = {

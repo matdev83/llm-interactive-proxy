@@ -16,6 +16,11 @@ from tests.helpers.backend_request_manager_fixtures import (
 
 
 def _make_context(app_state: Any) -> RequestContext:
+    extensions = {}
+    if app_state and hasattr(app_state, "_angel_model") and app_state._angel_model:
+        extensions["angel_model"] = app_state._angel_model
+    if app_state and hasattr(app_state, "_angel_frequency"):
+        extensions["angel_frequency"] = app_state._angel_frequency
     return RequestContext(
         headers={},
         cookies={},
@@ -26,6 +31,7 @@ def _make_context(app_state: Any) -> RequestContext:
         agent=None,
         original_request=None,
         processing_context=None,
+        extensions=extensions,
     )
 
 
@@ -63,7 +69,7 @@ async def test_streaming_angel_pass_forwards_original(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
     response_processor.process_streaming_response = (
-        lambda stream, _session_id, **kwargs: stream
+        lambda stream, _session_id, context, **kwargs: stream
     )
 
     class DummyBackendService:
@@ -112,6 +118,7 @@ async def test_streaming_angel_pass_forwards_original(monkeypatch) -> None:
     backend_processor.process_backend_request.return_value = stream_envelope
 
     context = _make_context(_DummyAppState("openai:gpt-4o-mini"))
+    context.original_request = original_request
 
     # Use public API - Angel verification will run internally
     result = await manager.process_backend_request(
@@ -136,7 +143,7 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
     backend_processor = AsyncMock()
     response_processor = MagicMock()
     response_processor.process_streaming_response = (
-        lambda stream, _session_id, **kwargs: stream
+        lambda stream, _session_id, context, **kwargs: stream
     )
     manager = create_backend_request_manager(
         backend_processor=backend_processor,
@@ -196,6 +203,7 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
     backend_processor.process_backend_request.return_value = stream_envelope
 
     context = _make_context(_DummyAppState("openai:gpt-4o-mini"))
+    context.original_request = original_request
 
     # Use public API - Angel verification will run internally and replace with correction
     result = await manager.process_backend_request(
@@ -219,7 +227,7 @@ async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
     response_processor.process_streaming_response = (
-        lambda stream, _session_id, **kwargs: stream
+        lambda stream, _session_id, context, **kwargs: stream
     )
     manager = create_backend_request_manager(
         backend_processor=backend_processor,
@@ -280,6 +288,7 @@ async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
     backend_processor.process_backend_request.return_value = stream_envelope
 
     context = _make_context(_DummyAppState("openai:gpt-4o-mini"))
+    context.original_request = original_request
 
     # Use public API - Angel verification will run internally
     result = await manager.process_backend_request(
@@ -303,7 +312,7 @@ async def test_streaming_angel_respects_frequency(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
     response_processor.process_streaming_response = (
-        lambda stream, _session_id, **kwargs: stream
+        lambda stream, _session_id, context=None, **kwargs: stream
     )
     manager = create_backend_request_manager(
         backend_processor=backend_processor,

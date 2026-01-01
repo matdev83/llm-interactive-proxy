@@ -99,8 +99,19 @@ async def fixture_api_request_and_data(
     ]
     effective_model = "some/model-name"
 
+    # Mock response for health check GET request
     httpx_mock.add_response(
-        status_code=200, json={"choices": [{"message": {"content": "ok"}}]}
+        method="GET",
+        url=f"{TEST_OPENROUTER_API_BASE_URL}/models",
+        status_code=200,
+        json={"data": []},
+    )
+    # Mock response for chat completions POST request
+    httpx_mock.add_response(
+        method="POST",
+        url=f"{TEST_OPENROUTER_API_BASE_URL}/chat/completions",
+        status_code=200,
+        json={"choices": [{"message": {"content": "ok"}}]},
     )
 
     await openrouter_backend.chat_completions(
@@ -113,7 +124,8 @@ async def fixture_api_request_and_data(
         api_key="FAKE_KEY",
     )
 
-    sent_request = httpx_mock.get_request()
+    # Filter for POST request to avoid health check GET request
+    sent_request = httpx_mock.get_request(method="POST")
     assert sent_request is not None  # Ensure request was made
 
     return {

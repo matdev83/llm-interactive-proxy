@@ -44,3 +44,4 @@ All notable changes to this project will be documented in this file.
 - **Tool Execution**: Improved logging safety by using isEnabledFor checks before logging debug messages
 - **Streaming Handler**: Refactored retry state management with dedicated RetryState dataclass for better type safety
 - **Wire Capture**: Made file rotation methods async to properly handle I/O operations in async context
+- **Boundary Validation**: Added boundary validation service with enhanced validation and error handling for connector communications

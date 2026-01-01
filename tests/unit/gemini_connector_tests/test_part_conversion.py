@@ -118,8 +118,14 @@ async def test_dict_processed_messages_are_supported(
             ChatMessage(role="user", content="Hello"),
         ],
     )
+    # Convert Gemini-specific dict format to ChatMessage
+    # The dict format {"role": "user", "parts": [...]} needs to be converted
+    # to ChatMessage with content as a list of MessageContentPartText
     processed_messages = [
-        {"role": "user", "parts": [{"text": "Hello"}]},
+        ChatMessage(
+            role="user",
+            content=[MessageContentPartText(text="Hello")],
+        ),
     ]
     httpx_mock.add_response(
         url=f"{TEST_GEMINI_API_BASE_URL}/v1beta/models/test-model:generateContent",

@@ -767,6 +767,12 @@ class OpenAIConnector(LLMBackend):
             )
             payload["model"] = effective_model
 
+        # Convert reasoning_effort to reasoning: {'effort': ...} format for OpenAI/OpenRouter
+        reasoning_effort = getattr(request_data, "reasoning_effort", None)
+        if reasoning_effort is not None:
+            # OpenAI/OpenRouter expects reasoning as a nested object with effort field
+            payload["reasoning"] = {"effort": reasoning_effort}
+
         # Allow request.extra_body to override or augment the final payload.
         extra = getattr(request_data, "extra_body", None)
         if isinstance(extra, dict):
@@ -779,7 +785,7 @@ class OpenAIConnector(LLMBackend):
 
     def _clean_openai_payload(self, payload: Any) -> dict[str, Any]:
         """Strip None values and internal-only keys from an OpenAI payload."""
-        disallowed_keys = {"extra_body", "backend_type", "agent", "session_id"}
+        disallowed_keys = {"extra_body", "backend_type", "agent", "session_id", "reasoning_effort"}
 
         def _strip_none(value: Any) -> Any:
             if isinstance(value, list):

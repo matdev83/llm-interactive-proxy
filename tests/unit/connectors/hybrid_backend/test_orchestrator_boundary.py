@@ -9,7 +9,6 @@ Requirement: 5.2 - Centralize legacy coercion at explicit adapter boundaries onl
 from unittest.mock import MagicMock
 
 import pytest
-from src.connectors.hybrid_backend.models.injection_decision import InjectionDecision
 from src.connectors.hybrid_backend.orchestration.orchestrator import HybridOrchestrator
 from src.connectors.hybrid_backend.protocols import (
     IInjectionPolicy,
@@ -22,7 +21,7 @@ from src.connectors.hybrid_backend.protocols import (
     IResponseFilter,
 )
 from src.core.common.exceptions import InvalidRequestError
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 
 @pytest.fixture

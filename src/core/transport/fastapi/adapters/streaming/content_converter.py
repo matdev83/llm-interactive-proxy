@@ -347,13 +347,14 @@ class StreamingContentConverter:
         if isinstance(metadata, dict):
             if metadata.get("is_done") is True:
                 return True
-            if metadata.get("finish_reason") in ("stop", "length", "content_filter"):
+            finish_reason = metadata.get("finish_reason")
+            if finish_reason in ("stop", "length", "content_filter", "tool_calls"):
                 return True
 
         # Check content for finish_reason
         if isinstance(content, dict):
             finish_reason = content.get("finish_reason")
-            if finish_reason in ("stop", "length", "content_filter"):
+            if finish_reason in ("stop", "length", "content_filter", "tool_calls"):
                 return True
 
             # Check choices array
@@ -362,7 +363,7 @@ class StreamingContentConverter:
                 first_choice: dict[str, Any] = choices[0]
                 if isinstance(first_choice, dict):
                     choice_finish = first_choice.get("finish_reason")
-                    if choice_finish in ("stop", "length", "content_filter"):
+                    if choice_finish in ("stop", "length", "content_filter", "tool_calls"):
                         return True
 
         return False
@@ -660,6 +661,22 @@ class StreamingContentConverter:
                                 e,
                                 exc_info=True,
                             )
+
+                    # If is_done and no usage yet, synthesize from outbound_tokens if available
+                    if is_done and best_usage is None:
+                        prompt_hint = self._resolve_prompt_hint(
+                            metadata, envelope_metadata
+                        )
+                        if prompt_hint > 0:
+                            # Synthesize minimal usage from outbound_tokens
+                            best_usage = {
+                                "prompt_tokens": prompt_hint,
+                                "completion_tokens": 0,
+                                "total_tokens": prompt_hint,
+                            }
+                            # Apply to enriched payload
+                            if isinstance(enriched, dict):
+                                enriched["usage"] = best_usage
 
                 # Create StreamingContent
                 from src.core.domain.usage_summary import UsageSummary

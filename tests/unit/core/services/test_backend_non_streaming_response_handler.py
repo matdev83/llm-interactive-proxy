@@ -29,6 +29,7 @@ from src.core.domain.backend_request_manager.context_models import (
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import ProcessingContext, RequestContext
 from src.core.domain.responses import ResponseEnvelope
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     INonStreamingBackendResponseHandler,
@@ -40,6 +41,13 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
+
+
+@pytest.fixture
+def mock_app_state() -> IApplicationState:
+    """Create a mock application state."""
+    mock = AsyncMock(spec=IApplicationState)
+    return mock
 
 
 @pytest.fixture
@@ -76,6 +84,7 @@ def handler(
     mock_structured_output_enforcer: IStructuredOutputEnforcer,
     mock_tool_call_retry_coordinator: IToolCallRetryCoordinator,
     mock_backend_processor: IBackendProcessor,
+    mock_app_state: IApplicationState,
 ) -> INonStreamingBackendResponseHandler:
     """Create a BackendNonStreamingResponseHandler instance."""
     from src.core.services.backend_non_streaming_response_handler import (
@@ -87,6 +96,7 @@ def handler(
         structured_output_enforcer=mock_structured_output_enforcer,
         tool_call_retry_coordinator=mock_tool_call_retry_coordinator,
         backend_processor=mock_backend_processor,
+        app_state=mock_app_state,
     )
 
 
@@ -164,13 +174,24 @@ class TestResponseProcessing:
 
         assert isinstance(call_args[0][2], RequestContext)  # context is RequestContext
         context = call_args[0][2]
-        assert context.session_id == "test-session-123"
-        assert context.backend == "openai"
-        assert context.effective_model == "gpt-4"
+        assert (
+            context.session_id == "test-session-123"
+        ), f"Expected session_id 'test-session-123', got '{context.session_id}'"
+        assert (
+            context.backend == "openai"
+        ), f"Expected backend 'openai', got '{context.backend}'"
+        assert (
+            context.effective_model == "gpt-4"
+        ), f"Expected effective_model 'gpt-4', got '{context.effective_model}'"
+        # Check that original_request or domain_request matches base_request
+        # The enriched context should have original_request set from processing_context.original_request
+        assert (
+            context.original_request is not None
+        ), "original_request should be set from processing_context.original_request"
         assert (
             context.original_request == base_request
             or context.domain_request == base_request
-        )
+        ), f"Expected original_request or domain_request to equal base_request. original_request={context.original_request}, domain_request={context.domain_request}, base_request={base_request}"
 
     @pytest.mark.asyncio
     async def test_handles_empty_response_retry(

@@ -1325,7 +1325,8 @@ class TestConnectorSeamCompatibility:
         # Test various status codes
         status_codes = [400, 401, 403, 404, 429, 500, 502, 503]
 
-        for status_code in status_codes:
+        def create_status_code_backend(status_code: int) -> type[MockCanonicalBackend]:
+            """Create a backend class for a specific status code."""
             class StatusCodeBackend(MockCanonicalBackend):
                 async def chat_completions(
                     self,
@@ -1336,8 +1337,11 @@ class TestConnectorSeamCompatibility:
                         backend_name="test-backend",
                         status_code=status_code,
                     )
+            return StatusCodeBackend
 
-            backend = StatusCodeBackend()
+        for status_code in status_codes:
+            backend_class = create_status_code_backend(status_code)
+            backend = backend_class()
 
             with pytest.raises(BackendError) as exc_info:
                 await connector_invoker.invoke(
@@ -1366,7 +1370,8 @@ class TestConnectorSeamCompatibility:
         # Test various status codes
         status_codes = [400, 401, 403, 404, 429, 500, 502, 503]
 
-        for status_code in status_codes:
+        def create_status_code_legacy_backend(status_code: int) -> type[MockLegacyBackend]:
+            """Create a legacy backend class for a specific status code."""
             class StatusCodeLegacyBackend(MockLegacyBackend):
                 async def chat_completions(
                     self,
@@ -1383,8 +1388,11 @@ class TestConnectorSeamCompatibility:
                         backend_name="test-backend",
                         status_code=status_code,
                     )
+            return StatusCodeLegacyBackend
 
-            backend = StatusCodeLegacyBackend()
+        for status_code in status_codes:
+            backend_class = create_status_code_legacy_backend(status_code)
+            backend = backend_class()
 
             with pytest.raises(BackendError) as exc_info:
                 await connector_invoker.invoke(

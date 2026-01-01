@@ -20,79 +20,91 @@ async def test_ask_followup_question_buffered_prevents_xml_leakage():
         to_fastapi_streaming_response,
     )
 
-    async def mock_stream() -> AsyncIterator[dict]:
+    async def mock_stream() -> AsyncIterator[ProcessedResponse]:
         """Simulate LLM streaming an ask_followup_question tool call in chunks."""
         # Use consistent stream ID across all chunks (OpenAI uses same id for all chunks)
         stream_id = "chatcmpl-test-stream"
 
         # Chunk 1: Text before the tool call
-        yield {
-            "id": stream_id,
-            "object": "chat.completion.chunk",
-            "created": 1234567890,
-            "model": "test-model",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "content": "Hello! I'm Kilo Code. What can I help you with today?\n",
-                    },
-                    "finish_reason": None,
-                }
-            ],
-        }
+        yield ProcessedResponse(
+            content={
+                "id": stream_id,
+                "object": "chat.completion.chunk",
+                "created": 1234567890,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": "Hello! I'm Kilo Code. What can I help you with today?\n",
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            metadata={"stream_id": stream_id},
+        )
 
         # Chunk 2: Start of XML tag (THIS SHOULD BE BUFFERED)
-        yield {
-            "id": stream_id,
-            "object": "chat.completion.chunk",
-            "created": 1234567890,
-            "model": "test-model",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "content": "<ask_followup_question>\n<question>What can I help you with today?</",
-                    },
-                    "finish_reason": None,
-                }
-            ],
-        }
+        yield ProcessedResponse(
+            content={
+                "id": stream_id,
+                "object": "chat.completion.chunk",
+                "created": 1234567890,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": "<ask_followup_question>\n<question>What can I help you with today?</",
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            metadata={"stream_id": stream_id},
+        )
 
         # Chunk 3: Completion of XML tag
-        yield {
-            "id": stream_id,
-            "object": "chat.completion.chunk",
-            "created": 1234567890,
-            "model": "test-model",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {
-                        "role": "assistant",
-                        "content": "question>\n</ask_followup_question>",
-                    },
-                    "finish_reason": None,
-                }
-            ],
-        }
+        yield ProcessedResponse(
+            content={
+                "id": stream_id,
+                "object": "chat.completion.chunk",
+                "created": 1234567890,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {
+                            "role": "assistant",
+                            "content": "question>\n</ask_followup_question>",
+                        },
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            metadata={"stream_id": stream_id},
+        )
 
         # Chunk 4: Final done marker (OpenAI-style - empty delta with finish_reason)
-        yield {
-            "id": stream_id,
-            "object": "chat.completion.chunk",
-            "created": 1234567890,
-            "model": "test-model",
-            "choices": [
-                {
-                    "index": 0,
-                    "delta": {},
-                    "finish_reason": "stop",
-                }
-            ],
-        }
+        yield ProcessedResponse(
+            content={
+                "id": stream_id,
+                "object": "chat.completion.chunk",
+                "created": 1234567890,
+                "model": "test-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+            metadata={"stream_id": stream_id},
+        )
 
     # Create streaming response
     envelope = StreamingResponseEnvelope(

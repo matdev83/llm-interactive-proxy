@@ -75,7 +75,7 @@ def normalize_to_processed_chunk_content(content: Any) -> ProcessedChunkContent:
 
     # Handle list/tuple - convert to string representation
     # Lists/tuples are not part of ProcessedChunkContent, so we stringify them
-    if isinstance(content, (list, tuple)):
+    if isinstance(content, list | tuple):
         return str(content)
 
     # Handle all other types - convert to string

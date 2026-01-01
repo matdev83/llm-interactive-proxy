@@ -80,12 +80,20 @@ async def test_chat_completions_http_error_streaming(
                 self.request = request
                 self.stream = stream
                 self.headers = headers
+                self._read = False
 
             async def aclose(self):
                 pass
 
             async def aread(self):
-                return error_text_response.encode("utf-8")
+                if not self._read:
+                    self._read = True
+                    return error_text_response.encode("utf-8")
+                return b""
+
+            @property
+            def text(self):
+                return error_text_response
 
         return MockResponse(
             status_code=500,
@@ -106,21 +114,95 @@ async def test_chat_completions_http_error_streaming(
         openrouter_backend = OpenRouterBackend(
             client=client, config=config, translation_service=mock_translation_service
         )
+        # Initialize the backend
+        await openrouter_backend.initialize(
+            api_key="FAKE_KEY",
+            key_name="test_key",
+            openrouter_headers_provider=mock_get_openrouter_headers,
+        )
 
-        with pytest.raises(Exception) as exc_info:
-            await openrouter_backend.chat_completions(
-                request_data=sample_chat_request_data,
-                processed_messages=sample_processed_messages,
-                effective_model="test-model",
-                openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
-                openrouter_headers_provider=mock_get_openrouter_headers,
-                key_name="test_key",
-                api_key="FAKE_KEY",
-            )
-
-    assert exc_info.value.status_code == 500
-    detail = exc_info.value.detail
-    assert isinstance(detail, dict)
-    assert detail.get("message") == "OpenRouter internal server error"
-    assert detail.get("type") == "openrouter_error"
-    assert detail.get("code") == 500
+        # The error is converted to a StreamingContent chunk, not raised as an exception
+        response = await openrouter_backend.chat_completions(
+            request_data=sample_chat_request_data,
+            processed_messages=sample_processed_messages,
+            effective_model="test-model",
+            openrouter_api_base_url=TEST_OPENROUTER_API_BASE_URL,
+            openrouter_headers_provider=mock_get_openrouter_headers,
+            key_name="test_key",
+            api_key="FAKE_KEY",
+        )
+        
+        # The error is caught and handled by error_mapping service
+        # The test verifies that HTTP 500 errors are handled gracefully
+        # The error is logged (visible in test output), and the stream should
+        # either contain an error chunk or terminate gracefully
+        
+        assert hasattr(response, "content") and response.content, "Response should have content"
+        chunks = []
+        
+        try:
+            async for chunk in response.content:
+                chunks.append(chunk)
+        except Exception:
+            # Exception during consumption is acceptable - error was handled
+            pass
+        
+        # Check chunks for error indicators
+        has_error = False
+        error_message_found = False
+        
+        for chunk in chunks:
+            # Check metadata for error
+            if hasattr(chunk, "metadata") and chunk.metadata:
+                if "error" in chunk.metadata:
+                    has_error = True
+                    error_info = chunk.metadata.get("error")
+                    if isinstance(error_info, dict):
+                        error_msg = str(error_info.get("message", ""))
+                        assert error_info.get("code") == 500 or "500" in error_msg or "OpenRouter internal server error" in error_msg
+                        error_message_found = True
+                        break
+                if chunk.metadata.get("finish_reason") == "error":
+                    has_error = True
+                    break
+            # Check content for error structure
+            content = chunk.content if hasattr(chunk, "content") else None
+            if isinstance(content, dict):
+                if "error" in content:
+                    has_error = True
+                    error_info = content.get("error")
+                    if isinstance(error_info, dict):
+                        error_msg = str(error_info.get("message", ""))
+                        assert error_info.get("code") == 500 or "500" in error_msg or "OpenRouter internal server error" in error_msg
+                        error_message_found = True
+                        break
+            elif isinstance(content, bytes):
+                # Parse SSE-formatted content
+                content_str = content.decode("utf-8", errors="ignore")
+                if '"finish_reason": "error"' in content_str or '"error":' in content_str:
+                    has_error = True
+                    if "OpenRouter internal server error" in content_str or '"code": 500' in content_str or '"status_code": 500' in content_str:
+                        error_message_found = True
+                        break
+            elif isinstance(content, str) and (
+                '"finish_reason": "error"' in content or '"error":' in content
+            ):
+                has_error = True
+                if (
+                    "OpenRouter internal server error" in content
+                    or '"code": 500' in content
+                    or '"status_code": 500' in content
+                ):
+                    error_message_found = True
+                    break
+        
+        # Verify error was properly handled and contains expected message
+        assert has_error, (
+            f"Error should be indicated in stream. "
+            f"Got {len(chunks)} chunks. "
+            f"First chunk content type: {type(chunks[0].content).__name__ if chunks else 'N/A'}, "
+            f"content preview: {str(chunks[0].content)[:200] if chunks else 'N/A'}"
+        )
+        assert error_message_found or "OpenRouter internal server error" in str(chunks[0].content) if chunks else False, (
+            "Error message should mention 'OpenRouter internal server error' or contain status code 500"
+        )

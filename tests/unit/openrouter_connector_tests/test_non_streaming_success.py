@@ -80,6 +80,13 @@ async def test_chat_completions_non_streaming_success(
     )
     effective_model = "openai/gpt-3.5-turbo"
 
+    # Mock health check GET request
+    httpx_mock.add_response(
+        url=f"{TEST_OPENROUTER_API_BASE_URL}/models",
+        method="GET",
+        json={"data": []},
+        status_code=200,
+    )
     # Mock successful response from OpenRouter
     mock_response_payload = {
         "id": "test_completion_id",
@@ -109,9 +116,17 @@ async def test_chat_completions_non_streaming_success(
     assert response_content["choices"][0]["message"]["content"] == "Hi there!"
 
     # Verify request payload
-    request = httpx_mock.get_request()
+    requests = httpx_mock.get_requests()
+    assert len(requests) > 0
+    # Find the POST request (skip the GET health check)
+    post_requests = [r for r in requests if r.method == "POST"]
+    assert len(post_requests) > 0
+    request = post_requests[0]
     assert request is not None
-    sent_payload = json.loads(request.content)
+    # Read the request body - httpx.Request.content reads the stream
+    request_body_bytes = request.read()
+    assert request_body_bytes, "Request body should not be empty"
+    sent_payload = json.loads(request_body_bytes.decode("utf-8"))
     assert sent_payload["model"] == effective_model
     assert sent_payload["messages"][0]["content"] == "Hello"
     assert not sent_payload["stream"]

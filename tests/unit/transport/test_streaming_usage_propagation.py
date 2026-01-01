@@ -127,7 +127,7 @@ async def test_pre_serialized_stop_chunk_with_usage_is_not_dropped() -> None:
 
     async def stream():
         payload = f"data: {json.dumps(stop_chunk)}\n\ndata: [DONE]\n\n".encode()
-        yield payload
+        yield ProcessedResponse(content=payload)
 
     envelope = StreamingResponseEnvelope(content=stream())
     response = to_fastapi_streaming_response(envelope)

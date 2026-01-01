@@ -6,6 +6,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from src.core.config.app_config import AppConfig
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import IResponseProcessor
@@ -47,7 +48,7 @@ def create_backend_request_manager(
         response_processor = MagicMock(spec=IResponseProcessor)
         # Default behavior: pass through streaming responses
         response_processor.process_streaming_response = (
-            lambda stream, _session_id, **kwargs: stream
+            lambda stream, _session_id, context=None, **kwargs: stream
         )
 
     if config is None:
@@ -87,12 +88,16 @@ def create_backend_request_manager(
 
     structured_output_enforcer = StructuredOutputEnforcer(provider=mock_provider)
 
+    # Create mock app state
+    mock_app_state = MagicMock(spec=IApplicationState)
+
     # Create non-streaming handler
     non_streaming_handler = BackendNonStreamingResponseHandler(
         response_processor=response_processor,
         structured_output_enforcer=structured_output_enforcer,
         tool_call_retry_coordinator=retry_coordinator,
         backend_processor=backend_processor,
+        app_state=mock_app_state,
     )
 
     # Create streaming handler

@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 import pytest
 from src.connectors.hybrid import HybridConnector
 from src.core.config.app_config import AppConfig
-from src.core.domain.chat import CanonicalChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_factory import BackendFactory
@@ -211,14 +211,20 @@ async def test_hybrid_streaming_exposes_reasoning_before_execution() -> None:
 
     connector = _build_hybrid_connector()
     request_payload = _default_request(stream=True)
+    # Convert dict to domain object
+    domain_request = ChatRequest(
+        model=request_payload["model"],
+        messages=[ChatMessage(**msg) for msg in request_payload["messages"]],
+        stream=request_payload.get("stream", False),
+    )
 
     with patch(
         "src.core.di.services.get_required_service",
         side_effect=_service_dispatcher(backend_service, backend_factory),
     ):
         response = await connector.chat_completions(
-            request_payload,
-            processed_messages=request_payload["messages"],
+            domain_request,
+            processed_messages=[ChatMessage(**msg) for msg in request_payload["messages"]],
             effective_model=request_payload["model"],
         )
 
@@ -284,14 +290,20 @@ async def test_hybrid_non_streaming_merges_reasoning_into_response() -> None:
 
     connector = _build_hybrid_connector()
     request_payload = _default_request(stream=False)
+    # Convert dict to domain object
+    domain_request = ChatRequest(
+        model=request_payload["model"],
+        messages=[ChatMessage(**msg) for msg in request_payload["messages"]],
+        stream=request_payload.get("stream", False),
+    )
 
     with patch(
         "src.core.di.services.get_required_service",
         side_effect=_service_dispatcher(backend_service, backend_factory),
     ):
         response = await connector.chat_completions(
-            request_payload,
-            processed_messages=request_payload["messages"],
+            domain_request,
+            processed_messages=[ChatMessage(**msg) for msg in request_payload["messages"]],
             effective_model=request_payload["model"],
         )
 

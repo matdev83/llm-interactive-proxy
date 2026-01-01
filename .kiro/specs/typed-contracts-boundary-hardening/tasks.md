@@ -52,7 +52,7 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
   - Validate that violations report file path + line/column + message consistently.
   - _Requirements: 3.3, 3.4, 3.5_
 
-- [ ] 2. Connector seam hardening: canonical API, invoker, and migration
+- [x] 2. Connector seam hardening: canonical API, invoker, and migration
   - _Requirements: 4.1, 4.2, 4.3, 4.4, 2.3, 5.1, 5.3, 1.5_
 - [x] 2.1 (P) Introduce canonical connector-facing contracts and protocol
   - Add `ConnectorRequestContext` as the minimal connector-facing context contract (request/session ids + JSON-safe extensions).
@@ -107,7 +107,7 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
   - All 24 new tests pass, existing tests continue to pass (41 total tests in file).
   - _Requirements: 1.1, 1.2, 1.3, 4.4, 1.5_
 
-- [ ] 3. Response and streaming seam hardening: processed chunks, usage, and metadata
+- [x] 3. Response and streaming seam hardening: processed chunks, usage, and metadata
   - _Requirements: 2.5, 6.1, 6.2, 6.3, 1.1, 1.2, 1.3, 1.5, NFR1.2_
 - [x] 3.1 (P) Harden `ProcessedResponse` contract and boundary signatures
   - Align `ProcessedResponse` (and related boundary interfaces) on a single shared `ProcessedChunkContent` union (no `Any` in boundary signatures).
@@ -172,7 +172,7 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
   - Tests validate response shapes, usage propagation, and capture file compatibility using CaptureReader
   - _Requirements: 1.1, 1.2, 1.4, 1.5, NFR3.2_
 
-- [ ] 4. Centralize conversions and remove legacy dict leaks across boundaries
+- [x] 4. Centralize conversions and remove legacy dict leaks across boundaries
   - _Requirements: 5.1, 5.2, 5.3, NFR2.2, NFR2.3_
 - [x] 4.1 Remove remaining dict acceptance from core boundary interfaces
   - Identify core interfaces/services that accept dict alternatives for canonical contracts and refactor them to accept canonical contracts only.

@@ -32,9 +32,9 @@ from src.core.common.exceptions import (
     ConfigurationError,
     InvalidRequestError,
 )
-from src.core.services.boundary_validation import log_boundary_validation_failure
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.services.boundary_validation import log_boundary_validation_failure
 
 logger = logging.getLogger(__name__)
 
@@ -421,7 +421,7 @@ class HybridOrchestrator:
         if isinstance(request_data, dict):
             raise TypeError(
                 "request_data must be CanonicalChatRequest or ChatRequest, "
-                f"but got dict. Dict-to-contract coercion must happen at adapter boundaries."
+                "but got dict. Dict-to-contract coercion must happen at adapter boundaries."
             )
         # Type signature guarantees request_data is CanonicalChatRequest | ChatRequest
         # Both are Pydantic models with model_dump() method

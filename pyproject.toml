@@ -137,6 +137,8 @@ filterwarnings = [
     "ignore:.*websockets\\.server\\.WebSocketServerProtocol is deprecated.*:DeprecationWarning",
     "ignore:.*Construction of dict of EntryPoints is deprecated.*:DeprecationWarning",
     "ignore:unclosed file <_io\\..*:ResourceWarning",
+    # Pydantic V2 deprecation warnings from external library
+    "ignore:Support for class-based.*:pydantic.warnings.PydanticDeprecatedSince20",
 ]
 # To run integration tests, use: pytest -m integration
 # To run command tests, use: pytest -m command

@@ -216,6 +216,10 @@ def create_backend_service_with_mocks(
 
                 stream_formatting_service = StreamFormattingService()
 
+            # Configure exception_normalizer mock to return exceptions as-is
+            if isinstance(exception_normalizer, MagicMock):
+                exception_normalizer.normalize = lambda exc, backend_type: exc
+
             if hasattr(backend_model_resolver, "synchronize_request_with_target"):
                 method = backend_model_resolver.synchronize_request_with_target
                 if isinstance(method, Mock):

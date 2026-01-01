@@ -92,7 +92,11 @@ def test_identity_headers_forwarded(
     )
 
     assert transport.requests, "Expected OpenRouter backend to issue an HTTP request"
-    sent_headers = transport.requests[0].headers
+    # Find the POST request (skip the GET health check)
+    post_requests = [r for r in transport.requests if r.method == "POST"]
+    assert len(post_requests) > 0, "Expected at least one POST request"
+    request = post_requests[0]
+    sent_headers = request.headers
 
     assert sent_headers.get("Authorization") == "Bearer call-api-key"
     assert sent_headers.get("X-Title") == "Custom Title"

@@ -24,7 +24,7 @@ from src.core.domain.backend_request_manager.context_models import (
     ResponseProcessingContext,
     ToolCallRetryState,
 )
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
@@ -36,6 +36,7 @@ from src.core.interfaces.backend_request_manager_components import (
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
 )
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
@@ -87,6 +88,7 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
         structured_output_enforcer: IStructuredOutputEnforcer,
         tool_call_retry_coordinator: IToolCallRetryCoordinator,
         backend_processor: IBackendProcessor,
+        app_state: IApplicationState,
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
     ) -> None:
         """Initialize the non-streaming response handler.
@@ -96,12 +98,14 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             structured_output_enforcer: Structured output validation enforcer
             tool_call_retry_coordinator: Tool-call retry coordinator
             backend_processor: Backend processor for retry requests
+            app_state: Application state service
             cancellation_coordinator: Optional cancellation coordinator for gating retries
         """
         self._response_processor = response_processor
         self._structured_output_enforcer = structured_output_enforcer
         self._tool_call_retry_coordinator = tool_call_retry_coordinator
         self._backend_processor = backend_processor
+        self._app_state = app_state
         self._cancellation_coordinator = cancellation_coordinator
 
     async def _create_retry_request(
@@ -142,9 +146,36 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             A processed response envelope with normalized content and metadata
         """
         try:
-            # Use original context and pass processing_context values separately where needed
-            # This avoids direct access to app_state in service layer
-            enriched_context = context
+            # Enrich context with values from processing_context
+            # Create a new RequestContext with backend and effective_model set
+            original_request = (
+                processing_context.original_request or context.original_request
+            )
+            # Set domain_request from original_request if it's a CanonicalChatRequest
+            # and domain_request is not already set
+            domain_request = context.domain_request
+            if domain_request is None and isinstance(
+                original_request, CanonicalChatRequest
+            ):
+                domain_request = original_request
+            enriched_context = RequestContext(
+                headers=context.headers,
+                cookies=context.cookies,
+                state=context.state,
+                app_state=self._app_state,
+                client_host=context.client_host,
+                session_id=processing_context.session_id or context.session_id,
+                request_id=context.request_id,
+                agent=context.agent,
+                original_request=original_request,
+                processing_context=context.processing_context,
+                domain_request=domain_request,
+                raw_body=context.raw_body,
+                backend=processing_context.backend_name,
+                effective_model=processing_context.model_name,
+                extensions=context.extensions,
+                original_domain_request=context.original_domain_request,
+            )
 
             # Process response through middleware pipeline
             # Pass enriched RequestContext - ResponseProcessor extracts needed values internally
@@ -320,10 +351,33 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
                 # Coordinator returns ResponseEnvelope for non-streaming
                 # Type narrowing: coordinator.handle_non_streaming returns ResponseEnvelope | None
                 # tool_call_retry_response is guaranteed to be ResponseEnvelope here
+                # Update request with retry count from response metadata before recursive processing
+                retry_metadata = tool_call_retry_response.metadata or {}
+                updated_extra_body = dict(getattr(request, "extra_body", None) or {})
+                tool_call_retry_count_value = retry_metadata.get(
+                    "tool_call_reactor_retry_count", retry_state.retry_count
+                )
+                updated_extra_body["_tool_call_reactor_retry_count"] = (
+                    int(tool_call_retry_count_value)
+                    if isinstance(tool_call_retry_count_value, int | float | str)
+                    else retry_state.retry_count
+                )
+                dangerous_retry_count_value = retry_metadata.get(
+                    "dangerous_command_retry_count", retry_state.retry_count
+                )
+                updated_extra_body["_dangerous_command_retry_count"] = (
+                    int(dangerous_retry_count_value)
+                    if isinstance(dangerous_retry_count_value, int | float | str)
+                    else retry_state.retry_count
+                )
+                updated_extra_body["_tool_call_reactor_retry"] = True
+                updated_request = request.model_copy(
+                    update={"extra_body": updated_extra_body}
+                )
                 # Process the retry response through handler again (recursive call)
                 return await self.handle(
                     response=tool_call_retry_response,
-                    request=request,
+                    request=updated_request,
                     context=context,
                     processing_context=processing_context,
                 )
