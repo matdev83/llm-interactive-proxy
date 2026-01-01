@@ -27,6 +27,7 @@ from src.core.domain.backend_request_manager.context_models import (
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     INonStreamingBackendResponseHandler,
@@ -36,7 +37,6 @@ from src.core.interfaces.backend_request_manager_components import (
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
 )
-from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )

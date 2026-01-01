@@ -518,11 +518,16 @@ async def test_empty_response_retry_suppressed_on_cancellation(
     mock_tool_call_retry_coordinator = MagicMock(spec=IToolCallRetryCoordinator)
     mock_backend_processor = MagicMock(spec=IBackendProcessor)
 
+    from src.core.interfaces.application_state_interface import IApplicationState
+
+    mock_app_state = MagicMock(spec=IApplicationState)
+
     handler = BackendNonStreamingResponseHandler(
         response_processor=mock_response_processor,
         structured_output_enforcer=mock_structured_output_enforcer,
         tool_call_retry_coordinator=mock_tool_call_retry_coordinator,
         backend_processor=mock_backend_processor,
+        app_state=mock_app_state,
         cancellation_coordinator=cancellation_coordinator,
     )
 

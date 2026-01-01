@@ -280,6 +280,10 @@ class TestAnthropicCanonicalAPI:
                 new_callable=AsyncMock,
             ) as mock_handler,
         ):
+            # Ensure mock logger methods are properly set up
+            mock_logger.info = MagicMock()
+            mock_logger.isEnabledFor = MagicMock(return_value=True)
+            
             mock_handler.return_value = ResponseEnvelope(
                 content={
                     "id": "test-id",

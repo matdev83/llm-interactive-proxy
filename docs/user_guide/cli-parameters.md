@@ -146,6 +146,7 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--project-dir-resolution-mode MODE` | `PROJECT_DIR_RESOLUTION_MODE` | Strategy: 'deterministic', 'llm', or 'hybrid'. |
 | `--disable-interactive-commands` | N/A | Disable all in-chat command processing. |
 | `--disable-accounting` | `DISABLE_ACCOUNTING=true` | Disable LLM usage tracking. |
+| `--no-accounting` | `DISABLE_ACCOUNTING=true` | Disable LLM usage tracking (alias for --disable-accounting). |
 | `--strict-command-detection` | `STRICT_COMMAND_DETECTION` | Require commands to be at the start of messages. |
 | `--enable-sandboxing` | `ENABLE_SANDBOXING=true` | Restrict file operations to the project directory. |
 | `--daemon` | N/A | Run server as a daemon (background process). |
