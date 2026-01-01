@@ -80,16 +80,16 @@ class TestAnthropicCanonicalAPI:
     def test_implements_canonical_protocol(self, anthropic_backend):
         """Test that AnthropicBackend implements ICanonicalChatCompletionsBackend."""
         import inspect
-        
+
         # Check if canonical method exists by inspecting signature
         # The method has backward-compatible signature with *args/**kwargs but supports canonical requests
         method = getattr(anthropic_backend, "chat_completions", None)
         assert method is not None, "chat_completions method not found"
-        
+
         try:
             sig = inspect.signature(method)
             params = list(sig.parameters.values())
-            
+
             # The method has a backward-compatible signature that accepts canonical requests
             # Check if first parameter can accept ConnectorChatCompletionsRequest
             if len(params) > 0:
@@ -127,25 +127,32 @@ class TestAnthropicCanonicalAPI:
             new_callable=AsyncMock,
         ) as mock_internal:
             mock_internal.return_value = ResponseEnvelope(
-                content={"id": "test-id", "model": "claude-3-haiku-20240307", "choices": []},
+                content={
+                    "id": "test-id",
+                    "model": "claude-3-haiku-20240307",
+                    "choices": [],
+                },
             )
-            
+
             # Call canonical API
             await anthropic_backend.chat_completions(canonical_request)
-            
+
             # Verify it was called with typed contracts
             mock_internal.assert_called_once()
             call_args = mock_internal.call_args
-            
+
             # Verify request.request is CanonicalChatRequest
             assert isinstance(canonical_request.request, CanonicalChatRequest)
-            
+
             # Verify processed_messages is Sequence[ChatMessage]
-            assert all(isinstance(msg, ChatMessage) for msg in canonical_request.processed_messages)
-            
+            assert all(
+                isinstance(msg, ChatMessage)
+                for msg in canonical_request.processed_messages
+            )
+
             # Verify options is dict[str, JsonValue]
             assert isinstance(canonical_request.options, dict)
-            
+
             # Verify the canonical request was passed correctly
             assert call_args[0][0] == canonical_request
 
@@ -160,7 +167,7 @@ class TestAnthropicCanonicalAPI:
             "agent": "test-agent",
             "headers": {"custom": "header"},
         }
-        
+
         # Mock the internal implementation to verify options are used
         with patch.object(
             anthropic_backend,
@@ -168,15 +175,19 @@ class TestAnthropicCanonicalAPI:
             new_callable=AsyncMock,
         ) as mock_internal:
             mock_internal.return_value = ResponseEnvelope(
-                content={"id": "test-id", "model": "claude-3-haiku-20240307", "choices": []},
+                content={
+                    "id": "test-id",
+                    "model": "claude-3-haiku-20240307",
+                    "choices": [],
+                },
             )
-            
+
             await anthropic_backend.chat_completions(canonical_request)
-            
+
             # Verify options were passed correctly
             # (Implementation will extract from canonical_request.options)
             assert canonical_request.options["project"] == "test-project"
-            
+
             # Verify the canonical request with options was passed
             call_args = mock_internal.call_args
             passed_request = call_args[0][0]
@@ -185,7 +196,7 @@ class TestAnthropicCanonicalAPI:
     @pytest.mark.asyncio
     async def test_legacy_api_still_works(self, anthropic_backend):
         """Test that legacy chat_completions API still works for backward compatibility.
-        
+
         Note: Legacy API calls should go through ConnectorInvoker, which will
         build a ConnectorChatCompletionsRequest and call the canonical API.
         This test verifies that the canonical API can be called directly.
@@ -193,13 +204,13 @@ class TestAnthropicCanonicalAPI:
         # Note: Do not import ConnectorChatCompletionsRequest locally to avoid class mismatch
         # with the module-level import used by the backend implementation.
         from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-        
+
         domain_request = CanonicalChatRequest(
             model="claude-3-haiku-20240307",
             messages=[ChatMessage(role="user", content="Hello")],
             max_tokens=100,
         )
-        
+
         # Build canonical request (as ConnectorInvoker would)
         canonical_request = ConnectorChatCompletionsRequest(
             request=domain_request,
@@ -209,13 +220,11 @@ class TestAnthropicCanonicalAPI:
             cancellation_token=None,
             cancellation_coordinator=None,
             context=ConnectorRequestContext(
-                request_id="test-req",
-                session_id="test-sess",
-                client_host="127.0.0.1"
+                request_id="test-req", session_id="test-sess", client_host="127.0.0.1"
             ),
             options={},
         )
-        
+
         # Mock the canonical implementation
         with patch.object(
             anthropic_backend,
@@ -223,12 +232,16 @@ class TestAnthropicCanonicalAPI:
             new_callable=AsyncMock,
         ) as mock_canonical:
             mock_canonical.return_value = ResponseEnvelope(
-                content={"id": "test-id", "model": "claude-3-haiku-20240307", "choices": []},
+                content={
+                    "id": "test-id",
+                    "model": "claude-3-haiku-20240307",
+                    "choices": [],
+                },
             )
-            
+
             # Call canonical API (as ConnectorInvoker would)
             result = await anthropic_backend.chat_completions(canonical_request)
-            
+
             # Verify canonical API works
             assert result is not None
             mock_canonical.assert_called_once_with(canonical_request)
@@ -238,7 +251,7 @@ class TestAnthropicCanonicalAPI:
         self, anthropic_backend, canonical_request
     ):
         """Test that ConnectorRequestContext is used for logging correlation."""
-        
+
         # Create a new request with stream=False (CanonicalChatRequest is frozen)
         non_streaming_request = CanonicalChatRequest(
             model="claude-3-haiku-20240307",
@@ -246,7 +259,7 @@ class TestAnthropicCanonicalAPI:
             max_tokens=100,
             stream=False,
         )
-        
+
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(
             request_id="test-req-123",
@@ -255,50 +268,55 @@ class TestAnthropicCanonicalAPI:
             extensions={},
         )
         canonical_request.request = non_streaming_request
-        
+
         # Capture log messages
-        with patch("src.connectors.anthropic.logger") as mock_logger:
-            # Note: explicit isEnabledFor check removed from source for INFO logs
-            
-            # Mock the internal implementation to avoid actual HTTP calls
-            with patch.object(
+        # Note: explicit isEnabledFor check removed from source for INFO logs
+        # Mock the internal implementation to avoid actual HTTP calls
+        with (
+            patch("src.connectors.anthropic.logger") as mock_logger,
+            patch.object(
                 anthropic_backend,
                 "_handle_non_streaming_response",
                 new_callable=AsyncMock,
-            ) as mock_handler:
-                mock_handler.return_value = ResponseEnvelope(
-                    content={"id": "test-id", "model": "claude-3-haiku-20240307", "choices": []},
-                    status_code=200,
-                )
-                
-                await anthropic_backend.chat_completions(canonical_request)
-                
-                # Verify code execution reached the handler
-                mock_handler.assert_called_once()
-                
-                # Verify logging was called
-                assert mock_logger.info.called, "logger.info not called"
-                
-                # Verify context correlation
-                info_calls = list(mock_logger.info.call_args_list)
-                assert len(info_calls) > 0
-                
-                # The implementation adds log_extra via `extra` kwarg
-                call_args = info_calls[0]
-                # call_args is (args, kwargs)
-                # Check for 'extra' in kwargs
-                assert "extra" in call_args.kwargs
-                extra = call_args.kwargs["extra"]
-                assert extra is not None
-                assert extra.get("request_id") == "test-req-123"
-                assert extra.get("session_id") == "test-session-456"
+            ) as mock_handler,
+        ):
+            mock_handler.return_value = ResponseEnvelope(
+                content={
+                    "id": "test-id",
+                    "model": "claude-3-haiku-20240307",
+                    "choices": [],
+                },
+                status_code=200,
+            )
+
+            await anthropic_backend.chat_completions(canonical_request)
+
+            # Verify code execution reached the handler
+            mock_handler.assert_called_once()
+
+            # Verify logging was called
+            assert mock_logger.info.called, "logger.info not called"
+
+            # Verify context correlation
+            info_calls = list(mock_logger.info.call_args_list)
+            assert len(info_calls) > 0
+
+            # The implementation adds log_extra via `extra` kwarg
+            call_args = info_calls[0]
+            # call_args is (args, kwargs)
+            # Check for 'extra' in kwargs
+            assert "extra" in call_args.kwargs
+            extra = call_args.kwargs["extra"]
+            assert extra is not None
+            assert extra.get("request_id") == "test-req-123"
+            assert extra.get("session_id") == "test-session-456"
 
     @pytest.mark.asyncio
     async def test_canonical_api_streaming_path(
         self, anthropic_backend, canonical_request
     ):
         """Test that canonical API handles streaming requests correctly."""
-        
+
         # Create a new request with stream=True (CanonicalChatRequest is frozen)
         streaming_request = CanonicalChatRequest(
             model="claude-3-haiku-20240307",
@@ -307,7 +325,7 @@ class TestAnthropicCanonicalAPI:
             stream=True,
         )
         canonical_request.request = streaming_request
-        
+
         # Mock streaming pipeline integration
         with patch(
             "src.core.ports.streaming_integration.integrate_streaming_pipeline",
@@ -318,7 +336,7 @@ class TestAnthropicCanonicalAPI:
                 media_type="text/event-stream",
                 headers={},
             )
-            
+
             # Mock stream_completion
             with patch.object(
                 anthropic_backend,
@@ -326,9 +344,9 @@ class TestAnthropicCanonicalAPI:
                 new_callable=AsyncMock,
             ) as mock_stream:
                 mock_stream.return_value = AsyncMock()
-                
+
                 result = await anthropic_backend.chat_completions(canonical_request)
-                
+
                 # Verify streaming path was taken
                 assert isinstance(result, StreamingResponseEnvelope)
                 mock_stream.assert_called_once()
@@ -346,7 +364,7 @@ class TestAnthropicCanonicalAPI:
             stream=False,
         )
         canonical_request.request = non_streaming_request
-        
+
         # Mock non-streaming handler
         with patch.object(
             anthropic_backend,
@@ -354,12 +372,16 @@ class TestAnthropicCanonicalAPI:
             new_callable=AsyncMock,
         ) as mock_handler:
             mock_handler.return_value = ResponseEnvelope(
-                content={"id": "test-id", "model": "claude-3-haiku-20240307", "choices": []},
+                content={
+                    "id": "test-id",
+                    "model": "claude-3-haiku-20240307",
+                    "choices": [],
+                },
                 status_code=200,
             )
-            
+
             result = await anthropic_backend.chat_completions(canonical_request)
-            
+
             # Verify non-streaming path was taken
             assert isinstance(result, ResponseEnvelope)
             mock_handler.assert_called_once()
@@ -370,7 +392,7 @@ class TestAnthropicCanonicalAPI:
     ):
         """Test that options are validated as JSON-safe values."""
         import json
-        
+
         # Set options with JSON-safe values
         canonical_request.options = {
             "project": "test-project",
@@ -381,7 +403,7 @@ class TestAnthropicCanonicalAPI:
             "boolean": True,
             "null_value": None,
         }
-        
+
         # Mock the internal implementation
         with patch.object(
             anthropic_backend,
@@ -389,32 +411,34 @@ class TestAnthropicCanonicalAPI:
             new_callable=AsyncMock,
         ) as mock_internal:
             mock_internal.return_value = ResponseEnvelope(
-                content={"id": "test-id", "model": "claude-3-haiku-20240307", "choices": []},
+                content={
+                    "id": "test-id",
+                    "model": "claude-3-haiku-20240307",
+                    "choices": [],
+                },
             )
-            
+
             await anthropic_backend.chat_completions(canonical_request)
-            
+
             # Verify all options are JSON-serializable
             call_args = mock_internal.call_args
             passed_request = call_args[0][0]
-            
+
             # All values should be JSON-serializable
             try:
                 json.dumps(passed_request.options)
             except (TypeError, ValueError) as e:
                 pytest.fail(f"Options contain non-JSON-safe values: {e}")
-            
+
             # Verify options were passed correctly
             assert passed_request.options["project"] == "test-project"
             assert passed_request.options["numeric"] == 42
             assert passed_request.options["boolean"] is True
 
     @pytest.mark.asyncio
-    async def test_context_in_error_logs(
-        self, anthropic_backend, canonical_request
-    ):
+    async def test_context_in_error_logs(self, anthropic_backend, canonical_request):
         """Test that context correlation identifiers appear in error logs."""
-        
+
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(
             request_id="test-req-error-123",
@@ -422,7 +446,7 @@ class TestAnthropicCanonicalAPI:
             client_host="192.168.1.100",
             extensions={},
         )
-        
+
         # Create a non-streaming request
         non_streaming_request = CanonicalChatRequest(
             model="claude-3-haiku-20240307",
@@ -431,7 +455,7 @@ class TestAnthropicCanonicalAPI:
             stream=False,
         )
         canonical_request.request = non_streaming_request
-        
+
         # Mock _handle_non_streaming_response to raise an error and verify context is passed
         with patch.object(
             anthropic_backend,
@@ -440,15 +464,15 @@ class TestAnthropicCanonicalAPI:
         ) as mock_handler:
             # Make it raise an exception that triggers error logging
             mock_handler.side_effect = Exception("Test error for context logging")
-            
+
             # Capture log messages
             with patch("src.connectors.anthropic.logger") as mock_logger:
                 mock_logger.isEnabledFor.return_value = True
-                
+
                 # Call should raise an error
                 with pytest.raises(Exception, match="Test error"):
                     await anthropic_backend.chat_completions(canonical_request)
-                
+
                 # Verify context was passed to helper method
                 mock_handler.assert_called_once()
                 call_args = mock_handler.call_args
@@ -460,11 +484,9 @@ class TestAnthropicCanonicalAPI:
                 assert passed_context.session_id == "test-session-error-456"
 
     @pytest.mark.asyncio
-    async def test_context_in_warning_logs(
-        self, anthropic_backend, canonical_request
-    ):
+    async def test_context_in_warning_logs(self, anthropic_backend, canonical_request):
         """Test that context correlation identifiers appear in warning logs."""
-        
+
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(
             request_id="test-req-warn-123",
@@ -472,7 +494,7 @@ class TestAnthropicCanonicalAPI:
             client_host="192.168.1.200",
             extensions={},
         )
-        
+
         # Create a request with unsupported parameter (triggers warning)
         request_with_seed = CanonicalChatRequest(
             model="claude-3-haiku-20240307",
@@ -482,7 +504,7 @@ class TestAnthropicCanonicalAPI:
             seed=12345,  # Unsupported parameter
         )
         canonical_request.request = request_with_seed
-        
+
         # Mock successful response
         mock_response = AsyncMock()
         mock_response.status_code = 200
@@ -493,13 +515,13 @@ class TestAnthropicCanonicalAPI:
             "choices": [{"message": {"role": "assistant", "content": "Hi"}}],
         }
         anthropic_backend.client.post = AsyncMock(return_value=mock_response)
-        
+
         # Capture log messages
         with patch("src.connectors.anthropic.logger") as mock_logger:
             mock_logger.isEnabledFor.return_value = True
-            
+
             await anthropic_backend.chat_completions(canonical_request)
-            
+
             # Verify warning log was called with context (for unsupported seed parameter)
             warning_calls = list(mock_logger.warning.call_args_list)
             if warning_calls:
