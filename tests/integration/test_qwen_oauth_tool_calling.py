@@ -11,7 +11,6 @@ Run with: pytest -m "integration and network" tests/integration/test_qwen_oauth_
 """
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -54,12 +53,14 @@ class TestQwenOAuthToolCalling:
     """Test tool calling functionality with Qwen OAuth backend."""
 
     @pytest.fixture
-    def qwen_oauth_app(self):
+    def qwen_oauth_app(self, monkeypatch):
         """Create a FastAPI app configured for Qwen OAuth backend."""
-        os.environ["LLM_BACKEND"] = "qwen-oauth"
-        os.environ["DISABLE_AUTH"] = "true"
-        os.environ["DISABLE_ACCOUNTING"] = "true"
-        os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
+        monkeypatch.setenv("LLM_BACKEND", "qwen-oauth")
+        monkeypatch.setenv("DISABLE_AUTH", "true")
+        monkeypatch.setenv("DISABLE_ACCOUNTING", "true")
+        monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-proxy-key")
+        # Ensure debug-only backend is allowed under tests.
+        monkeypatch.setenv("ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1")
 
         # Patch credential loading to ensure backend is functional
         from src.core.services.backend_registry import backend_registry
@@ -68,8 +69,8 @@ class TestQwenOAuthToolCalling:
 
         async def mock_initialize(self_obj, **kwargs):
             expiry_ms = int(
-                (1000.0 + 3600) * 1000
-            )  # Fixed timestamp: 1000s + 1 hour in ms
+                (10**10) * 1000
+            )  # Far-future expiry for deterministic tests
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
@@ -171,7 +172,7 @@ class TestQwenOAuthToolCalling:
         }
 
         with respx.mock(assert_all_called=False) as respx_mock:
-            respx_mock.post(path="/v1/chat/completions").mock(
+            respx_mock.post("https://portal.qwen.ai/v1/chat/completions").mock(
                 return_value=Response(200, json=mock_response)
             )
 
@@ -301,7 +302,9 @@ class TestQwenOAuthToolCalling:
         }
 
         with respx.mock(assert_all_called=False) as respx_mock:
-            respx_mock.post(path="/v1/chat/completions").side_effect = [
+            respx_mock.post(
+                "https://portal.qwen.ai/v1/chat/completions"
+            ).side_effect = [
                 Response(200, json=mock_response_1),
                 Response(200, json=mock_response_2),
             ]
@@ -424,7 +427,7 @@ class TestQwenOAuthToolCalling:
                 return None
 
         with respx.mock(assert_all_called=False) as respx_mock:
-            respx_mock.post(path="/v1/chat/completions").mock(
+            respx_mock.post("https://portal.qwen.ai/v1/chat/completions").mock(
                 return_value=Response(
                     200,
                     stream=_AsyncListStream(chunks),
@@ -527,7 +530,7 @@ class TestQwenOAuthToolCalling:
         }
 
         with respx.mock(assert_all_called=False) as respx_mock:
-            respx_mock.post(path="/v1/chat/completions").mock(
+            respx_mock.post("https://portal.qwen.ai/v1/chat/completions").mock(
                 return_value=Response(200, json=mock_response)
             )
 
@@ -619,7 +622,7 @@ class TestQwenOAuthToolCalling:
         }
 
         with respx.mock(assert_all_called=False) as respx_mock:
-            respx_mock.post(path="/v1/chat/completions").mock(
+            respx_mock.post("https://portal.qwen.ai/v1/chat/completions").mock(
                 return_value=Response(200, json=mock_response)
             )
 
@@ -646,12 +649,14 @@ class TestQwenOAuthAgentToolCalling:
     """Test agent-specific tool calling behavior with Qwen OAuth backend."""
 
     @pytest.fixture
-    def qwen_oauth_app(self):
+    def qwen_oauth_app(self, monkeypatch):
         """Create a FastAPI app configured for Qwen OAuth backend."""
-        os.environ["LLM_BACKEND"] = "qwen-oauth"
-        os.environ["DISABLE_AUTH"] = "true"
-        os.environ["DISABLE_ACCOUNTING"] = "true"
-        os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
+        monkeypatch.setenv("LLM_BACKEND", "qwen-oauth")
+        monkeypatch.setenv("DISABLE_AUTH", "true")
+        monkeypatch.setenv("DISABLE_ACCOUNTING", "true")
+        monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-proxy-key")
+        # Ensure debug-only backend is allowed under tests.
+        monkeypatch.setenv("ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1")
 
         # Patch credential loading to ensure backend is functional
         from src.core.services.backend_registry import backend_registry
@@ -660,8 +665,8 @@ class TestQwenOAuthAgentToolCalling:
 
         async def mock_initialize(self_obj, **kwargs):
             expiry_ms = int(
-                (1000.0 + 3600) * 1000
-            )  # Fixed timestamp: 1000s + 1 hour in ms
+                (10**10) * 1000
+            )  # Far-future expiry for deterministic tests
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",
@@ -749,7 +754,7 @@ class TestQwenOAuthAgentToolCalling:
                 )
             )
 
-            respx_mock.post(path="/v1/chat/completions").mock(
+            respx_mock.post("https://portal.qwen.ai/v1/chat/completions").mock(
                 return_value=Response(200, json=mock_response)
             )
 
@@ -852,12 +857,14 @@ class TestQwenOAuthToolCallingErrorHandling:
     """Test error handling in tool calling scenarios."""
 
     @pytest.fixture
-    def qwen_oauth_app(self):
+    def qwen_oauth_app(self, monkeypatch):
         """Create a FastAPI app configured for Qwen OAuth backend."""
-        os.environ["LLM_BACKEND"] = "qwen-oauth"
-        os.environ["DISABLE_AUTH"] = "true"
-        os.environ["DISABLE_ACCOUNTING"] = "true"
-        os.environ["LLM_INTERACTIVE_PROXY_API_KEY"] = "test-proxy-key"
+        monkeypatch.setenv("LLM_BACKEND", "qwen-oauth")
+        monkeypatch.setenv("DISABLE_AUTH", "true")
+        monkeypatch.setenv("DISABLE_ACCOUNTING", "true")
+        monkeypatch.setenv("LLM_INTERACTIVE_PROXY_API_KEY", "test-proxy-key")
+        # Ensure debug-only backend is allowed under tests.
+        monkeypatch.setenv("ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1")
 
         # Patch credential loading to ensure backend is functional
         from src.core.services.backend_registry import backend_registry
@@ -866,8 +873,8 @@ class TestQwenOAuthToolCallingErrorHandling:
 
         async def mock_initialize(self_obj, **kwargs):
             expiry_ms = int(
-                (1000.0 + 3600) * 1000
-            )  # Fixed timestamp: 1000s + 1 hour in ms
+                (10**10) * 1000
+            )  # Far-future expiry for deterministic tests
             self_obj._oauth_credentials = {
                 "access_token": "valid_token",
                 "refresh_token": "valid_refresh",

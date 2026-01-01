@@ -392,18 +392,12 @@ class TokenManager:
                     # - AttributeError: partial initialization state
                     # Suppress these as they're cleanup-time artifacts
                     pass
-                except Exception as e:
+                except Exception:
                     # Truly unexpected exceptions during interpreter shutdown.
-                    # Logging system may be down, so use stderr as fallback.
+                    # Logging system may be down, so we suppress these exceptions.
                     # Still let system-level exceptions propagate (SystemExit, KeyboardInterrupt, etc.)
-                    try:  # noqa: SIM105  # Intentional - try to log before suppressing
-                        print(
-                            f"TokenManager __del__ encountered unexpected error: {e!r}",
-                            file=__import__("sys").stderr,
-                        )
-                    except Exception:
-                        # Even print might fail during interpreter shutdown
-                        pass
+                    # Note: We don't log here as logging system may be unavailable during shutdown
+                    pass
                 finally:
                     # Always clear the reference to prevent leaks
                     self._cli_refresh_process = None

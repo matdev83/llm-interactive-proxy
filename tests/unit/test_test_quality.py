@@ -7,6 +7,7 @@ and dependency integrity across the project.
 
 import hashlib
 import json
+import logging
 import subprocess
 import sys
 import time
@@ -14,6 +15,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 
 @pytest.fixture(scope="session")
@@ -763,7 +766,7 @@ def vulture_dead_code_cache() -> dict[str, Any]:
                     # Add non-comment content as suppressed names
                     suppressed_names.add(line)
         except Exception as e:
-            print(f"Warning: Could not read vulture suppressions file: {e}")
+            logger.warning("Could not read vulture suppressions file: %s", e)
 
     # Scan the src directory
     v.scavenge([str(src_dir)])
@@ -931,7 +934,7 @@ def vulture_dead_code_strict_cache() -> dict[str, Any]:
                     # Add non-comment content as suppressed names
                     suppressed_names.add(line)
         except Exception as e:
-            print(f"Warning: Could not read vulture suppressions file: {e}")
+            logger.warning("Could not read vulture suppressions file: %s", e)
 
     # Scan the src directory
     v.scavenge([str(src_dir)])
@@ -1188,8 +1191,7 @@ def _read_suppressions_for_cli(suppressions_file: Path) -> str:
                 # Add non-comment content as suppressed names
                 suppressed_names.append(line)
     except Exception as e:
-        # Use print for warning since logger might not be available in test context
-        print(f"Warning: Could not read vulture suppressions file: {e}")
+        logger.warning("Could not read vulture suppressions file: %s", e)
 
     return ",".join(suppressed_names)
 

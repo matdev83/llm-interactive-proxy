@@ -46,8 +46,8 @@ async def test_qwen_oauth_static_routing_model_override_regression():
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
             "expiry_date": int(
-                (1000.0 + 3600) * 1000
-            ),  # Fixed timestamp: 1000s + 1 hour in ms
+                (10**10) * 1000
+            ),  # Far-future expiry for deterministic tests
         }
 
         connector._oauth_credentials = test_creds
@@ -161,8 +161,8 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
             "expiry_date": int(
-                (1000.0 + 3600) * 1000
-            ),  # Fixed timestamp: 1000s + 1 hour in ms
+                (10**10) * 1000
+            ),  # Far-future expiry for deterministic tests
         }
 
         connector._oauth_credentials = test_creds
@@ -280,8 +280,8 @@ async def test_qwen_oauth_prevents_original_model_leakage():
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
             "expiry_date": int(
-                (1000.0 + 3600) * 1000
-            ),  # Fixed timestamp: 1000s + 1 hour in ms
+                (10**10) * 1000
+            ),  # Far-future expiry for deterministic tests
         }
 
         connector._oauth_credentials = test_creds

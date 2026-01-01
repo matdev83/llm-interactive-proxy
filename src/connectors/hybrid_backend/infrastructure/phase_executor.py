@@ -452,7 +452,7 @@ class PhaseExecutor:
             if not isinstance(result, CanonicalChatRequest):
                 result = self.translation_service.to_domain_request(result, "openai")
             # Type narrowing: result is now guaranteed to be CanonicalChatRequest
-            return result
+            return cast(CanonicalChatRequest, result)
 
         # Normal path: use internal implementation
         request_obj: Any = request_data

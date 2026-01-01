@@ -72,10 +72,11 @@ async def mock_qwen_oauth_refresh(monkeypatch):
     async def mock_refresh(self):
         # If credentials are set and not expired, return True
         if hasattr(self, "_oauth_credentials") and self._oauth_credentials:
-            import asyncio
 
             expiry = self._oauth_credentials.get("expiry_date", 0)
-            current_time = int(asyncio.get_event_loop().time() * 1000)
+            from src.core.services.time_source_service import TimeSource
+
+            current_time = int(TimeSource().unix_time_s() * 1000)
             if expiry > current_time:
                 return True
         # Otherwise call original
@@ -84,10 +85,11 @@ async def mock_qwen_oauth_refresh(monkeypatch):
     async def mock_validate(self):
         # If credentials are set and not expired, validate as true
         if hasattr(self, "_oauth_credentials") and self._oauth_credentials:
-            import asyncio
 
             expiry = self._oauth_credentials.get("expiry_date", 0)
-            current_time = int(asyncio.get_event_loop().time() * 1000)
+            from src.core.services.time_source_service import TimeSource
+
+            current_time = int(TimeSource().unix_time_s() * 1000)
             if expiry > current_time:
                 return True
         # Otherwise call original

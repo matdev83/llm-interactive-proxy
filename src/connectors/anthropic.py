@@ -284,14 +284,13 @@ class AnthropicBackend(LLMBackend):
         context = request.context
         log_extra = self._get_log_extra(context)
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Forwarding to Anthropic. Model: %s Stream: %s%s",
-                effective_model,
-                domain_request.stream,
-                f" {log_extra}" if log_extra else "",
-                extra=log_extra if log_extra else None,
-            )
+        logger.info(
+            "Forwarding to Anthropic. Model: %s Stream: %s%s",
+            effective_model,
+            domain_request.stream,
+            f" {log_extra}" if log_extra else "",
+            extra=log_extra if log_extra else None,
+        )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Anthropic payload: %s",

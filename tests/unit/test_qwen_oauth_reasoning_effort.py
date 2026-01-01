@@ -60,7 +60,8 @@ class TestQwenOAuthReasoningEffort:
             "access_token": "test-access-token",
             "refresh_token": "test-refresh-token",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": 1000000 + 3600000,  # Fixed timestamp: 1000s + 1 hour in ms
+            "expiry_date": int((10**10) * 1000),
+            # Far-future expiry to prevent refresh logic in unit tests.
         }
         connector._enable_qwen_oauth_backend_debugging_override = True
         connector.is_functional = True

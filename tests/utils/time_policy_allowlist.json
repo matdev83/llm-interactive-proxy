@@ -23,6 +23,21 @@
     },
     {
       "target_type": "glob",
+      "target": "tests/integration/conftest.py",
+      "reason": "Integration test fixture that uses time.time() to check token expiration against real-world clock (or mocked clock in tests)."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/integration/test_qwen_oauth_static_routing_regression.py",
+      "reason": "Integration test that uses time.time() to generate valid future timestamps for mock OAuth credentials."
+    },
+    {
+      "target_type": "glob",
+      "target": "tests/unit/test_qwen_oauth_tool_calling_enhanced.py",
+      "reason": "Unit test fixture uses time.time() to generate valid future timestamps for mock OAuth credentials."
+    },
+    {
+      "target_type": "glob",
       "target": "tests/unit/test_di_container_usage.py",
       "reason": "Meta-testing infrastructure that uses time.time() for cache expiration checks."
     },

@@ -190,9 +190,8 @@ class TestAnthropicCanonicalAPI:
         build a ConnectorChatCompletionsRequest and call the canonical API.
         This test verifies that the canonical API can be called directly.
         """
-        from src.connectors.contracts import (
-            ConnectorChatCompletionsRequest,
-        )
+        # Note: Do not import ConnectorChatCompletionsRequest locally to avoid class mismatch
+        # with the module-level import used by the backend implementation.
         from src.core.domain.chat import CanonicalChatRequest, ChatMessage
         
         domain_request = CanonicalChatRequest(
@@ -209,7 +208,11 @@ class TestAnthropicCanonicalAPI:
             identity=None,
             cancellation_token=None,
             cancellation_coordinator=None,
-            context=None,
+            context=ConnectorRequestContext(
+                request_id="test-req",
+                session_id="test-sess",
+                client_host="127.0.0.1"
+            ),
             options={},
         )
         
@@ -255,7 +258,7 @@ class TestAnthropicCanonicalAPI:
         
         # Capture log messages
         with patch("src.connectors.anthropic.logger") as mock_logger:
-            mock_logger.isEnabledFor.return_value = True
+            # Note: explicit isEnabledFor check removed from source for INFO logs
             
             # Mock the internal implementation to avoid actual HTTP calls
             with patch.object(
@@ -270,14 +273,25 @@ class TestAnthropicCanonicalAPI:
                 
                 await anthropic_backend.chat_completions(canonical_request)
                 
-                # Verify logging was called with context correlation
+                # Verify code execution reached the handler
+                mock_handler.assert_called_once()
+                
+                # Verify logging was called
+                assert mock_logger.info.called, "logger.info not called"
+                
+                # Verify context correlation
                 info_calls = list(mock_logger.info.call_args_list)
                 assert len(info_calls) > 0
                 
-                # Check that log_extra contains context fields
-                # The implementation adds context to log messages
-                # We verify by checking that logging was called
-                assert mock_logger.info.called
+                # The implementation adds log_extra via `extra` kwarg
+                call_args = info_calls[0]
+                # call_args is (args, kwargs)
+                # Check for 'extra' in kwargs
+                assert "extra" in call_args.kwargs
+                extra = call_args.kwargs["extra"]
+                assert extra is not None
+                assert extra.get("request_id") == "test-req-123"
+                assert extra.get("session_id") == "test-session-456"
 
     @pytest.mark.asyncio
     async def test_canonical_api_streaming_path(

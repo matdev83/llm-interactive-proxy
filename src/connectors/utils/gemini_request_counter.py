@@ -1,7 +1,7 @@
+import datetime
 import json
 import logging
 from collections.abc import Iterable
-from datetime import datetime
 from pathlib import Path
 from threading import Lock
 
@@ -47,7 +47,7 @@ class DailyRequestCounter:
 
     def _get_current_pacific_date(self) -> str:
         pacific_tz = pytz.timezone("America/Los_Angeles")
-        return datetime.now(pacific_tz).strftime("%Y-%m-%d")  # type: ignore[arg-type]
+        return datetime.datetime.now(pacific_tz).strftime("%Y-%m-%d")  # type: ignore[arg-type]
 
     def _load_state(self) -> None:
         """Load state from persistence file. Must be called while holding self._lock."""

@@ -42,10 +42,16 @@ class TestQwenOAuthToolCallingUnit:
             "refresh_token": "test-refresh-token",
             "token_type": "Bearer",
             "resource_url": "portal.qwen.ai",
-            "expiry_date": 1000000 + 3600000,  # Fixed timestamp: 1000s + 1 hour in ms
+            "expiry_date": int((10**10) * 1000),
+            # Far-future expiry to prevent refresh logic in unit tests.
         }
         # Disable health check to avoid API calls during tests
         connector.disable_health_check()
+        # Ensure unit tests don't trip runtime validation gates.
+        connector._enable_qwen_oauth_backend_debugging_override = True
+        connector.is_functional = True
+        connector._credential_validation_errors = []
+        connector._initialization_failed = False
         return connector
 
     @pytest.mark.asyncio
