@@ -1,3 +1,4 @@
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -19,7 +20,9 @@ class ResponseEnvelope(InternalDTO):
     appropriate transport-specific response types.
     """
 
-    content: dict[str, Any] | str | bytes | None  # Response content (JSON dict, string, bytes, or None)
+    content: (
+        dict[str, Any] | str | bytes | None
+    )  # Response content (JSON dict, string, bytes, or None)
     headers: dict[str, str] | None = None
     status_code: int = 200
     media_type: str = "application/json"
@@ -61,6 +64,9 @@ class StreamingResponseEnvelope(InternalDTO):
                 chunk = item.content
                 if isinstance(chunk, bytes):
                     yield chunk
+                elif isinstance(chunk, dict):
+                    # Serialize dict content as JSON instead of Python repr
+                    yield json.dumps(chunk).encode("utf-8")
                 else:
                     yield str(chunk).encode("utf-8")
 

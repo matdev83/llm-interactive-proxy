@@ -8,6 +8,7 @@ are implemented here.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -252,6 +253,12 @@ class RequestContext(InternalDTO):
             agent=self.agent,
             original_request=self.original_request,
             processing_context=new_context,
+            domain_request=self.domain_request,
+            raw_body=self.raw_body,
+            backend=self.backend,
+            effective_model=self.effective_model,
+            extensions=copy.deepcopy(self.extensions) if self.extensions else {},
+            original_domain_request=self.original_domain_request,
         )
 
     def ensure_processing_context(self) -> ProcessingContext:

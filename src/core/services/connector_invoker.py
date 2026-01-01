@@ -7,6 +7,7 @@ with typed domain models (never dicts).
 
 from __future__ import annotations
 
+import copy
 import inspect
 import logging
 from collections.abc import Sequence
@@ -62,8 +63,8 @@ class ConnectorInvoker:
         if context is None:
             return None
 
-        # Shallow copy extensions dict to avoid shared reference
-        extensions = dict(context.extensions) if context.extensions else {}
+        # Deep copy extensions dict to avoid shared mutable state
+        extensions = copy.deepcopy(context.extensions) if context.extensions else {}
 
         return ConnectorRequestContext(
             request_id=context.request_id,
@@ -97,7 +98,27 @@ class ConnectorInvoker:
 
         Returns:
             ConnectorChatCompletionsRequest with all inputs bundled
+
+        Raises:
+            ValueError: If options dict contains reserved keys that conflict with contract fields
         """
+        # Validate that options dict doesn't contain reserved keys
+        reserved_keys = {
+            "context",
+            "request",
+            "processed_messages",
+            "effective_model",
+            "identity",
+            "cancellation_token",
+            "cancellation_coordinator",
+        }
+        conflicting_keys = reserved_keys.intersection(options.keys())
+        if conflicting_keys:
+            raise ValueError(
+                f"Options dict contains reserved keys that conflict with ConnectorChatCompletionsRequest fields: {conflicting_keys}. "
+                "These keys are reserved and cannot be used in the options dict."
+            )
+
         return ConnectorChatCompletionsRequest(
             request=domain_request,
             processed_messages=processed_messages,
@@ -197,9 +218,9 @@ class ConnectorInvoker:
         except (AttributeError, TypeError):
             pass
 
-        # If we have exactly 1 required parameter named "request", it's likely canonical
-        # even if annotation is missing/incomplete (allows for gradual typing migration)
-        return True
+        # Require explicit type annotation - do not fall back to True without verification
+        # This prevents misclassifying legacy connectors that happen to have a parameter named "request"
+        return False
 
     async def invoke(
         self,

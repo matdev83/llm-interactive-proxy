@@ -89,8 +89,10 @@ def dict_to_domain_chat_request(
                     # Try direct conversion, raising TypeError if not compatible
                     msg_dict = dict(message)
                 domain_messages.append(ChatMessage(**msg_dict))
-        except ValidationError as e:
+        except (ValidationError, TypeError, ValueError, AttributeError) as e:
             # Log boundary validation failure with correlation identifiers
+            # Catch broader exception types to ensure all conversion errors are handled
+            # with structured logging instead of escaping as unstructured exceptions
             log_boundary_validation_failure(
                 logger=logger,
                 message=f"Failed to convert message to ChatMessage: {e!s}",
@@ -101,6 +103,7 @@ def dict_to_domain_chat_request(
                     "message_index": len(domain_messages),
                     "validation_errors": str(e),
                     "message_type": type(message).__name__,
+                    "exception_type": type(e).__name__,
                 },
             )
             # Re-raise as InvalidRequestError for consistent error handling
@@ -109,6 +112,7 @@ def dict_to_domain_chat_request(
                 details={
                     "message_index": len(domain_messages),
                     "validation_errors": str(e),
+                    "exception_type": type(e).__name__,
                 },
             ) from e
 
@@ -343,7 +347,9 @@ def _convert_tool_calls(  # pyright: ignore[reportUnusedFunction]
         if isinstance(tool_call, ToolCall):
             # Already a domain ToolCall object
             converted_tool_calls.append(tool_call)
-        elif isinstance(tool_call, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+        elif isinstance(
+            tool_call, dict
+        ):  # pyright: ignore[reportUnnecessaryIsInstance]
             # Dict format - convert directly
             # Runtime isinstance check needed even though type hints suggest dict
             converted_tool_calls.append(ToolCall(**tool_call))

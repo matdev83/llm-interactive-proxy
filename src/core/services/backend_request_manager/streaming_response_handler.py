@@ -279,15 +279,33 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
     ) -> AsyncIterator[ProcessedResponse]:
         """Wrap stream with response processor middleware with fail-open behavior."""
         try:
-            # Update RequestContext with backend and model info from processing_context
-            request_context.backend = processing_context.backend_name
-            request_context.effective_model = processing_context.model_name
-            if processing_context.original_request:
-                request_context.original_request = processing_context.original_request
+            # Create a new RequestContext with backend and model info from processing_context
+            # This matches the non-streaming handler pattern of cloning instead of mutating
+            original_request = (
+                processing_context.original_request or request_context.original_request
+            )
+            enriched_context = RequestContext(
+                headers=request_context.headers,
+                cookies=request_context.cookies,
+                state=request_context.state,
+                app_state=request_context.app_state,
+                client_host=request_context.client_host,
+                session_id=processing_context.session_id or request_context.session_id,
+                request_id=request_context.request_id,
+                agent=request_context.agent,
+                original_request=original_request,
+                processing_context=request_context.processing_context,
+                domain_request=request_context.domain_request,
+                raw_body=request_context.raw_body,
+                backend=processing_context.backend_name,
+                effective_model=processing_context.model_name,
+                extensions=request_context.extensions,
+                original_domain_request=request_context.original_domain_request,
+            )
             return self._response_processor.process_streaming_response(
                 original_stream,
                 processing_context.session_id,
-                request_context,
+                enriched_context,
             )
         except (KeyboardInterrupt, SystemExit):
             # Re-raise system exceptions to allow proper cleanup
