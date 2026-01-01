@@ -10,7 +10,6 @@ Requirements satisfied:
 
 import logging
 import time
-from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -33,6 +32,7 @@ from src.core.common.exceptions import (
     ConfigurationError,
     InvalidRequestError,
 )
+from src.core.services.boundary_validation import log_boundary_validation_failure
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 
@@ -95,8 +95,16 @@ class HybridOrchestrator:
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute the complete two-phase hybrid completion.
 
+        Boundary Hardening (Requirement 5.2):
+            This method enforces typed contract boundaries by rejecting dict inputs.
+            Dict-to-contract coercion must occur at explicit adapter boundaries (transport
+            adapters, connector invoker) before reaching this core orchestration service.
+            This ensures a single canonical representation per concept throughout the
+            core pipeline (Requirement 5.3).
+
         Args:
-            request_data: Original request (canonical contract only)
+            request_data: Original request (canonical contract only - CanonicalChatRequest
+                or ChatRequest). Dict inputs are rejected with InvalidRequestError.
             processed_messages: Messages after command processing
             effective_model: Format "hybrid:[backend:model,backend:model]"
             identity: Optional identity configuration
@@ -106,13 +114,36 @@ class HybridOrchestrator:
             Response envelope (streaming or non-streaming) with execution model's response
 
         Raises:
-            InvalidRequestError: If request_data is a dict (coercion must happen at adapter boundary)
+            InvalidRequestError: If request_data is a dict. Dict-to-domain coercion is
+                centralized at adapter boundaries (transport adapters, connector invoker).
+                Expected CanonicalChatRequest or ChatRequest.
             ValueError: If model specification is invalid
             ConfigurationError: If hybrid backend is disabled
             BackendError: If either phase fails (HTTP 502)
         """
         # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at adapter boundaries
         if isinstance(request_data, dict):
+            # Extract correlation identifiers from available sources
+            # HybridOrchestrator doesn't have RequestContext, but can extract session_id from identity
+            session_id = getattr(identity, "session_id", None) if identity else None
+            correlation_ids = {"request_id": None, "session_id": session_id}
+
+            # Log boundary validation failure with available correlation identifiers
+            log_boundary_validation_failure(
+                logger=logger,
+                message="HybridOrchestrator received dict input. "
+                "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters, connector invoker). "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                context=None,  # No RequestContext available, but we log session_id from identity
+                service="HybridOrchestrator",
+                violation_type="dict_input",
+                details={
+                    "received_type": "dict",
+                    "expected_type": "CanonicalChatRequest | ChatRequest",
+                    "session_id": correlation_ids["session_id"],  # Include in details for visibility
+                },
+            )
+
             raise InvalidRequestError(
                 message="HybridOrchestrator received dict input. "
                 "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters, connector invoker). "
@@ -383,17 +414,18 @@ class HybridOrchestrator:
             Dictionary representation of the request for internal use
 
         Raises:
-            TypeError: If request_data is not a canonical contract type
+            TypeError: If request_data is a dict (runtime check for defensive programming)
         """
-        if isinstance(request_data, (CanonicalChatRequest, ChatRequest)):
-            return request_data.model_dump()
-        elif is_dataclass(request_data) and not isinstance(request_data, type):
-            return asdict(request_data)
-        else:
+        # Runtime check: reject dicts even though type signature doesn't allow them
+        # This is defensive programming since Python doesn't enforce type hints at runtime
+        if isinstance(request_data, dict):
             raise TypeError(
                 "request_data must be CanonicalChatRequest or ChatRequest, "
-                f"but got {type(request_data)}"
+                f"but got dict. Dict-to-contract coercion must happen at adapter boundaries."
             )
+        # Type signature guarantees request_data is CanonicalChatRequest | ChatRequest
+        # Both are Pydantic models with model_dump() method
+        return request_data.model_dump()
 
     def _validate_and_clean_params(
         self,
@@ -617,7 +649,9 @@ class HybridOrchestrator:
                 reasoning_backend,
                 reasoning_model,
             )
-        elif isinstance(response, ResponseEnvelope):
+        else:
+            # Type signature guarantees response is ResponseEnvelope | StreamingResponseEnvelope
+            # If not StreamingResponseEnvelope, it must be ResponseEnvelope
             # Filter content
             filtered_content = self.response_filter.filter_content(response.content)
             # Add reasoning to message content (for backward compatibility with tests)

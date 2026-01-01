@@ -26,6 +26,7 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
+from src.core.services.boundary_validation import extract_correlation_ids
 
 logger = logging.getLogger(__name__)
 
@@ -259,16 +260,16 @@ class ConnectorInvoker:
             return await backend.chat_completions(connector_request)  # type: ignore[call-arg]
         else:
             # Legacy path: invoke with typed domain models (never dicts)
-            # Log legacy path usage for observability
-            session_id = context.session_id if context else None
+            # Log legacy path usage for observability with correlation identifiers
+            correlation_ids = extract_correlation_ids(context)
             backend_type = getattr(backend, "backend_type", "unknown")
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
                     "Using legacy connector API",
                     extra={
                         "backend_type": backend_type,
-                        "session_id": session_id,
-                        "request_id": context.request_id if context else None,
+                        "session_id": correlation_ids["session_id"],
+                        "request_id": correlation_ids["request_id"],
                     },
                 )
 

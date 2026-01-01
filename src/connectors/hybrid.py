@@ -43,6 +43,7 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
+from src.core.services.boundary_validation import log_boundary_validation_failure
 
 if TYPE_CHECKING:
     from src.core.services.backend_registry import BackendRegistry
@@ -253,6 +254,28 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
 
         # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
         if isinstance(request_data, dict):
+            # Extract correlation identifiers from available sources
+            # In legacy path, context is None, but we might have identity with session_id
+            session_id = getattr(identity, "session_id", None) if identity else None
+            correlation_ids = {"request_id": None, "session_id": session_id}
+
+            # Log boundary validation failure with available correlation identifiers
+            log_boundary_validation_failure(
+                logger=logger,
+                message="Legacy connector API received dict input. "
+                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                context=None,  # No RequestContext in legacy path
+                service="HybridConnector",
+                violation_type="dict_input",
+                details={
+                    "received_type": "dict",
+                    "expected_type": "CanonicalChatRequest | ChatRequest",
+                    "connector": "hybrid",
+                    "session_id": correlation_ids["session_id"],  # Include in details for visibility
+                },
+            )
+
             raise InvalidRequestError(
                 message="Legacy connector API received dict input. "
                 "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
@@ -271,6 +294,25 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
                 if not isinstance(msg, ChatMessage)
             ]
             if invalid_messages:
+                # Extract correlation identifiers for logging
+                session_id = getattr(identity, "session_id", None) if identity else None
+                correlation_ids = {"request_id": None, "session_id": session_id}
+
+                log_boundary_validation_failure(
+                    logger=logger,
+                    message="Legacy connector API received non-canonical processed_messages. "
+                    "Expected Sequence[ChatMessage], but received mixed types.",
+                    context=None,
+                    service="HybridConnector",
+                    violation_type="invalid_processed_messages",
+                    details={
+                        "invalid_indices": [idx for idx, _ in invalid_messages],
+                        "invalid_types": [typ for _, typ in invalid_messages],
+                        "connector": "hybrid",
+                        "session_id": correlation_ids["session_id"],
+                    },
+                )
+
                 raise InvalidRequestError(
                     message="Legacy connector API received non-canonical processed_messages. "
                     "Expected Sequence[ChatMessage], but received mixed types.",
@@ -289,6 +331,25 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
         elif isinstance(request_data, CanonicalChatRequest):
             domain_request = request_data
         else:
+            # Extract correlation identifiers for logging
+            session_id = getattr(identity, "session_id", None) if identity else None
+            correlation_ids = {"request_id": None, "session_id": session_id}
+
+            log_boundary_validation_failure(
+                logger=logger,
+                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                context=None,  # No RequestContext in legacy path
+                service="HybridConnector",
+                violation_type="invalid_input_type",
+                details={
+                    "received_type": type(request_data).__name__,
+                    "expected_type": "CanonicalChatRequest | ChatRequest",
+                    "connector": "hybrid",
+                    "session_id": correlation_ids["session_id"],
+                },
+            )
+
             raise InvalidRequestError(
                 message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
                 "Expected CanonicalChatRequest or ChatRequest.",

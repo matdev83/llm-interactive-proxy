@@ -41,6 +41,7 @@ from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
+from src.core.services.boundary_validation import log_boundary_validation_failure
 from src.core.services.translation_service import TranslationService
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
@@ -828,6 +829,28 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
         # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at ConnectorInvoker
         if isinstance(request_data, dict):
+            # Extract correlation identifiers from available sources
+            # In legacy path, context is None, but we might have identity with session_id
+            session_id = getattr(identity, "session_id", None) if identity else None
+            correlation_ids = {"request_id": None, "session_id": session_id}
+
+            # Log boundary validation failure with available correlation identifiers
+            log_boundary_validation_failure(
+                logger=logger,
+                message="Legacy connector API received dict input. "
+                "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                context=None,  # No RequestContext in legacy path
+                service="GeminiConnector",
+                violation_type="dict_input",
+                details={
+                    "received_type": "dict",
+                    "expected_type": "CanonicalChatRequest | ChatRequest",
+                    "connector": "gemini",
+                    "session_id": correlation_ids["session_id"],  # Include in details for visibility
+                },
+            )
+
             raise InvalidRequestError(
                 message="Legacy connector API received dict input. "
                 "Dict-to-domain coercion is centralized at ConnectorInvoker boundary. "
@@ -849,6 +872,25 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             ]
             if invalid_messages:
                 # Legacy path should not receive dict messages (coercion centralized at invoker)
+                # Extract correlation identifiers for logging
+                session_id = getattr(identity, "session_id", None) if identity else None
+                correlation_ids = {"request_id": None, "session_id": session_id}
+
+                log_boundary_validation_failure(
+                    logger=logger,
+                    message="Legacy connector API received non-canonical processed_messages. "
+                    "Expected Sequence[ChatMessage], but received mixed types.",
+                    context=None,
+                    service="GeminiConnector",
+                    violation_type="invalid_processed_messages",
+                    details={
+                        "invalid_indices": [idx for idx, _ in invalid_messages],
+                        "invalid_types": [typ for _, typ in invalid_messages],
+                        "connector": "gemini",
+                        "session_id": correlation_ids["session_id"],
+                    },
+                )
+
                 raise InvalidRequestError(
                     message="Legacy connector API received non-canonical processed_messages. "
                     "Expected Sequence[ChatMessage], but received mixed types.",
@@ -868,6 +910,25 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             domain_request = request_data
         else:
             # Reject other types - invoker should only pass canonical models
+            # Extract correlation identifiers for logging
+            session_id = getattr(identity, "session_id", None) if identity else None
+            correlation_ids = {"request_id": None, "session_id": session_id}
+
+            log_boundary_validation_failure(
+                logger=logger,
+                message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                context=None,  # No RequestContext in legacy path
+                service="GeminiConnector",
+                violation_type="invalid_input_type",
+                details={
+                    "received_type": type(request_data).__name__,
+                    "expected_type": "CanonicalChatRequest | ChatRequest",
+                    "connector": "gemini",
+                    "session_id": correlation_ids["session_id"],
+                },
+            )
+
             raise InvalidRequestError(
                 message=f"Legacy connector API received invalid input type: {type(request_data).__name__}. "
                 "Expected CanonicalChatRequest or ChatRequest.",

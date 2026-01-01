@@ -48,6 +48,9 @@ from src.core.services.resilience.scope import (
     build_resilience_error_context,
     build_resilience_instance_id,
 )
+from src.core.services.boundary_validation import (
+    log_boundary_validation_failure,
+)
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
@@ -225,10 +228,51 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         allow_failover: bool = True,
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
-        """Execute completion orchestration with failover, retry, and observability."""
+        """Execute completion orchestration with failover, retry, and observability.
+
+        Boundary Hardening (Requirement 5.2):
+            This method enforces typed contract boundaries by rejecting dict inputs.
+            Dict-to-contract coercion must occur at explicit adapter boundaries (transport
+            adapters) before reaching this core orchestration service. This ensures a
+            single canonical representation per concept throughout the core pipeline
+            (Requirement 5.3).
+
+        Args:
+            request: Chat request contract (ChatRequest or CanonicalChatRequest).
+                Dict inputs are rejected with InvalidRequestError.
+            stream: Whether to stream the response
+            allow_failover: Whether to allow failover to alternative backends
+            context: Optional request context for correlation and metadata
+
+        Returns:
+            Response envelope (streaming or non-streaming) with completion result
+
+        Raises:
+            InvalidRequestError: If request is a dict. Dict-to-domain coercion is
+                centralized at adapter boundaries (transport adapters). Expected
+                ChatRequest or CanonicalChatRequest.
+            BackendError: If backend call fails and recovery is not possible
+            RateLimitExceededError: If backend is rate limited
+            AuthenticationError: If authentication fails
+        """
         # BOUNDARY HARDENING: Reject dict input - coercion must happen at adapter boundaries
         if isinstance(request, dict):
             from src.core.common.exceptions import InvalidRequestError
+
+            # Log boundary validation failure with correlation identifiers
+            log_boundary_validation_failure(
+                logger=logger,
+                message="BackendCompletionFlow received dict input. "
+                "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters). "
+                "Expected ChatRequest or CanonicalChatRequest.",
+                context=context,
+                service="BackendCompletionFlow",
+                violation_type="dict_input",
+                details={
+                    "received_type": "dict",
+                    "expected_type": "ChatRequest | CanonicalChatRequest",
+                },
+            )
 
             raise InvalidRequestError(
                 message="BackendCompletionFlow received dict input. "

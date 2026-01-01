@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from pydantic import ValidationError
+
 # Import domain models
 from src.core.domain.chat import (
     ChatMessage,
@@ -21,25 +23,48 @@ logger = logging.getLogger(__name__)
 
 
 from src.core.common.exceptions import InvalidRequestError
+from src.core.domain.request_context import RequestContext
+from src.core.services.boundary_validation import (
+    log_boundary_validation_failure,
+)
 
 # ... (rest of the file)
 
 
-def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
+def dict_to_domain_chat_request(
+    request_dict: dict[str, Any], context: RequestContext | None = None
+) -> ChatRequest:
     """
     Convert a dictionary to a domain ChatRequest.
 
     Args:
         request_dict: The request dictionary
+        context: Optional request context for correlation identifiers in logging
 
     Returns:
         A domain ChatRequest model
+
+    Raises:
+        InvalidRequestError: If validation fails (e.g., empty messages)
+        ValidationError: If Pydantic validation fails during conversion
     """
     # Handle messages specially to ensure proper conversion
     messages = request_dict.get("messages", [])
 
     # Add this check
     if not messages:
+        # Log boundary validation failure with correlation identifiers if available
+        log_boundary_validation_failure(
+            logger=logger,
+            message="At least one message is required.",
+            context=context,
+            service="APIAdapter",
+            violation_type="empty_messages",
+            details={
+                "param": "messages",
+                "code": "empty_messages",
+            },
+        )
         # Domain-centric: raise project InvalidRequestError; transports map to HTTP
         raise InvalidRequestError(
             message="At least one message is required.",
@@ -51,48 +76,108 @@ def dict_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
     domain_messages = []
 
     for message in messages:
-        if isinstance(message, dict):
-            domain_messages.append(ChatMessage(**message))
-        elif isinstance(message, ChatMessage):
-            domain_messages.append(message)
-        else:
-            # Convert to dict using a standardized approach
-            if hasattr(message, "model_dump"):
-                msg_dict = message.model_dump()
+        try:
+            if isinstance(message, dict):
+                domain_messages.append(ChatMessage(**message))
+            elif isinstance(message, ChatMessage):
+                domain_messages.append(message)
             else:
-                # Try direct conversion, raising TypeError if not compatible
-                msg_dict = dict(message)
-            domain_messages.append(ChatMessage(**msg_dict))
+                # Convert to dict using a standardized approach
+                if hasattr(message, "model_dump"):
+                    msg_dict = message.model_dump()
+                else:
+                    # Try direct conversion, raising TypeError if not compatible
+                    msg_dict = dict(message)
+                domain_messages.append(ChatMessage(**msg_dict))
+        except ValidationError as e:
+            # Log boundary validation failure with correlation identifiers
+            log_boundary_validation_failure(
+                logger=logger,
+                message=f"Failed to convert message to ChatMessage: {e!s}",
+                context=context,
+                service="APIAdapter",
+                violation_type="invalid_message_format",
+                details={
+                    "message_index": len(domain_messages),
+                    "validation_errors": str(e),
+                    "message_type": type(message).__name__,
+                },
+            )
+            # Re-raise as InvalidRequestError for consistent error handling
+            raise InvalidRequestError(
+                message=f"Invalid message format: {e!s}",
+                details={
+                    "message_index": len(domain_messages),
+                    "validation_errors": str(e),
+                },
+            ) from e
 
     # Create a copy of the request dict and update messages
     request_copy = dict(request_dict)
     request_copy["messages"] = domain_messages
 
-    # Create domain request
-    return ChatRequest(**request_copy)
+    # Create domain request with error logging
+    try:
+        return ChatRequest(**request_copy)
+    except ValidationError as e:
+        # Log boundary validation failure with correlation identifiers
+        log_boundary_validation_failure(
+            logger=logger,
+            message=f"Failed to convert request dict to ChatRequest: {e!s}",
+            context=context,
+            service="APIAdapter",
+            violation_type="invalid_request_format",
+            details={
+                "validation_errors": str(e),
+                "request_keys": list(request_copy.keys()),
+            },
+        )
+        # Re-raise as InvalidRequestError for consistent error handling
+        raise InvalidRequestError(
+            message=f"Invalid request format: {e!s}",
+            details={
+                "validation_errors": str(e),
+            },
+        ) from e
 
 
-def openai_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
+def openai_to_domain_chat_request(
+    request_dict: dict[str, Any], context: RequestContext | None = None
+) -> ChatRequest:
     """
     Convert an OpenAI format request to a domain ChatRequest.
 
     Args:
         request_dict: The OpenAI format request dictionary
+        context: Optional request context for correlation identifiers in logging
 
     Returns:
         A domain ChatRequest model
+
+    Raises:
+        InvalidRequestError: If validation fails (e.g., empty messages)
+        ValidationError: If Pydantic validation fails during conversion
     """
-    return dict_to_domain_chat_request(request_dict)
+    return dict_to_domain_chat_request(request_dict, context=context)
 
 
-def anthropic_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
+def anthropic_to_domain_chat_request(
+    request_dict: dict[str, Any], context: RequestContext | None = None
+) -> ChatRequest:
     """
     Convert an Anthropic format request to a domain ChatRequest.
     This implementation performs a more robust conversion of message formats.
+
     Args:
         request_dict: The Anthropic format request dictionary
+        context: Optional request context for correlation identifiers in logging
+
     Returns:
         A domain ChatRequest model
+
+    Raises:
+        InvalidRequestError: If validation fails (e.g., empty messages)
+        ValidationError: If Pydantic validation fails during conversion
     """
     # More robust conversion from Anthropic to a neutral format
     domain_messages = _convert_anthropic_messages(request_dict)
@@ -111,7 +196,7 @@ def anthropic_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatReques
         },
     }
 
-    return dict_to_domain_chat_request(domain_request_dict)
+    return dict_to_domain_chat_request(domain_request_dict, context=context)
 
 
 def _convert_anthropic_messages(request_dict: dict[str, Any]) -> list[ChatMessage]:
@@ -137,14 +222,23 @@ def _convert_anthropic_messages(request_dict: dict[str, Any]) -> list[ChatMessag
     return messages
 
 
-def gemini_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
+def gemini_to_domain_chat_request(
+    request_dict: dict[str, Any], context: RequestContext | None = None
+) -> ChatRequest:
     """
     Convert a Gemini format request to a domain ChatRequest.
     This implementation performs a more robust conversion of message formats.
+
     Args:
         request_dict: The Gemini format request dictionary
+        context: Optional request context for correlation identifiers in logging
+
     Returns:
         A domain ChatRequest model
+
+    Raises:
+        InvalidRequestError: If validation fails (e.g., empty messages)
+        ValidationError: If Pydantic validation fails during conversion
     """
     domain_messages = _convert_gemini_contents(request_dict)
 
@@ -161,7 +255,7 @@ def gemini_to_domain_chat_request(request_dict: dict[str, Any]) -> ChatRequest:
         },
     }
 
-    return dict_to_domain_chat_request(domain_request_dict)
+    return dict_to_domain_chat_request(domain_request_dict, context=context)
 
 
 def _convert_gemini_contents(request_dict: dict[str, Any]) -> list[ChatMessage]:
@@ -229,7 +323,7 @@ def _extract_gemini_max_tokens(request_dict: dict[str, Any]) -> int | None:
     return None
 
 
-def _convert_tool_calls(
+def _convert_tool_calls(  # pyright: ignore[reportUnusedFunction]
     tool_calls: list[dict[str, Any]] | None,
 ) -> list[ToolCall] | None:
     """
@@ -249,8 +343,9 @@ def _convert_tool_calls(
         if isinstance(tool_call, ToolCall):
             # Already a domain ToolCall object
             converted_tool_calls.append(tool_call)
-        elif isinstance(tool_call, dict):
+        elif isinstance(tool_call, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
             # Dict format - convert directly
+            # Runtime isinstance check needed even though type hints suggest dict
             converted_tool_calls.append(ToolCall(**tool_call))
         else:
             # Convert object to dictionary using standard approach
@@ -265,7 +360,9 @@ def _convert_tool_calls(
     return converted_tool_calls
 
 
-def _convert_tools(tools: list[dict[str, Any]] | None) -> list[ToolDefinition] | None:
+def _convert_tools(  # pyright: ignore[reportUnusedFunction]
+    tools: list[dict[str, Any]] | None,
+) -> list[ToolDefinition] | None:
     """
     Convert tools to domain ToolDefinition objects.
 
@@ -283,8 +380,9 @@ def _convert_tools(tools: list[dict[str, Any]] | None) -> list[ToolDefinition] |
         if isinstance(tool, ToolDefinition):
             # Already a domain ToolDefinition object
             converted_tools.append(tool)
-        elif isinstance(tool, dict):
+        elif isinstance(tool, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
             # Dict format - convert directly
+            # Runtime isinstance check needed even though type hints suggest dict
             converted_tools.append(ToolDefinition(**tool))
         else:
             # Convert using standard approach

@@ -185,21 +185,50 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
   - Boundary type checker passes with no new violations
   - _Requirements: 5.1, 5.3_
 
-- [ ] 4.2 Centralize legacy coercion at explicit adapter boundaries only
+- [x] 4.2 Centralize legacy coercion at explicit adapter boundaries only
   - Ensure any dict-to-contract coercion occurs only at explicit transport/controller adapters and the connector invoker legacy path.
-  - Eliminate internal “best-effort coercion” that allows legacy shapes to persist inside core orchestration.
+  - Eliminate internal "best-effort coercion" that allows legacy shapes to persist inside core orchestration.
+  - Updated HybridOrchestrator to reject dict inputs and only accept canonical contracts (CanonicalChatRequest | ChatRequest)
+  - Updated BackendCompletionFlow to explicitly reject dict inputs with InvalidRequestError
+  - Added boundary validation tests verifying core services reject dict inputs
+  - Added integration tests verifying coercion only happens at adapter boundaries
+  - All tests pass (11/11 boundary tests)
   - _Requirements: 5.2, 5.3_
 
-- [ ] 4.3 Add deterministic boundary validation, errors, and structured logs
+- [x] 4.3 Add deterministic boundary validation, errors, and structured logs
   - Ensure invalid boundary inputs fail deterministically with structured errors consistent with the existing error hierarchy.
   - Preserve existing fail-open semantics for best-effort side effects where applicable.
   - Emit structured logs with correlation identifiers when boundary conversion or validation fails.
+  - Created boundary validation logging helper (`src/core/services/boundary_validation.py`) with correlation ID extraction and consistent logging format.
+  - Enhanced BackendCompletionFlow, HybridOrchestrator, and connector validation (gemini, hybrid) with structured logging using correlation identifiers.
+  - Enhanced transport adapter validation (`api_adapters.py`) with structured logging when conversion fails.
+  - Enhanced ConnectorInvoker legacy path logging to include all correlation identifiers.
+  - Added unit tests for boundary validation logging helper and correlation ID extraction.
+  - Added integration tests verifying structured logging with correlation identifiers across all boundary validation points.
+  - Verified fail-open semantics are preserved for best-effort side effects (EoS recording, wire capture, context injection).
+  - All boundary validation failures now emit structured logs with request_id and session_id when available.
+  - Errors remain deterministic and consistent with LLMProxyError hierarchy (InvalidRequestError for invalid inputs).
+  - **Code review fixes**: Added context parameter propagation to all adapter functions (openai_to_domain_chat_request, anthropic_to_domain_chat_request, gemini_to_domain_chat_request) to ensure correlation IDs are logged when these adapters are used.
+  - **Code review fixes**: Added Pydantic ValidationError logging with correlation IDs for ChatMessage and ChatRequest creation failures in `dict_to_domain_chat_request`.
+  - **Code review fixes**: Updated all adapter function docstrings to document the optional context parameter.
+  - **Code review fixes**: Verified all InvalidRequestError instances have structured details consistent with error hierarchy.
+  - **Code review fixes**: Added comprehensive tests for context parameter propagation and Pydantic validation error logging (9 new integration tests, all passing).
+  - All 18 tests pass (9 unit + 9 integration), no linter errors, implementation complete.
   - _Requirements: NFR2.2, NFR2.3, NFR3.1, 1.3_
 
-- [ ] 4.4 Verify transport-to-core request context and routing outputs remain canonical
+- [x] 4.4 Verify transport-to-core request context and routing outputs remain canonical
   - Ensure all supported protocol controllers attach canonical inbound request contracts to a canonical request context before core processing.
   - Ensure routing outputs are represented using canonical target contracts and JSON-safe URI parameters across seams.
   - Add focused tests to prevent regressions toward ad hoc dict shapes at these seams.
+  - Created comprehensive integration tests in `tests/integration/core/transport/test_transport_to_core_canonical_contracts.py`:
+    - `TestControllerRequestContextCanonicalContracts`: Verifies all protocol controllers (ChatController, AnthropicController, ResponsesController) attach canonical requests to RequestContext
+    - `TestRoutingOutputsCanonicalContracts`: Verifies routing outputs use BackendTarget with JSON-safe URI parameters
+    - `TestCanonicalContractRegressionPrevention`: Prevents regressions toward ad hoc dict shapes
+  - Verified production code already uses canonical contracts correctly:
+    - Controllers use `fastapi_to_domain_request_context()` with `domain_request=CanonicalChatRequest`
+    - `BackendModelResolver.resolve_target()` returns `BackendTarget`
+    - `BackendRequestPreparer.prepare_request()` returns `BackendTarget`
+  - All 13 tests pass, verifying canonical contracts (not dicts) at transport-to-core seams
   - _Requirements: 2.1, 2.2, 1.1, 1.5_
 
 - [ ] 5. Capture and replay alignment with canonical contracts
