@@ -11,29 +11,29 @@ Requirements: 1.1, 1.2, 1.4, 1.5, NFR3.2
 from __future__ import annotations
 
 import contextlib
-import json
-import os
 import tempfile
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
-import cbor2
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
-from src.core.config.models import AuthConfig, BackendConfig, BackendSettings, LoggingConfig
+from src.core.config.models import (
+    AuthConfig,
+    BackendConfig,
+    BackendSettings,
+    LoggingConfig,
+)
 from src.core.domain.cbor_capture import CaptureDirection
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.wire_capture_interface import IWireCapture
-from src.core.simulation.capture_reader import CaptureReader
 from src.core.services.cbor_wire_capture_service import CborWireCaptureService
+from src.core.simulation.capture_reader import CaptureReader
 
 # Suppress Windows ProactorEventLoop resource warnings
 pytestmark = pytest.mark.filterwarnings(
@@ -194,42 +194,28 @@ def client(test_app_with_capture):
 
 
 # Helper Functions
-def verify_response_shape(protocol: str, response: dict[str, Any], is_streaming: bool) -> None:
+def verify_response_shape(protocol: str, response: dict[str, Any]) -> None:
     """Validate response matches protocol specification."""
     if protocol == "openai-chat":
-        if is_streaming:
-            # Streaming responses are SSE format, check in test
-            assert "text/event-stream" in response.headers.get("content-type", "")
-        else:
-            assert "id" in response
-            assert "object" in response
-            assert "choices" in response
-            assert "usage" in response
-            assert isinstance(response["choices"], list)
-            assert len(response["choices"]) > 0
+        assert "id" in response
+        assert "object" in response
+        assert "choices" in response
+        assert "usage" in response
+        assert isinstance(response["choices"], list)
+        assert len(response["choices"]) > 0
     elif protocol == "openai-responses":
-        if is_streaming:
-            assert "text/event-stream" in response.headers.get("content-type", "")
-        else:
-            assert "id" in response
-            assert "object" in response
-            assert "response" in response
-            assert "usage" in response
+        assert "id" in response
+        assert "object" in response
+        assert "response" in response
+        assert "usage" in response
     elif protocol == "anthropic":
-        if is_streaming:
-            assert "text/event-stream" in response.headers.get("content-type", "")
-        else:
-            assert "id" in response
-            assert "type" in response
-            assert "content" in response
-            assert "usage" in response
+        assert "id" in response
+        assert "type" in response
+        assert "content" in response
+        assert "usage" in response
     elif protocol == "gemini":
-        if is_streaming:
-            # Gemini streaming uses JSON lines
-            assert "application/json" in response.headers.get("content-type", "")
-        else:
-            assert "candidates" in response
-            assert "usageMetadata" in response
+        assert "candidates" in response
+        assert "usageMetadata" in response
 
 
 def verify_usage_propagation(response: dict[str, Any], protocol: str) -> None:
@@ -267,7 +253,10 @@ def verify_capture_file(capture_file_path: Path | None) -> None:
     # Verify entries contain expected directions
     directions = {entry.direction for entry in session.entries}
     # Should have at least CLIENT_TO_PROXY and PROXY_TO_CLIENT
-    assert CaptureDirection.CLIENT_TO_PROXY in directions or CaptureDirection.PROXY_TO_CLIENT in directions
+    assert (
+        CaptureDirection.CLIENT_TO_PROXY in directions
+        or CaptureDirection.PROXY_TO_CLIENT in directions
+    )
 
 
 def verify_capture_replay_compatible(capture_file_path: Path | None) -> None:
@@ -311,7 +300,9 @@ class TestProtocolResponseShapes:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_OPENAI_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -325,7 +316,7 @@ class TestProtocolResponseShapes:
 
             assert response.status_code == 200
             result = response.json()
-            verify_response_shape("openai-chat", result, is_streaming=False)
+            verify_response_shape("openai-chat", result)
 
     @pytest.mark.asyncio
     async def test_openai_chat_completions_streaming_shape(
@@ -381,7 +372,9 @@ class TestProtocolResponseShapes:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_OPENAI_RESPONSES_API_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=15, completion_tokens=10, total_tokens=25),
+                usage=UsageSummary(
+                    prompt_tokens=15, completion_tokens=10, total_tokens=25
+                ),
             )
 
             response = client.post(
@@ -394,7 +387,7 @@ class TestProtocolResponseShapes:
 
             assert response.status_code == 200
             result = response.json()
-            verify_response_shape("openai-responses", result, is_streaming=False)
+            verify_response_shape("openai-responses", result)
 
     @pytest.mark.asyncio
     async def test_openai_responses_api_streaming_shape(
@@ -446,7 +439,9 @@ class TestProtocolResponseShapes:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_ANTHROPIC_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -460,7 +455,7 @@ class TestProtocolResponseShapes:
 
             assert response.status_code == 200
             result = response.json()
-            verify_response_shape("anthropic", result, is_streaming=False)
+            verify_response_shape("anthropic", result)
 
     @pytest.mark.asyncio
     async def test_anthropic_messages_streaming_shape(
@@ -516,7 +511,9 @@ class TestProtocolResponseShapes:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_GEMINI_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -528,12 +525,10 @@ class TestProtocolResponseShapes:
 
             assert response.status_code == 200
             result = response.json()
-            verify_response_shape("gemini", result, is_streaming=False)
+            verify_response_shape("gemini", result)
 
     @pytest.mark.asyncio
-    async def test_gemini_v1beta_streaming_shape(
-        self, client, test_app_with_capture
-    ):
+    async def test_gemini_v1beta_streaming_shape(self, client, test_app_with_capture):
         """Test Gemini v1beta streaming response shape."""
         app, capture_file, _ = test_app_with_capture
 
@@ -585,7 +580,9 @@ class TestUsageMetadataPropagation:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_OPENAI_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -620,7 +617,9 @@ class TestUsageMetadataPropagation:
             yield ProcessedResponse(
                 content={"choices": [{"delta": {"content": ", world!"}}]},
                 metadata={},
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
         with patch(
@@ -662,7 +661,9 @@ class TestUsageMetadataPropagation:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_ANTHROPIC_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -697,7 +698,9 @@ class TestUsageMetadataPropagation:
             yield ProcessedResponse(
                 content={"type": "content_block_delta", "delta": {"text": ", world!"}},
                 metadata={},
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
         with patch(
@@ -738,7 +741,9 @@ class TestUsageMetadataPropagation:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_GEMINI_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -773,7 +778,9 @@ class TestUsageMetadataPropagation:
                     "candidates": [{"content": {"parts": [{"text": ", world!"}]}}]
                 },
                 metadata={},
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
         with patch(
@@ -803,9 +810,7 @@ class TestCaptureCompatibility:
     """Test capture-enabled paths remain inspectable and replayable."""
 
     @pytest.mark.asyncio
-    async def test_openai_capture_file_readable(
-        self, client, test_app_with_capture
-    ):
+    async def test_openai_capture_file_readable(self, client, test_app_with_capture):
         """Test OpenAI capture file can be read by CaptureReader."""
         app, capture_file, _ = test_app_with_capture
 
@@ -815,7 +820,9 @@ class TestCaptureCompatibility:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_OPENAI_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             # Make request to trigger capture
@@ -851,7 +858,9 @@ class TestCaptureCompatibility:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_OPENAI_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -878,9 +887,7 @@ class TestCaptureCompatibility:
                 assert len(session.entries) > 0
 
     @pytest.mark.asyncio
-    async def test_anthropic_capture_file_readable(
-        self, client, test_app_with_capture
-    ):
+    async def test_anthropic_capture_file_readable(self, client, test_app_with_capture):
         """Test Anthropic capture file can be read by CaptureReader."""
         app, capture_file, _ = test_app_with_capture
 
@@ -890,7 +897,9 @@ class TestCaptureCompatibility:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_ANTHROPIC_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -911,9 +920,7 @@ class TestCaptureCompatibility:
             verify_capture_file(capture_file)
 
     @pytest.mark.asyncio
-    async def test_gemini_capture_file_readable(
-        self, client, test_app_with_capture
-    ):
+    async def test_gemini_capture_file_readable(self, client, test_app_with_capture):
         """Test Gemini capture file can be read by CaptureReader."""
         app, capture_file, _ = test_app_with_capture
 
@@ -923,7 +930,9 @@ class TestCaptureCompatibility:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_GEMINI_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(
@@ -942,9 +951,7 @@ class TestCaptureCompatibility:
             verify_capture_file(capture_file)
 
     @pytest.mark.asyncio
-    async def test_streaming_capture_file_readable(
-        self, client, test_app_with_capture
-    ):
+    async def test_streaming_capture_file_readable(self, client, test_app_with_capture):
         """Test streaming capture file can be read by CaptureReader."""
         app, capture_file, _ = test_app_with_capture
 
@@ -986,9 +993,7 @@ class TestCaptureCompatibility:
             verify_capture_file(capture_file)
 
     @pytest.mark.asyncio
-    async def test_capture_file_replay_compatible(
-        self, client, test_app_with_capture
-    ):
+    async def test_capture_file_replay_compatible(self, client, test_app_with_capture):
         """Test capture file is compatible with replay tooling."""
         app, capture_file, _ = test_app_with_capture
 
@@ -998,7 +1003,9 @@ class TestCaptureCompatibility:
             mock_call.return_value = ResponseEnvelope(
                 content=MOCK_OPENAI_RESPONSE,
                 status_code=200,
-                usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+                usage=UsageSummary(
+                    prompt_tokens=10, completion_tokens=5, total_tokens=15
+                ),
             )
 
             response = client.post(

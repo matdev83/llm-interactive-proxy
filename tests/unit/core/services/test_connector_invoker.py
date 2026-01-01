@@ -532,7 +532,7 @@ class TestErrorPropagation:
         ) -> ResponseEnvelope | StreamingResponseEnvelope:
             raise ValueError("Test error")
 
-        backend.chat_completions = error_chat_completions
+        backend.chat_completions = error_chat_completions  # type: ignore[method-assign]
 
         with pytest.raises(ValueError, match="Test error"):
             await connector_invoker.invoke(
@@ -560,7 +560,7 @@ class TestErrorPropagation:
         async def error_chat_completions(*args: Any, **kwargs: Any) -> ResponseEnvelope | StreamingResponseEnvelope:
             raise ValueError("Test error")
 
-        backend.chat_completions = error_chat_completions
+        backend.chat_completions = error_chat_completions  # type: ignore[method-assign]
 
         with pytest.raises(ValueError, match="Test error"):
             await connector_invoker.invoke(
@@ -598,7 +598,7 @@ class TestStreamingResponse:
         ) -> StreamingResponseEnvelope:
             return streaming_response
 
-        backend.chat_completions = streaming_chat_completions
+        backend.chat_completions = streaming_chat_completions  # type: ignore[method-assign]
 
         result = await connector_invoker.invoke(
             backend=backend,  # type: ignore[arg-type]
@@ -632,7 +632,7 @@ class TestStreamingResponse:
         async def streaming_chat_completions(*args: Any, **kwargs: Any) -> StreamingResponseEnvelope:
             return streaming_response
 
-        backend.chat_completions = streaming_chat_completions
+        backend.chat_completions = streaming_chat_completions  # type: ignore[method-assign]
 
         result = await connector_invoker.invoke(
             backend=backend,
@@ -757,7 +757,7 @@ class TestConnectorSeamCompatibility:
         
         # Verify all extension values are JSON-safe types
         for key, value in received_context.extensions.items():
-            assert isinstance(value, (str, int, float, bool, type(None), list, dict)), \
+            assert isinstance(value, str | int | float | bool | type(None) | list | dict), \
                 f"Extension '{key}' contains non-JSON-safe type: {type(value)}"
 
     @pytest.mark.asyncio
@@ -797,6 +797,7 @@ class TestConnectorSeamCompatibility:
     ) -> None:
         """Test that options remain JSON-safe and contain no callables."""
         import json
+
         from pydantic.types import JsonValue
 
         backend = MockCanonicalBackend()
@@ -1603,6 +1604,7 @@ class TestConnectorSeamCompatibility:
     ) -> None:
         """Test that options can be serialized and deserialized as JSON."""
         import json
+
         from pydantic.types import JsonValue
 
         backend = MockCanonicalBackend()

@@ -2,13 +2,13 @@
 
 import asyncio
 import contextlib
+import json
 import logging
 import re
 import sre_parse
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from sre_constants import MAXREPEAT
-import json
 from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
@@ -258,7 +258,9 @@ class ResponsesController:
                 try:
                     from src.core.domain.chat import ChatResponse
                     from src.core.domain.responses import ResponseEnvelope
-                    from src.core.interfaces.response_processor_interface import ProcessedResponse
+                    from src.core.interfaces.response_processor_interface import (
+                        ProcessedResponse,
+                    )
 
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -269,7 +271,10 @@ class ResponsesController:
                     if isinstance(content, str) and content.strip():
                         try:
                             parsed_content = json.loads(content)
-                            if isinstance(parsed_content, dict) and "response" in parsed_content:
+                            if (
+                                isinstance(parsed_content, dict)
+                                and "response" in parsed_content
+                            ):
                                 # Content is a JSON string containing a Responses API response
                                 if logger.isEnabledFor(logging.DEBUG):
                                     logger.debug(
@@ -279,14 +284,20 @@ class ResponsesController:
                         except (json.JSONDecodeError, ValueError):
                             # Not a JSON string, proceed with other checks
                             pass
-                    
+
                     # Check if response has metadata with original Responses API response
                     response_metadata = None
-                    if isinstance(response, (ResponseEnvelope, ProcessedResponse)):
+                    if isinstance(response, ResponseEnvelope | ProcessedResponse):
                         response_metadata = getattr(response, "metadata", None)
-                        if isinstance(response_metadata, dict) and "original_responses_api_response" in response_metadata:
+                        if (
+                            isinstance(response_metadata, dict)
+                            and "original_responses_api_response" in response_metadata
+                        ):
                             original_response: dict[str, Any] = response_metadata["original_responses_api_response"]  # type: ignore[assignment]
-                            if isinstance(original_response, dict) and "response" in original_response:
+                            if (
+                                isinstance(original_response, dict)
+                                and "response" in original_response
+                            ):
                                 if logger.isEnabledFor(logging.DEBUG):
                                     logger.debug(
                                         f"Restored Responses API format from ResponseProcessor metadata - request_id={request_id}"
@@ -300,13 +311,19 @@ class ResponsesController:
                                 f"Response already in Responses API format - request_id={request_id}"
                             )
                         return content
-                    
+
                     # Check if content has metadata with original Responses API response
                     if isinstance(content, dict) and "metadata" in content:
                         metadata: dict[str, Any] = content.get("metadata", {})  # type: ignore[assignment]
-                        if isinstance(metadata, dict) and "original_responses_api_response" in metadata:
+                        if (
+                            isinstance(metadata, dict)
+                            and "original_responses_api_response" in metadata
+                        ):
                             original_response_from_content: dict[str, Any] = metadata["original_responses_api_response"]  # type: ignore[assignment]
-                            if isinstance(original_response_from_content, dict) and "response" in original_response_from_content:
+                            if (
+                                isinstance(original_response_from_content, dict)
+                                and "response" in original_response_from_content
+                            ):
                                 if logger.isEnabledFor(logging.DEBUG):
                                     logger.debug(
                                         f"Restored Responses API format from metadata - request_id={request_id}"
@@ -315,29 +332,57 @@ class ResponsesController:
 
                     # Check if content is a Chat Completions response that was converted from Responses API
                     # (content might be a JSON string containing Responses API response)
-                    if isinstance(content, dict) and "choices" in content and "response" not in content:
+                    if (
+                        isinstance(content, dict)
+                        and "choices" in content
+                        and "response" not in content
+                    ):
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 f"Checking Chat Completions format for embedded Responses API response - request_id={request_id}, content_keys={list(content.keys())}"
                             )
                         # Check if message content contains a JSON string with Responses API format
                         choices = content.get("choices", [])
-                        if choices and isinstance(choices, list) and len(choices) > 0 and isinstance(choices[0], dict):
+                        if (
+                            choices
+                            and isinstance(choices, list)
+                            and len(choices) > 0
+                            and isinstance(choices[0], dict)
+                        ):
                             message = choices[0].get("message", {})
                             if isinstance(message, dict):
                                 # First, check if the message has a 'parsed' field with Responses API format
                                 message_parsed = message.get("parsed")
-                                if isinstance(message_parsed, dict) and "response" in message_parsed:
+                                if (
+                                    isinstance(message_parsed, dict)
+                                    and "response" in message_parsed
+                                ):
                                     # Extract the Responses API response from the parsed field
-                                    responses_response = dict(message_parsed)  # Make a copy
-                                    if "usage" not in responses_response and "usage" in content:
+                                    responses_response = dict(
+                                        message_parsed
+                                    )  # Make a copy
+                                    if (
+                                        "usage" not in responses_response
+                                        and "usage" in content
+                                    ):
                                         responses_response["usage"] = content["usage"]
                                     # Preserve other top-level fields from outer response if missing
-                                    if "id" not in responses_response and "id" in content:
+                                    if (
+                                        "id" not in responses_response
+                                        and "id" in content
+                                    ):
                                         responses_response["id"] = content["id"]
-                                    if "created" not in responses_response and "created" in content:
-                                        responses_response["created"] = content["created"]
-                                    if "model" not in responses_response and "model" in content:
+                                    if (
+                                        "created" not in responses_response
+                                        and "created" in content
+                                    ):
+                                        responses_response["created"] = content[
+                                            "created"
+                                        ]
+                                    if (
+                                        "model" not in responses_response
+                                        and "model" in content
+                                    ):
                                         responses_response["model"] = content["model"]
                                     if "object" not in responses_response:
                                         responses_response["object"] = "response"
@@ -346,14 +391,17 @@ class ResponsesController:
                                             f"Successfully extracted Responses API format from message.parsed - request_id={request_id}"
                                         )
                                     return responses_response
-                                
+
                                 # If no parsed field, try to parse the content field as JSON
                                 message_content = message.get("content", "")
                                 if logger.isEnabledFor(logging.DEBUG):
                                     logger.debug(
                                         f"Found message content - request_id={request_id}, content_type={type(message_content).__name__}, content_preview={str(message_content)[:200] if isinstance(message_content, str) else 'N/A'}"
                                     )
-                                if isinstance(message_content, str) and message_content.strip():
+                                if (
+                                    isinstance(message_content, str)
+                                    and message_content.strip()
+                                ):
                                     try:
                                         # Try to parse the message content as JSON
                                         parsed_content = json.loads(message_content)
@@ -361,21 +409,46 @@ class ResponsesController:
                                             logger.debug(
                                                 f"Parsed message content - request_id={request_id}, parsed_keys={list(parsed_content.keys()) if isinstance(parsed_content, dict) else 'N/A'}"
                                             )
-                                        if isinstance(parsed_content, dict) and "response" in parsed_content:
+                                        if (
+                                            isinstance(parsed_content, dict)
+                                            and "response" in parsed_content
+                                        ):
                                             # Extract the Responses API response from the JSON string
                                             # Preserve usage from the outer response if available
-                                            responses_response = dict(parsed_content)  # Make a copy
-                                            if "usage" not in responses_response and "usage" in content:
-                                                responses_response["usage"] = content["usage"]
+                                            responses_response = dict(
+                                                parsed_content
+                                            )  # Make a copy
+                                            if (
+                                                "usage" not in responses_response
+                                                and "usage" in content
+                                            ):
+                                                responses_response["usage"] = content[
+                                                    "usage"
+                                                ]
                                             # Preserve other top-level fields from outer response if missing
-                                            if "id" not in responses_response and "id" in content:
+                                            if (
+                                                "id" not in responses_response
+                                                and "id" in content
+                                            ):
                                                 responses_response["id"] = content["id"]
-                                            if "created" not in responses_response and "created" in content:
-                                                responses_response["created"] = content["created"]
-                                            if "model" not in responses_response and "model" in content:
-                                                responses_response["model"] = content["model"]
+                                            if (
+                                                "created" not in responses_response
+                                                and "created" in content
+                                            ):
+                                                responses_response["created"] = content[
+                                                    "created"
+                                                ]
+                                            if (
+                                                "model" not in responses_response
+                                                and "model" in content
+                                            ):
+                                                responses_response["model"] = content[
+                                                    "model"
+                                                ]
                                             if "object" not in responses_response:
-                                                responses_response["object"] = "response"
+                                                responses_response["object"] = (
+                                                    "response"
+                                                )
                                             if logger.isEnabledFor(logging.INFO):
                                                 logger.info(
                                                     f"Successfully extracted Responses API format from message content - request_id={request_id}"
@@ -386,12 +459,15 @@ class ResponsesController:
                                                 logger.debug(
                                                     f"Parsed content does not have 'response' key - request_id={request_id}, has_response={isinstance(parsed_content, dict) and 'response' in parsed_content}"
                                                 )
-                                    except (json.JSONDecodeError, ValueError, TypeError) as e:
+                                    except (
+                                        json.JSONDecodeError,
+                                        ValueError,
+                                        TypeError,
+                                    ) as e:
                                         if logger.isEnabledFor(logging.DEBUG):
                                             logger.debug(
                                                 f"Failed to parse message content as JSON - request_id={request_id}, error={e}, content_preview={message_content[:200]}"
                                             )
-                                        pass
                                 else:
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
@@ -430,7 +506,13 @@ class ResponsesController:
                                     exc_info=True,
                                 )
                             # If conversion fails, fall back to manual conversion
-                        except (TranslationError, ParsingError, TypeError, AttributeError, KeyError) as e:
+                        except (
+                            TranslationError,
+                            ParsingError,
+                            TypeError,
+                            AttributeError,
+                            KeyError,
+                        ) as e:
                             # Catch domain exceptions and common data processing errors
                             if logger.isEnabledFor(logging.WARNING):
                                 logger.warning(
@@ -628,7 +710,6 @@ class ResponsesController:
                     }
                 },
             ) from e
-
 
     @staticmethod
     def _resolve_request_id(request: Request) -> str:
@@ -1135,7 +1216,9 @@ class ResponsesController:
                             and isinstance(choices_list[0].get("delta"), dict)
                             and len(choices_list[0].get("delta", {})) == 1
                             and "content" in choices_list[0].get("delta", {})
-                            and isinstance(choices_list[0].get("delta", {}).get("content"), str)
+                            and isinstance(
+                                choices_list[0].get("delta", {}).get("content"), str
+                            )
                         )
 
                         if is_simple_chunk:
@@ -1145,7 +1228,7 @@ class ResponsesController:
                             choices = cast(list[dict[str, Any]], c["choices"])
                             choice = choices[0]
                             delta = cast(dict[str, Any], choice["delta"])
-                            
+
                             content_json = json.dumps(delta["content"])
                             idx = choice["index"]
 

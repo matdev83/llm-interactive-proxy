@@ -1,8 +1,9 @@
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, cast
 
 import pytest
+from src.core.common.exceptions import ParsingError
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
@@ -10,7 +11,8 @@ from src.core.domain.chat import (
     FunctionCall,
     ToolCall,
 )
-from src.core.services.response_parser_service import ParsingError, ResponseParser
+from src.core.domain.usage_summary import UsageSummary
+from src.core.services.response_parser_service import ResponseParser
 
 
 class TestResponseParser:
@@ -145,11 +147,13 @@ class TestResponseParser:
                     choices=[],
                     created=123,
                     model="gpt-4",
-                    usage={
-                        "prompt_tokens": 10,
-                        "completion_tokens": 20,
-                        "total_tokens": 30,
-                    },
+                    usage=UsageSummary.from_dict(
+                        {
+                            "prompt_tokens": 10,
+                            "completion_tokens": 20,
+                            "total_tokens": 30,
+                        }
+                    ),
                 ),
                 {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
             ),
@@ -192,9 +196,9 @@ class TestResponseParser:
                 {
                     "model": "test_model",
                     "id": "test_id",
-                    "created": datetime.utcfromtimestamp(1678886400).isoformat(
-                        timespec="seconds"
-                    ),
+                    "created": datetime.fromtimestamp(
+                        1678886400, tz=timezone.utc
+                    ).isoformat(timespec="seconds"),
                 },
             ),
             (
@@ -202,9 +206,9 @@ class TestResponseParser:
                 {
                     "model": "dict_model",
                     "id": "dict_id",
-                    "created": datetime.utcfromtimestamp(1678886400).isoformat(
-                        timespec="seconds"
-                    ),
+                    "created": datetime.fromtimestamp(
+                        1678886400, tz=timezone.utc
+                    ).isoformat(timespec="seconds"),
                 },
             ),
             ("string", {}),
@@ -213,7 +217,7 @@ class TestResponseParser:
                 {
                     "model": "unknown",
                     "id": "",
-                    "created": datetime.utcfromtimestamp(0).isoformat(
+                    "created": datetime.fromtimestamp(0, tz=timezone.utc).isoformat(
                         timespec="seconds"
                     ),
                 },
@@ -244,7 +248,7 @@ class TestResponseParser:
                 {
                     "model": "gpt-4",
                     "id": "test",
-                    "created": datetime.utcfromtimestamp(123).isoformat(
+                    "created": datetime.fromtimestamp(123, tz=timezone.utc).isoformat(
                         timespec="seconds"
                     ),
                     "tool_calls": [

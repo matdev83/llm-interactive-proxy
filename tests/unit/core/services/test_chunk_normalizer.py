@@ -46,7 +46,7 @@ class TestNormalizeToProcessedChunkContent:
         assert result == content
         assert isinstance(result, dict)
         # Verify all values are JsonValue-compatible
-        assert all(isinstance(v, (str, int, float, bool, type(None))) for v in result.values())
+        assert all(isinstance(v, str | int | float | bool | type(None)) for v in result.values())
 
     def test_normalize_dict_with_nested_json_safe(self) -> None:
         """Test that nested JSON-safe dicts are preserved."""
@@ -176,7 +176,7 @@ class TestNormalizeToProcessedChunkContent:
 
     def test_normalize_dict_with_unicode_bytes(self) -> None:
         """Test that unicode bytes are preserved."""
-        content = "测试内容 🚀".encode("utf-8")
+        content = "测试内容 🚀".encode()
         result = normalize_to_processed_chunk_content(content)
         assert result == content
         assert isinstance(result, bytes)

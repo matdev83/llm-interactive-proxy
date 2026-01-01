@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
 
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_handler_interface import (
@@ -23,20 +22,28 @@ logger = logging.getLogger(__name__)
 class DefaultNonStreamingResponseHandler(INonStreamingResponseHandler):
     """Default implementation of the non-streaming response handler."""
 
-    async def process_response(self, response: dict[str, Any]) -> ResponseEnvelope:
+    async def process_response(
+        self, response: ResponseEnvelope | ProcessedResponse
+    ) -> ResponseEnvelope:
         """Process a non-streaming response.
 
         Args:
-            response: The non-streaming response to process
+            response: The non-streaming response to process (typed contract)
 
         Returns:
             The processed response envelope
         """
-        # Create a response envelope with the response content
+        # If already a ResponseEnvelope, return as-is
+        if isinstance(response, ResponseEnvelope):
+            return response
+
+        # If ProcessedResponse, convert to ResponseEnvelope
         return ResponseEnvelope(
-            content=response,
+            content=response.content,
             status_code=200,
             headers={"content-type": "application/json"},
+            usage=response.usage,
+            metadata=response.metadata,
         )
 
 

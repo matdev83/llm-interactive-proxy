@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from src.core.config.app_config import AppConfig
     from src.core.interfaces.configuration_interface import IAppIdentityConfig
-    from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 from src.connectors.hybrid_backend.models.phase_result import ReasoningPhaseResult
 from src.connectors.hybrid_backend.protocols import (
@@ -29,9 +28,13 @@ from src.connectors.hybrid_backend.protocols import (
     IResponseBuilder,
     IResponseFilter,
 )
-from src.core.common.exceptions import BackendError, ConfigurationError
+from src.core.common.exceptions import (
+    BackendError,
+    ConfigurationError,
+    InvalidRequestError,
+)
+from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +87,7 @@ class HybridOrchestrator:
 
     async def execute(
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
+        request_data: CanonicalChatRequest | ChatRequest,
         processed_messages: list[Any],
         effective_model: str,
         identity: "IAppIdentityConfig | None" = None,
@@ -93,7 +96,7 @@ class HybridOrchestrator:
         """Execute the complete two-phase hybrid completion.
 
         Args:
-            request_data: Original request
+            request_data: Original request (canonical contract only)
             processed_messages: Messages after command processing
             effective_model: Format "hybrid:[backend:model,backend:model]"
             identity: Optional identity configuration
@@ -103,10 +106,22 @@ class HybridOrchestrator:
             Response envelope (streaming or non-streaming) with execution model's response
 
         Raises:
+            InvalidRequestError: If request_data is a dict (coercion must happen at adapter boundary)
             ValueError: If model specification is invalid
             ConfigurationError: If hybrid backend is disabled
             BackendError: If either phase fails (HTTP 502)
         """
+        # BOUNDARY HARDENING: Reject dict input - coercion should be centralized at adapter boundaries
+        if isinstance(request_data, dict):
+            raise InvalidRequestError(
+                message="HybridOrchestrator received dict input. "
+                "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters, connector invoker). "
+                "Expected CanonicalChatRequest or ChatRequest.",
+                details={
+                    "received_type": "dict",
+                    "service": "HybridOrchestrator",
+                },
+            )
         start_time = time.time()
         session_id = getattr(identity, "session_id", None) if identity else None
 
@@ -118,7 +133,8 @@ class HybridOrchestrator:
             session_id = str(uuid4())
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Generated session ID for hybrid backend interaction: %s", session_id
+                    "Generated session ID for hybrid backend interaction: %s",
+                    session_id,
                 )
 
         # Check if hybrid backend is disabled
@@ -190,7 +206,7 @@ class HybridOrchestrator:
 
     def _prepare_execution_context(
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
+        request_data: CanonicalChatRequest | ChatRequest,
         effective_model: str,
         processed_messages: list[Any],
         identity: "IAppIdentityConfig | None",
@@ -198,11 +214,20 @@ class HybridOrchestrator:
     ) -> tuple[dict[str, Any], Any, dict[str, Any], dict[str, Any], Any]:
         """Prepare execution context: parse spec, validate params, evaluate injection.
 
+        Args:
+            request_data: Canonical request contract (never a dict)
+            effective_model: Model specification string
+            processed_messages: Processed messages list
+            identity: Optional identity configuration
+            session_id: Optional session identifier
+
         Returns:
             Tuple of (request_dict, spec, reasoning_params, execution_params, injection_decision)
+            Note: request_dict is converted from canonical contract for internal use only
         """
-        # Convert request_data to dict and parse model spec
-        request_dict = self._convert_request_to_dict(request_data)
+        # Convert canonical contract to dict for internal use (injection policy, etc.)
+        # This is an internal conversion, not accepting dicts at the boundary
+        request_dict = self._canonical_request_to_dict(request_data)
         spec = self.model_spec_parser.parse(effective_model)
 
         # Validate and clean parameters
@@ -278,7 +303,7 @@ class HybridOrchestrator:
 
     async def _execute_execution_phase_with_fallback(
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
+        request_data: CanonicalChatRequest | ChatRequest,
         augmented_messages: list[Any],
         execution_backend: str,
         execution_model: str,
@@ -343,19 +368,30 @@ class HybridOrchestrator:
                 },
             ) from e
 
-    def _convert_request_to_dict(
-        self, request_data: DomainModel | InternalDTO | dict[str, Any]
+    def _canonical_request_to_dict(
+        self, request_data: CanonicalChatRequest | ChatRequest
     ) -> dict[str, Any]:
-        """Convert request_data to dict format."""
-        if isinstance(request_data, DomainModel):
+        """Convert canonical request contract to dict format for internal use.
+
+        This is an internal conversion method that only accepts canonical contracts.
+        Dict-to-contract coercion must happen at adapter boundaries, not here.
+
+        Args:
+            request_data: Canonical request contract (CanonicalChatRequest or ChatRequest)
+
+        Returns:
+            Dictionary representation of the request for internal use
+
+        Raises:
+            TypeError: If request_data is not a canonical contract type
+        """
+        if isinstance(request_data, (CanonicalChatRequest, ChatRequest)):
             return request_data.model_dump()
-        elif isinstance(request_data, dict):
-            return request_data
         elif is_dataclass(request_data) and not isinstance(request_data, type):
             return asdict(request_data)
         else:
             raise TypeError(
-                "request_data must be a Pydantic model, a dict, or a dataclass, "
+                "request_data must be CanonicalChatRequest or ChatRequest, "
                 f"but got {type(request_data)}"
             )
 
@@ -414,15 +450,19 @@ class HybridOrchestrator:
         return reasoning_params, execution_params
 
     def _extract_probability_override(
-        self, request_data: DomainModel | InternalDTO | dict[str, Any]
+        self, request_data: CanonicalChatRequest | ChatRequest
     ) -> float | None:
-        """Extract probability override from request_data.extra_body."""
-        if isinstance(request_data, dict):
-            extra_body = request_data.get("extra_body", {})
-        else:
-            extra_body = getattr(request_data, "extra_body", {})
-            if extra_body is None:
-                extra_body = {}
+        """Extract probability override from request_data.extra_body.
+
+        Args:
+            request_data: Canonical request contract (never a dict)
+
+        Returns:
+            Probability override value or None
+        """
+        extra_body = getattr(request_data, "extra_body", {})
+        if extra_body is None:
+            extra_body = {}
 
         temp_prob_override = extra_body.get("_temp_hybrid_reasoning_probability")
         if temp_prob_override is not None:
@@ -434,7 +474,7 @@ class HybridOrchestrator:
         processed_messages: list[Any],
         reasoning_backend: str,
         reasoning_model: str,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
+        request_data: CanonicalChatRequest | ChatRequest,
         identity: "IAppIdentityConfig | None",
         reasoning_params: dict[str, Any],
         session_id: str | None,

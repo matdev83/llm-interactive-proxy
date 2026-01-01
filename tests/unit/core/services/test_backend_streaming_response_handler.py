@@ -208,18 +208,23 @@ class TestMiddlewareWrapping:
         call_args = mock_response_processor.process_streaming_response.call_args
 
         # process_streaming_response signature: (response_iterator, session_id, context=None)
-        # Handler calls: process_streaming_response(original_stream, session_id, context=middleware_context)
-        # So first arg is stream, second is session_id (positional), third is context (keyword)
-        assert len(call_args[0]) >= 2
+        # Handler now passes RequestContext directly instead of middleware_context dict
+        # So first arg is stream, second is session_id (positional), third is context (positional)
+        assert len(call_args[0]) >= 3
         session_id_arg = call_args[0][1]  # Second positional arg
-        context_dict = call_args.kwargs.get("context", {})  # Keyword arg
+        context_arg = call_args[0][2]  # Third positional arg (RequestContext)
 
         assert session_id_arg == "test-session-123"
-        assert isinstance(context_dict, dict)
-        assert context_dict.get("session_id") == "test-session-123"
-        assert context_dict.get("backend_name") == "openai"
-        assert context_dict.get("model_name") == "gpt-4"
-        assert context_dict.get("original_request") == base_request
+        from src.core.domain.request_context import RequestContext
+
+        assert isinstance(context_arg, RequestContext)
+        assert context_arg.session_id == "test-session-123"
+        assert context_arg.backend == "openai"
+        assert context_arg.effective_model == "gpt-4"
+        assert (
+            context_arg.original_request == base_request
+            or context_arg.domain_request == base_request
+        )
 
         # Verify stream content
         result_chunks = []

@@ -26,8 +26,8 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.domain.streaming.streaming_content import StreamingContent
 from src.core.domain.usage_summary import UsageSummary
-from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.response_parser_interface import IResponseParser
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.streaming_response_processor_interface import (
     IStreamNormalizer,
 )
@@ -522,16 +522,17 @@ class TestRealResponseProcessorCopyOnWrite:
         This test uses a real StreamNormalizer (not mocks) to verify that
         ProcessedResponse chunks are not mutated in-place during processing.
         """
+        from unittest.mock import MagicMock
+
         from src.core.interfaces.response_parser_interface import IResponseParser
         from src.core.services.response_processor_service import ResponseProcessor
-        from src.core.services.streaming.stream_normalizer import StreamNormalizer
-        from src.core.services.streaming.stream_context_registry import (
-            StreamingContextRegistry,
-        )
         from src.core.services.streaming.content_accumulation_processor import (
             ContentAccumulationProcessor,
         )
-        from unittest.mock import MagicMock
+        from src.core.services.streaming.stream_context_registry import (
+            StreamingContextRegistry,
+        )
+        from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
         # Create a real stream normalizer with minimal processors
         registry = StreamingContextRegistry()
@@ -567,8 +568,16 @@ class TestRealResponseProcessorCopyOnWrite:
                 yield chunk
 
         processed_chunks = []
+        test_context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            session_id="test-session",
+            request_id="test-request-id",
+        )
         async for processed_chunk in processor.process_streaming_response(
-            create_input_stream(), "test-session", context={"test_context": "value"}
+            create_input_stream(), "test-session", context=test_context
         ):
             processed_chunks.append(processed_chunk)
 
@@ -588,16 +597,17 @@ class TestRealResponseProcessorCopyOnWrite:
         This test uses a real StreamNormalizer to verify that large content
         payloads are shared (not copied) when processing through ResponseProcessor.
         """
+        from unittest.mock import MagicMock
+
         from src.core.interfaces.response_parser_interface import IResponseParser
         from src.core.services.response_processor_service import ResponseProcessor
-        from src.core.services.streaming.stream_normalizer import StreamNormalizer
-        from src.core.services.streaming.stream_context_registry import (
-            StreamingContextRegistry,
-        )
         from src.core.services.streaming.content_accumulation_processor import (
             ContentAccumulationProcessor,
         )
-        from unittest.mock import MagicMock
+        from src.core.services.streaming.stream_context_registry import (
+            StreamingContextRegistry,
+        )
+        from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
         # Create a real stream normalizer
         registry = StreamingContextRegistry()

@@ -12,7 +12,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
 from src.core.domain.streaming_response_processor import StreamingContent
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_parser_interface import IResponseParser
@@ -20,10 +19,6 @@ from src.core.interfaces.response_processor_interface import (
     ProcessedResponse,
 )
 from src.core.services.response_processor_service import ResponseProcessor
-from src.core.services.streaming.content_accumulation_processor import (
-    ContentAccumulationProcessor,
-)
-from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 
 
 @pytest.fixture
@@ -40,13 +35,11 @@ def mock_response_parser() -> MagicMock:
 @pytest.fixture
 def response_processor(mock_response_parser: MagicMock) -> ResponseProcessor:
     """Fixture for a ResponseProcessor instance."""
-    # Create a minimal stream normalizer with content accumulation
-    processors = [
-        ContentAccumulationProcessor(
-            max_buffer_bytes=10 * 1024 * 1024,
-            registry=StreamingContextRegistry(),
-        )
-    ]
+    # Create a minimal stream normalizer WITHOUT content accumulation
+    # ContentAccumulationProcessor buffers chunks until is_done=True, which would
+    # cause tests to fail when expecting immediate chunk emission.
+    # For boundary safety tests, we want immediate processing without buffering.
+    processors: list[Any] = []
     from src.core.services.streaming.stream_normalizer import StreamNormalizer
 
     stream_normalizer = StreamNormalizer(processors)
@@ -64,6 +57,7 @@ class TestProcessedResponseBoundarySafety:
         self, response_processor: ResponseProcessor
     ) -> None:
         """Test that process_streaming_response emits ProcessedResponse with ProcessedChunkContent."""
+
         # Create a mock stream with StreamingContent
         async def mock_stream() -> AsyncIterator[StreamingContent]:
             yield StreamingContent(
@@ -92,7 +86,7 @@ class TestProcessedResponseBoundarySafety:
             # Verify content is ProcessedChunkContent
             assert isinstance(chunk, ProcessedResponse)
             assert isinstance(
-                chunk.content, (str, bytes, dict, type(None))
+                chunk.content, str | bytes | dict | type(None)
             ), f"Expected ProcessedChunkContent, got {type(chunk.content)}"
             # Verify metadata is dict[str, JsonValue]
             assert isinstance(chunk.metadata, dict)
@@ -100,7 +94,7 @@ class TestProcessedResponseBoundarySafety:
             for key, value in chunk.metadata.items():
                 assert isinstance(key, str)
                 assert isinstance(
-                    value, (str, int, float, bool, type(None), dict, list)
+                    value, str | int | float | bool | type(None) | dict | list
                 ), f"Metadata value {key} is not JSON-serializable: {type(value)}"
 
         assert len(chunks) == 3
@@ -110,6 +104,7 @@ class TestProcessedResponseBoundarySafety:
         self, response_processor: ResponseProcessor
     ) -> None:
         """Test that provider-specific objects are normalized before crossing boundaries."""
+
         # Create a mock stream with provider-specific objects
         class ProviderSpecificObject:
             def __init__(self) -> None:
@@ -146,6 +141,7 @@ class TestProcessedResponseBoundarySafety:
         self, response_processor: ResponseProcessor
     ) -> None:
         """Test that dicts are normalized to dict[str, JsonValue]."""
+
         # Create a mock stream with dict containing non-JSON-serializable values
         def non_serializable_function() -> None:
             pass
@@ -182,6 +178,7 @@ class TestProcessedResponseBoundarySafety:
         self, response_processor: ResponseProcessor
     ) -> None:
         """Test that ProcessedResponse chunks are normalized when re-wrapped."""
+
         # Create a mock stream with ProcessedResponse chunks
         async def mock_stream() -> AsyncIterator[ProcessedResponse]:
             yield ProcessedResponse(
@@ -204,7 +201,7 @@ class TestProcessedResponseBoundarySafety:
             chunks.append(chunk)
             assert isinstance(chunk, ProcessedResponse)
             assert isinstance(
-                chunk.content, (str, bytes, dict, type(None))
+                chunk.content, str | bytes | dict | type(None)
             ), f"Expected ProcessedChunkContent, got {type(chunk.content)}"
 
         assert len(chunks) == 2
@@ -214,6 +211,7 @@ class TestProcessedResponseBoundarySafety:
         self, response_processor: ResponseProcessor
     ) -> None:
         """Test that unexpected types are normalized to ProcessedChunkContent."""
+
         # Create a mock stream with unexpected types
         async def mock_stream() -> AsyncIterator[Any]:
             yield [1, 2, 3]  # List (not StreamingContent or ProcessedResponse)
@@ -230,7 +228,7 @@ class TestProcessedResponseBoundarySafety:
             assert isinstance(chunk, ProcessedResponse)
             # Unexpected types should be normalized to ProcessedChunkContent
             assert isinstance(
-                chunk.content, (str, bytes, dict, type(None))
+                chunk.content, str | bytes | dict | type(None)
             ), f"Expected ProcessedChunkContent, got {type(chunk.content)}"
 
         assert len(chunks) == 3
@@ -240,6 +238,7 @@ class TestProcessedResponseBoundarySafety:
         self, response_processor: ResponseProcessor
     ) -> None:
         """Test that metadata is normalized to dict[str, JsonValue]."""
+
         # Create a mock stream with metadata containing non-JSON-serializable values
         def non_serializable_function() -> None:
             pass

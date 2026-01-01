@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from src.connectors.gemini import GeminiBackend
 from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.connectors.gemini import GeminiBackend
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope

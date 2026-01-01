@@ -332,11 +332,11 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
         # Extract options for orchestrator
         options = request.options or {}
 
-        # Delegate to orchestrator with canonical request fields
-        # The orchestrator's execute method accepts legacy signature, so we pass
-        # the canonical request fields as separate parameters
+        # Delegate to orchestrator with canonical request contract
+        # The orchestrator's execute method accepts canonical contracts only (CanonicalChatRequest | ChatRequest)
+        # Dict-to-contract coercion is centralized at adapter boundaries (this connector's chat_completions method)
         return await self._orchestrator.execute(
-            request_data=request.request,
+            request_data=request.request,  # Already a canonical contract (CanonicalChatRequest)
             processed_messages=list(request.processed_messages),
             effective_model=request.effective_model,
             identity=request.identity,

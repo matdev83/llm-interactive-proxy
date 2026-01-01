@@ -450,7 +450,6 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                 completion_outcome = UsageCompletionOutcome.incomplete
                 if context and context.processing_context:
                     # processing_context.values is dict[str, Any], not None, so no need to check
-                    pass
                     context.processing_context.values["cancel_reason"] = (
                         "client_disconnect"
                     )

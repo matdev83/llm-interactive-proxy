@@ -29,7 +29,7 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 class ISSEFormatter(Protocol):
     """Format content as SSE bytes."""
 
-    def format_chunk(self, content: dict[str, Any] | bytes | str) -> bytes:
+    def format_chunk(self, content: dict[str, JsonValue] | bytes | str) -> bytes:
         """Format a single chunk as SSE bytes.
 
         Args:

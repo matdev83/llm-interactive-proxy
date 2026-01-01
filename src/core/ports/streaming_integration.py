@@ -17,15 +17,15 @@ from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import IStreamProcessor, handle_streaming_error
 from src.core.ports.streaming_orchestrator import create_pipeline_for_provider
-from src.core.services.streaming.chunk_normalizer import (
-    normalize_to_processed_chunk_content,
-)
 from src.core.ports.streaming_processors import (
     LoopDetectionProcessor as PortsLoopDetectionProcessor,
 )
 from src.core.ports.streaming_processors import ThinkTagsProcessor
 from src.core.ports.streaming_processors import (
     ToolCallRepairProcessor as PortsToolCallRepairProcessor,
+)
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
 )
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 from src.core.services.streaming.tool_call_repair_processor import (

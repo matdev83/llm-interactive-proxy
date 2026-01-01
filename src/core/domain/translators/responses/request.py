@@ -6,7 +6,9 @@ from pydantic import BaseModel
 
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses_api import ResponsesRequest
-from src.core.domain.translation_utils import _safe_string  # type: ignore[reportPrivateUsage]
+from src.core.domain.translation_utils import (
+    _safe_string,  # type: ignore[reportPrivateUsage]
+)
 
 
 class NormalizedResponsesContentPart(BaseModel):
@@ -52,21 +54,8 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
 
     if isinstance(request, dict):
         request_payload = _prepare_payload(request)
-        if not request_payload.get("model"):
-            from pydantic import ValidationError as PydanticValidationError
-            # Raise ValidationError to match expected behavior for missing required fields
-            raise PydanticValidationError.from_exception_data(
-                "ValueError",
-                [{"type": "value_error", "loc": ("model",), "msg": "'model' is a required property", "input": request_payload}]  # type: ignore[typeddict-item]
-            )
-        other_params = {
-            k: v for k, v in request_payload.items() if k not in ["model", "messages"]
-        }
-        responses_request = ResponsesRequest(
-            model=request_payload.get("model") or "",
-            messages=request_payload.get("messages") or [],
-            **other_params,
-        )
+        # Let Pydantic validation handle missing required fields
+        responses_request = ResponsesRequest.model_validate(request_payload)
     elif hasattr(request, "model_dump"):
         request_payload = _prepare_payload(request.model_dump())
         responses_request = (

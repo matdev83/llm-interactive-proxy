@@ -936,20 +936,20 @@ class TestResponsesApiErrorHandling:
             },
         }
 
-        with pytest.raises(ValueError, match="'model' is a required property"):
+        with pytest.raises(ValidationError, match="Field required"):
             self.service.to_domain_request(invalid_request, "responses")
 
     def test_responses_to_domain_request_missing_response_format(self):
-        """Test error handling for missing response_format in request."""
-        invalid_request = {
+        """Test that response_format is optional in Responses API requests."""
+        valid_request = {
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "Test"}],
         }
 
-        with pytest.raises(
-            ValidationError
-        ):  # Should raise validation error for missing response_format
-            self.service.to_domain_request(invalid_request, "responses")
+        # Should NOT raise - response_format is optional
+        result = self.service.to_domain_request(valid_request, "responses")
+        assert result.model == "gpt-4"
+        assert len(result.messages) == 1
 
     def test_validate_json_against_schema_exception_handling(self):
         """Test error handling in schema validation when exceptions occur."""

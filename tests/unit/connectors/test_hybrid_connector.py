@@ -843,6 +843,7 @@ class TestErrorHandling:
         with pytest.raises(ConfigurationError) as exc_info:
             # Use asyncio to run the async method
             import asyncio
+
             from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
             asyncio.run(

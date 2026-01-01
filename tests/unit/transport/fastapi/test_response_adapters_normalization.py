@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic.types import JsonValue
-
 from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,

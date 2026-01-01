@@ -11,6 +11,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
 class IResponseHandler(ABC):
@@ -32,11 +33,13 @@ class INonStreamingResponseHandler(IResponseHandler):
     """Interface for handling non-streaming responses."""
 
     @abstractmethod
-    async def process_response(self, response: dict[str, Any]) -> ResponseEnvelope:
+    async def process_response(
+        self, response: ResponseEnvelope | ProcessedResponse
+    ) -> ResponseEnvelope:
         """Process a non-streaming response.
 
         Args:
-            response: The non-streaming response to process
+            response: The non-streaming response to process (typed contract)
 
         Returns:
             The processed response envelope

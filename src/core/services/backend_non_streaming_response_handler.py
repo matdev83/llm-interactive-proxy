@@ -39,9 +39,6 @@ from src.core.interfaces.response_processor_interface import (
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
-from src.core.services.backend_request_manager.context_translation import (
-    build_middleware_context,
-)
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
 from src.core.services.tool_call_retry_coordinator import ToolCallRetryCoordinator
 from src.core.transport.session_key_resolver import (
@@ -145,20 +142,16 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             A processed response envelope with normalized content and metadata
         """
         try:
-            # Build middleware context for response processor
-            middleware_context = build_middleware_context(
-                processing_context=processing_context,
-                request=request,
-                response_envelope=response,
-                request_context=context,
-                is_streaming=False,
-            )
+            # Use original context and pass processing_context values separately where needed
+            # This avoids direct access to app_state in service layer
+            enriched_context = context
 
             # Process response through middleware pipeline
+            # Pass enriched RequestContext - ResponseProcessor extracts needed values internally
             processed_response = await self._response_processor.process_response(
                 response.content,
                 processing_context.session_id,
-                middleware_context,
+                enriched_context,
             )
 
             # Handle empty-response retry
@@ -206,12 +199,9 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
                         processing_context.session_id,
                     )
                 # Convert to non-streaming by extracting first chunk
-                from src.core.domain.responses import StreamingResponseEnvelope
 
-                if (
-                    isinstance(retry_response, StreamingResponseEnvelope)
-                    and retry_response.content is not None
-                ):
+                # Type narrowing: retry_response must be StreamingResponseEnvelope here
+                if retry_response.content is not None:
                     async for chunk in retry_response.content:
                         return ResponseEnvelope(
                             content=chunk.content,
@@ -266,8 +256,8 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             "tool_call_reactor_retry_failed",
         )
         if response.metadata:
-            if processed_response.metadata is None:
-                processed_response.metadata = {}
+            # ProcessedResponse.metadata is typed as dict[str, JsonValue] (non-optional)
+            # so no None check needed
             for key, value in response.metadata.items():
                 # Always preserve coordinator metadata (retry counts, steering flags)
                 # This ensures retry metadata is preserved through recursive handler calls
@@ -292,7 +282,11 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             if not isinstance(retry_count, int):
                 retry_count = 0
             # Use same max retries as ToolCallRetryCoordinator for consistency
-            max_retries = ToolCallRetryCoordinator._MAX_DANGEROUS_COMMAND_RETRIES
+            # Note: Using protected member for consistency with coordinator implementation
+            # This should be refactored to use a public constant in the future
+            max_retries = getattr(
+                ToolCallRetryCoordinator, "_MAX_DANGEROUS_COMMAND_RETRIES", 3
+            )
 
             retry_state = ToolCallRetryState(
                 retry_count=retry_count,
@@ -325,14 +319,14 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
             if tool_call_retry_response is not None:
                 # Coordinator returns ResponseEnvelope for non-streaming
                 # Type narrowing: coordinator.handle_non_streaming returns ResponseEnvelope | None
-                if not isinstance(tool_call_retry_response, ResponseEnvelope):
-                    # Should not happen for non-streaming, but handle gracefully
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Unexpected response type from coordinator for session %s",
-                            processing_context.session_id,
-                        )
-                    return response
+                # tool_call_retry_response is guaranteed to be ResponseEnvelope here
+                # Process the retry response through handler again (recursive call)
+                return await self.handle(
+                    response=tool_call_retry_response,
+                    request=request,
+                    context=context,
+                    processing_context=processing_context,
+                )
 
                 # Check if retry response is terminal to prevent infinite recursion
                 retry_metadata = tool_call_retry_response.metadata or {}

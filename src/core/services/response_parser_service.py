@@ -2,6 +2,7 @@ import json
 import logging
 from typing import Any, cast
 
+from src.core.common.exceptions import ParsingError
 from src.core.domain.chat import ChatResponse
 from src.core.interfaces.response_parser_interface import IResponseParser
 
@@ -66,13 +67,15 @@ class ResponseParser(IResponseParser):
                 # Check for Responses API format (response.choices) first
                 # If it's a Responses API response, preserve the full structure in metadata
                 # so that the content converter can reconstruct it later
-                if "response" in response_content and isinstance(response_content.get("response"), dict):
+                if "response" in response_content and isinstance(
+                    response_content.get("response"), dict
+                ):
                     # This is a Responses API response - preserve the full structure
                     metadata["original_responses_api_response"] = response_content
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             "ResponseParser preserved Responses API response in metadata - response_id=%s",
-                            response_content.get("id", "unknown")
+                            response_content.get("id", "unknown"),
                         )
                     # Extract content from response.choices[0].message.content for compatibility
                     response_wrapper = response_content.get("response", {})
@@ -161,8 +164,13 @@ class ResponseParser(IResponseParser):
         elif raw_response is None:
             content = ""
         else:
-            # raw_response must be str at this point
+            # After checking ChatResponse, dict, and None, raw_response must be str
             content = raw_response
+            # Unsupported type - raise ParsingError
+            raise ParsingError(
+                f"Unsupported response type: {type(raw_response).__name__}",
+                details={"type": type(raw_response).__name__},
+            )
 
         return {"content": content, "usage": usage, "metadata": metadata}
 

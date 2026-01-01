@@ -12,7 +12,6 @@ shall preserve copy-on-write behavior rather than mutating canonical contracts i
 from __future__ import annotations
 
 from pydantic.types import JsonValue
-
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -82,7 +81,6 @@ class TestProcessedResponseCopyOnWrite:
         """
         Verify that content updates create new ProcessedResponse instances.
         """
-        from pydantic.types import JsonValue
 
         original_content: dict[str, JsonValue] = {
             "choices": [{"delta": {"content": "original"}}]
@@ -198,7 +196,7 @@ class TestProcessedResponseCopyOnWrite:
         )
 
         # Store original string identity
-        original_string_id = id(original_chunk.content)
+        id(original_chunk.content)
 
         # Merge metadata
         merged_metadata = dict(original_chunk.metadata)

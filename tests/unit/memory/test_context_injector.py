@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+from collections.abc import AsyncGenerator, Generator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,13 +23,49 @@ def create_summary(
     remaining_tasks: list[TaskItem] | None = None,
     key_decisions: list[str] | None = None,
     risks_or_warnings: list[str] | None = None,
+    base_time: datetime | None = None,
 ) -> SessionSummary:
     """Create a test SessionSummary."""
-    with freeze_time("2024-01-01 12:00:00"):
-        now = datetime.now(timezone.utc) - timedelta(days=days_ago)
-        return SessionSummary(
-            id=f"sum-{session_id}",
-            user_id=user_id,
+    if base_time is None:
+        # Use freeze_time only if base_time is not provided
+        with freeze_time("2024-01-01 12:00:00"):
+            now = datetime.now(timezone.utc) - timedelta(days=days_ago)
+            return _create_summary_impl(
+                user_id,
+                session_id,
+                title,
+                now,
+                remaining_tasks,
+                key_decisions,
+                risks_or_warnings,
+            )
+    else:
+        # Use provided base_time directly (assumes freeze_time is already active)
+        now = base_time - timedelta(days=days_ago)
+        return _create_summary_impl(
+            user_id,
+            session_id,
+            title,
+            now,
+            remaining_tasks,
+            key_decisions,
+            risks_or_warnings,
+        )
+
+
+def _create_summary_impl(
+    user_id: str,
+    session_id: str,
+    title: str,
+    now: datetime,
+    remaining_tasks: list[TaskItem] | None,
+    key_decisions: list[str] | None,
+    risks_or_warnings: list[str] | None,
+) -> SessionSummary:
+    """Internal implementation of create_summary."""
+    return SessionSummary(
+        id=f"sum-{session_id}",
+        user_id=user_id,
         session_id=session_id,
         session_start=now,
         backend_model="openai:gpt-4o",
@@ -49,7 +86,7 @@ class TestContextInjector:
     """Tests for ContextInjector."""
 
     @pytest.fixture
-    def temp_db_path(self) -> Path:
+    def temp_db_path(self) -> Generator[Path, None, None]:
         """Create a temporary database path."""
         with tempfile.TemporaryDirectory() as tmpdir:
             yield Path(tmpdir) / "test_memory.sqlite3"
@@ -67,7 +104,7 @@ class TestContextInjector:
         )
 
     @pytest.fixture
-    async def repository(self, config: MemoryConfiguration) -> MemoryRepository:
+    async def repository(self, config: MemoryConfiguration) -> AsyncGenerator[MemoryRepository, None]:
         """Create repository instance."""
         repo = MemoryRepository(config)
         yield repo
@@ -287,17 +324,21 @@ class TestContextInjector:
         finally:
             await repo.close()
 
+    @freeze_time("2024-01-01 12:00:00")
     def test_format_summaries(self, injector: ContextInjector) -> None:
         """Test summary formatting."""
+        base_time = datetime.now(timezone.utc)
         summaries = [
             create_summary(
                 title="First session",
                 key_decisions=["Decision 1"],
                 remaining_tasks=[TaskItem(description="Task 1", status="open")],
+                base_time=base_time,
             ),
             create_summary(
                 session_id="sess-2",
                 title="Second session",
+                base_time=base_time,
             ),
         ]
 

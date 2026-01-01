@@ -15,7 +15,6 @@ Requirements: 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.2, 6.3, 7.1, 7.2, 8
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 from collections.abc import AsyncIterator, Callable
@@ -51,9 +50,6 @@ from src.core.interfaces.response_processor_interface import (
 )
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
-)
-from src.core.services.backend_request_manager.context_translation import (
-    build_middleware_context,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
 from src.core.transport.session_key_resolver import (
@@ -246,54 +242,47 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         Returns:
             Tuple of (angel_model_spec, angel_frequency)
         """
+        # Extract from RequestContext extensions if available
+        # This follows the architectural pattern of using typed fields instead of direct app_state access
         angel_model_spec: str | None = None
         angel_frequency: int = 1
-        try:
-            app_state = getattr(context, "app_state", None)
-            if app_state is not None:
-                # Try get_setting method first (for test mocks), then fallback to app_config attribute
-                cfg = None
-                # Try get_setting method (for test mocks that support it)
-                # Secure state services may raise on attribute access - catch AttributeError specifically
-                try:
-                    get_setting = getattr(app_state, "get_setting", None)
-                    if get_setting is not None and callable(get_setting):
-                        with contextlib.suppress(AttributeError, RuntimeError, TypeError):
-                            cfg = get_setting("app_config")
-                except (AttributeError, RuntimeError):
-                    # App state doesn't have get_setting method or not accessible
-                    pass
-                if cfg is None:
-                    with contextlib.suppress(AttributeError, RuntimeError):
-                        # Secure state service - may raise on direct app_config access
-                        cfg = getattr(app_state, "app_config", None)
-                if cfg is not None:
-                    session_cfg = getattr(cfg, "session", None)
-                    if session_cfg:
-                        angel_model_spec = getattr(session_cfg, "angel_model", None)
-                        angel_frequency = getattr(session_cfg, "angel_frequency", 1)
-        except Exception as e:
-            # Unexpected error during config extraction - log and use defaults
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to extract Angel configuration, using defaults: %s",
-                    e,
-                    exc_info=True,
-                )
+
+        if hasattr(context, "extensions") and context.extensions:
+            angel_model_spec_value = context.extensions.get("angel_model", None)
+            angel_model_spec = (
+                str(angel_model_spec_value)
+                if angel_model_spec_value is not None
+                else None
+            )
+            angel_frequency_value = context.extensions.get("angel_frequency", 1)
+            # Convert JsonValue to int safely
+            if angel_frequency_value is not None:
+                if isinstance(angel_frequency_value, (int, float)):
+                    angel_frequency = int(angel_frequency_value)
+                elif isinstance(angel_frequency_value, str):
+                    try:
+                        angel_frequency = int(angel_frequency_value)
+                    except (ValueError, TypeError):
+                        angel_frequency = 1  # default value
+                else:
+                    angel_frequency = 1  # default value
+            else:
+                angel_frequency = 1  # default value
+
         return angel_model_spec, angel_frequency
 
     def _wrap_with_middleware(
         self,
         original_stream: AsyncIterator[ProcessedResponse],
         processing_context: ResponseProcessingContext,
-        middleware_context: dict[str, Any],
+        request_context: RequestContext,
     ) -> AsyncIterator[ProcessedResponse]:
         """Wrap stream with response processor middleware with fail-open behavior."""
         try:
             return self._response_processor.process_streaming_response(
                 original_stream,
                 processing_context.session_id,
-                context=middleware_context,
+                request_context,
             )
         except (KeyboardInterrupt, SystemExit):
             # Re-raise system exceptions to allow proper cleanup
@@ -350,27 +339,32 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         request: ChatRequest,
         processed_stream: AsyncIterator[ProcessedResponse],
         processing_context: ResponseProcessingContext,
-        middleware_context: dict[str, Any],
+        request_context: RequestContext,
         angel_model_spec: str | None,
         angel_frequency: int,
     ) -> AsyncIterator[ProcessedResponse]:
         """Apply Angel verification with fail-open behavior."""
+        # Extract stream_id from request_context
+        stream_id = processing_context.session_id
+        if request_context.request_id is not None:
+            stream_id = request_context.request_id
+        elif request_context.processing_context is not None:
+            processing_values = request_context.processing_context.values
+            # ProcessingContext.values is dict[str, Any], no isinstance check needed
+            stream_id = (
+                processing_values.get("stream_id", processing_context.session_id)
+                or processing_context.session_id
+            )
+
         streaming_context: StreamingContext = {
             "session_id": processing_context.session_id,
-            "stream_id": middleware_context.get(
-                "stream_id", processing_context.session_id
-            ),
+            "stream_id": stream_id,
             "angel_model_spec": angel_model_spec,
             "angel_frequency": angel_frequency,
         }
 
         try:
-            # Extract RequestContext from middleware_context for cancellation gate
-            request_context: RequestContext | None = None
-            if middleware_context:
-                request_context = middleware_context.get("request_context")
-                if not isinstance(request_context, RequestContext):
-                    request_context = None
+            # Use RequestContext directly for cancellation gate
 
             # verify_or_passthrough is an async generator, returns AsyncIterator directly
             verified_stream = self._angel_stream_verifier.verify_or_passthrough(
@@ -495,7 +489,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 )
         return None
 
-    async def handle(  # noqa: C901
+    async def handle(
         self,
         stream: StreamingResponseEnvelope,
         request: ChatRequest,
@@ -525,21 +519,13 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 )
             return stream
 
-        # Build middleware context
-        middleware_context = build_middleware_context(
-            processing_context=processing_context,
-            request=request,
-            response_envelope=stream,
-            request_context=context,
-            is_streaming=True,
-        )
-
+        # Use original context to avoid direct access to app_state in service layer
         # Extract Angel config from context if available
         angel_model_spec, angel_frequency = self._extract_angel_config(context)
 
         # Wrap stream with response processor middleware
         processed_stream = self._wrap_with_middleware(
-            original_stream, processing_context, middleware_context
+            original_stream, processing_context, context
         )
 
         # Create loop detector
@@ -550,7 +536,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             request,
             processed_stream,
             processing_context,
-            middleware_context,
+            context,
             angel_model_spec,
             angel_frequency,
         )

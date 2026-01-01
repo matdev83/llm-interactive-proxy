@@ -433,7 +433,7 @@ class ResponseProcessor(IResponseProcessor):
         self,
         response: Any,
         session_id: str,
-        context: dict[str, Any] | None = None,
+        context: RequestContext | None = None,
     ) -> ProcessedResponse:
         """Process a non-streaming response through the unified pipeline.
 
@@ -444,7 +444,7 @@ class ResponseProcessor(IResponseProcessor):
         Args:
             response: The response object from the backend.
             session_id: The ID of the current session.
-            context: Optional context dictionary with additional metadata.
+            context: Optional request context with processing metadata.
 
         Returns:
             A ProcessedResponse object.
@@ -475,10 +475,34 @@ class ResponseProcessor(IResponseProcessor):
             )
 
             # Prepare context metadata for the pipeline
+            # Extract values from RequestContext if provided
             pipeline_metadata: dict[str, Any] = {
                 "original_response": parsed_data,
-                **(context or {}),
             }
+            if context is not None:
+                # Extract original_request from context
+                if context.original_request is not None:
+                    pipeline_metadata["original_request"] = context.original_request
+                elif context.domain_request is not None:
+                    pipeline_metadata["original_request"] = context.domain_request
+                # Extract processing context values if available
+                if context.processing_context is not None:
+                    processing_values = context.processing_context.values
+                    # ProcessingContext.values is dict[str, Any], no isinstance check needed
+                    pipeline_metadata.update(processing_values)
+                # Extract other context fields
+                if context.backend is not None:
+                    pipeline_metadata["backend_name"] = context.backend
+                if context.effective_model is not None:
+                    pipeline_metadata["model_name"] = context.effective_model
+                if context.session_id is not None:
+                    pipeline_metadata["session_id"] = context.session_id
+                if context.request_id is not None:
+                    pipeline_metadata["request_id"] = context.request_id
+                if context.agent is not None:
+                    pipeline_metadata["calling_agent"] = context.agent
+                # Store RequestContext reference for cancellation gate resolution
+                pipeline_metadata["request_context"] = context
 
             # Process through unified pipeline (wraps as single-chunk stream)
             processed_response = await self._unified_pipeline.process_non_streaming(
@@ -503,13 +527,25 @@ class ResponseProcessor(IResponseProcessor):
             # Angel verification for non-streaming responses (post-pipeline)
             try:
                 original_request = None
-                if context:
-                    original_request = context.get("original_request")
+                if context is not None:
+                    original_request = (
+                        context.original_request or context.domain_request
+                    )
                 # Only run when angel is configured in session
 
                 if original_request is not None:
+                    # Build context dict for angel verification (internal method expects dict)
+                    angel_context: dict[str, Any] | None = None
+                    if context is not None:
+                        angel_context = {}
+                        if context.processing_context is not None:
+                            processing_values = context.processing_context.values
+                            # ProcessingContext.values is dict[str, Any], no isinstance check needed
+                            angel_context.update(processing_values)
                     decision = await self._apply_angel_verification(
-                        original_request, processed_response.content or "", context
+                        original_request,
+                        processed_response.content or "",
+                        angel_context,
                     )
                     if decision and decision.get("action") == "steer":
                         corrected = decision.get("corrected_content", "")
@@ -562,14 +598,14 @@ class ResponseProcessor(IResponseProcessor):
         self,
         response_iterator: AsyncIterator[Any],
         session_id: str,
-        context: dict[str, Any] | None = None,
+        context: RequestContext | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Process a streaming response through the unified pipeline.
 
         Args:
             response_iterator: An async iterator yielding raw response chunks.
             session_id: The ID of the current session.
-            context: Optional context dictionary with additional metadata.
+            context: Optional request context with processing metadata.
 
         Returns:
             An async iterator yielding ProcessedResponse objects.
@@ -595,7 +631,27 @@ class ResponseProcessor(IResponseProcessor):
         # This ensures downstream processors (like middleware) have access to
         # request context via metadata, even for raw chunks.
         effective_iterator = response_iterator
-        if context:
+        if context is not None:
+            # Extract context values for metadata injection
+            context_metadata: dict[str, Any] = {}
+            if context.processing_context is not None:
+                processing_values = context.processing_context.values
+                # ProcessingContext.values is dict[str, Any], no isinstance check needed
+                context_metadata.update(processing_values)
+            if context.backend is not None:
+                context_metadata["backend_name"] = context.backend
+            if context.effective_model is not None:
+                context_metadata["model_name"] = context.effective_model
+            if context.session_id is not None:
+                context_metadata["session_id"] = context.session_id
+            if context.request_id is not None:
+                context_metadata["request_id"] = context.request_id
+            if context.agent is not None:
+                context_metadata["calling_agent"] = context.agent
+            if context.original_request is not None:
+                context_metadata["original_request"] = context.original_request
+            elif context.domain_request is not None:
+                context_metadata["original_request"] = context.domain_request
 
             async def _context_injector(it: AsyncIterator[Any]) -> AsyncIterator[Any]:
                 async for chunk in it:
@@ -605,8 +661,7 @@ class ResponseProcessor(IResponseProcessor):
                     # confuse normalizers and lead to empty streams.
                     if isinstance(chunk, ProcessedResponse):
                         merged_metadata = dict(chunk.metadata or {})
-                        for key, value in context.items():
-                            merged_metadata.setdefault(key, value)
+                        merged_metadata.update(context_metadata)
                         # Normalize content and metadata to ensure boundary safety
                         normalized_content = normalize_to_processed_chunk_content(
                             chunk.content
@@ -621,7 +676,7 @@ class ResponseProcessor(IResponseProcessor):
                         # Wrap raw chunks in ProcessedResponse to carry context.
                         # Normalize chunk content and context metadata
                         normalized_content = normalize_to_processed_chunk_content(chunk)
-                        normalized_metadata = self._normalize_metadata(context)
+                        normalized_metadata = self._normalize_metadata(context_metadata)
                         yield ProcessedResponse(
                             content=normalized_content, metadata=normalized_metadata
                         )

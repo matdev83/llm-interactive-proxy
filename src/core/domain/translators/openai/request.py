@@ -104,6 +104,8 @@ def from_domain_to_openai_request(request: CanonicalChatRequest) -> dict[str, An
 
     if request.top_p is not None:
         payload["top_p"] = request.top_p
+    if request.top_k is not None:
+        payload["top_k"] = request.top_k
     if request.temperature is not None:
         payload["temperature"] = request.temperature
     if request.max_tokens is not None:
@@ -151,10 +153,10 @@ def from_domain_to_openai_request(request: CanonicalChatRequest) -> dict[str, An
 
     reasoning_payload: dict[str, Any] | None = None
     if request.reasoning is not None:
-        if isinstance(request.reasoning, dict):
-            reasoning_payload = dict(request.reasoning)
-        elif hasattr(request.reasoning, "model_dump"):
-            reasoning_payload = request.reasoning.model_dump()  # type: ignore[attr-defined]
+        # request.reasoning is typed as dict[str, Any] | None, so after None check it's dict[str, Any]
+        reasoning_payload = dict(request.reasoning)
+        # Note: The hasattr check for model_dump is kept for runtime safety,
+        # but pyright correctly identifies that isinstance check is unnecessary
 
     effort_value = request.reasoning_effort
     normalized_effort: str | None

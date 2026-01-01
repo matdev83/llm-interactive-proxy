@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic.types import JsonValue
 
+from src.core.domain.request_context import RequestContext
 from src.core.domain.usage_summary import UsageSummary
 
 # Typed contract for processed chunk content crossing boundaries
@@ -50,14 +51,14 @@ class IResponseProcessor(ABC):
         self,
         response: Any,
         session_id: str,
-        context: dict[str, object] | None = None,
+        context: RequestContext | None = None,
     ) -> ProcessedResponse:
         """Process a complete LLM response.
 
         Args:
             response: The raw LLM response
             session_id: The session ID associated with this request
-            context: Optional contextual information for downstream middleware (JSON-serializable values)
+            context: Optional request context with processing metadata
 
         Returns:
             A processed response object
@@ -68,14 +69,14 @@ class IResponseProcessor(ABC):
         self,
         response_iterator: AsyncIterator[Any],
         session_id: str,
-        context: dict[str, object] | None = None,
+        context: RequestContext | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Process a streaming LLM response.
 
         Args:
             response_iterator: An async iterator of response chunks
             session_id: The session ID associated with this request
-            context: Optional contextual information for downstream middleware (JSON-serializable values)
+            context: Optional request context with processing metadata
 
         Returns:
             An async iterator of processed response chunks

@@ -190,9 +190,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     candidate.status_code = original_status_code
             return candidate
 
-        if (
-            isinstance(getattr(candidate, "status_code", None), int)
-            and not isinstance(candidate, LLMProxyError)
+        if isinstance(getattr(candidate, "status_code", None), int) and not isinstance(
+            candidate, LLMProxyError
         ):
             # Fallback: ensure framework/transport exceptions (e.g. HTTPException) are
             # translated into domain errors even if an injected normalizer is mocked or
@@ -227,6 +226,22 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Execute completion orchestration with failover, retry, and observability."""
+        # BOUNDARY HARDENING: Reject dict input - coercion must happen at adapter boundaries
+        if isinstance(request, dict):
+            from src.core.common.exceptions import InvalidRequestError
+
+            raise InvalidRequestError(
+                message="BackendCompletionFlow received dict input. "
+                "Dict-to-domain coercion is centralized at adapter boundaries (transport adapters). "
+                "Expected ChatRequest or CanonicalChatRequest.",
+                details={
+                    "received_type": "dict",
+                    "service": "BackendCompletionFlow",
+                },
+            )
+
+        # Ensure canonical type (ChatRequest → CanonicalChatRequest conversion)
+        # This is a compatibility check between typed contracts, not dict coercion
         canonical_request = (
             request
             if isinstance(request, CanonicalChatRequest)

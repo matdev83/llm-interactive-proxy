@@ -153,7 +153,9 @@ class TestResponseProcessor:
                 content="test content",
                 is_done=True,
                 metadata={"model": "gpt-3.5"},
-                usage=UsageSummary(prompt_tokens=5, completion_tokens=5, total_tokens=10),
+                usage=UsageSummary(
+                    prompt_tokens=5, completion_tokens=5, total_tokens=10
+                ),
             )
 
         mock_normalizer = MagicMock(spec=IStreamNormalizer)
@@ -171,7 +173,9 @@ class TestResponseProcessor:
 
         # The content comes from the stream normalizer output
         assert processed.content == "test content"
-        assert processed.usage == {"tokens": 10}
+        # Usage is now a UsageSummary object, not a dict
+        assert processed.usage is not None
+        assert processed.usage.total_tokens == 10
         assert "model" in processed.metadata
         mock_response_parser.parse_response.assert_called_once_with(response)
 

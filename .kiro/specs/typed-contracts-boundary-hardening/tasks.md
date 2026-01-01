@@ -165,18 +165,24 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
 
 - [x] 3.6 Add integration tests for protocol response behavior and usage/capture invariants
   - Created `tests/integration/test_protocol_response_behavior.py` with comprehensive test coverage
-  - Implemented `TestProtocolResponseShapes` class with tests for OpenAI Chat Completions, Anthropic Messages, and Gemini v1beta (streaming and non-streaming)
+  - Implemented `TestProtocolResponseShapes` class with tests for OpenAI Chat Completions, OpenAI Responses API, Anthropic Messages, and Gemini v1beta (streaming and non-streaming)
   - Implemented `TestUsageMetadataPropagation` class validating usage and metadata propagation through typed contracts
   - Implemented `TestCaptureCompatibility` class ensuring CBOR capture files remain readable and replay-compatible
-  - All 18 tests pass (2 Responses API tests marked as xfail due to complex validation requirements)
+  - All 20 tests pass (including Responses API streaming and non-streaming tests)
   - Tests validate response shapes, usage propagation, and capture file compatibility using CaptureReader
   - _Requirements: 1.1, 1.2, 1.4, 1.5, NFR3.2_
 
 - [ ] 4. Centralize conversions and remove legacy dict leaks across boundaries
   - _Requirements: 5.1, 5.2, 5.3, NFR2.2, NFR2.3_
-- [ ] 4.1 Remove remaining dict acceptance from core boundary interfaces
+- [x] 4.1 Remove remaining dict acceptance from core boundary interfaces
   - Identify core interfaces/services that accept dict alternatives for canonical contracts and refactor them to accept canonical contracts only.
   - Introduce explicitly named compatibility wrappers only at boundary adapter conversion points.
+  - Updated `IResponseProcessor.process_response` and `process_streaming_response` to accept `RequestContext | None` instead of `dict[str, object] | None`
+  - Updated `INonStreamingResponseHandler.process_response` to accept `ResponseEnvelope | ProcessedResponse` instead of `dict[str, Any]`
+  - Updated `ResponseProcessor` and `DefaultNonStreamingResponseHandler` implementations
+  - Updated `BackendNonStreamingResponseHandler` to pass `RequestContext` directly instead of building middleware context dict
+  - Updated tests to use typed contracts
+  - Boundary type checker passes with no new violations
   - _Requirements: 5.1, 5.3_
 
 - [ ] 4.2 Centralize legacy coercion at explicit adapter boundaries only

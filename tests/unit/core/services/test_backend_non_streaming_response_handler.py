@@ -159,12 +159,18 @@ class TestResponseProcessing:
         call_args = mock_response_processor.process_response.call_args
         assert call_args[0][0] == "Hello, world!"  # content
         assert call_args[0][1] == "test-session-123"  # session_id
-        assert isinstance(call_args[0][2], dict)  # context dict
-        context_dict = call_args[0][2]
-        assert context_dict["session_id"] == "test-session-123"
-        assert context_dict["backend_name"] == "openai"
-        assert context_dict["model_name"] == "gpt-4"
-        assert context_dict["original_request"] == base_request
+        # Now passes RequestContext instead of dict
+        from src.core.domain.request_context import RequestContext
+
+        assert isinstance(call_args[0][2], RequestContext)  # context is RequestContext
+        context = call_args[0][2]
+        assert context.session_id == "test-session-123"
+        assert context.backend == "openai"
+        assert context.effective_model == "gpt-4"
+        assert (
+            context.original_request == base_request
+            or context.domain_request == base_request
+        )
 
     @pytest.mark.asyncio
     async def test_handles_empty_response_retry(

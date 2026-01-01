@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pydantic.types import JsonValue
 from src.core.domain.streaming.streaming_content import StreamingContent
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.transport.fastapi.adapters.protocols import (
@@ -18,6 +20,9 @@ from src.core.transport.fastapi.adapters.streaming.content_converter import (
     StreamingContentConverter,
 )
 
+if TYPE_CHECKING:
+    from src.core.domain.request_context import RequestContext
+
 
 class TestStreamingContentConverter:
     """Test StreamingContentConverter implementation."""
@@ -29,7 +34,7 @@ class TestStreamingContentConverter:
         # but pyright doesn't recognize them, so we verify runtime behavior instead
         assert isinstance(converter, StreamingContentConverter)
         assert hasattr(converter, "convert_stream")
-        assert callable(getattr(converter, "convert_stream"))
+        assert callable(converter.convert_stream)
 
     @pytest.mark.asyncio
     async def test_processed_response_normalization(self) -> None:
@@ -42,7 +47,7 @@ class TestStreamingContentConverter:
                 metadata={"stream_id": "test-123"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -63,7 +68,7 @@ class TestStreamingContentConverter:
                 metadata={},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -91,7 +96,7 @@ class TestStreamingContentConverter:
                 metadata={},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -110,7 +115,7 @@ class TestStreamingContentConverter:
                 metadata={"stream_id": "test-123"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -147,7 +152,7 @@ class TestStreamingContentConverter:
                 metadata={},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -166,7 +171,7 @@ class TestStreamingContentConverter:
                 metadata={},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -194,7 +199,7 @@ class TestStreamingContentConverter:
                 metadata={},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -213,7 +218,7 @@ class TestStreamingContentConverter:
                 metadata={"is_done": True},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -229,7 +234,7 @@ class TestStreamingContentConverter:
         async def raw_stream() -> AsyncIterator[ProcessedResponse]:
             yield ProcessedResponse(content="test", metadata={})
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         # This test verifies that asyncio.sleep(0) is called (yielding to event loop)
         with patch("asyncio.sleep") as mock_sleep:
@@ -248,7 +253,7 @@ class TestStreamingContentConverter:
             yield ProcessedResponse(content="test", metadata={})
             raise GeneratorExit()
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
 
         # GeneratorExit should be re-raised, not caught as error
@@ -265,7 +270,7 @@ class TestStreamingContentConverter:
             return
             yield  # type: ignore[unreachable]
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -288,7 +293,7 @@ class TestStreamingContentConverter:
                 metadata={"reasoning_content": "thinking"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -311,7 +316,7 @@ class TestStreamingContentConverter:
                 metadata={"stream_id": "test-123"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -328,7 +333,7 @@ class TestStreamingContentConverter:
             raise ValueError("Test error")
             yield  # type: ignore[unreachable]
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -353,9 +358,9 @@ class TestStreamingContentConverter:
 
         mock_context = MagicMock()
         mock_context.requires_usage_recalculation.return_value = False
-        context = {
+        context: dict[str, JsonValue | RequestContext | None] = {
             "envelope_metadata": {},
-            "context": mock_context,
+            "context": mock_context,  # type: ignore[assignment]
         }
 
         with patch(
@@ -388,7 +393,7 @@ class TestStreamingContentConverter:
                 ProcessedResponse(content="test2", metadata={}),
             ]
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         # Convert sync iterator to async iterator
         async def async_stream():
@@ -410,7 +415,7 @@ class TestStreamingContentConverter:
                 metadata={"stream_id": "test-123"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -430,7 +435,7 @@ class TestStreamingContentConverter:
                 metadata={"stream_id": "test-456"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -451,7 +456,7 @@ class TestStreamingContentConverter:
                 metadata={"stream_id": "test-789"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -471,7 +476,7 @@ class TestStreamingContentConverter:
                 metadata={"stream_id": "test-none"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -499,7 +504,7 @@ class TestStreamingContentConverter:
                 metadata={"stream_id": "test-usage"},
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
@@ -525,7 +530,7 @@ class TestStreamingContentConverter:
                 },
             )
 
-        context = {}
+        context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
         async for content in converter.convert_stream(raw_stream(), context):
             results.append(content)
