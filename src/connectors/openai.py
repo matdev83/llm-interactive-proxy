@@ -785,7 +785,13 @@ class OpenAIConnector(LLMBackend):
 
     def _clean_openai_payload(self, payload: Any) -> dict[str, Any]:
         """Strip None values and internal-only keys from an OpenAI payload."""
-        disallowed_keys = {"extra_body", "backend_type", "agent", "session_id", "reasoning_effort"}
+        disallowed_keys = {
+            "extra_body",
+            "backend_type",
+            "agent",
+            "session_id",
+            "reasoning_effort",
+        }
 
         def _strip_none(value: Any) -> Any:
             if isinstance(value, list):
@@ -828,6 +834,7 @@ class OpenAIConnector(LLMBackend):
         except httpx.RequestError as e:
             logger.error(
                 f"DEBUG: Request failed to {url}. Error: {e}",
+                exc_info=True,
                 extra=log_extra if log_extra else None,
             )
             raise ServiceUnavailableError(

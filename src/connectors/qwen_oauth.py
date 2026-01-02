@@ -670,7 +670,7 @@ class QwenOAuthConnector(OpenAIConnector):
         try:
             response = await self.client.post(url, json=payload)
         except httpx.RequestError as e:
-            logger.error(f"Network error during API token refresh: {e}")
+            logger.error(f"Network error during API token refresh: {e}", exc_info=True)
             return False
 
         # Honor HTTP errors

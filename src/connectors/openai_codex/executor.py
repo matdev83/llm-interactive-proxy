@@ -180,6 +180,7 @@ class ResponseExecutor(IResponseExecutor):
                         "Request failed to %s. Error: %s",
                         url,
                         e,
+                        exc_info=True,
                         extra={
                             "backend": "openai-codex",
                             "session_id": context.session_id,
