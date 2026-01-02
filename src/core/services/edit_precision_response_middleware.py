@@ -81,10 +81,19 @@ class EditPrecisionFeature(IResponseFeature):
                                 pattern,
                                 err,
                             )
-        except Exception as err:
+        except (ImportError, ModuleNotFoundError) as err:
+            # Module import failures - expected if edit_precision_patterns module not available
             if self._logger.isEnabledFor(logging.WARNING):
                 self._logger.warning(
-                    "Failed to load edit precision patterns: %s",
+                    "Edit precision patterns module not available: %s - using default patterns only",
+                    err,
+                )
+        except Exception as err:
+            # Catch any truly unexpected errors during config loading
+            # Expected exceptions (ImportError, ModuleNotFoundError, re.error) are handled above
+            if self._logger.isEnabledFor(logging.WARNING):
+                self._logger.warning(
+                    "Unexpected error loading edit precision patterns: %s - using default patterns only",
                     err,
                     exc_info=True,
                 )
