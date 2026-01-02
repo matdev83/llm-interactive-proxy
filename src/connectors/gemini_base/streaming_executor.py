@@ -533,10 +533,12 @@ class StreamingExecutor:
                             "Received malformed JSON chunk in streaming response: %s (error: %s)",
                             data_str[:100] + "..." if len(data_str) > 100 else data_str,
                             str(e),
+                            exc_info=True,
                         )
                         if data_str and not data_str.strip().endswith("}"):
                             logger.error(
-                                "Detected incomplete JSON chunk, yielding error response"
+                                "Detected incomplete JSON chunk, yielding error response",
+                                exc_info=True,
                             )
                             error_chunk = processor.build_error_chunk(
                                 "Malformed streaming chunk from Code Assist.",
@@ -1084,6 +1086,7 @@ class StreamingExecutor:
                     logger.warning(
                         "Token refresh timed out after %.1fs; returning 401 to client",
                         decision.timeout_seconds,
+                        exc_info=True,
                     )
                 except Exception as refresh_error:
                     logger.error(
