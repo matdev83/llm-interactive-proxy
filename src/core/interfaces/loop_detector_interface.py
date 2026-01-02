@@ -50,7 +50,7 @@ class ILoopDetector(abc.ABC):
     @abc.abstractmethod
     def reset(self) -> None:
         """
-        Resets the internal state of the loop detector.
+        Resets internal state of loop detector.
         This should be called before processing a new sequence of chunks.
         """
         raise NotImplementedError
@@ -58,7 +58,7 @@ class ILoopDetector(abc.ABC):
     @abc.abstractmethod
     def get_loop_history(self) -> list[LoopDetectionEvent]:
         """
-        Retrieves the history of detected loops.
+        Retrieves history of detected loops.
 
         Returns:
             A list of historical loop detection data.
@@ -68,10 +68,16 @@ class ILoopDetector(abc.ABC):
     @abc.abstractmethod
     def get_current_state(self) -> Any:
         """
-        Retrieves the current internal state of the loop detector.
+        Retrieves current internal state of loop detector.
 
         Returns:
-            A model representing the current state (specific to implementation).
+            A Pydantic model representing current state (specific to implementation).
+            Concrete implementations return:
+            - LoopDetectorState (TokenWindowLoopDetector, GeminiCliLoopDetector)
+            - StandardLoopDetectorState (StandardLoopDetector)
+            - HybridDetectorState (HybridLoopDetector)
+
+            All return types are Pydantic models defined in src.loop_detection.types
         """
         raise NotImplementedError
 
@@ -81,14 +87,20 @@ class ILoopDetector(abc.ABC):
         Retrieves detector statistics.
 
         Returns:
-            A model representing statistics (specific to implementation).
+            A Pydantic model representing statistics (specific to implementation).
+            Concrete implementations return:
+            - LoopDetectorStats (TokenWindowLoopDetector, GeminiCliLoopDetector)
+            - StandardLoopDetectorStats (StandardLoopDetector)
+            - HybridDetectorStats (HybridLoopDetector)
+
+            All return types are Pydantic models defined in src.loop_detection.types
         """
         raise NotImplementedError
 
     @abc.abstractmethod
     async def check_for_loops(self, content: str) -> LoopDetectionResult:
         """
-        Checks for repetitive patterns (loops) in the given content.
+        Checks for repetitive patterns (loops) in given content.
 
         Args:
             content: The content string to check for loops.
