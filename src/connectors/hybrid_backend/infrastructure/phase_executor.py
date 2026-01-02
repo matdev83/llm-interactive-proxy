@@ -376,6 +376,7 @@ class PhaseExecutor:
                     "timeout_seconds": self.config.backends.hybrid_reasoning_model_timeout,
                     "elapsed_seconds": elapsed_time,
                 },
+                exc_info=True,
             )
             return ReasoningPhaseResult(
                 text="",
@@ -706,6 +707,7 @@ class PhaseExecutor:
                     "timeout_seconds": self.config.backends.hybrid_execution_model_timeout,
                     "elapsed_seconds": elapsed_time,
                 },
+                exc_info=True,
             )
             raise BackendError(
                 message=f"Execution phase timeout after {self.config.backends.hybrid_execution_model_timeout}s",

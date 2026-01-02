@@ -386,6 +386,7 @@ class HybridOrchestrator:
                     "error_code": e.code,
                     "error": e.message,
                 },
+                exc_info=True,
             )
             raise BackendError(
                 message=f"Hybrid backend error (execution phase): {e.message}",
