@@ -95,7 +95,7 @@ class RequestDeduplicationService:
             serialized = json.dumps(content, sort_keys=True, default=str)
             return hashlib.sha256(serialized.encode()).hexdigest()[:32]
         except Exception as e:
-            logger.warning("Failed to compute content hash: %s", e)
+            logger.warning("Failed to compute content hash: %s", e, exc_info=True)
             return hashlib.sha256(str(time.time()).encode()).hexdigest()[:32]
 
     async def check_and_register(
