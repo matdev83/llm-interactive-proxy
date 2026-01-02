@@ -12,6 +12,7 @@ import src.core.domain.commands.loop_detection_commands as loop_detection_comman
 def reload_commands_module():
     """Ensure the registry module is freshly imported for each test."""
 
+    reload(loop_detection_commands)
     yield
     reload(loop_detection_commands)
 

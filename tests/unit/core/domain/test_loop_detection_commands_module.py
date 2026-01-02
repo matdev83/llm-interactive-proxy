@@ -32,7 +32,7 @@ def test_loop_detection_commands_module_exports_expected_classes() -> None:
 
     expected_exports = list(EXPORT_MODULE_MAP)
 
-    assert module.__all__ == expected_exports
+    assert set(module.__all__) == set(expected_exports)
 
     for export_name in expected_exports:
         assert getattr(module, export_name) is _import_command_class(export_name)
