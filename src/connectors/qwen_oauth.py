@@ -518,7 +518,9 @@ class QwenOAuthConnector(OpenAIConnector):
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to start file watching for OAuth credentials: %s", e, exc_info=True
+                    "Failed to start file watching for OAuth credentials: %s",
+                    e,
+                    exc_info=True,
                 )
 
     def _stop_file_watching(self) -> None:
@@ -816,7 +818,9 @@ class QwenOAuthConnector(OpenAIConnector):
         except json.JSONDecodeError as e:
             logger.error(f"Error decoding Qwen OAuth credentials JSON: {e}")
             return False
-        except Exception as e:
+        except (OSError, ValueError) as e:
+            # OSError: file I/O errors (permission denied, file not found, etc.)
+            # ValueError: credential structure validation errors
             logger.error(
                 f"Error loading Qwen OAuth credentials: {e}",
                 exc_info=True,
@@ -1651,7 +1655,12 @@ class QwenOAuthConnector(OpenAIConnector):
                 context=context,
                 **options,
             )
-        except (BackendError, HTTPException, AuthenticationError, ServiceUnavailableError):
+        except (
+            BackendError,
+            HTTPException,
+            AuthenticationError,
+            ServiceUnavailableError,
+        ):
             # Re-raise domain exceptions as-is
             raise
         except Exception as e:

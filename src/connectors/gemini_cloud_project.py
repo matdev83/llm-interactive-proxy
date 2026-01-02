@@ -73,6 +73,7 @@ if TYPE_CHECKING:
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
+    ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import (
@@ -1038,7 +1039,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         # 5) Validate project access
         try:
             await self._validate_project_access()
-        except Exception as e:
+        except (AuthenticationError, BackendError, httpx.HTTPError, OSError) as e:
+            # AuthenticationError: permission denied (403)
+            # BackendError: API errors (non-200 status)
+            # httpx.HTTPError: network errors from httpx requests
+            # OSError: I/O errors (e.g., network, file system)
             logger.error("Failed to validate project access", exc_info=True)
             self._fail_init([f"Failed to validate project access: {e}"])
             return
@@ -1046,7 +1051,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         # 6) Load models (non-fatal)
         try:
             await self._ensure_models_loaded()
-        except Exception as e:
+        except (BackendError, ServiceUnavailableError, httpx.HTTPError, OSError) as e:
+            # BackendError: API errors during model loading
+            # ServiceUnavailableError: API temporarily unavailable
+            # httpx.HTTPError: network errors from httpx requests
+            # OSError: I/O errors (e.g., network, file system)
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     f"Failed to load models during initialization: {e}", exc_info=True
