@@ -88,7 +88,9 @@ class SummaryValidator:
         xml_content = self._extract_xml(xml_content)
 
         if not xml_content:
-            return ValidationResult(is_valid=False, error="No valid XML found in response")
+            return ValidationResult(
+                is_valid=False, error="No valid XML found in response"
+            )
 
         try:
             root = ElementTree.fromstring(xml_content)
@@ -97,7 +99,8 @@ class SummaryValidator:
 
         if root.tag != "session_summary":
             return ValidationResult(
-                is_valid=False, error=f"Expected root element 'session_summary', got '{root.tag}'"
+                is_valid=False,
+                error=f"Expected root element 'session_summary', got '{root.tag}'",
             )
 
         # Check required elements
@@ -136,7 +139,9 @@ class SummaryValidator:
             for task in remaining_tasks.findall("task"):
                 status = task.get("status")
                 if status and status not in self.VALID_TASK_STATUSES:
-                    return ValidationResult(is_valid=False, error=f"Invalid task status: {status}")
+                    return ValidationResult(
+                        is_valid=False, error=f"Invalid task status: {status}"
+                    )
 
         # Validate file statuses in touched_files
         touched_files = root.find("touched_files")
@@ -144,7 +149,9 @@ class SummaryValidator:
             for file_elem in touched_files.findall("file"):
                 status = file_elem.get("status")
                 if status and status not in self.VALID_FILE_STATUSES:
-                    return ValidationResult(is_valid=False, error=f"Invalid file status: {status}")
+                    return ValidationResult(
+                        is_valid=False, error=f"Invalid file status: {status}"
+                    )
 
         # Validate git operation types
         git_ops = root.find("git_operations")
@@ -162,7 +169,9 @@ class SummaryValidator:
             for test in tests_run.findall("test"):
                 status = test.get("status")
                 if status and status not in self.VALID_TEST_STATUSES:
-                    return ValidationResult(is_valid=False, error=f"Invalid test status: {status}")
+                    return ValidationResult(
+                        is_valid=False, error=f"Invalid test status: {status}"
+                    )
 
         return ValidationResult(is_valid=True, error=None)
 
@@ -647,15 +656,23 @@ Format as bullet points. Do not use XML.
                 return response
             except Exception as e:
                 last_error = e
-                logger.warning(
-                    "LLM call attempt %d failed: %s",
-                    attempt + 1,
-                    e,
-                )
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "LLM call attempt %d failed: %s",
+                        attempt + 1,
+                        e,
+                        exc_info=True,
+                    )
                 if attempt < max_retries - 1:
                     await asyncio.sleep(delays[attempt])
 
-        logger.error("LLM call failed after %d attempts: %s", max_retries, last_error)
+        if logger.isEnabledFor(logging.ERROR):
+            logger.error(
+                "LLM call failed after %d attempts: %s",
+                max_retries,
+                last_error,
+                exc_info=True,
+            )
         return None
 
     async def _invoke_llm(self, prompt: str) -> str | None:
