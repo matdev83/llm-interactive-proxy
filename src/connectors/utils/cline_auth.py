@@ -35,6 +35,7 @@ class VscodePaths(NamedTuple):
     local_state: Path | None
     """Path to Local State, or None if not found."""
 
+
 try:  # pragma: no cover - optional dependency for Windows integration
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -625,9 +626,7 @@ class ClineAuthMixin:
             try:
                 return float(fallback)
             except (TypeError, ValueError):
-                logger.debug(
-                    "Unable to parse expiresAt fallback value '%s'", fallback
-                )
+                logger.debug("Unable to parse expiresAt fallback value '%s'", fallback)
                 return None
 
         return None
