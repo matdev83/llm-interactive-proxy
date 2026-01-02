@@ -1228,7 +1228,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             response = await self.client.get(url, headers=headers, timeout=15.0)
         except Exception as exc:
             logger.warning(
-                "Failed to reach fetchAvailableModels endpoint %s: %s", url, exc
+                "Failed to reach fetchAvailableModels endpoint %s: %s", url, exc,
+                exc_info=True
             )
             return
 

@@ -1405,7 +1405,8 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 errors.append(f"Unexpected error reading {path}: {exc}")
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error loading Antigravity credentials from %s: %s", path, exc
+                        "Error loading Antigravity credentials from %s: %s", path, exc,
+                        exc_info=True
                     )
 
         if errors:

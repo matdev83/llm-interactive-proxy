@@ -171,7 +171,8 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             except (ValueError, IndexError) as parse_err:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to parse data URL MIME type: %s", str(parse_err)
+                        "Failed to parse data URL MIME type: %s", str(parse_err),
+                        exc_info=True
                     )
                 mime = "application/octet-stream"
                 b64_data = ""
