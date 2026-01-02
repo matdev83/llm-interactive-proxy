@@ -1468,6 +1468,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 logger.warning(
                     "Failed to start file watching for OpenAI Codex credentials: %s",
                     exc,
+                    exc_info=True,
                 )
 
     def _stop_file_watching(self) -> None:
@@ -1494,7 +1495,9 @@ class OpenAICodexConnector(OpenAIConnector):
                 )
         except Exception as exc:
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Error stopping OpenAI Codex file watcher: %s", exc)
+                logger.debug(
+                    "Error stopping OpenAI Codex file watcher: %s", exc, exc_info=True
+                )
 
     def _schedule_credentials_reload(self) -> None:
         if self._shutdown_requested.is_set():
@@ -1712,7 +1715,9 @@ class OpenAICodexConnector(OpenAIConnector):
             )
             effective_model = strip_vendor_prefix(parsed_model, OPENAI_VENDOR_PREFIX)
         except Exception as exc:
-            logger.debug("Failed to parse model URI params: %s", exc)
+            logger.debug(
+                "Failed to parse model URI params: %s", exc, exc_info=True
+            )
             if ":" in effective_model:
                 effective_model = effective_model.split(":", 1)[1]
             effective_model = strip_vendor_prefix(effective_model, OPENAI_VENDOR_PREFIX)
@@ -1855,6 +1860,7 @@ class OpenAICodexConnector(OpenAIConnector):
                     logger.debug(
                         "Failed to cleanup compatibility state for non-streaming response: %s",
                         exc,
+                        exc_info=True,
                     )
 
             return result
@@ -1868,6 +1874,7 @@ class OpenAICodexConnector(OpenAIConnector):
                     logger.debug(
                         "Failed to cleanup compatibility state during cancellation: %s",
                         exc,
+                        exc_info=True,
                     )
             raise
         except Exception as e:
@@ -1885,6 +1892,7 @@ class OpenAICodexConnector(OpenAIConnector):
                     logger.debug(
                         "Failed to cleanup compatibility state during error handling: %s",
                         exc,
+                        exc_info=True,
                     )
             raise
 
