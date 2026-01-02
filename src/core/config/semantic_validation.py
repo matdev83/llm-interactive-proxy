@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from src.core.common.exceptions import ConfigurationError
+from src.core.config.app_config import AppConfig
+from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +88,7 @@ class ConfigurationValidator:
                     break
         else:
             # Check if capture options are set without capture_file
-            capture_options_set = []
+            capture_options_set: list[str] = []
             for option in [
                 "capture_max_bytes",
                 "capture_truncate_bytes",
@@ -148,7 +150,7 @@ class ConfigurationValidator:
 
     def _get_recovery_instructions(self) -> list[str]:
         """Generate actionable recovery instructions based on errors."""
-        instructions = []
+        instructions: list[str] = []
 
         for error in self.errors:
             if "wire_capture" in error and "log_file" in error:
@@ -196,3 +198,95 @@ def validate_config_semantics(
     """
     validator = ConfigurationValidator(config_data, config_path)
     validator.validate()
+
+
+def validate_static_route(config: AppConfig) -> None:
+    """Validate that static_route backend exists in registered backends.
+
+    This function validates the runtime AppConfig object (post YAML/ENV/CLI merge)
+    and assumes connector auto-discovery has already happened.
+
+    Args:
+        config: The final resolved AppConfig instance
+
+    Raises:
+        ConfigurationError: If static_route specifies an invalid backend name or
+            has an invalid format
+
+    Note:
+        This validation runs against the runtime AppConfig object, not raw YAML dict data.
+        Connector auto-discovery (importing src.connectors) must have occurred before
+        calling this function.
+    """
+    static_route = config.backends.static_route
+
+    # No-op if static_route is None or empty string
+    if not static_route:
+        return
+
+    # Parse <backend_name>:<model_name> format
+    parts = static_route.split(":", 1)
+
+    # Validate format: must contain ':' separator and model part must not be empty
+    if len(parts) != 2:
+        error_msg = (
+            f"Invalid static_route format: '{static_route}'. "
+            f"Expected format: <backend_name>:<model_name>\n"
+            f"Example: gemini-oauth-plan:gemini-2.5-pro"
+        )
+        logger.error("Static route validation failed: %s", error_msg)
+        raise ConfigurationError(
+            message=error_msg,
+            details={
+                "static_route": static_route,
+                "expected_format": "<backend_name>:<model_name>",
+                "example": "gemini-oauth-plan:gemini-2.5-pro",
+            },
+        )
+
+    backend_name, model_name = parts
+
+    # Validate model part is not empty
+    if not model_name or not model_name.strip():
+        error_msg = (
+            f"Invalid static_route format: '{static_route}'. "
+            f"Model name cannot be empty.\n"
+            f"Expected format: <backend_name>:<model_name>\n"
+            f"Example: gemini-oauth-plan:gemini-2.5-pro"
+        )
+        logger.error("Static route validation failed: %s", error_msg)
+        raise ConfigurationError(
+            message=error_msg,
+            details={
+                "static_route": static_route,
+                "expected_format": "<backend_name>:<model_name>",
+                "example": "gemini-oauth-plan:gemini-2.5-pro",
+            },
+        )
+
+    # Validate backend exists in registered backends
+    registered_backends = backend_registry.get_registered_backends()
+
+    if backend_name not in registered_backends:
+        available_backends = sorted(registered_backends)
+        available_backends_str = ", ".join(available_backends)
+
+        error_msg = (
+            f"Invalid backend '{backend_name}' specified in static_route.\n"
+            f"Backend '{backend_name}' is not registered.\n"
+            f"Available backends: {available_backends_str}\n"
+            f"Current static_route value: '{static_route}'\n"
+            f"Expected format: <backend_name>:<model_name>\n"
+            f"Example: gemini-oauth-plan:gemini-2.5-pro"
+        )
+        logger.error("Static route validation failed: %s", error_msg)
+        raise ConfigurationError(
+            message=error_msg,
+            details={
+                "invalid_backend": backend_name,
+                "available_backends": available_backends,
+                "static_route": static_route,
+                "expected_format": "<backend_name>:<model_name>",
+                "example": "gemini-oauth-plan:gemini-2.5-pro",
+            },
+        )

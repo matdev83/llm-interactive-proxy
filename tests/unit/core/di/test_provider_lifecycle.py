@@ -86,7 +86,7 @@ class TestProviderLifecycle:
 
         # Call post-build hooks
         with patch(
-            "src.core.di.provider_lifecycle._initialize_feature_parity_registry"
+            "src.core.di.registration_helpers.post_build_actions.initialize_feature_parity_registry"
         ) as mock_init:
             provider_lifecycle.post_build_hooks(provider)
             mock_init.assert_called_once_with(provider)
@@ -124,3 +124,229 @@ class TestProviderLifecycle:
         if hasattr(error, "details"):
             # Diagnostics may include resolution path
             assert error.details is not None
+
+
+class TestTemporaryServiceProvider:
+    """Tests for temporary service provider context manager."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self) -> Iterator[None]:
+        """Reset provider state before each test."""
+        from src.core.di import provider_lifecycle
+
+        provider_lifecycle._service_provider = None
+        # Also reset legacy provider
+        try:
+            from src.core.di import services as di_services
+
+            di_services._service_provider = None  # type: ignore[attr-defined]
+        except (ImportError, AttributeError):
+            pass
+        yield
+        provider_lifecycle._service_provider = None
+        try:
+            from src.core.di import services as di_services
+
+            di_services._service_provider = None  # type: ignore[attr-defined]
+        except (ImportError, AttributeError):
+            pass
+
+    def test_temporary_service_provider_restores_previous_provider(self) -> None:
+        """Test that temporary provider context restores previous provider."""
+        from src.core.di import provider_lifecycle
+
+        # Create initial provider
+        services1 = ServiceCollection()
+        register_core_services(services1)
+        provider1 = services1.build_service_provider()
+        provider_lifecycle.set_service_provider(provider1)
+
+        # Create temporary provider
+        services2 = ServiceCollection()
+        register_core_services(services2)
+        provider2 = services2.build_service_provider()
+
+        # Use temporary provider context
+        with provider_lifecycle.temporary_service_provider(provider2):
+            # Inside context, current provider should be provider2
+            current = provider_lifecycle.get_current_service_provider()
+            assert current is provider2
+
+        # After context, previous provider should be restored
+        current = provider_lifecycle.get_current_service_provider()
+        assert current is provider1
+
+    def test_temporary_service_provider_restores_none_when_no_previous(self) -> None:
+        """Test that temporary provider context restores None when no previous provider."""
+        from src.core.di import provider_lifecycle
+
+        # Ensure no provider is set
+        provider_lifecycle.set_service_provider(None)
+
+        # Create temporary provider
+        services = ServiceCollection()
+        register_core_services(services)
+        provider = services.build_service_provider()
+
+        # Use temporary provider context
+        with provider_lifecycle.temporary_service_provider(provider):
+            # Inside context, current provider should be provider
+            current = provider_lifecycle.get_current_service_provider()
+            assert current is provider
+
+        # After context, provider should be None
+        with pytest.raises(
+            RuntimeError, match="No service provider is currently installed"
+        ):
+            provider_lifecycle.get_current_service_provider()
+
+    def test_temporary_service_provider_nested_contexts(self) -> None:
+        """Test that nested temporary provider contexts restore correctly."""
+        from src.core.di import provider_lifecycle
+
+        # Create providers
+        services1 = ServiceCollection()
+        register_core_services(services1)
+        provider1 = services1.build_service_provider()
+
+        services2 = ServiceCollection()
+        register_core_services(services2)
+        provider2 = services2.build_service_provider()
+
+        services3 = ServiceCollection()
+        register_core_services(services3)
+        provider3 = services3.build_service_provider()
+
+        provider_lifecycle.set_service_provider(provider1)
+
+        # Nested contexts
+        with provider_lifecycle.temporary_service_provider(provider2):
+            assert provider_lifecycle.get_current_service_provider() is provider2
+
+            with provider_lifecycle.temporary_service_provider(provider3):
+                assert provider_lifecycle.get_current_service_provider() is provider3
+
+            # After inner context, should restore to provider2
+            assert provider_lifecycle.get_current_service_provider() is provider2
+
+        # After outer context, should restore to provider1
+        assert provider_lifecycle.get_current_service_provider() is provider1
+
+    def test_temporary_service_provider_restores_on_exception(self) -> None:
+        """Test that temporary provider context restores provider even on exception."""
+        from src.core.di import provider_lifecycle
+
+        # Create initial provider
+        services1 = ServiceCollection()
+        register_core_services(services1)
+        provider1 = services1.build_service_provider()
+        provider_lifecycle.set_service_provider(provider1)
+
+        # Create temporary provider
+        services2 = ServiceCollection()
+        register_core_services(services2)
+        provider2 = services2.build_service_provider()
+
+        # Use temporary provider context and raise exception
+        with pytest.raises(ValueError, match="Test exception"), provider_lifecycle.temporary_service_provider(provider2):
+            # Inside context, current provider should be provider2
+            assert provider_lifecycle.get_current_service_provider() is provider2
+            raise ValueError("Test exception")
+
+        # After exception, previous provider should be restored
+        current = provider_lifecycle.get_current_service_provider()
+        assert current is provider1
+
+    def test_temporary_service_provider_syncs_legacy_provider(self) -> None:
+        """Test that temporary provider context keeps legacy _service_provider in sync."""
+        from src.core.di import provider_lifecycle
+
+        # Create initial provider
+        services1 = ServiceCollection()
+        register_core_services(services1)
+        provider1 = services1.build_service_provider()
+        provider_lifecycle.set_service_provider(provider1)
+
+        # Create temporary provider
+        services2 = ServiceCollection()
+        register_core_services(services2)
+        provider2 = services2.build_service_provider()
+
+        # Check legacy provider is synced before context
+        from src.core.di import services as di_services
+
+        assert di_services._service_provider is provider1  # type: ignore[attr-defined]
+
+        # Use temporary provider context
+        with provider_lifecycle.temporary_service_provider(provider2):
+            # Legacy provider should be synced to provider2
+            assert di_services._service_provider is provider2  # type: ignore[attr-defined]
+
+        # Legacy provider should be restored to provider1
+        assert di_services._service_provider is provider1  # type: ignore[attr-defined]
+
+
+class TestGetCurrentServiceProvider:
+    """Tests for get_current_service_provider fail-fast accessor."""
+
+    @pytest.fixture(autouse=True)
+    def setup(self) -> Iterator[None]:
+        """Reset provider state before each test."""
+        from src.core.di import provider_lifecycle
+
+        provider_lifecycle._service_provider = None
+        try:
+            from src.core.di import services as di_services
+
+            di_services._service_provider = None  # type: ignore[attr-defined]
+        except (ImportError, AttributeError):
+            pass
+        yield
+        provider_lifecycle._service_provider = None
+        try:
+            from src.core.di import services as di_services
+
+            di_services._service_provider = None  # type: ignore[attr-defined]
+        except (ImportError, AttributeError):
+            pass
+
+    def test_get_current_service_provider_returns_installed_provider(self) -> None:
+        """Test that get_current_service_provider returns installed provider."""
+        from src.core.di import provider_lifecycle
+
+        services = ServiceCollection()
+        register_core_services(services)
+        provider = services.build_service_provider()
+
+        provider_lifecycle.set_service_provider(provider)
+
+        current = provider_lifecycle.get_current_service_provider()
+        assert current is provider
+
+    def test_get_current_service_provider_raises_when_none_installed(self) -> None:
+        """Test that get_current_service_provider raises when no provider installed."""
+        from src.core.di import provider_lifecycle
+
+        # Ensure no provider is set
+        provider_lifecycle.set_service_provider(None)
+
+        with pytest.raises(
+            RuntimeError, match="No service provider is currently installed"
+        ):
+            provider_lifecycle.get_current_service_provider()
+
+    def test_get_current_service_provider_does_not_build_implicitly(self) -> None:
+        """Test that get_current_service_provider does not build provider implicitly."""
+        from src.core.di import provider_lifecycle
+
+        # Ensure no provider is set
+        provider_lifecycle.set_service_provider(None)
+
+        # Should raise, not build
+        with pytest.raises(
+            RuntimeError, match="No service provider is currently installed"
+        ):
+            provider_lifecycle.get_current_service_provider()
+
+        # Verify provider was not built
+        assert provider_lifecycle._service_provider is None

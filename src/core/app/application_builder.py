@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib
 import logging
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any
@@ -112,13 +113,13 @@ class ApplicationBuilder:
         base_collection = get_service_collection()
         self._services = ServiceCollection()
         try:
-            self._services._descriptors.update(base_collection._descriptors)
+            self._services._descriptors.update(base_collection._descriptors)  # type: ignore[attr-defined]
         except AttributeError:
             # Fallback for unexpected implementations of ServiceCollection
             for service_type, descriptor in getattr(
-                base_collection, "_descriptors", {}
+                base_collection, "_descriptors", {}  # type: ignore[attr-defined]
             ).items():
-                self._services._descriptors[service_type] = descriptor
+                self._services._descriptors[service_type] = descriptor  # type: ignore[attr-defined]
 
     def add_stage(self, stage: InitializationStage) -> ApplicationBuilder:
         """
@@ -257,10 +258,27 @@ class ApplicationBuilder:
             Configured FastAPI application
 
         Raises:
+            ConfigurationError: If configuration validation fails (e.g., invalid static_route)
             RuntimeError: If stage execution fails
         """
         if logger.isEnabledFor(logging.INFO):
             logger.info("Starting application build process...")
+
+        # Import connectors to trigger auto-discovery before validation
+        # This ensures backend registry is populated before static_route validation
+        importlib.import_module("src.connectors")
+        if logger.isEnabledFor(logging.DEBUG):
+            from src.core.services.backend_registry import backend_registry
+
+            logger.debug(
+                f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
+            )
+
+        # Validate runtime configuration semantics (e.g., static_route)
+        # This must run before stage validation to fail-fast on invalid config
+        from src.core.config.semantic_validation import validate_static_route
+
+        validate_static_route(config)
 
         # Validate stages before execution
         await self.validate_stages(config)
@@ -281,9 +299,7 @@ class ApplicationBuilder:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("Stage '%s' completed successfully", stage_name)
             except Exception as e:  # type: ignore[misc]
-                logger.error(
-                    "Stage '%s' failed: %s", stage_name, e, exc_info=True
-                )
+                logger.error("Stage '%s' failed: %s", stage_name, e, exc_info=True)
                 # Ensure ServiceCollection cleanup tasks are awaited on failure
                 with contextlib.suppress(Exception):
                     await self._services.dispose()

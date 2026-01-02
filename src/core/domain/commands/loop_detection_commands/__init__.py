@@ -19,8 +19,6 @@ _LOOP_DETECTION_COMMANDS: dict[str, type[Any]] = {
     "ToolLoopTTLCommand": ToolLoopTTLCommand,
 }
 
-__all__ = list(_LOOP_DETECTION_COMMANDS)
-
 
 def get_loop_detection_command(name: str) -> type[Any]:
     """Return a loop detection command class by ``name``."""
@@ -35,3 +33,8 @@ def get_loop_detection_commands() -> dict[str, type[Any]]:
     """Return a copy of the registered loop detection commands."""
 
     return dict(_LOOP_DETECTION_COMMANDS)
+
+
+__all__ = [
+    *list(_LOOP_DETECTION_COMMANDS),
+]

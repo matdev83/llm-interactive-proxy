@@ -514,26 +514,37 @@ class ServiceCollection(IServiceCollection):
         )
         return self
 
-    def build_service_provider(self) -> IServiceProvider:
-        """Build a service provider with the registered services."""
-        provider = ServiceProvider(self._descriptors.copy())
-        # Execute post-build hooks (handler registration, etc.)
-        try:
-            from src.core.di.provider_lifecycle import post_build_hooks
+    def build_service_provider(
+        self, run_post_build_hooks: bool = True
+    ) -> IServiceProvider:
+        """Build a service provider with the registered services.
 
-            post_build_hooks(provider)
-        except ImportError:
-            # Don't fail if provider_lifecycle is not available (e.g., in tests)
-            pass
-        except (AttributeError, RuntimeError, TypeError) as err:
-            # Log unexpected errors in post-build hooks but continue
-            logger = logging.getLogger("llm.di")
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Post-build hooks failed: %s",
-                    err,
-                    exc_info=True,
-                )
+        Args:
+            run_post_build_hooks: If True (default), execute post-build hooks after provider creation.
+                If False, skip post-build hooks (useful for validation-only provider builds).
+
+        Returns:
+            A configured service provider
+        """
+        provider = ServiceProvider(self._descriptors.copy())
+        # Execute post-build hooks (handler registration, etc.) unless disabled
+        if run_post_build_hooks:
+            try:
+                from src.core.di.provider_lifecycle import post_build_hooks
+
+                post_build_hooks(provider)
+            except ImportError:
+                # Don't fail if provider_lifecycle is not available (e.g., in tests)
+                pass
+            except (AttributeError, RuntimeError, TypeError) as err:
+                # Log unexpected errors in post-build hooks but continue
+                logger = logging.getLogger("llm.di")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Post-build hooks failed: %s",
+                        err,
+                        exc_info=True,
+                    )
         return provider
 
     async def dispose(self) -> None:

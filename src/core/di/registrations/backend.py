@@ -33,6 +33,9 @@ from src.core.di.registrations._backend.lifestyle import (
 )
 from src.core.di.registrations._backend.main_service import register_backend_service
 from src.core.di.registrations._backend.routing import register_backend_routing_service
+from src.core.di.registrations._backend.validation import (
+    register_backend_validation_services,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +63,7 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     register_backend_factory(services, app_config)
     register_backend_config_provider(services)
     register_backend_routing_service(services)
+    register_backend_validation_services(services)
     register_extracted_backend_services(services)
     register_backend_lifecycle_manager(services)
     register_backend_model_resolver(services)

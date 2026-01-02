@@ -105,5 +105,15 @@ class IServiceCollection(ABC):
         pass
 
     @abstractmethod
-    def build_service_provider(self) -> IServiceProvider:
-        pass
+    def build_service_provider(
+        self, run_post_build_hooks: bool = True
+    ) -> IServiceProvider:
+        """Build a service provider with the registered services.
+
+        Args:
+            run_post_build_hooks: If True (default), execute post-build hooks after provider creation.
+                If False, skip post-build hooks (useful for validation-only provider builds).
+
+        Returns:
+            A configured service provider
+        """

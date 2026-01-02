@@ -77,9 +77,6 @@ class BackendStage(InitializationStage):
                     f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
                 )
 
-            # Validate static_route backend early - fail fast if invalid
-            self._validate_static_route_backend(config)
-
             # Backend registrations are now handled by backend registrar
             # Register backend services via registrar
             from src.core.di.registrations import backend
@@ -232,7 +229,7 @@ class BackendStage(InitializationStage):
         functional_backends: list[str] = []
 
         # Get configured backends from the config
-        configured_backends = []
+        configured_backends: list[str] = []
         if config.backends.default_backend and config.backends.default_backend.strip():
             configured_backends.append(config.backends.default_backend)
 
@@ -480,10 +477,11 @@ class BackendStage(InitializationStage):
                                     TranslationService
                                 ),
                             )
-                        translation_service: (
-                            ITranslationService
-                        ) = services.build_service_provider().get_required_service(
-                            cast(type, ITranslationService)
+                        translation_service: ITranslationService = cast(
+                            ITranslationService,
+                            services.build_service_provider().get_required_service(
+                                cast(type, ITranslationService)
+                            ),
                         )
                     except Exception as e:
                         if logger.isEnabledFor(logging.WARNING):
@@ -734,26 +732,3 @@ class BackendStage(InitializationStage):
         # Clear the cleanup tasks set to prevent memory leaks
         # This ensures task references don't prevent garbage collection
         self._cleanup_tasks.clear()
-
-    def _validate_static_route_backend(self, config: AppConfig) -> None:
-        """Validate that static_route backend exists and is registered.
-
-        Raises:
-            ValueError: If static_route specifies an invalid backend name
-        """
-        if not config.backends.static_route:
-            return
-
-        static_backend = config.backends.static_route.split(":", 1)[0]
-        registered_backends = backend_registry.get_registered_backends()
-
-        if static_backend not in registered_backends:
-            available_backends = ", ".join(sorted(registered_backends))
-            raise ValueError(
-                f"Invalid backend '{static_backend}' specified in --static-route parameter.\n"
-                f"Backend '{static_backend}' is not registered.\n"
-                f"Available backends: {available_backends}\n"
-                f"Current static_route value: '{config.backends.static_route}'\n"
-                f"Expected format: <backend_name>:<model_name>\n"
-                f"Example: --static-route gemini-oauth-plan:gemini-2.5-pro"
-            )
