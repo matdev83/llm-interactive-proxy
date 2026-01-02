@@ -7,7 +7,6 @@ replacing production services with mocks and test doubles.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
@@ -753,7 +752,7 @@ class MockBackendStage(BaseTestBackendStage):
 
             # Get optional failover coordinator
             failover_coordinator: IFailoverCoordinator | None = None
-            with contextlib.suppress(Exception):
+            try:
                 from src.core.interfaces.failover_interface import (
                     IFailoverCoordinator,
                 )
@@ -761,13 +760,61 @@ class MockBackendStage(BaseTestBackendStage):
                 failover_coordinator = provider.get_service(
                     cast(type, IFailoverCoordinator)
                 )
+            except ImportError as e:
+                # Import errors: optional service interface not available
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failover coordinator service interface not available: %s",
+                        e,
+                        exc_info=True,
+                    )
+            except AttributeError as e:
+                # AttributeError: service method or type mismatch
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failover coordinator service attribute error: %s",
+                        e,
+                        exc_info=True,
+                    )
+            except Exception as e:
+                # Unexpected errors: log with full stack trace and continue with None
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error resolving failover coordinator service: %s",
+                        e,
+                        exc_info=True,
+                    )
 
             # Get wire capture service
             wire_capture: IWireCapture | None = None
-            with contextlib.suppress(Exception):
+            try:
                 from src.core.interfaces.wire_capture_interface import IWireCapture
 
                 wire_capture = provider.get_service(cast(type, IWireCapture))
+            except ImportError as e:
+                # Import errors: optional service interface not available
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Wire capture service interface not available: %s",
+                        e,
+                        exc_info=True,
+                    )
+            except AttributeError as e:
+                # AttributeError: service method or type mismatch
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Wire capture service attribute error: %s",
+                        e,
+                        exc_info=True,
+                    )
+            except Exception as e:
+                # Unexpected errors: log with full stack trace and continue with None
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error resolving wire capture service: %s",
+                        e,
+                        exc_info=True,
+                    )
 
             # Get required Phase 3 extracted services
             from src.core.interfaces.backend_completion_flow_interface import (

@@ -340,11 +340,34 @@ class ProcessorStage(InitializationStage):
             provider: IServiceProvider,
         ) -> RequestTransformPipeline:
             """Factory function for creating RequestTransformPipeline."""
-            import contextlib
 
             app_state: IApplicationState | None = None
-            with contextlib.suppress(Exception):
+            try:
                 app_state = provider.get_service(cast(type, IApplicationState))
+            except ImportError as e:
+                # Import errors: optional service not available
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "IApplicationState service not available: %s",
+                        e,
+                        exc_info=True,
+                    )
+            except AttributeError as e:
+                # AttributeError: service method or type mismatch
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "IApplicationState service attribute error: %s",
+                        e,
+                        exc_info=True,
+                    )
+            except Exception as e:
+                # Unexpected errors: log with full stack trace and continue with None
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Unexpected error resolving IApplicationState service: %s",
+                        e,
+                        exc_info=True,
+                    )
 
             return RequestTransformPipeline(app_state=app_state)
 
