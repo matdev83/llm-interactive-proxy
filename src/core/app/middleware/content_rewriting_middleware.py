@@ -1,10 +1,13 @@
 import json
+import logging
 from typing import Any
 
 from fastapi import HTTPException, Request
 from src.core.services.content_rewriter_service import ContentRewriterService
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response, StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 
 class ContentRewritingMiddleware(BaseHTTPMiddleware):
@@ -429,9 +432,20 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
 
                     scope_for_next_call["headers"] = headers
 
-            except json.JSONDecodeError:
-                # Not a JSON request, do nothing to the body
-                pass
+            except json.JSONDecodeError as _e:
+                # Not a JSON request, do nothing to body
+                # Log for debugging purposes but don't interfere with request processing
+                logger.debug(
+                    "Request body is not valid JSON; skipping content rewriting",
+                    exc_info=True,
+                    extra={
+                        "body_preview": (
+                            body_bytes[:200]
+                            if len(body_bytes) <= 200
+                            else body_bytes[:200] + b"..."
+                        )
+                    },
+                )
 
             # If body was consumed, we must create a new request
             async def receive():
@@ -510,7 +524,19 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                     response.body = new_body
                     response.headers["content-length"] = str(len(new_body))
 
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as _e:
+                # Not a JSON response, do nothing to response
+                # Log for debugging purposes but don't interfere with response processing
+                logger.debug(
+                    "Response body is not valid JSON; skipping content rewriting",
+                    exc_info=True,
+                    extra={
+                        "response_preview": (
+                            response_body[:200]
+                            if len(response_body) <= 200
+                            else response_body[:200] + b"..."
+                        )
+                    },
+                )
 
         return response

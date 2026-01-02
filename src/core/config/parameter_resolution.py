@@ -212,11 +212,19 @@ def _mask_value(value: Any) -> Any:
 
 
 def _value_repr(value: Any) -> str:
+    _logger = logging.getLogger(__name__)
     try:
         if isinstance(value, dict | list):
             return json.dumps(value, sort_keys=True)
-    except TypeError:
-        pass
+    except TypeError as _e:
+        # Type error during JSON serialization - fall back to repr
+        # Log for debugging purposes to help identify non-serializable values
+        if _logger.isEnabledFor(logging.DEBUG):
+            _logger.debug(
+                "Failed to JSON-serialize value for representation; falling back to repr",
+                exc_info=True,
+                extra={"value_type": type(value).__name__},
+            )
     return repr(value)
 
 

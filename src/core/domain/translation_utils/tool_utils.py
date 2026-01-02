@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from src.core.domain.chat import FunctionCall, ToolCall
@@ -8,6 +9,8 @@ from src.core.domain.translation_utils.json_utils import (
     _sanitize_dict_for_json,
     _sanitize_list_for_json,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_tool_arguments(args: Any) -> str:
@@ -23,14 +26,40 @@ def _normalize_tool_arguments(args: Any) -> str:
         try:
             json.loads(stripped)
             return stripped
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as _e:
+            # Invalid JSON - try to fix common issues
+            # Log for debugging to help identify problematic tool argument patterns
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Tool arguments string is not valid JSON; attempting repair",
+                    exc_info=True,
+                    extra={
+                        "args_preview": (
+                            stripped[:200]
+                            if len(stripped) <= 200
+                            else stripped[:200] + "..."
+                        )
+                    },
+                )
 
         try:
             fixed_string = stripped.replace("'", '"')
             json.loads(fixed_string)
             return fixed_string
-        except (json.JSONDecodeError, TypeError):
+        except (json.JSONDecodeError, TypeError) as _e:
+            # Unfixable JSON - return empty object
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Tool arguments string cannot be repaired; returning empty object",
+                    exc_info=True,
+                    extra={
+                        "args_preview": (
+                            stripped[:200]
+                            if len(stripped) <= 200
+                            else stripped[:200] + "..."
+                        )
+                    },
+                )
             return "{}"
 
     if isinstance(args, dict):
