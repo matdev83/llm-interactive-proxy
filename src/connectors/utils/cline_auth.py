@@ -615,6 +615,9 @@ class ClineAuthMixin:
             try:
                 return float(fallback)
             except (TypeError, ValueError):
+                logger.debug(
+                    "Unable to parse expiresAt fallback value '%s'", fallback
+                )
                 return None
 
         return None

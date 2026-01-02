@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from src.core.domain.chat import (
@@ -10,6 +11,8 @@ from src.core.domain.chat import (
     FunctionCall,
     ToolCall,
 )
+
+logger = logging.getLogger(__name__)
 from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
 from src.core.domain.translation_utils.tool_utils import _normalize_tool_arguments
 from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
@@ -223,8 +226,13 @@ def from_domain_to_responses_response(response: ChatResponse) -> dict[str, Any]:
                             potential_json = json_match.group(0)
                             parsed_content = json.loads(potential_json)
                             raw_content = potential_json
-                    except (json.JSONDecodeError, AttributeError):
-                        pass
+                    except (json.JSONDecodeError, AttributeError) as e:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to parse JSON from content in Responses API translation: %s",
+                                e,
+                                exc_info=True,
+                            )
 
             message_payload: dict[str, Any] = {
                 "role": choice.message.role,

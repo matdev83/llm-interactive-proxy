@@ -444,14 +444,22 @@ class AnthropicOAuthBackend(AnthropicBackend):
                         return True
                 except OSError:
                     # If we fail to stat, attempt to read anyway
-                    pass
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to stat credential file during cache check, proceeding to load",
+                            exc_info=True,
+                        )
 
             # Update last modified time
             try:
                 mtime = creds_path.stat().st_mtime
                 self._last_modified = mtime
             except OSError:
-                pass
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to update credential file modification time, proceeding with load",
+                        exc_info=True,
+                    )
 
             def _read_sync():
                 with open(creds_path, encoding="utf-8") as f:
