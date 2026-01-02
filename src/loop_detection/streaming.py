@@ -59,7 +59,7 @@ def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
                 i += max(1, repeats * size - size + 1)
         return (None, 0)
     except IndexError as e:
-        logger.debug("Error during simple repetition detection: %s", e)
+        logger.debug("Error during simple repetition detection: %s", e, exc_info=True)
         return (None, 0)
 
 
