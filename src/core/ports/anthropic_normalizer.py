@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 from src.core.domain.streaming.sentinels import SentinelManager
@@ -18,6 +19,23 @@ from src.core.ports.streaming.normalizer_base import BaseStreamNormalizer
 from src.core.services.streaming.error_mapping import handle_streaming_error
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class SSEEvent:
+    """A single Server-Sent Event (SSE) parsed from Anthropic stream.
+
+    Provides a strongly-typed alternative to tuple[str, dict[str, Any]] for
+    SSE event data.
+
+    Attributes:
+        event_type: The event type name (e.g., "message_start", "content_block_delta",
+                    "content_block_stop", "error", "ping", "message_stop").
+        event_data: The event data as a parsed JSON object.
+    """
+
+    event_type: str
+    event_data: dict[str, Any]
 
 
 class AnthropicStreamNormalizer(BaseStreamNormalizer):
@@ -70,7 +88,9 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                     continue
 
                 # Parse SSE events
-                for event_type, event_data in self._parse_sse_events(chunk_str):
+                for event in self._parse_sse_events(chunk_str):
+                    event_type = event.event_type
+                    event_data = event.event_data
                     # Handle different event types
                     if event_type == "message_start":
                         # Extract message metadata
@@ -267,7 +287,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
             error_chunk = await handle_streaming_error(e, stream_id, self.provider)
             yield error_chunk
 
-    def _parse_sse_events(self, sse_data: str) -> list[tuple[str, dict[str, Any]]]:
+    def _parse_sse_events(self, sse_data: str) -> list[SSEEvent]:
         """Parse Anthropic SSE format data into events.
 
         Anthropic uses event-based SSE format:
@@ -278,9 +298,9 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
             sse_data: Raw SSE data string
 
         Returns:
-            List of (event_type, event_data) tuples
+            List of SSEEvent objects.
         """
-        events: list[tuple[str, dict[str, Any]]] = []
+        events: list[SSEEvent] = []
 
         # Split by double newline to get individual events
         raw_events = sse_data.split("\n\n")
@@ -315,7 +335,9 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
 
                 try:
                     event_data = json.loads(data_str)
-                    events.append((event_type, event_data))
+                    events.append(
+                        SSEEvent(event_type=event_type, event_data=event_data)
+                    )
                 except json.JSONDecodeError as e:
                     logger.warning(
                         "Failed to parse Anthropic event data as JSON",
