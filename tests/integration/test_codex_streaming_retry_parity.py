@@ -26,7 +26,7 @@ from src.core.domain.validation import ValidationResult
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.translation_service import TranslationService
 
-from tests.unit.connectors.openai_codex.test_helpers import (
+from tests.unit.connectors.openai_codex.test_openai_codex_helpers import (
     create_mock_credential_manager,
     create_mock_settings_loader,
 )

@@ -357,3 +357,86 @@ class TestValidationHttpClientManagerCleanup:
             # Client should be closed (implementation may track closure state)
             # Verify cleanup doesn't raise exceptions on repeated calls
             assert True, "Cleanup should be idempotent"
+
+
+class TestValidationHttpClientManagerDisposal:
+    """Tests for dispose() method integration with DI disposal (Fix 1)."""
+
+    @pytest.mark.asyncio
+    async def test_dispose_calls_cleanup(self) -> None:
+        """Test that dispose() method calls cleanup()."""
+        manager = ValidationHttpClientManager()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = MagicMock(spec=httpx.AsyncClient)
+            mock_client.is_closed = False
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            # Create client
+            manager.get_or_create_client()
+
+            # Call dispose
+            await manager.dispose()
+
+            # Verify cleanup was called (client should be closed)
+            mock_client.aclose.assert_called_once()
+            assert manager._client is None
+
+    @pytest.mark.asyncio
+    async def test_dispose_is_idempotent(self) -> None:
+        """Test that dispose() can be called multiple times safely."""
+        manager = ValidationHttpClientManager()
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = MagicMock(spec=httpx.AsyncClient)
+            mock_client.is_closed = False
+            mock_client.aclose = AsyncMock()
+            mock_client_class.return_value = mock_client
+
+            # Create client
+            manager.get_or_create_client()
+
+            # Call dispose multiple times - should be safe
+            await manager.dispose()
+            await manager.dispose()
+            await manager.dispose()
+
+            # Verify cleanup was only called once (first time)
+            assert mock_client.aclose.call_count == 1
+            assert manager._client is None
+
+    @pytest.mark.asyncio
+    async def test_provider_disposal_triggers_manager_cleanup(self) -> None:
+        """Test that disposing a provider that created the manager triggers cleanup."""
+        from src.core.di.container import ServiceCollection
+        from src.core.di.registrations._backend.validation import (
+            register_backend_validation_services,
+        )
+
+        services = ServiceCollection()
+        register_backend_validation_services(services)
+
+        provider = services.build_service_provider()
+
+        # Resolve manager from provider
+        manager = provider.get_required_service(ValidationHttpClientManager)
+
+        # Create a client
+        client = manager.get_or_create_client()
+        assert client is not None
+        assert manager._client is client
+
+        # Add a cleanup task to verify it's cleared
+        test_task = asyncio.create_task(asyncio.sleep(0.01))
+        await test_task
+        manager._cleanup_tasks.add(test_task)
+
+        # Dispose provider - this should trigger manager.dispose()
+        await provider.dispose()
+
+        # Verify manager was cleaned up
+        assert manager._client is None, "Manager client should be None after disposal"
+        assert (
+            len(manager._cleanup_tasks) == 0
+        ), "Manager cleanup tasks should be cleared after disposal"

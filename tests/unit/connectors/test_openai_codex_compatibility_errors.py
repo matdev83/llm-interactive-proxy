@@ -273,13 +273,13 @@ class TestLogTranslationError:
 
         mock_logger = MagicMock(spec=logging.Logger)
 
-        log_translation_error(error, mock_logger, include_stack_trace=True)
+        log_translation_error(error, mock_logger)
 
         call_args = mock_logger.error.call_args
         assert call_args[1]["exc_info"] is True
 
-    def test_log_translation_error_without_stack_trace(self):
-        """Test error logging without stack trace."""
+    def test_log_translation_error_always_includes_stack_trace(self):
+        """Test that error logging always includes stack trace."""
         error = TranslationError(
             message="Test error",
             tool_name="test_tool",
@@ -288,10 +288,10 @@ class TestLogTranslationError:
 
         mock_logger = MagicMock(spec=logging.Logger)
 
-        log_translation_error(error, mock_logger, include_stack_trace=False)
+        log_translation_error(error, mock_logger)
 
         call_args = mock_logger.error.call_args
-        assert call_args[1]["exc_info"] is False
+        assert call_args[1]["exc_info"] is True
 
 
 class TestErrorCreationHelpers:

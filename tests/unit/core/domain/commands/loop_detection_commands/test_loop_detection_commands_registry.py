@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
-
 import src.core.domain.commands.loop_detection_commands as registry_module
 
 COMMAND_NAMES: list[str] = [

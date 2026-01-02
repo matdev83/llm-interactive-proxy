@@ -58,21 +58,15 @@ def register_backend_validation_services(services: ServiceCollection) -> None:
     def _backend_validation_service_factory(
         provider: IServiceProvider,
     ) -> BackendValidationService:
-        from src.core.services.backend_factory import BackendFactory
+        # Always resolve IBackendFactory from DI - fail fast if not registered (Req 2.10)
+        backend_factory: IBackendFactory = cast(
+            IBackendFactory,
+            provider.get_required_service(cast(type, IBackendFactory)),
+        )
 
-        # Try to resolve IBackendFactory first, fallback to BackendFactory if not registered
-        try:
-            backend_factory: IBackendFactory = cast(
-                IBackendFactory,
-                provider.get_required_service(cast(type, IBackendFactory)),
-            )
-        except (RuntimeError, ValueError, TypeError, AttributeError, KeyError):
-            # IBackendFactory not registered, use BackendFactory directly
-            backend_factory = cast(
-                IBackendFactory, provider.get_required_service(BackendFactory)
-            )
-
-        backend_registry: BackendRegistry = provider.get_required_service(BackendRegistry)
+        backend_registry: BackendRegistry = provider.get_required_service(
+            BackendRegistry
+        )
         http_client_manager: IHttpClientManager = cast(
             IHttpClientManager,
             provider.get_required_service(cast(type, IHttpClientManager)),

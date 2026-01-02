@@ -39,7 +39,9 @@ class TestSettingsLoader:
         """Test loading settings with default values."""
         settings = loader.load(app_config)
 
-        assert settings.default_capabilities == CodexClientCapabilities()
+        assert settings.default_capabilities == CodexClientCapabilities(
+            tool_schema_mode="custom_only"
+        )
         assert settings.agent_overrides == {}
         assert settings.renderer["default"] == "none"
         assert settings.renderer["fallback"] == "summary"
@@ -190,7 +192,9 @@ class TestSettingsLoader:
         ):
             settings = loader.load(app_config)
             # Should fall back to defaults
-            assert settings.default_capabilities == CodexClientCapabilities()
+            assert settings.default_capabilities == CodexClientCapabilities(
+                tool_schema_mode="custom_only"
+            )
 
     def test_invalid_tool_schema_filtered(self, loader, app_config):
         """Test that invalid tool schemas are filtered out."""

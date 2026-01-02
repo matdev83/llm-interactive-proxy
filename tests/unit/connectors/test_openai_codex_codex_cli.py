@@ -1000,7 +1000,7 @@ def test_resolve_capabilities_from_extra_body(
     assert capabilities.codex_passthrough is True
     # Fields not overridden should keep defaults
     assert capabilities.prompt_mode == CodexClientCapabilities().prompt_mode
-    assert capabilities.tool_schema_mode == CodexClientCapabilities().tool_schema_mode
+    assert capabilities.tool_schema_mode == "custom_only"
     # Explicit override respected
     assert capabilities.tool_text_format == "none"
 

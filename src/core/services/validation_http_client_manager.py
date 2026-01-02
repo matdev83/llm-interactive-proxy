@@ -204,3 +204,14 @@ class ValidationHttpClientManager:
         self._cleanup_tasks.clear()
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Cleared cleanup task references")
+
+    async def dispose(self) -> None:
+        """Dispose of the manager and clean up resources.
+
+        This method is called by DI container disposal and delegates to cleanup().
+        It is idempotent and can be called multiple times safely.
+
+        This method ensures that ValidationHttpClientManager resources are properly
+        cleaned up when the ServiceProvider is disposed, preventing resource leaks.
+        """
+        await self.cleanup()

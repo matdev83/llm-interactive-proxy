@@ -197,14 +197,12 @@ def _get_error_suggestions(error: TranslationError) -> list[str]:
 def log_translation_error(
     error: TranslationError,
     logger_instance: logging.Logger | None = None,
-    include_stack_trace: bool = True,
 ) -> None:
     """Log translation error with full context.
 
     Args:
         error: The translation error to log
         logger_instance: Logger to use (defaults to module logger)
-        include_stack_trace: Whether to include stack trace
     """
     log = logger_instance or logger
 
@@ -224,7 +222,7 @@ def log_translation_error(
         str(error),
         error.tool_name,
         error.session_id or "unknown",
-        exc_info=include_stack_trace,
+        exc_info=True,
         extra=extra,
     )
 

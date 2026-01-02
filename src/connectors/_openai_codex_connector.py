@@ -692,6 +692,8 @@ class OpenAICodexConnector(OpenAIConnector):
         """Render custom instruction sections into a Codex <user_instructions> block."""
         sanitized_sections: list[str] = []
         for section in sections:
+            if section is None:
+                continue
             normalized = section.strip()
             if not normalized:
                 continue
@@ -1566,7 +1568,8 @@ class OpenAICodexConnector(OpenAIConnector):
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 logger.warning(
-                    "Cannot schedule credentials reload: no running event loop available."
+                    "Cannot schedule credentials reload: no running event loop available.",
+                    exc_info=True,
                 )
                 self._reload_scheduling_event.clear()
                 return

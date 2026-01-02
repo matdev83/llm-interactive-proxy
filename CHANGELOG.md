@@ -51,3 +51,4 @@ All notable changes to this project will be documented in this file.
 - **Backend Refactoring**: Refactored backend stage with improved validation services and connector strategies
 - **Dependency Injection**: Enhanced DI container with improved provider lifecycle management and post-build actions
 - **Validation Services**: Added backend validation service with HTTP client manager for improved backend initialization
+- **Application Builder**: Enhanced application builder with improved validation lifecycle and backend factory integration

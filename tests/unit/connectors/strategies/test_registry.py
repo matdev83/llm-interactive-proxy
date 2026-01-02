@@ -307,3 +307,44 @@ class TestInitializationStrategyRegistry:
         assert len(errors) == 0
         assert len(results) == 10
         assert len(set(results)) == 10  # All unique connector types
+
+
+class TestStrategyAutoDiscovery:
+    """Tests for automatic strategy discovery (Fix 4)."""
+
+    def test_importing_registry_auto_discovers_strategies(self) -> None:
+        """Test that importing registry.py automatically discovers and registers strategies."""
+        # The registry auto-discovers strategies when imported.
+        # Verify that known strategies are registered (they may already be registered
+        # from previous imports, which is fine - we just verify they exist)
+        from src.connectors.strategies.registry import (
+            initialization_strategy_registry,
+        )
+
+        # Verify that known strategies are registered (not default strategy)
+        # We check by getting the strategy and verifying it's not the default
+        gemini_strategy = initialization_strategy_registry.get_strategy("gemini")
+        anthropic_strategy = initialization_strategy_registry.get_strategy("anthropic")
+        openrouter_strategy = initialization_strategy_registry.get_strategy(
+            "openrouter"
+        )
+
+        # Verify strategies augment config (default strategy just returns copy)
+        test_config = {"api_key": "test-key"}
+
+        gemini_result = gemini_strategy.augment_init_config(test_config.copy())
+        assert "key_name" in gemini_result
+        assert gemini_result["key_name"] == "gemini"
+
+        anthropic_result = anthropic_strategy.augment_init_config(test_config.copy())
+        assert "key_name" in anthropic_result
+        assert anthropic_result["key_name"] == "anthropic"
+
+        openrouter_result = openrouter_strategy.augment_init_config(test_config.copy())
+        assert "key_name" in openrouter_result
+        assert openrouter_result["key_name"] == "openrouter"
+
+        # Verify unknown strategy still returns default
+        unknown_strategy = initialization_strategy_registry.get_strategy("unknown")
+        unknown_result = unknown_strategy.augment_init_config(test_config.copy())
+        assert unknown_result == test_config  # Default strategy returns copy

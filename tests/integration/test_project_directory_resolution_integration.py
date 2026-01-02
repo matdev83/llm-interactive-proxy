@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from src.core.domain.chat import ChatMessage, ChatRequest
 
-from tests.integration.test_helpers import (
+from tests.integration.test_integration_helpers import (
     create_test_config,
     get_session_service,
     get_test_client,

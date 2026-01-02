@@ -386,3 +386,53 @@ async def test_ensure_backend_preserves_exception_context_from_strategy(
         pytest.raises(ValueError, match="Strategy error"),
     ):
         await factory.ensure_backend(backend_type, app_config, backend_config)
+
+
+class TestBackendFactoryLogRedaction:
+    """Tests for API key redaction in logs (Fix 5)."""
+
+    @pytest.mark.asyncio
+    async def test_logs_do_not_contain_raw_api_key(
+        self, factory: BackendFactory, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that INFO logs do not contain raw API key strings."""
+        import logging
+
+        from src.core.config.app_config import AppConfig
+
+        backend_type = "test-backend"
+        app_config = AppConfig()
+        backend_config = BackendConfig(
+            api_key="secret-api-key-12345",
+            api_base_url="https://api.example.com",
+        )
+
+        # Mock the backend creation and initialization
+        mock_backend = MagicMock()
+        mock_backend.initialize = AsyncMock()
+        mock_backend.instance_name = "test-backend"
+
+        with (
+            patch.object(factory, "create_backend", return_value=mock_backend),
+            patch.object(factory, "initialize_backend", new_callable=AsyncMock),
+            caplog.at_level(logging.INFO),
+        ):
+            await factory.ensure_backend(
+                backend_type=backend_type,
+                app_config=app_config,
+                backend_config=backend_config,
+            )
+
+        # Verify that no log line contains the raw API key
+        log_text = caplog.text
+        assert (
+            "secret-api-key-12345" not in log_text
+        ), "Logs should not contain raw API key"
+
+        # Verify that logs still contain useful information
+        assert (
+            "test-backend" in log_text or "Factory initializing" in log_text
+        ), "Logs should contain backend name"
+
+        # Verify that redacted value appears in logs
+        assert "[REDACTED]" in log_text, "Logs should contain redacted indicator"

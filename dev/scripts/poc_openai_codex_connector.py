@@ -199,20 +199,19 @@ async def _run() -> int:
             messages.append(ChatMessage(role="system", content=args.system.strip()))
         messages.append(ChatMessage(role="user", content=str(args.message)))
 
+        extra_body: dict[str, Any] | None = None
+        if isinstance(args.prompt_mode, str) and args.prompt_mode.strip():
+            extra_body = {
+                "codex_capabilities": {"prompt_mode": args.prompt_mode.strip()},
+            }
+
         request = ChatRequest(
             model=effective_model,
             messages=messages,
             stream=bool(args.stream),
             session_id=f"poc-{uuid.uuid4().hex[:12]}",
+            extra_body=extra_body,
         )
-        if isinstance(args.prompt_mode, str) and args.prompt_mode.strip():
-            request.extra_body = {
-                **(request.extra_body or {}),
-                "codex_capabilities": {
-                    **(request.extra_body or {}).get("codex_capabilities", {}),
-                    "prompt_mode": args.prompt_mode.strip(),
-                },
-            }
 
         result = await connector.chat_completions(
             request_data=request,

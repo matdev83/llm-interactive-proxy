@@ -23,6 +23,38 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _redact_sensitive_config_values(config: dict[str, Any]) -> dict[str, Any]:
+    """Redact sensitive values from config dictionary for safe logging.
+
+    Args:
+        config: The configuration dictionary to redact.
+
+    Returns:
+        A new dictionary with sensitive values redacted (replaced with "[REDACTED]").
+    """
+    sensitive_keys = {
+        "api_key",
+        "api_key_path",
+        "credential_path",
+        "headers_provider",  # Callables may contain sensitive logic
+    }
+
+    redacted: dict[str, Any] = {}
+    for key, value in config.items():
+        if key in sensitive_keys:
+            redacted[key] = "[REDACTED]"
+        elif isinstance(value, dict):
+            # Recursively redact nested dictionaries
+            redacted[key] = _redact_sensitive_config_values(value)
+        elif callable(value):
+            # Redact callables (e.g., header providers)
+            redacted[key] = f"<{type(value).__name__} [REDACTED]>"
+        else:
+            redacted[key] = value
+
+    return redacted
+
+
 class BackendFactory(IBackendFactory):
     """Factory for creating LLM backends.
 
@@ -206,8 +238,10 @@ class BackendFactory(IBackendFactory):
         init_config = strategy.augment_init_config(init_config)
 
         if logger.isEnabledFor(logging.INFO):
+            # Redact sensitive values from config for logging
+            redacted_config = _redact_sensitive_config_values(init_config)
             logger.info(
-                f"Factory initializing backend {backend_type} (connector={connector_type}) with {init_config}"
+                f"Factory initializing backend {backend_type} (connector={connector_type}) with {redacted_config}"
             )
 
         # Step 1: Create the backend instance using connector type

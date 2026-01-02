@@ -11,13 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest  # type: ignore[reportUnusedImport]
-
 from src.connectors.strategies.example_backend import (
     ExampleBackendInitializationStrategy,
 )
 from src.connectors.strategies.registry import (
-    DefaultInitializationStrategy,  # type: ignore[reportUnusedImport]
     initialization_strategy_registry,
 )
 

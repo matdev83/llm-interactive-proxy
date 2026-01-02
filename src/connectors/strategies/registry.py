@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
+import pkgutil
 import threading
 from typing import Any, cast
 
@@ -12,6 +14,46 @@ from src.core.interfaces.backend_initialization_strategy_interface import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _auto_discover_strategies() -> None:
+    """Auto-discover and import all strategy modules in this package.
+
+    This function is called when the registry module is imported to ensure
+    all strategy modules are loaded and their strategies are registered.
+    Excludes registry.py, __init__.py, and modules starting with _.
+    """
+    package = __package__
+    if package is None:
+        return
+
+    # Get the package path
+    try:
+        package_path = __import__(package, fromlist=[""]).__path__  # type: ignore[attr-defined]
+    except (ImportError, AttributeError):
+        return
+
+    # Discover and import all modules in the strategies package
+    for _importer, modname, _ispkg in pkgutil.iter_modules(package_path):
+        # Skip registry.py, __init__.py, and private modules (starting with _)
+        if modname in ("registry", "__init__") or modname.startswith("_"):
+            continue
+
+        # Import the module to trigger its registration code
+        try:
+            full_module_name = f"{package}.{modname}"
+            importlib.import_module(full_module_name)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Auto-discovered and imported strategy module: {full_module_name}"
+                )
+        except Exception as e:
+            # Log but don't fail - some modules might not be strategies
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Failed to import strategy module {modname}: {e}",
+                    exc_info=True,
+                )
 
 
 class DefaultInitializationStrategy:
@@ -93,7 +135,9 @@ class _ExceptionWrappingStrategy:
                 # Re-raise with updated message and details
                 # Note: status_code is handled by the exception class itself (e.g., ConfigurationError sets status_code=400)
                 # Type checker needs help understanding that type(e) is a subclass of LLMProxyError here
-                exc_type_llm: type[LLMProxyError] = cast(type[LLMProxyError], type(e))  # pyright: ignore[reportUnnecessaryCast]
+                exc_type_llm: type[LLMProxyError] = cast(
+                    type[LLMProxyError], type(e)
+                )  # pyright: ignore[reportUnnecessaryCast]
                 raise exc_type_llm(error_msg, details=details, **kwargs) from e
             # Preserve common built-in exception types
             elif isinstance(e, ValueError | TypeError | KeyError):
@@ -175,4 +219,10 @@ class InitializationStrategyRegistry:
 
 
 # Global instance of the registry
+# Must be created BEFORE _auto_discover_strategies() is called so that
+# strategy modules can import initialization_strategy_registry during auto-discovery
 initialization_strategy_registry = InitializationStrategyRegistry()
+
+# Auto-discover strategies when this module is imported
+# This must happen AFTER initialization_strategy_registry is created
+_auto_discover_strategies()

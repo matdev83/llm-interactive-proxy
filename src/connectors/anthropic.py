@@ -585,6 +585,7 @@ class AnthropicBackend(LLMBackend):
                                         logger.warning(
                                             "Invalid data URI format: %s",
                                             url[:50],
+                                            exc_info=True,
                                             extra=(
                                                 log_extra_payload
                                                 if log_extra_payload

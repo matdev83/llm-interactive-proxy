@@ -9,21 +9,22 @@ Requirements: 10.1, 10.2, 10.3
 
 from __future__ import annotations
 
+import contextlib
 import time
 from typing import Any
 from unittest.mock import MagicMock
 
 import httpx
 import pytest
+from src.connectors.strategies.registry import initialization_strategy_registry
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
-from src.core.config.models import LogLevel, LoggingConfig, SessionConfig
+from src.core.config.models import LoggingConfig, LogLevel, SessionConfig
 from src.core.interfaces.http_client_manager_interface import IHttpClientManager
+from src.core.interfaces.translation_service_interface import ITranslationService
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import BackendRegistry
 from src.core.services.backend_validation_service import BackendValidationService
-from src.connectors.strategies.registry import initialization_strategy_registry
-from src.core.interfaces.translation_service_interface import ITranslationService
 
 
 @pytest.fixture
@@ -121,11 +122,8 @@ async def test_startup_time_benchmark(minimal_app_config: AppConfig):
     # Warm-up iterations to stabilize JIT/caching
     for _ in range(warmup_iterations):
         builder = ApplicationBuilder().add_default_stages()
-        try:
+        with contextlib.suppress(Exception):
             await builder.build(minimal_app_config)
-        except Exception:
-            # Ignore warm-up failures
-            pass
 
     # Measure startup time over iterations
     for i in range(iterations):
@@ -198,11 +196,8 @@ async def test_validation_duration_benchmark(
 
     # Warm-up iterations
     for _ in range(warmup_iterations):
-        try:
+        with contextlib.suppress(Exception):
             await backend_validation_service.validate_all(minimal_app_config)
-        except Exception:
-            # Ignore warm-up failures
-            pass
 
     # Measure validation duration over iterations
     for i in range(iterations):
@@ -277,10 +272,8 @@ def test_strategy_augmentation_overhead_benchmark():
 
         # Warm-up iterations
         for _ in range(warmup_iterations):
-            try:
+            with contextlib.suppress(Exception):
                 strategy.augment_init_config(init_config.copy())
-            except Exception:
-                pass
 
         # Measure strategy overhead
         durations: list[float] = []

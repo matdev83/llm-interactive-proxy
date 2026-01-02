@@ -318,11 +318,14 @@ class ApplicationBuilder:
 
         # Replace DI-registered AppConfig and IConfig with runtime config instance
         # This ensures validation services see the same config that the builder was given
-        from src.core.di.registration_helpers.core_foundational import (
-            register_app_config,
-        )
+        # Use add_instance to actually replace (not register_singleton_if_absent which won't override)
+        from typing import cast
 
-        register_app_config(self._services, config)
+        from src.core.config.app_config import AppConfig
+        from src.core.interfaces.configuration_interface import IConfig
+
+        self._services.add_instance(AppConfig, config)
+        self._services.add_instance(cast(type, IConfig), config)
 
         # Validate stages before execution
         await self.validate_stages(config)
