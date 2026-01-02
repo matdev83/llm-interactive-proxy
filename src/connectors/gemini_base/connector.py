@@ -2473,15 +2473,16 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 f"Model {model} recovery probe failed with backend error: {error}"
             )
             if self._is_rate_limit_like_error(error):
-                logger.info(log_message)
+                logger.info(log_message, exc_info=True)
             else:
-                logger.warning(log_message)
+                logger.warning(log_message, exc_info=True)
         except Exception as exc:  # pragma: no cover - defensive logging path
             state.probe_success_count = 0
             logger.warning(
                 "Model %s recovery probe encountered unexpected error: %s",
                 model,
                 exc,
+                exc_info=True,
             )
 
         return False
@@ -2556,6 +2557,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     logger.warning(
                         "Error in recovery probing loop: %s",
                         e,
+                        exc_info=True,
                     )
 
     @abc.abstractmethod
