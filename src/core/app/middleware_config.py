@@ -395,6 +395,6 @@ def register_custom_middleware(app: FastAPI, *args: Any, **kwargs: Any) -> None:
     except Exception as e:
         if logger.isEnabledFor(logging.ERROR):
             logger.error(
-                f"Failed to register custom middleware: {middleware_class.__name__}",
-                exc_info=e,
+                f"Failed to register custom middleware: {middleware_class.__name__}: {e}",
+                exc_info=True,
             )
