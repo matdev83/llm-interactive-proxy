@@ -1246,7 +1246,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             data = response.json()
         except Exception as exc:
             logger.warning(
-                "Failed to decode fetchAvailableModels response from %s: %s", url, exc
+                "Failed to decode fetchAvailableModels response from %s: %s", url, exc,
+                exc_info=True
             )
             return
 
@@ -1827,6 +1828,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             logger.warning(
                 "Token refresh timed out after %.1fs; will propagate auth error",
                 AUTH_RETRY_TIMEOUT,
+                exc_info=True,
             )
             return False
         except Exception as refresh_error:
@@ -1974,6 +1976,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     e,
                     getattr(e, "status_code", None),
                     getattr(e, "code", None),
+                    exc_info=True,
                 )
             raise
         except InvalidRequestError as e:
