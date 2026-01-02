@@ -1177,13 +1177,19 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         except sqlite3.Error as exc:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Unable to read Antigravity state database at %s: %s", db_path, exc
+                    "Unable to read Antigravity state database at %s: %s",
+                    db_path,
+                    exc,
+                    exc_info=True,
                 )
             return None
         except Exception as exc:  # pragma: no cover - defensive guardrail
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Unexpected error reading Antigravity state db %s: %s", db_path, exc, exc_info=True
+                    "Unexpected error reading Antigravity state db %s: %s",
+                    db_path,
+                    exc,
+                    exc_info=True,
                 )
             return None
 
@@ -1234,7 +1240,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 except (ValueError, TypeError) as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            f"Failed to create AntigravityAuthStatus from dict: {e}"
+                            "Failed to create AntigravityAuthStatus from dict: %s",
+                            e,
+                            exc_info=True,
                         )
                     return None
 

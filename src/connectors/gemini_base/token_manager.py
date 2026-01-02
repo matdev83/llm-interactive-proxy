@@ -162,7 +162,8 @@ class TokenManager:
         except FileNotFoundError:
             self._last_cli_refresh_attempt = now
             logger.error(
-                "Gemini CLI binary not found; cannot refresh OAuth token automatically."
+                "Gemini CLI binary not found; cannot refresh OAuth token automatically.",
+                exc_info=True,
             )
         except Exception as exc:  # pragma: no cover - defensive logging
             self._last_cli_refresh_attempt = now
