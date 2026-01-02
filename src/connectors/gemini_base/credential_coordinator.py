@@ -335,7 +335,10 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
                         "Credentials file reload completed but token is still invalid"
                     )
             else:
-                logger.error("Failed to reload credentials after file change")
+                logger.error(
+                    "Failed to reload credentials after file change",
+                    exc_info=True,
+                )
 
         except Exception as e:
             logger.error(f"Error handling credentials file change: {e}", exc_info=True)

@@ -355,11 +355,17 @@ class AntigravitySQLiteCredentialProvider:
             except Exception as exc:
                 errors.append(f"Unexpected error reading {path}: {exc}")
                 logger.warning(
-                    "Error loading Antigravity credentials from %s: %s", path, exc, exc_info=True
+                    "Error loading Antigravity credentials from %s: %s",
+                    path,
+                    exc,
+                    exc_info=True,
                 )
 
         if errors and logger.isEnabledFor(logging.ERROR):
-            logger.error(f"Failed to load Antigravity credentials. Errors: {errors}")
+            logger.error(
+                f"Failed to load Antigravity credentials. Errors: {errors}",
+                exc_info=True,
+            )
         return None
 
     def get_fingerprint(self) -> str | None:

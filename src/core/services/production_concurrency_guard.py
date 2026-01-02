@@ -174,7 +174,8 @@ class CircuitBreaker:
             if self.failure_count >= self.config.failure_threshold:
                 self.state = CircuitBreakerState.OPEN
                 logger.error(
-                    f"Circuit breaker {self.name} opened after {self.failure_count} failures"
+                    f"Circuit breaker {self.name} opened after {self.failure_count} failures",
+                    exc_info=True,
                 )
 
 
