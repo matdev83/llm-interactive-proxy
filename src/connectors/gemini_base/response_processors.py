@@ -318,7 +318,7 @@ class XmlToolCallPostProcessor:
                         )
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to parse XML tool call: %s", e)
+                logger.warning("Failed to parse XML tool call: %s", e, exc_info=True)
 
         return tool_calls
 

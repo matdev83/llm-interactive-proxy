@@ -73,7 +73,10 @@ class ApiModelDiscovery:
             response = await client.get(url, headers=headers, timeout=15.0)
         except Exception as exc:
             logger.warning(
-                "Failed to reach fetchAvailableModels endpoint %s: %s", url, exc
+                "Failed to reach fetchAvailableModels endpoint %s: %s",
+                url,
+                exc,
+                exc_info=True,
             )
             return self.get_fallback_models()
 
@@ -97,7 +100,9 @@ class ApiModelDiscovery:
                 )
                 return models
         except Exception as exc:
-            logger.warning("Failed to parse fetchAvailableModels response: %s", exc)
+            logger.warning(
+                "Failed to parse fetchAvailableModels response: %s", exc, exc_info=True
+            )
 
         return self.get_fallback_models()
 
