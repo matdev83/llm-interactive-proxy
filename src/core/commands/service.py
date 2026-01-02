@@ -91,7 +91,14 @@ class NewCommandService(ICommandService):
             )
             if resolved_prefix:
                 self.command_parser.command_prefix = resolved_prefix
-        except Exception as exc:  # pragma: no cover - defensive
+        except (
+            AttributeError,
+            ValueError,
+            TypeError,
+            RuntimeError,
+        ) as exc:  # pragma: no cover - defensive
+            # Expected exceptions from command policy service during prefix resolution
+            # Use default prefix if resolution fails (backward compatible)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Failed to resolve initial command prefix, using default: %s",

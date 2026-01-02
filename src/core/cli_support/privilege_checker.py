@@ -131,8 +131,9 @@ class PrivilegeChecker:
             else:
                 # Windows systems
                 return self._is_admin_windows()
-        except Exception as e:
-            # Safe default when detection fails
+        except (AttributeError, OSError, RuntimeError) as e:
+            # Expected exceptions from platform-specific privilege detection
+            # Safe default when detection fails (non-admin is safer than assuming admin)
             # **Validates: Requirement 3.3**
             logger.debug(
                 "Privilege detection failed, using safe default (non-admin): %s",
@@ -161,7 +162,7 @@ class PrivilegeChecker:
         """
         try:
             return self._detector.is_user_an_admin()
-        except (AttributeError, Exception):
+        except (AttributeError, OSError, RuntimeError):
             # Fallback when Windows admin check is not available
             return False
 
@@ -188,7 +189,8 @@ class PrivilegeChecker:
                     return True
                 except AttributeError:
                     return False
-        except Exception as e:
+        except (AttributeError, OSError, RuntimeError) as e:
+            # Expected exceptions from platform-specific functionality checks
             logger.debug("Privilege functionality check failed: %s", e, exc_info=True)
             return False
 

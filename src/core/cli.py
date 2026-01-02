@@ -326,7 +326,13 @@ async def main(
             enforce_localhost_fn=_enforce_localhost_if_auth_disabled,
         )
 
+    except (SystemExit, KeyboardInterrupt):
+        # Let control flow exceptions propagate normally
+        raise
     except Exception as e:
+        # Catch only application startup errors (not control flow)
+        # Log with full stack trace for debugging
+        logger.exception("Application startup failed: %s", e)
         error_handler.handle_exception(e)
         raise SystemExit(1) from e
 
