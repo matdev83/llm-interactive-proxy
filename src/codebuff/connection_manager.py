@@ -431,7 +431,9 @@ class ConnectionManager:
                     except (RuntimeError, OSError) as close_err:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                "Failed to close excess connection: %s", str(close_err)
+                                "Failed to close excess connection: %s",
+                                str(close_err),
+                                exc_info=True,
                             )
                     finally:
                         self._disconnect_locked(websocket)

@@ -320,7 +320,9 @@ class CodebuffWebSocketServer:
                 except (WebSocketDisconnect, RuntimeError, OSError) as send_err:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to send error acknowledgment: %s", str(send_err)
+                            "Failed to send error acknowledgment: %s",
+                            str(send_err),
+                            exc_info=True,
                         )
 
     async def _handle_message(self, websocket: WebSocket, message: Any) -> None:
