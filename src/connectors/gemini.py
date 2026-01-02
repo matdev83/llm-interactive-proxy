@@ -551,7 +551,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         options = request.options or {}
         gemini_api_base_url_val = options.get("gemini_api_base_url")
         gemini_api_base_url: str | None = (
-            gemini_api_base_url_val if isinstance(gemini_api_base_url_val, str) else None
+            gemini_api_base_url_val
+            if isinstance(gemini_api_base_url_val, str)
+            else None
         )
         openrouter_api_base_url_val = options.get("openrouter_api_base_url")
         openrouter_api_base_url: str | None = (
@@ -560,13 +562,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
             else None
         )
         api_key_val = options.get("api_key")
-        api_key: str | None = (
-            api_key_val if isinstance(api_key_val, str) else None
-        )
+        api_key: str | None = api_key_val if isinstance(api_key_val, str) else None
         key_name_val = options.get("key_name")
-        key_name: str | None = (
-            key_name_val if isinstance(key_name_val, str) else None
-        )
+        key_name: str | None = key_name_val if isinstance(key_name_val, str) else None
 
         # JSON-SAFETY: Callables are NOT in options - use instance attributes instead
         # Options contain only JSON-serializable values per Requirement 4.3
@@ -738,7 +736,12 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
 
                 prompt_text = extract_prompt_text(processed_messages)
                 prompt_tokens = count_tokens(prompt_text, model=effective_model)
-            except Exception:
+            except (ValueError, TypeError, KeyError, AttributeError):
+                # Catch specific exceptions from token counting operations:
+                # - ValueError: tiktoken encoding errors, string format issues
+                # - TypeError: type mismatches in data structures
+                # - KeyError: dictionary key access in message extraction
+                # - AttributeError: attribute access in message extraction
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning("Failed to calculate prompt tokens", exc_info=True)
 
@@ -847,7 +850,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     "received_type": "dict",
                     "expected_type": "CanonicalChatRequest | ChatRequest",
                     "connector": "gemini",
-                    "session_id": correlation_ids["session_id"],  # Include in details for visibility
+                    "session_id": correlation_ids[
+                        "session_id"
+                    ],  # Include in details for visibility
                 },
             )
 
@@ -1164,7 +1169,11 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         return model_name
 
     async def _handle_gemini_non_streaming_response(
-        self, base_url: str, payload: dict[str, Any], headers: dict[str, Any], effective_model: str
+        self,
+        base_url: str,
+        payload: dict[str, Any],
+        headers: dict[str, Any],
+        effective_model: str,
     ) -> ResponseEnvelope:
         headers = ensure_loop_guard_header(headers)
         url = f"{base_url}:generateContent"

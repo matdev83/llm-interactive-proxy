@@ -413,7 +413,12 @@ class StreamingExecutor:
                                 "Code Assist sanitized tools payload: %s",
                                 json.dumps(tools_snapshot)[:1000],
                             )
-                        except Exception:
+                        except (TypeError, ValueError, RecursionError, OverflowError):
+                            # Catch specific exceptions from JSON serialization:
+                            # - TypeError: Object is not JSON serializable
+                            # - ValueError: Invalid value (e.g., circular references)
+                            # - RecursionError: Circular reference during serialization
+                            # - OverflowError: Numeric overflow
                             logger.log(
                                 TRACE_LEVEL,
                                 "Code Assist sanitized tools payload present (non-serializable)",
@@ -704,7 +709,9 @@ class StreamingExecutor:
                                 if (
                                     isinstance(choices_raw, list)
                                     and choices_raw
-                                    and all(isinstance(item, dict) for item in choices_raw)
+                                    and all(
+                                        isinstance(item, dict) for item in choices_raw
+                                    )
                                 ):
                                     choices = choices_raw  # type: ignore[assignment]
                                     finish_reason = choices[0].get("finish_reason")

@@ -520,8 +520,12 @@ class ResponsesController:
                                     exc_info=True,
                                 )
                             # If conversion fails, fall back to manual conversion
-                        except Exception:
-                            # Catch-all for unexpected errors - log with full context
+                        except (ValueError, UnicodeError, OverflowError, RuntimeError):
+                            # Catch additional specific exceptions for defensive guard:
+                            # - ValueError: Value errors in data conversion
+                            # - UnicodeError: String encoding/decoding errors
+                            # - OverflowError: Numeric overflow
+                            # - RuntimeError: General runtime errors
                             if logger.isEnabledFor(logging.ERROR):
                                 logger.error(
                                     f"Unexpected error converting dict to ChatResponse - request_id={request_id}",
@@ -658,7 +662,21 @@ class ResponsesController:
                             "total_tokens": 0,
                         },
                     }
-                except Exception:
+                except (
+                    TypeError,
+                    ValueError,
+                    KeyError,
+                    AttributeError,
+                    UnicodeError,
+                    OverflowError,
+                ):
+                    # Catch specific exceptions from response conversion:
+                    # - TypeError: Type mismatches in dict values or attribute access
+                    # - ValueError: Value errors in string formatting or conversions
+                    # - KeyError: Dictionary key access errors
+                    # - AttributeError: Attribute access (e.g., domain_request.model)
+                    # - UnicodeError: String encoding/decoding errors
+                    # - OverflowError: Numeric overflow (e.g., timestamp conversion)
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
                             f"Error in response conversion, returning original content - request_id={request_id}",
