@@ -67,7 +67,9 @@ def _register_response_handlers(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register response handler interfaces: {e}")
+            logger.warning(
+                f"Failed to register response handler interfaces: {e}", exc_info=True
+            )
 
 
 def _register_backend_processor(services: ServiceCollection) -> None:
@@ -102,7 +104,9 @@ def _register_backend_processor(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IBackendProcessor interface: {e}")
+            logger.warning(
+                f"Failed to register IBackendProcessor interface: {e}", exc_info=True
+            )
 
 
 def _register_response_manager(services: ServiceCollection) -> None:
@@ -138,7 +142,10 @@ def _register_response_manager(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IAgentResponseFormatter interface: {e}")
+            logger.warning(
+                f"Failed to register IAgentResponseFormatter interface: {e}",
+                exc_info=True,
+            )
 
     def _response_manager_factory(provider: IServiceProvider) -> ResponseManager:
         from src.core.interfaces.non_forwardable_interface import (
@@ -179,7 +186,9 @@ def _register_response_manager(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IResponseManager interface: {e}")
+            logger.warning(
+                f"Failed to register IResponseManager interface: {e}", exc_info=True
+            )
 
 
 def _register_angel_service_factory(services: ServiceCollection) -> None:
@@ -197,7 +206,9 @@ def _register_angel_service_factory(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IAngelServiceFactory interface: {e}")
+            logger.warning(
+                f"Failed to register IAngelServiceFactory interface: {e}", exc_info=True
+            )
 
 
 def _register_response_processor(services: ServiceCollection) -> None:
@@ -380,7 +391,10 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IBackendRequestManager interface: {e}")
+            logger.warning(
+                f"Failed to register IBackendRequestManager interface: {e}",
+                exc_info=True,
+            )
 
 
 def _register_request_processor(services: ServiceCollection) -> None:
@@ -469,4 +483,6 @@ def _register_request_processor(services: ServiceCollection) -> None:
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning(f"Failed to register IRequestProcessor interface: {e}")
+            logger.warning(
+                f"Failed to register IRequestProcessor interface: {e}", exc_info=True
+            )

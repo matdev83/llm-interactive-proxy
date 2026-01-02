@@ -60,7 +60,7 @@ class LoopDetectionCommand(StatelessCommandBase, BaseCommand):
             )
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error toggling loop detection: {e}")
+                logger.error(f"Error toggling loop detection: {e}", exc_info=True)
             return CommandResult(
                 success=False,
                 message=f"Error toggling loop detection: {e}",

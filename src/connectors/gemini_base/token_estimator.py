@@ -88,7 +88,7 @@ class TiktokenEstimator:
         try:
             return len(self.encoding.encode(text))
         except Exception as e:
-            logger.warning("Failed to estimate tokens: %s", e)
+            logger.warning("Failed to estimate tokens: %s", e, exc_info=True)
             return 0
 
     def estimate_prompt_tokens(self, code_assist_request: dict[str, Any]) -> int | None:
@@ -126,7 +126,7 @@ class TiktokenEstimator:
             return self.estimate_tokens(full_prompt)
 
         except Exception as e:
-            logger.warning("Could not calculate prompt tokens: %s", e)
+            logger.warning("Could not calculate prompt tokens: %s", e, exc_info=True)
             return None
 
 
