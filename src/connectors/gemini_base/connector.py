@@ -2116,6 +2116,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 logger.info(
                     "Backend rate limited during streaming API call (no retry-after): %s",
                     e,
+                    exc_info=True,
                 )
             else:
                 logger.error(
@@ -2123,6 +2124,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     e,
                     getattr(e, "status_code", None),
                     getattr(e, "code", None),
+                    exc_info=True,
                 )
             raise
         except InvalidRequestError as e:
@@ -2174,7 +2176,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             arguments_parser = provider.get_service(IToolArgumentsParser)  # type: ignore[type-abstract]
             arguments_fixup_pipeline = provider.get_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
         except Exception as exc:
-            logger.warning("Failed to get tool call reactor services for VTC: %s", exc)
+            logger.warning("Failed to get tool call reactor services for VTC: %s", exc, exc_info=True)
 
         reactor_context = {
             "backend_name": self.backend_type,
@@ -2459,6 +2461,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 "Checking credentials...",
                 model,
                 auth_err,
+                exc_info=True,
             )
             # Trigger a credential check/reload if possible
             task = asyncio.create_task(self._handle_credentials_file_change())
