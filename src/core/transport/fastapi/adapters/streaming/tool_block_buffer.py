@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 if TYPE_CHECKING:
     from src.core.services.streaming.stream_context_registry import (
@@ -16,6 +16,18 @@ if TYPE_CHECKING:
     )
 
 logger = logging.getLogger(__name__)
+
+
+class TagSegments(NamedTuple):
+    """Result of splitting a buffer into complete and pending segments.
+
+    Attributes:
+        complete_segments: The portion of the buffer with complete tag pairs
+        pending_tail: The incomplete portion of the buffer waiting for more data
+    """
+
+    complete_segments: str
+    pending_tail: str
 
 
 class ToolBlockBuffer:
@@ -153,7 +165,7 @@ class ToolBlockBuffer:
 
         return get_global_streaming_context_registry()
 
-    def _split_tag_segments(self, buffer: str, tag_name: str) -> tuple[str, str]:
+    def _split_tag_segments(self, buffer: str, tag_name: str) -> TagSegments:
         """Split buffer into complete segments and pending tail.
 
         Args:
@@ -161,10 +173,10 @@ class ToolBlockBuffer:
             tag_name: Tag name to split on
 
         Returns:
-            Tuple of (complete_segments, pending_tail)
+            TagSegments with complete_segments and pending_tail
         """
         if not buffer:
-            return "", ""
+            return TagSegments("", "")
 
         parts: list[str] = []
         idx = 0
@@ -196,7 +208,7 @@ class ToolBlockBuffer:
                 pending_tail = ""
                 break
 
-        return "".join(parts), pending_tail
+        return TagSegments("".join(parts), pending_tail)
 
     def _update_tracked_tags(
         self,

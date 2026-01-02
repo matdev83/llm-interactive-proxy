@@ -11,7 +11,7 @@ import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from src.core.domain.processed_result import ProcessedResult
 
@@ -30,6 +30,30 @@ class MessageNormalizationResult:
 
     message: Any
     altered: bool
+
+
+class ArtifactPreviewSplit(NamedTuple):
+    """Result of splitting expanded artifact preview into header and body.
+
+    Attributes:
+        header: The header portion of the artifact preview
+        body: The body portion of the artifact preview
+    """
+
+    header: str
+    body: str
+
+
+class CompressedPreviewResult(NamedTuple):
+    """Result of building a compressed preview with truncation flag.
+
+    Attributes:
+        preview: The truncated preview text
+        truncated: Whether the content was truncated
+    """
+
+    preview: str
+    truncated: bool
 
 
 # Artifact preview constants
@@ -294,24 +318,26 @@ class ArtifactService:
             return None
         return remainder[:marker_index].strip()
 
-    def _split_expanded_artifact_preview(self, content: str) -> tuple[str, str]:
+    def _split_expanded_artifact_preview(self, content: str) -> ArtifactPreviewSplit:
         """Split expanded artifact preview into header and body segments."""
         if not isinstance(content, str):
-            return "", ""
+            return ArtifactPreviewSplit("", "")
 
         double_newline = "\n\n"
         parts = content.split(double_newline, 1)
         if len(parts) == 2:
-            return parts[0] + double_newline, parts[1]
+            return ArtifactPreviewSplit(parts[0] + double_newline, parts[1])
         newline_index = content.find("\n")
         if newline_index == -1:
-            return content, ""
-        return content[: newline_index + 1], content[newline_index + 1 :]
+            return ArtifactPreviewSplit(content, "")
+        return ArtifactPreviewSplit(
+            content[: newline_index + 1], content[newline_index + 1 :]
+        )
 
-    def _build_compressed_preview(self, text: str) -> tuple[str, bool]:
+    def _build_compressed_preview(self, text: str) -> CompressedPreviewResult:
         """Return aggressively truncated preview text with truncation flag."""
         if not text:
-            return "", False
+            return CompressedPreviewResult("", False)
 
         lines = text.splitlines()
         truncated = False
@@ -325,4 +351,4 @@ class ArtifactService:
             preview = preview[:_COMPRESSED_ARTIFACT_MAX_CHARS]
             truncated = True
 
-        return preview, truncated
+        return CompressedPreviewResult(preview, truncated)

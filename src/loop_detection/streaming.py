@@ -8,16 +8,29 @@ with streaming responses from LLM backends.
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple
 
 from .detector import LoopDetectionEvent, LoopDetector
 
 logger = logging.getLogger(__name__)
 
 
-def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
+class RepetitionDetectionResult(NamedTuple):
+    """Result of simple repetition detection in text.
+
+    Attributes:
+        pattern: The repeated pattern found, or None if no repetition detected
+        repeat_count: The number of times the pattern was repeated consecutively
+    """
+
+    pattern: str | None
+    repeat_count: int
+
+
+def _detect_simple_repetition(text: str) -> RepetitionDetectionResult:
     """Naive fallback: detect short substring repeated consecutively at least 3 times.
 
-    Looks for 1-6 char token repeated; returns (pattern, count) or (None, 0).
+    Looks for 1-6 char token repeated; returns RepetitionDetectionResult.
 
     PERFORMANCE: Optimized to skip redundant positions after finding repeats.
     """
@@ -25,8 +38,8 @@ def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
         # Fast path: common noisy token
         token = "ERROR "
         if token in text:
-            count = text.count(token)
-            return (token.strip(), count)
+            repeat_count = text.count(token)
+            return RepetitionDetectionResult(token.strip(), repeat_count)
 
         # PERFORMANCE: Limit text length early to avoid slicing costs in loop
         text_len = len(text)
@@ -53,14 +66,14 @@ def _detect_simple_repetition(text: str) -> tuple[str | None, int]:
                     repeats += 1
                     j += size
                 if repeats >= 3:
-                    return (candidate, repeats)
+                    return RepetitionDetectionResult(candidate, repeats)
                 # PERFORMANCE: Skip past the matched repeats (if any),
                 # since we already checked those positions implicitly
                 i += max(1, repeats * size - size + 1)
-        return (None, 0)
+        return RepetitionDetectionResult(None, 0)
     except IndexError as e:
         logger.debug("Error during simple repetition detection: %s", e, exc_info=True)
-        return (None, 0)
+        return RepetitionDetectionResult(None, 0)
 
 
 def analyze_complete_response_for_loops(
