@@ -122,7 +122,9 @@ class AssessmentPromptLoader:
                         self._system_prompt = FALLBACK_SYSTEM_PROMPT
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Failed to read system prompt file: %s", e)
+                        logger.warning(
+                            "Failed to read system prompt file: %s", e, exc_info=True
+                        )
                     logger.warning("Using fallback system prompt (hardcoded default)")
                     self._system_prompt = FALLBACK_SYSTEM_PROMPT
             else:
@@ -146,7 +148,9 @@ class AssessmentPromptLoader:
                         self._task_prompt = FALLBACK_TASK_PROMPT
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Failed to read task prompt file: %s", e)
+                        logger.warning(
+                            "Failed to read task prompt file: %s", e, exc_info=True
+                        )
                     logger.warning("Using fallback task prompt (hardcoded default)")
                     self._task_prompt = FALLBACK_TASK_PROMPT
             else:
@@ -204,7 +208,9 @@ class AssessmentPromptLoader:
                                 self._response_schema = FALLBACK_RESPONSE_SCHEMA
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Failed to read response schema file: %s", e)
+                        logger.warning(
+                            "Failed to read response schema file: %s", e, exc_info=True
+                        )
                     logger.warning("Using fallback response schema (hardcoded default)")
                     self._response_schema = FALLBACK_RESPONSE_SCHEMA
             else:
@@ -229,7 +235,9 @@ class AssessmentPromptLoader:
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to read steering message template file: %s", e
+                            "Failed to read steering message template file: %s",
+                            e,
+                            exc_info=True,
                         )
                     logger.warning(
                         "Using fallback steering template (hardcoded default)"

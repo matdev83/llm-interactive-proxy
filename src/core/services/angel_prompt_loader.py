@@ -165,7 +165,7 @@ class AngelPromptLoader:
             )
 
         except Exception as e:
-            logger.error(f"Failed to load Angel prompts: {e}")
+            logger.error(f"Failed to load Angel prompts: {e}", exc_info=True)
             raise
 
     @property

@@ -1976,7 +1976,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 )
             raise
         except InvalidRequestError as e:
-            logger.warning("Request blocked locally: %s", e)
+            logger.warning("Request blocked locally: %s", e, exc_info=True)
             raise
         except Exception as e:
             logger.error(f"Unexpected error during API call: {e}", exc_info=True)
@@ -2122,7 +2122,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 )
             raise
         except InvalidRequestError as e:
-            logger.warning("Streaming request blocked locally: %s", e)
+            logger.warning("Streaming request blocked locally: %s", e, exc_info=True)
             raise
         except Exception as e:
             logger.error(
