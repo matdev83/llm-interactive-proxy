@@ -6,6 +6,7 @@ import importlib
 import logging
 import pkgutil
 import threading
+from collections.abc import Callable
 from typing import Any, cast
 
 from src.core.common.exceptions import LLMProxyError
@@ -19,9 +20,15 @@ logger = logging.getLogger(__name__)
 def _auto_discover_strategies() -> None:
     """Auto-discover and import all strategy modules in this package.
 
-    This function is called when the registry module is imported to ensure
-    all strategy modules are loaded and their strategies are registered.
+    This function is called lazily on first access to get_strategy() to avoid
+    circular import issues. It discovers and imports all strategy modules in
+    the strategies package, which triggers their registration code.
+
     Excludes registry.py, __init__.py, and modules starting with _.
+
+    Note: Strategy modules import initialization_strategy_registry at module level,
+    so the registry must exist before this function imports them. This is ensured
+    by lazy discovery - the registry is created before any strategy modules are imported.
     """
     package = __package__
     if package is None:
@@ -159,12 +166,24 @@ class InitializationStrategyRegistry:
     Exceptions raised by strategies are wrapped with connector context.
     """
 
-    def __init__(self) -> None:
-        """Initialize the registry."""
+    def __init__(self, discovery_func: Callable[[], None] | None = None) -> None:
+        """Initialize the registry.
+
+        Args:
+            discovery_func: Optional function to use for strategy discovery.
+                If None, uses the default `_auto_discover_strategies()` function.
+                This parameter is primarily for testing to allow injection of mock
+                discovery functions.
+        """
         self._strategies: dict[str, IBackendInitializationStrategy] = {}
         self._lock = threading.Lock()
         self._default_strategy = DefaultInitializationStrategy()
         self._logger = logger
+        self._discovered = False  # Flag to track if auto-discovery has run
+        self._discovery_event = (
+            threading.Event()
+        )  # Event to signal discovery completion
+        self._discovery_func = discovery_func or _auto_discover_strategies
 
     def register_strategy(
         self, connector_type: str, strategy: IBackendInitializationStrategy | None
@@ -194,6 +213,9 @@ class InitializationStrategyRegistry:
         and logs a warning. Custom strategies are wrapped to add connector
         context to exceptions.
 
+        Lazy auto-discovery: Strategies are auto-discovered on first access
+        to avoid circular import issues during module import.
+
         Args:
             connector_type: The connector type identifier.
 
@@ -202,6 +224,47 @@ class InitializationStrategyRegistry:
             strategy if none is registered. Custom strategies are wrapped to
             add exception context.
         """
+        # Lazy auto-discovery on first access (thread-safe with event synchronization)
+        if not self._discovered:
+            should_discover = False
+            with self._lock:
+                # Double-check pattern to ensure discovery only happens once
+                if not self._discovered:
+                    should_discover = True
+                    # Don't set _discovered here - wait until discovery actually completes
+                    # The event synchronization ensures other threads wait properly
+
+            if should_discover:
+                # This thread performs discovery
+                try:
+                    # Call discovery outside the lock to avoid deadlock when modules register
+                    # Strategy modules will call register_strategy() which needs the lock
+                    self._discovery_func()
+                    # Mark as discovered only after discovery completes successfully
+                    # This ensures strategies are registered before other threads proceed
+                    with self._lock:
+                        self._discovered = True
+                finally:
+                    # Signal completion to waiting threads
+                    # Set event even if discovery raised an exception to prevent infinite waits
+                    self._discovery_event.set()
+                    # Also set _discovered in finally to prevent infinite retries on exceptions
+                    with self._lock:
+                        if not self._discovered:
+                            self._discovered = True
+            else:
+                # Another thread is discovering, wait for completion
+                self._discovery_event.wait()
+                # After waiting, ensure _discovered is set (it should be, but be defensive)
+                with self._lock:
+                    if not self._discovered:
+                        self._discovered = True
+        else:
+            # Discovery flag is set, but we must ensure discovery actually completed
+            # Wait for event to be set (in case discovery is still in progress)
+            self._discovery_event.wait()
+
+        # Now discovery is complete, safe to check strategies
         with self._lock:
             strategy = self._strategies.get(connector_type)
 
@@ -219,10 +282,7 @@ class InitializationStrategyRegistry:
 
 
 # Global instance of the registry
-# Must be created BEFORE _auto_discover_strategies() is called so that
-# strategy modules can import initialization_strategy_registry during auto-discovery
+# Auto-discovery is now lazy (triggered on first get_strategy() call) to avoid
+# circular import issues. Strategy modules can safely import initialization_strategy_registry
+# at module level since the registry exists before they are imported.
 initialization_strategy_registry = InitializationStrategyRegistry()
-
-# Auto-discover strategies when this module is imported
-# This must happen AFTER initialization_strategy_registry is created
-_auto_discover_strategies()

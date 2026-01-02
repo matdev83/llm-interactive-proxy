@@ -5,11 +5,19 @@ to ensure no performance regressions were introduced and that strategy overhead
 stays within acceptable limits.
 
 Requirements: 10.1, 10.2, 10.3
+
+Baseline Comparison:
+- Baseline values can be set via environment variables:
+  - PERF_BASELINE_STARTUP_MS: Baseline startup time in milliseconds
+  - PERF_BASELINE_VALIDATION_MS: Baseline validation duration in milliseconds
+- If baseline is not set, tests use reasonable default thresholds
+- When baseline is set, current measurements are compared against baseline with 10% tolerance
 """
 
 from __future__ import annotations
 
 import contextlib
+import os
 import time
 from typing import Any
 from unittest.mock import MagicMock
@@ -159,6 +167,15 @@ async def test_startup_time_benchmark(minimal_app_config: AppConfig):
     min_duration_ms = min_duration * 1000
     max_duration_ms = max_duration * 1000
 
+    # Get baseline from environment variable (if set)
+    baseline_startup_ms_str = os.environ.get("PERF_BASELINE_STARTUP_MS")
+    baseline_startup_ms: float | None = None
+    if baseline_startup_ms_str:
+        try:
+            baseline_startup_ms = float(baseline_startup_ms_str)
+        except ValueError:
+            pass
+
     # Print results for visibility
     print(
         f"\nStartup Time Benchmark Results ({iterations} iterations):"
@@ -167,13 +184,31 @@ async def test_startup_time_benchmark(minimal_app_config: AppConfig):
         f"\n  Max:  {max_duration_ms:.2f}ms"
     )
 
-    # Assert reasonable performance (no regression)
-    # Set a generous threshold: startup should complete in under 10 seconds
-    # This is a sanity check, not a strict performance requirement
-    assert mean_duration < 10.0, (
-        f"Mean startup time {mean_duration_ms:.2f}ms exceeds 10s threshold. "
-        f"This may indicate a performance regression."
-    )
+    if baseline_startup_ms is not None:
+        # Compare against baseline with 10% tolerance
+        tolerance_factor = 1.1
+        baseline_with_tolerance_ms = baseline_startup_ms * tolerance_factor
+        print(
+            f"  Baseline: {baseline_startup_ms:.2f}ms (with 10% tolerance: {baseline_with_tolerance_ms:.2f}ms)"
+        )
+
+        assert mean_duration_ms <= baseline_with_tolerance_ms, (
+            f"Mean startup time {mean_duration_ms:.2f}ms exceeds baseline "
+            f"{baseline_startup_ms:.2f}ms (with 10% tolerance: {baseline_with_tolerance_ms:.2f}ms). "
+            f"This indicates a performance regression."
+        )
+    else:
+        # Fallback to absolute threshold if baseline not set
+        # Set a generous threshold: startup should complete in under 10 seconds
+        # This is a sanity check when baseline is not available
+        threshold_ms = 10_000.0
+        print(
+            f"  Baseline not set (PERF_BASELINE_STARTUP_MS), using threshold: {threshold_ms:.2f}ms"
+        )
+        assert mean_duration_ms < threshold_ms, (
+            f"Mean startup time {mean_duration_ms:.2f}ms exceeds threshold {threshold_ms:.2f}ms. "
+            f"This may indicate a performance regression. Set PERF_BASELINE_STARTUP_MS for baseline comparison."
+        )
 
 
 @pytest.mark.slow
@@ -227,6 +262,15 @@ async def test_validation_duration_benchmark(
     min_duration_ms = min_duration * 1000
     max_duration_ms = max_duration * 1000
 
+    # Get baseline from environment variable (if set)
+    baseline_validation_ms_str = os.environ.get("PERF_BASELINE_VALIDATION_MS")
+    baseline_validation_ms: float | None = None
+    if baseline_validation_ms_str:
+        try:
+            baseline_validation_ms = float(baseline_validation_ms_str)
+        except ValueError:
+            pass
+
     # Print results for visibility
     print(
         f"\nValidation Duration Benchmark Results ({iterations} iterations):"
@@ -235,12 +279,31 @@ async def test_validation_duration_benchmark(
         f"\n  Max:  {max_duration_ms:.2f}ms"
     )
 
-    # Assert reasonable performance (no regression)
-    # Set a generous threshold: validation should complete in under 5 seconds
-    assert mean_duration < 5.0, (
-        f"Mean validation duration {mean_duration_ms:.2f}ms exceeds 5s threshold. "
-        f"This may indicate a performance regression."
-    )
+    if baseline_validation_ms is not None:
+        # Compare against baseline with 10% tolerance
+        tolerance_factor = 1.1
+        baseline_with_tolerance_ms = baseline_validation_ms * tolerance_factor
+        print(
+            f"  Baseline: {baseline_validation_ms:.2f}ms (with 10% tolerance: {baseline_with_tolerance_ms:.2f}ms)"
+        )
+
+        assert mean_duration_ms <= baseline_with_tolerance_ms, (
+            f"Mean validation duration {mean_duration_ms:.2f}ms exceeds baseline "
+            f"{baseline_validation_ms:.2f}ms (with 10% tolerance: {baseline_with_tolerance_ms:.2f}ms). "
+            f"This indicates a performance regression."
+        )
+    else:
+        # Fallback to absolute threshold if baseline not set
+        # Set a generous threshold: validation should complete in under 5 seconds
+        # This is a sanity check when baseline is not available
+        threshold_ms = 5_000.0
+        print(
+            f"  Baseline not set (PERF_BASELINE_VALIDATION_MS), using threshold: {threshold_ms:.2f}ms"
+        )
+        assert mean_duration_ms < threshold_ms, (
+            f"Mean validation duration {mean_duration_ms:.2f}ms exceeds threshold {threshold_ms:.2f}ms. "
+            f"This may indicate a performance regression. Set PERF_BASELINE_VALIDATION_MS for baseline comparison."
+        )
 
 
 @pytest.mark.slow

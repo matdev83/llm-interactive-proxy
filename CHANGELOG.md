@@ -10,6 +10,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- OpenAI Codex enthusiast mode configuration for third-party agents (Factory Droid, OpenCode, etc.)
+- New configuration profiles for Chat Completions and Responses API clients
+- Per-request capability overrides via extra_body parameter
+- Lazy discovery mechanism for strategy registry to avoid circular imports
 - **B2BUA Session Handling**: Comprehensive identity contract and boundary rules for A-leg/B-leg session handling with typed identity containers and connector-safe diagnostics
 - Implemented non-forwardable message tagging system with configuration and domain models
 - Implemented Kiro spec archiving system with documentation updates
@@ -27,6 +31,9 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Improved error handling for "Instructions are not valid" errors in OpenAI Codex connector with actionable messages
+- Enhanced prompt handling with robust fallbacks and codex_default enforcement
+- Updated OpenAI Codex documentation with detailed configuration examples
 - Improved type safety in ToolArgumentsParser with proper TelemetryRecorder typing
 - Added race condition prevention with sequential execution for mypy validation tests
 - Enhanced test coverage for tool call deduplicator and stream buffer adapter
@@ -39,6 +46,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Fixed circular import issues in strategy registry initialization
 - **Context Compaction**: Completed all P1 observability and safety requirements per specification
 - **Tests**: Fixed redaction test API key patterns to match expected regex format
 - **Tool Execution**: Improved logging safety by using isEnabledFor checks before logging debug messages

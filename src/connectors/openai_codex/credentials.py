@@ -153,7 +153,8 @@ class CredentialWatcher:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to start file watching for OpenAI Codex credentials: %s", e,
+                    "Failed to start file watching for OpenAI Codex credentials: %s",
+                    e,
                     exc_info=True,
                 )
 
@@ -301,7 +302,8 @@ class CredentialWatcher:
                     _assign_task(task)
                 except Exception as exc:
                     logger.warning(
-                        "Failed to schedule OpenAI Codex credentials reload: %s", exc,
+                        "Failed to schedule OpenAI Codex credentials reload: %s",
+                        exc,
                         exc_info=True,
                     )
                     self._reload_scheduling_event.clear()
@@ -309,7 +311,8 @@ class CredentialWatcher:
             loop.call_soon_threadsafe(schedule_task)
         except RuntimeError as exc:
             logger.warning(
-                "Failed to schedule OpenAI Codex credentials reload: %s", exc,
+                "Failed to schedule OpenAI Codex credentials reload: %s",
+                exc,
                 exc_info=True,
             )
             self._reload_scheduling_event.clear()
@@ -686,7 +689,9 @@ class CredentialManager(ICredentialManager):
                     timeout=15.0,
                 )
             except httpx.HTTPError as exc:
-                logger.warning("Failed to refresh OpenAI Codex token: %s", exc, exc_info=True)
+                logger.warning(
+                    "Failed to refresh OpenAI Codex token: %s", exc, exc_info=True
+                )
                 return False
 
             if response.status_code >= 400:

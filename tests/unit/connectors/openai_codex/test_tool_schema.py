@@ -408,3 +408,120 @@ class TestToolSchemaResolver:
         assert "shell" in tool_names
         assert "read_file" in tool_names
         assert "config_tool" in tool_names
+
+    def test_resolve_tool_schema_base_tools_empty_list(
+        self, default_settings, request_context
+    ):
+        """Test that empty base_tools list yields no tools in codex_default mode."""
+        # Update settings to have empty base_tools
+        default_settings.tool_schema["base_tools"] = []
+        resolver = ToolSchemaResolver(settings=default_settings)
+
+        request_context.capabilities = request_context.capabilities.merge(
+            {"tool_schema_mode": "codex_default"}
+        )
+        result = resolver.resolve_tool_schema(request_context)
+
+        # Should return no tools
+        assert isinstance(result, list)
+        assert len(result) == 0
+
+    def test_resolve_tool_schema_base_tools_custom_list(
+        self, default_settings, request_context
+    ):
+        """Test that custom base_tools list replaces built-ins."""
+        # Update settings to have custom base_tools
+        default_settings.tool_schema["base_tools"] = [
+            {
+                "name": "custom_base_tool",
+                "type": "function",
+                "description": "Custom base tool",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"arg": {"type": "string"}},
+                },
+            }
+        ]
+        resolver = ToolSchemaResolver(settings=default_settings)
+
+        request_context.capabilities = request_context.capabilities.merge(
+            {"tool_schema_mode": "codex_default"}
+        )
+        result = resolver.resolve_tool_schema(request_context)
+
+        # Should return only the custom base tool
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert result[0].name == "custom_base_tool"
+        assert result[0].description == "Custom base tool"
+
+    def test_resolve_tool_schema_base_tools_merge_custom_mode(
+        self, default_settings, request_context
+    ):
+        """Test that merge_custom mode merges base_tools + request tools."""
+        # Update settings to have custom base_tools
+        default_settings.tool_schema["base_tools"] = [
+            {
+                "name": "base_tool_1",
+                "type": "function",
+                "description": "Base tool 1",
+                "parameters": {"type": "object"},
+            },
+            {
+                "name": "base_tool_2",
+                "type": "function",
+                "description": "Base tool 2",
+                "parameters": {"type": "object"},
+            },
+        ]
+        resolver = ToolSchemaResolver(settings=default_settings)
+
+        # Create request with custom tool
+        request_with_tools = CanonicalChatRequest(
+            model="gpt-5.1-codex",
+            messages=[ChatMessage(role="user", content="Test")],
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "request_tool",
+                        "description": "Request tool",
+                        "parameters": {"type": "object"},
+                    },
+                }
+            ],
+        )
+        request_context.request = request_with_tools
+        request_context.capabilities = request_context.capabilities.merge(
+            {"tool_schema_mode": "merge_custom"}
+        )
+        result = resolver.resolve_tool_schema(request_context)
+
+        # Should include both base tools and request tool
+        tool_names = {tool.name for tool in result}
+        assert "base_tool_1" in tool_names
+        assert "base_tool_2" in tool_names
+        assert "request_tool" in tool_names
+        assert len(result) == 3
+
+    def test_resolve_tool_schema_base_tools_none_falls_back(
+        self, default_settings, request_context
+    ):
+        """Test that base_tools=None falls back to hardcoded built-ins."""
+        # Ensure base_tools is None (default)
+        default_settings.tool_schema["base_tools"] = None
+        resolver = ToolSchemaResolver(settings=default_settings)
+
+        request_context.capabilities = request_context.capabilities.merge(
+            {"tool_schema_mode": "codex_default"}
+        )
+        result = resolver.resolve_tool_schema(request_context)
+
+        # Should return built-in tools (at least shell, apply_patch, view_image)
+        assert isinstance(result, list)
+        assert len(result) > 0
+        tool_names = {tool.name for tool in result}
+        # Check for some expected built-ins
+        assert any(
+            name in tool_names for name in ["shell", "apply_patch", "view_image"]
+        )

@@ -2,226 +2,9 @@
   {
     "code": "EXH001",
     "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\_openai_codex_connector.py",
-    "lineno": 1570,
-    "col_offset": 16
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
     "filename": "src\\connectors\\anthropic.py",
-    "lineno": 585,
-    "col_offset": 40
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\anthropic.py",
-    "lineno": 831,
+    "lineno": 1260,
     "col_offset": 20
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\anthropic.py",
-    "lineno": 993,
-    "col_offset": 32
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\anthropic.py",
-    "lineno": 1159,
-    "col_offset": 16
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\anthropic.py",
-    "lineno": 1256,
-    "col_offset": 20
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\anthropic_oauth.py",
-    "lineno": 336,
-    "col_offset": 20
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\anthropic_oauth.py",
-    "lineno": 377,
-    "col_offset": 16
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\antigravity_oauth.py",
-    "lineno": 1407,
-    "col_offset": 20
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini.py",
-    "lineno": 173,
-    "col_offset": 20
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 1230,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 1247,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 1826,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 1971,
-    "col_offset": 16
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 2117,
-    "col_offset": 16
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 2173,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 2453,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 2471,
-    "col_offset": 16
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 2474,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\connector.py",
-    "lineno": 2549,
-    "col_offset": 20
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\credential_coordinator.py",
-    "lineno": 234,
-    "col_offset": 16
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\credential_providers\\sqlite_provider.py",
-    "lineno": 149,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\credential_providers\\sqlite_provider.py",
-    "lineno": 154,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\streaming_executor.py",
-    "lineno": 532,
-    "col_offset": 24
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\streaming_executor.py",
-    "lineno": 538,
-    "col_offset": 28
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\gemini_base\\streaming_executor.py",
-    "lineno": 1084,
-    "col_offset": 20
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\hybrid_backend\\infrastructure\\phase_executor.py",
-    "lineno": 369,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\hybrid_backend\\infrastructure\\phase_executor.py",
-    "lineno": 700,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\hybrid_backend\\orchestration\\orchestrator.py",
-    "lineno": 378,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\hybrid_backend\\orchestration\\orchestrator.py",
-    "lineno": 608,
-    "col_offset": 12
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\mixins\\antigravity_auth_mixin.py",
-    "lineno": 233,
-    "col_offset": 16
-  },
-  {
-    "code": "EXH001",
-    "message": "Missing exc_info=True in logger call within exception handler",
-    "filename": "src\\connectors\\mixins\\antigravity_auth_mixin.py",
-    "lineno": 239,
-    "col_offset": 16
   },
   {
     "code": "EXH001",
@@ -290,7 +73,7 @@
     "code": "EXH001",
     "message": "Missing exc_info=True in logger call within exception handler",
     "filename": "src\\connectors\\openai_codex\\settings.py",
-    "lineno": 296,
+    "lineno": 298,
     "col_offset": 12
   },
   {
@@ -1025,14 +808,14 @@
     "code": "EXH003",
     "message": "Silent exception handler (except: pass) with no logging",
     "filename": "src\\connectors\\antigravity_oauth.py",
-    "lineno": 1484,
+    "lineno": 1485,
     "col_offset": 20
   },
   {
     "code": "EXH003",
     "message": "Silent exception handler (except: pass) with no logging",
     "filename": "src\\connectors\\antigravity_oauth.py",
-    "lineno": 1500,
+    "lineno": 1501,
     "col_offset": 16
   },
   {
@@ -1074,7 +857,7 @@
     "code": "EXH003",
     "message": "Silent exception handler (except: pass) with no logging",
     "filename": "src\\connectors\\gemini_base\\streaming_executor.py",
-    "lineno": 596,
+    "lineno": 598,
     "col_offset": 32
   },
   {
@@ -1116,7 +899,14 @@
     "code": "EXH003",
     "message": "Silent exception handler (except: pass) with no logging",
     "filename": "src\\connectors\\openai.py",
-    "lineno": 1396,
+    "lineno": 1036,
+    "col_offset": 12
+  },
+  {
+    "code": "EXH003",
+    "message": "Silent exception handler (except: pass) with no logging",
+    "filename": "src\\connectors\\openai.py",
+    "lineno": 1435,
     "col_offset": 12
   },
   {
@@ -1489,12 +1279,5 @@
     "filename": "src\\core\\services\\vtc_xml_parser.py",
     "lineno": 370,
     "col_offset": 8
-  },
-  {
-    "code": "EXH004",
-    "message": "Incorrect exc_info usage: exc_info=include_stack_trace (should be exc_info=True)",
-    "filename": "src\\connectors\\_openai_codex_compatibility_errors.py",
-    "lineno": 221,
-    "col_offset": 4
   }
 ]

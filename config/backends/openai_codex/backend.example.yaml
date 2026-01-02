@@ -1,5 +1,9 @@
 # Example OpenAI Codex Backend Configuration
 # Copy this file to backend.yaml and customize as needed
+#
+# NOTE: Capability settings (default_capabilities, agent_capabilities) are configured
+# in the main config.yaml under backends.openai_codex.extra.codex, not in this file.
+# This file is primarily for compatibility layer settings and model definitions.
 
 # Backend settings
 backend_type: "openai-codex"

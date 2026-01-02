@@ -194,6 +194,27 @@ class ResponseExecutor(IResponseExecutor):
                     # Handle HTTP status errors (e.g., 429, 500, etc.)
                     try:
                         err = e.response.json()
+                        # Map "Instructions are not valid" errors to actionable messages
+                        if (
+                            e.response.status_code == 400
+                            and isinstance(err, dict)
+                            and err.get("detail") == "Instructions are not valid"
+                        ):
+                            err = {
+                                "error": "codex_instructions_invalid",
+                                "message": (
+                                    "Codex backend rejected the instructions field as invalid. "
+                                    "This usually happens when custom prompt modifications are incompatible with Codex's validation rules."
+                                ),
+                                "detail": err.get("detail"),
+                                "suggestion": (
+                                    "Set prompt_mode to 'codex_default' in your request capabilities "
+                                    "(or in config via backends.openai_codex.extra.codex.default_capabilities) "
+                                    "to use Codex's default instructions. System prompts are automatically "
+                                    "converted to <user_instructions> blocks and do not need to be in the instructions field."
+                                ),
+                                "original_error": err,
+                            }
                     except Exception as json_err:
                         logger.debug(
                             "Failed to parse error response JSON, falling back to text: %s",
@@ -269,6 +290,27 @@ class ResponseExecutor(IResponseExecutor):
                     # Non-401 errors or retry limit exceeded - raise immediately
                     try:
                         err = response.json()
+                        # Map "Instructions are not valid" errors to actionable messages
+                        if (
+                            response.status_code == 400
+                            and isinstance(err, dict)
+                            and err.get("detail") == "Instructions are not valid"
+                        ):
+                            err = {
+                                "error": "codex_instructions_invalid",
+                                "message": (
+                                    "Codex backend rejected the instructions field as invalid. "
+                                    "This usually happens when custom prompt modifications are incompatible with Codex's validation rules."
+                                ),
+                                "detail": err.get("detail"),
+                                "suggestion": (
+                                    "Set prompt_mode to 'codex_default' in your request capabilities "
+                                    "(or in config via backends.openai_codex.extra.codex.default_capabilities) "
+                                    "to use Codex's default instructions. System prompts are automatically "
+                                    "converted to <user_instructions> blocks and do not need to be in the instructions field."
+                                ),
+                                "original_error": err,
+                            }
                     except Exception as json_err:
                         logger.debug(
                             "Failed to parse error response JSON, falling back to text: %s",

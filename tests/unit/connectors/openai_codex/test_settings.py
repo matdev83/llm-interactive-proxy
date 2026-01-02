@@ -40,7 +40,9 @@ class TestSettingsLoader:
         settings = loader.load(app_config)
 
         assert settings.default_capabilities == CodexClientCapabilities(
-            tool_schema_mode="custom_only"
+            tool_schema_mode="custom_only",
+            bypass_tool_call_reactor=True,
+            include_environment_context=False,
         )
         assert settings.agent_overrides == {}
         assert settings.renderer["default"] == "none"
@@ -193,7 +195,9 @@ class TestSettingsLoader:
             settings = loader.load(app_config)
             # Should fall back to defaults
             assert settings.default_capabilities == CodexClientCapabilities(
-                tool_schema_mode="custom_only"
+                tool_schema_mode="custom_only",
+                bypass_tool_call_reactor=True,
+                include_environment_context=False,
             )
 
     def test_invalid_tool_schema_filtered(self, loader, app_config):

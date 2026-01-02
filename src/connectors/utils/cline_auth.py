@@ -15,7 +15,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
 from pydantic import ValidationError
@@ -24,6 +24,16 @@ from src.connectors.utils.cline_auth_types import ClineTokenData
 from src.core.common.exceptions import AuthenticationError, BackendError
 
 logger = logging.getLogger(__name__)
+
+
+class VscodePaths(NamedTuple):
+    """Paths for VSCode credential storage."""
+
+    state_db: Path | None
+    """Path to globalStorage/state.vscdb, or None if not found."""
+
+    local_state: Path | None
+    """Path to Local State, or None if not found."""
 
 try:  # pragma: no cover - optional dependency for Windows integration
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -700,16 +710,16 @@ class ClineAuthMixin:
             )
             return None
 
-        state_db, local_state = self._resolve_vscode_paths()
-        if not state_db or not local_state:
+        vscode_paths = self._resolve_vscode_paths()
+        if not vscode_paths.state_db or not vscode_paths.local_state:
             return None
 
         try:
-            aes_key = await self._extract_vscode_aes_key(local_state)
+            aes_key = await self._extract_vscode_aes_key(vscode_paths.local_state)
             if not aes_key:
                 return None
 
-            secret_blob = self._read_vscode_secret_blob(state_db)
+            secret_blob = self._read_vscode_secret_blob(vscode_paths.state_db)
             if not secret_blob:
                 return None
 
@@ -722,10 +732,10 @@ class ClineAuthMixin:
             return None
         return None
 
-    def _resolve_vscode_paths(self) -> tuple[Path | None, Path | None]:
+    def _resolve_vscode_paths(self) -> VscodePaths:
         appdata = os.getenv("APPDATA")
         if not appdata:
-            return None, None
+            return VscodePaths(state_db=None, local_state=None)
 
         state_db = Path(
             os.getenv(
@@ -741,8 +751,8 @@ class ClineAuthMixin:
         )
 
         if not state_db.exists() or not local_state.exists():
-            return None, None
-        return state_db, local_state
+            return VscodePaths(state_db=None, local_state=None)
+        return VscodePaths(state_db=state_db, local_state=local_state)
 
     async def _extract_vscode_aes_key(self, local_state: Path) -> bytes | None:
         try:

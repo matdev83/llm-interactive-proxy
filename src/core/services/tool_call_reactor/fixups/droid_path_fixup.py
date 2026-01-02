@@ -11,11 +11,21 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 from src.core.common.logging_utils import get_logger
 
 logger = get_logger(__name__)
+
+
+class PathExtractionResult(NamedTuple):
+    """Result of extracting a path from tool arguments."""
+
+    path: str | None
+    """The extracted path value, or None if not found."""
+
+    key: str | None
+    """The key name that contained the path, or None if not found."""
 
 
 class DroidPathFixup:
@@ -63,43 +73,43 @@ class DroidPathFixup:
             return arguments, False
 
         # Extract path from arguments
-        path, key = self._extract_path(arguments)
-        if not path:
+        result = self._extract_path(arguments)
+        if not result.path:
             return arguments, False
 
         # Check if path needs fixing
-        if not self._needs_fix(path):
+        if not self._needs_fix(result.path):
             return arguments, False
 
         # Fix the path
-        fixed_path = self._fix_path(path)
-        if fixed_path == path:
+        fixed_path = self._fix_path(result.path)
+        if fixed_path == result.path:
             return arguments, False
 
         # Update arguments
         new_args = dict(arguments)
-        if key:
-            new_args[key] = fixed_path
+        if result.key:
+            new_args[result.key] = fixed_path
         else:
             # No key found, set file_path as default
             new_args["file_path"] = fixed_path
 
         return new_args, True
 
-    def _extract_path(self, arguments: dict[str, Any]) -> tuple[str | None, str | None]:
+    def _extract_path(self, arguments: dict[str, Any]) -> PathExtractionResult:
         """Extract path value from arguments dict.
 
         Args:
             arguments: The arguments dict to search.
 
         Returns:
-            Tuple of (path_value, key_name) or (None, None) if not found.
+            PathExtractionResult with path value and key name, or (None, None) if not found.
         """
         for key in self.PATH_KEYS:
             val = arguments.get(key)
             if isinstance(val, str) and val.strip():
-                return val.strip(), key
-        return None, None
+                return PathExtractionResult(path=val.strip(), key=key)
+        return PathExtractionResult(path=None, key=None)
 
     def _needs_fix(self, path: str) -> bool:
         """Check if a path needs fixing.

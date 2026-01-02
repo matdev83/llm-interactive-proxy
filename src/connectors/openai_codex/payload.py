@@ -347,8 +347,10 @@ class PayloadBuilder(IPayloadBuilder):
         append_sections = list(prompt_cfg.get("append", []))
         deduplicate = bool(prompt_cfg.get("deduplicate", True))
 
+        # Enforce robust prompt handling: codex_default always uses default instructions
         if prompt_mode == "codex_default":
-            # No custom sections in default mode
+            # No custom sections in default mode - always use Codex default
+            # This ensures we never send invalid instructions that trigger backend errors
             combined = [*prepend_sections, base_prompt, *append_sections]
         elif prompt_mode == "merge_custom":
             # Merge custom sections with default
@@ -365,7 +367,12 @@ class PayloadBuilder(IPayloadBuilder):
             if not combined and fallback_to_default:
                 combined = [*prepend_sections, base_prompt, *append_sections]
         else:
-            # Fallback to default
+            # Unknown prompt_mode: log warning and fallback to default for robustness
+            logger.warning(
+                "Unknown prompt_mode '%s' in request, falling back to codex_default. "
+                "Set prompt_mode to 'codex_default', 'merge_custom', or 'custom_only'.",
+                prompt_mode,
+            )
             combined = [*prepend_sections, base_prompt, *append_sections]
 
         # Combine sections using PromptResolver static method

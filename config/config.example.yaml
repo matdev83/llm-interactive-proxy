@@ -216,6 +216,31 @@ backends:
     # API key set via ZAI_API_KEY environment variable
     timeout: 120
 
+  openai_codex:
+    # API key set via OpenAI OAuth flow (see docs)
+    timeout: 120
+    # Enthusiast mode defaults: client tools only, no server-side execution, no environment leakage
+    # These settings make the connector behave as a transparent proxy for third-party agents
+    extra:
+      codex:
+        default_capabilities:
+          protocol: openai-chat
+          codex_passthrough: false
+          prompt_mode: codex_default
+          tool_schema_mode: custom_only
+          tool_text_format: none
+          bypass_tool_call_reactor: true
+          include_environment_context: false
+    # For Responses API clients (Profile B), use:
+    #   default_capabilities:
+    #     protocol: openai-responses
+    #     codex_passthrough: true
+    #     prompt_mode: codex_default
+    #     tool_schema_mode: custom_only
+    #     tool_text_format: none
+    #     bypass_tool_call_reactor: true
+    #     include_environment_context: false
+
 # Model-specific defaults
 model_defaults:
   "gpt-4":  # Exact model name

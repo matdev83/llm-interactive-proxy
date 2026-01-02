@@ -57,6 +57,13 @@ class ToolSchemaResolver(IToolSchemaResolver):
             tools_dicts = self._default_tools_provider()
             return self._dict_tools_to_schemas(tools_dicts)
 
+        # Check if base_tools are configured in settings
+        base_tools_raw = self._settings.tool_schema.get("base_tools")
+        if isinstance(base_tools_raw, list):
+            # Use configured base_tools (empty list means no tools)
+            return self._dict_tools_to_schemas(base_tools_raw)
+
+        # Fall back to hardcoded built-ins if base_tools is None
         from src.connectors.openai_codex.tool_schemas import get_codex_tool_schema
 
         tools: list[CodexToolSchema] = [
