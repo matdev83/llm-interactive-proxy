@@ -30,6 +30,7 @@ class EditPrecisionPatterns:
     request_patterns: list[str]
     response_patterns: list[str]
 
+
 try:
     import yaml  # type: ignore
 except ImportError:  # pragma: no cover
@@ -87,22 +88,28 @@ def _load_yaml(path: str) -> EditPrecisionPatternsConfig | None:
 
 
 @lru_cache(maxsize=1)
-def _load_patterns() -> tuple[list[str], list[str]]:
+def _load_patterns() -> EditPrecisionPatterns:
     path = os.environ.get(
         "EDIT_PRECISION_PATTERNS_PATH",
         os.path.join("config", "edit_precision_patterns.yaml"),
     )
     config = _load_yaml(path)
     if not config:
-        return DEFAULT_REQUEST_PATTERNS, DEFAULT_RESPONSE_PATTERNS
-    return list(config.request_patterns), list(config.response_patterns)
+        return EditPrecisionPatterns(
+            request_patterns=DEFAULT_REQUEST_PATTERNS,
+            response_patterns=DEFAULT_RESPONSE_PATTERNS,
+        )
+    return EditPrecisionPatterns(
+        request_patterns=list(config.request_patterns),
+        response_patterns=list(config.response_patterns),
+    )
 
 
 def get_request_patterns() -> list[str]:
-    req, _ = _load_patterns()
-    return list(req)
+    patterns = _load_patterns()
+    return list(patterns.request_patterns)
 
 
 def get_response_patterns() -> list[str]:
-    _, resp = _load_patterns()
-    return list(resp)
+    patterns = _load_patterns()
+    return list(patterns.response_patterns)

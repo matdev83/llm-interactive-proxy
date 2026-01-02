@@ -71,6 +71,14 @@ class RetryState:
     reactor_retry_active: bool
 
 
+@dataclass
+class AngelConfig:
+    """Angel verification configuration extracted from request context."""
+
+    model_spec: str | None
+    frequency: int
+
+
 class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
     """Service for handling streaming backend responses."""
 
@@ -236,11 +244,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             reactor_retry_active=reactor_retry_active,
         )
 
-    def _extract_angel_config(self, context: RequestContext) -> tuple[str | None, int]:
+    def _extract_angel_config(self, context: RequestContext) -> AngelConfig:
         """Extract Angel configuration from context.
 
         Returns:
-            Tuple of (angel_model_spec, angel_frequency)
+            AngelConfig containing model_spec and frequency
         """
         # Extract from RequestContext extensions if available
         # This follows the architectural pattern of using typed fields instead of direct app_state access
@@ -269,7 +277,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             else:
                 angel_frequency = 1  # default value
 
-        return angel_model_spec, angel_frequency
+        return AngelConfig(model_spec=angel_model_spec, frequency=angel_frequency)
 
     def _wrap_with_middleware(
         self,
@@ -544,7 +552,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
 
         # Use original context to avoid direct access to app_state in service layer
         # Extract Angel config from context if available
-        angel_model_spec, angel_frequency = self._extract_angel_config(context)
+        angel_config = self._extract_angel_config(context)
+        angel_model_spec = angel_config.model_spec
+        angel_frequency = angel_config.frequency
 
         # Wrap stream with response processor middleware
         processed_stream = self._wrap_with_middleware(

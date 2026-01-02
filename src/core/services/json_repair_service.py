@@ -17,10 +17,26 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class JsonRepairResult:
-    """Represents the outcome of a JSON repair attempt."""
+    """Represents outcome of a JSON repair attempt."""
 
     success: bool
     content: Any | None
+
+
+@dataclass(frozen=True)
+class StructuredResponseProcessResult:
+    """Represents outcome of structured response processing.
+
+    Contains processed content string and optionally a parsed JSON object.
+    """
+
+    content: str
+    parsed_object: dict[str, Any] | None
+
+    # Make tuple unpacking work at call sites
+    def __iter__(self):
+        """Allow tuple unpacking for backward compatibility."""
+        return iter((self.content, self.parsed_object))
 
 
 # Upper bounds that keep schema validation fast while allowing reasonably
@@ -234,7 +250,7 @@ class JsonRepairService:
         schema: dict[str, Any],
         session_id: str,
         strict: bool = True,
-    ) -> tuple[str, dict[str, Any] | None]:
+    ) -> StructuredResponseProcessResult:
         """
         Process a response for structured output validation and repair.
 
@@ -248,8 +264,8 @@ class JsonRepairService:
             strict: Whether to enforce strict validation
 
         Returns:
-            Tuple of (processed_content, parsed_object)
-            - processed_content: The content as a string (may be repaired)
+            StructuredResponseProcessResult containing:
+            - content: The content as a string (may be repaired)
             - parsed_object: The parsed and validated JSON object, or None if validation fails
 
         Raises:
@@ -293,7 +309,9 @@ class JsonRepairService:
                                 ),
                             },
                         ) from repair_error
-                    return content, None
+                    return StructuredResponseProcessResult(
+                        content=content, parsed_object=None
+                    )
                 except (MemoryError, OSError) as repair_error:
                     # System-level errors during repair - log with context
                     logger.error(
@@ -313,7 +331,9 @@ class JsonRepairService:
                                 ),
                             },
                         ) from repair_error
-                    return content, None
+                    return StructuredResponseProcessResult(
+                        content=content, parsed_object=None
+                    )
                 except Exception as repair_error:
                     # Unexpected exceptions during repair - defensive guard for truly unexpected errors
                     logger.error(
@@ -332,7 +352,9 @@ class JsonRepairService:
                                 ),
                             },
                         ) from repair_error
-                    return content, None
+                    return StructuredResponseProcessResult(
+                        content=content, parsed_object=None
+                    )
 
             # Validate against the schema
             try:
@@ -344,7 +366,9 @@ class JsonRepairService:
 
                 # Return the properly formatted JSON string and the parsed object
                 formatted_content = json.dumps(parsed_json, ensure_ascii=False)
-                return formatted_content, parsed_json
+                return StructuredResponseProcessResult(
+                    content=formatted_content, parsed_object=parsed_json
+                )
 
             except JsonSchemaValidationError as validation_error:
                 if logger.isEnabledFor(logging.WARNING):
@@ -379,7 +403,9 @@ class JsonRepairService:
 
                 # In non-strict mode, return the repaired JSON even if it doesn't match schema
                 formatted_content = json.dumps(parsed_json, ensure_ascii=False)
-                return formatted_content, None
+                return StructuredResponseProcessResult(
+                    content=formatted_content, parsed_object=None
+                )
 
         except (JSONParsingError, ValidationError):
             # Re-raise our custom exceptions
@@ -398,7 +424,7 @@ class JsonRepairService:
                         "error_message": str(e),
                     },
                 ) from e
-            return content, None
+            return StructuredResponseProcessResult(content=content, parsed_object=None)
 
     def validate_response_schema(self, schema: dict[str, Any]) -> bool:
         """
