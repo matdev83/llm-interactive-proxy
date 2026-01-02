@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import base64
 import json
 import logging
 import os
@@ -808,4 +809,38 @@ class CredentialManager(ICredentialManager):
             if isinstance(nested_account_id, str) and nested_account_id:
                 return nested_account_id
 
+        # Fallback: extract ChatGPT account id from the OAuth access token JWT.
+        # Codex CLI/OpenCode plugins rely on the `chatgpt-account-id` header derived from:
+        # payload["https://api.openai.com/auth"]["chatgpt_account_id"].
+        access_token = self.get_access_token()
+        if isinstance(access_token, str) and access_token:
+            token_account_id = _extract_chatgpt_account_id_from_jwt(access_token)
+            if isinstance(token_account_id, str) and token_account_id:
+                return token_account_id
+
+        return None
+
+
+def _extract_chatgpt_account_id_from_jwt(token: str) -> str | None:
+    """Best-effort decode of ChatGPT account id from an access token JWT.
+
+    This does NOT verify the token signature; it is used only to extract the
+    `chatgpt_account_id` claim for the required `chatgpt-account-id` header.
+    """
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return None
+        payload_b64 = parts[1]
+        padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+        payload_bytes = base64.urlsafe_b64decode(padded.encode("ascii"))
+        payload = json.loads(payload_bytes.decode("utf-8", errors="replace"))
+        if not isinstance(payload, dict):
+            return None
+        auth_claim = payload.get("https://api.openai.com/auth")
+        if not isinstance(auth_claim, dict):
+            return None
+        account_id = auth_claim.get("chatgpt_account_id")
+        return account_id if isinstance(account_id, str) and account_id else None
+    except Exception:
         return None

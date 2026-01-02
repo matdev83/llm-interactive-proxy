@@ -760,7 +760,10 @@ class ResponseExecutor(IResponseExecutor):
         headers["User-Agent"] = build_codex_user_agent()
 
         headers["conversation_id"] = conversation_id
-        headers["session_id"] = session_id
+        # Codex CLI sends both conversation_id and session_id as the same stable id.
+        # Using the proxy correlation id here breaks parity and can lead to backend
+        # rejecting cached/session-scoped state. Keep them aligned.
+        headers["session_id"] = conversation_id
         headers["Codex-Task-Type"] = "standard"
 
         # Add account ID if available
@@ -785,7 +788,7 @@ class ResponseExecutor(IResponseExecutor):
             headers[key] = value
         # Ensure conversation metadata stays aligned
         headers["conversation_id"] = conversation_id
-        headers["session_id"] = session_id
+        headers["session_id"] = conversation_id
 
     def _should_retry_for_auth_error(self, chunk: ProcessedResponse | Any) -> bool:
         """Check if a streaming chunk indicates an authentication failure.

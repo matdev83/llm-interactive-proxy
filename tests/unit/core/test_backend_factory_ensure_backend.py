@@ -280,3 +280,109 @@ async def test_ensure_backend_custom_api_url_not_overridden(
         assert init_config["api_key"] == "gemini-key"
         assert init_config["api_base_url"] == "https://custom-gemini-api.example.com"
         assert result == mock_backend
+
+
+@pytest.mark.asyncio
+async def test_ensure_backend_delegates_to_strategy_registry(
+    factory: BackendFactory,
+) -> None:
+    """Test that ensure_backend delegates to initialization strategy registry."""
+    # Arrange
+    backend_type = "anthropic"
+    app_config = factory._config
+    backend_config = BackendConfig(api_key="test-key")
+    mock_backend = MagicMock()
+    mock_strategy = MagicMock()
+    mock_strategy.augment_init_config.return_value = {
+        "api_key": "test-key",
+        "key_name": "anthropic",
+    }
+
+    # Act
+    with (
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
+        patch(
+            "src.core.services.backend_factory.initialization_strategy_registry.get_strategy",
+            return_value=mock_strategy,
+        ) as mock_get_strategy,
+    ):
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
+
+        # Assert
+        mock_get_strategy.assert_called_once_with("anthropic")
+        mock_strategy.augment_init_config.assert_called_once()
+        mock_create.assert_called_once_with("anthropic", app_config)
+        mock_init.assert_called_once()
+        assert result == mock_backend
+
+
+@pytest.mark.asyncio
+async def test_ensure_backend_uses_default_strategy_for_unknown_connector(
+    factory: BackendFactory,
+) -> None:
+    """Test that ensure_backend uses default strategy for unknown connectors."""
+    # Arrange
+    backend_type = "unknown-backend"
+    app_config = factory._config
+    backend_config = BackendConfig(api_key="test-key")
+    mock_backend = MagicMock()
+
+    # Act
+    with (
+        patch(
+            "src.core.services.backend_factory.BackendFactory.create_backend",
+            return_value=mock_backend,
+        ) as mock_create,
+        patch(
+            "src.core.services.backend_factory.BackendFactory.initialize_backend",
+            new_callable=AsyncMock,
+        ) as mock_init,
+    ):
+        result = await factory.ensure_backend(backend_type, app_config, backend_config)
+
+        # Assert
+        mock_create.assert_called_once_with("unknown-backend", app_config)
+        mock_init.assert_called_once()
+        init_config = mock_init.call_args[0][1]
+        # Default strategy should pass config unmodified (no key_name added)
+        assert init_config["api_key"] == "test-key"
+        assert "key_name" not in init_config
+        assert result == mock_backend
+
+
+@pytest.mark.asyncio
+async def test_ensure_backend_preserves_exception_context_from_strategy(
+    factory: BackendFactory,
+) -> None:
+    """Test that exceptions from strategies propagate correctly.
+
+    Note: Exception wrapping with connector context is handled by the registry's
+    _ExceptionWrappingStrategy wrapper, which is tested separately in registry tests.
+    This test verifies that exceptions from strategies propagate through the factory.
+    """
+    # Arrange
+    backend_type = "anthropic"
+    app_config = factory._config
+    backend_config = BackendConfig(api_key="test-key")
+    mock_strategy = MagicMock()
+    mock_strategy.augment_init_config.side_effect = ValueError("Strategy error")
+
+    # Act & Assert
+    # When get_strategy returns a mock directly, it bypasses the registry's wrapper,
+    # so we just verify the exception propagates. The registry's exception wrapping
+    # is tested in tests/unit/connectors/strategies/test_registry.py
+    with (
+        patch(
+            "src.core.services.backend_factory.initialization_strategy_registry.get_strategy",
+            return_value=mock_strategy,
+        ),
+        pytest.raises(ValueError, match="Strategy error"),
+    ):
+        await factory.ensure_backend(backend_type, app_config, backend_config)

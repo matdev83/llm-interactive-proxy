@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from src.connectors.base import LLMBackend
+from src.connectors.strategies.registry import initialization_strategy_registry
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.interfaces.activity_tracker_interface import IConnectionActivityTracker
 from src.core.interfaces.backend_factory_interface import IBackendFactory
@@ -199,25 +200,9 @@ class BackendFactory(IBackendFactory):
                 f"Using provided API key for {backend_type}: {current_api_key[:20] if current_api_key else 'None'}..."
             )
 
-        # Backend-specific augmentations
-        if connector_type == "anthropic":
-            init_config["key_name"] = connector_type
-        elif connector_type == "openrouter":
-            from src.core.config.app_config import get_openrouter_headers
-
-            init_config["key_name"] = connector_type
-            init_config["openrouter_headers_provider"] = get_openrouter_headers
-            if "api_base_url" not in init_config:
-                init_config["api_base_url"] = "https://openrouter.ai/api/v1"
-        elif connector_type == "gemini":
-            init_config["key_name"] = connector_type
-            # Map api_base_url to gemini_api_base_url for Gemini backend
-            if "api_base_url" in init_config:
-                init_config["gemini_api_base_url"] = init_config["api_base_url"]
-            elif "gemini_api_base_url" not in init_config:
-                init_config["gemini_api_base_url"] = (
-                    "https://generativelanguage.googleapis.com"
-                )
+        # Delegate backend-specific augmentation to initialization strategies
+        strategy = initialization_strategy_registry.get_strategy(connector_type)
+        init_config = strategy.augment_init_config(init_config)
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(

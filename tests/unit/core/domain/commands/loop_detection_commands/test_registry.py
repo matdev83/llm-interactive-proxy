@@ -2,54 +2,50 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Any
 
 import pytest
-from src.core.domain.commands.loop_detection_commands import (
-    LoopDetectionCommand,
-    ToolLoopDetectionCommand,
-    ToolLoopMaxRepeatsCommand,
-    ToolLoopModeCommand,
-    ToolLoopTTLCommand,
-    get_loop_detection_command,
-    get_loop_detection_commands,
-)
 
-EXPECTED_COMMANDS: Mapping[str, type[Any]] = {
-    "LoopDetectionCommand": LoopDetectionCommand,
-    "ToolLoopDetectionCommand": ToolLoopDetectionCommand,
-    "ToolLoopMaxRepeatsCommand": ToolLoopMaxRepeatsCommand,
-    "ToolLoopModeCommand": ToolLoopModeCommand,
-    "ToolLoopTTLCommand": ToolLoopTTLCommand,
-}
+import src.core.domain.commands.loop_detection_commands as registry_module
+
+COMMAND_NAMES: list[str] = [
+    "LoopDetectionCommand",
+    "ToolLoopDetectionCommand",
+    "ToolLoopMaxRepeatsCommand",
+    "ToolLoopModeCommand",
+    "ToolLoopTTLCommand",
+]
 
 
-@pytest.mark.parametrize("command_name, command_cls", EXPECTED_COMMANDS.items())
+@pytest.mark.parametrize("command_name", COMMAND_NAMES)
 def test_get_loop_detection_command_returns_registered_class(
-    command_name: str, command_cls: type[Any]
+    command_name: str,
 ) -> None:
     """Each known command name resolves to its registered class."""
 
-    resolved = get_loop_detection_command(command_name)
+    expected_cls = getattr(registry_module, command_name)
+    resolved = registry_module.get_loop_detection_command(command_name)
 
-    assert resolved is command_cls
+    assert resolved is expected_cls
 
 
 def test_get_loop_detection_command_unknown_name() -> None:
     """An unknown command name raises a clear ``ValueError``."""
 
     with pytest.raises(ValueError, match="Unknown loop detection command: unknown"):
-        get_loop_detection_command("unknown")
+        registry_module.get_loop_detection_command("unknown")
 
 
 def test_get_loop_detection_commands_returns_copy() -> None:
     """Mutating a retrieved mapping does not affect the registry state."""
 
-    commands = get_loop_detection_commands()
+    expected_commands = {
+        name: getattr(registry_module, name) for name in COMMAND_NAMES
+    }
+    commands = registry_module.get_loop_detection_commands()
 
     # Baseline sanity check for returned mapping contents.
-    assert commands == EXPECTED_COMMANDS
+    assert commands == expected_commands
 
     # Mutate the mapping and ensure a subsequent call is unaffected.
     mutable_commands = dict(commands)
@@ -59,6 +55,6 @@ def test_get_loop_detection_commands_returns_copy() -> None:
         {},
     )
 
-    fresh_commands = get_loop_detection_commands()
+    fresh_commands = registry_module.get_loop_detection_commands()
 
-    assert fresh_commands == EXPECTED_COMMANDS
+    assert fresh_commands == expected_commands
