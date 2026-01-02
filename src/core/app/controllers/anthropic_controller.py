@@ -84,8 +84,14 @@ class AnthropicController:
                     "completion_tokens": completion_tokens,
                     "total_tokens": total_tokens,
                 }
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            # Optional metadata extraction - log for debugging but return None gracefully
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to extract usage from Anthropic response headers: %s",
+                    type(e).__name__,
+                    exc_info=True,
+                )
 
         return None
 

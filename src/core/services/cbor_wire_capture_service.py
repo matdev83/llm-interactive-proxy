@@ -265,7 +265,12 @@ class CborWireCaptureService(IWireCapture):
                 loop = asyncio.get_running_loop()
                 self._flush_task = loop.create_task(self._background_flush_loop())
             except RuntimeError:
-                pass
+                # Expected when called from non-async context - log for debugging
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Cannot start background flush task: no running event loop",
+                        exc_info=True,
+                    )
 
     def _extract_context_metadata(
         self,

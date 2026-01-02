@@ -140,8 +140,14 @@ class OpencodeZenConnector(OpenAIConnector):
                     )
                     return True
                 self._last_modified = current_mtime
-            except OSError:
-                pass
+            except OSError as e:
+                # File may not exist yet or permission issue - log for debugging
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to stat OpenCode credentials file for modification time: %s",
+                        e,
+                        exc_info=True,
+                    )
 
             all_credentials: dict[str, Any] = await asyncio.to_thread(_load_file)
 
