@@ -45,3 +45,9 @@ All notable changes to this project will be documented in this file.
 - **Streaming Handler**: Refactored retry state management with dedicated RetryState dataclass for better type safety
 - **Wire Capture**: Made file rotation methods async to properly handle I/O operations in async context
 - **Boundary Validation**: Added boundary validation service with enhanced validation and error handling for connector communications
+
+### Changed
+
+- **Backend Refactoring**: Refactored backend stage with improved validation services and connector strategies
+- **Dependency Injection**: Enhanced DI container with improved provider lifecycle management and post-build actions
+- **Validation Services**: Added backend validation service with HTTP client manager for improved backend initialization
