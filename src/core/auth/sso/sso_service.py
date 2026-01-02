@@ -413,7 +413,11 @@ class SSOService:
             raise
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Unexpected error during ID token verification: %s", e)
+                logger.warning(
+                    "Unexpected error during ID token verification: %s",
+                    e,
+                    exc_info=True,
+                )
             raise AuthenticationError(
                 f"ID token verification failed: {e!s}",
                 details={"error": str(e)},
@@ -1182,7 +1186,10 @@ class SSOService:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Provider-specific extraction failed for %s: %s", provider_name, e
+                    "Provider-specific extraction failed for %s: %s",
+                    provider_name,
+                    e,
+                    exc_info=True,
                 )
 
         return user_id, email

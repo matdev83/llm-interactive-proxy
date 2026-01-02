@@ -369,7 +369,12 @@ class ClientSimulator:
                 results.append(result)
             except Exception as e:
                 if logger.isEnabledFor(logging.ERROR):
-                    logger.error(f"Error replaying request {req.sequence}: {e}")
+                    logger.error(
+                        "Error replaying request %s: %s",
+                        req.sequence,
+                        e,
+                        exc_info=True,
+                    )
                 results.append(
                     ValidationResult(
                         success=False,
