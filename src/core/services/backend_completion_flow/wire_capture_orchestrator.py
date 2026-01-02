@@ -1,15 +1,18 @@
 """Wire capture orchestration collaborator."""
 
+# pyright: reportPrivateUsage=false
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, cast
+from typing import cast
 
 from pydantic.types import JsonValue
 
 from src.core.config.app_config import AppConfig, BackendConfig
-from src.core.config.config_loader import _collect_api_keys
+from src.core.config.config_loader import (
+    _collect_api_keys,
+)
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
@@ -17,7 +20,7 @@ from src.core.interfaces.backend_completion_collaborators import (
     IWireCaptureOrchestrator,
 )
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
-from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.configuration_interface import IAppIdentityConfig, IConfig
 from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.wire_capture_interface import IWireCapture
 
@@ -46,7 +49,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
 
     async def prepare_wire_capture_context(
         self, backend_type: str, session: ISession | None
-    ) -> Any | None:
+    ) -> IAppIdentityConfig | None:
         """Prepare identity and backend config for wire capture.
 
         Args:
@@ -54,7 +57,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             session: Optional session object
 
         Returns:
-            Identity object with session context (IAppIdentityConfig or compatible)
+            Identity object with session context (IAppIdentityConfig or None)
         """
         app_config_typed: AppConfig = cast(AppConfig, self._config)
 
@@ -162,7 +165,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             }.get(backend_type)
             if not env_base:
                 return backend_type
-            mapping = _collect_api_keys(env_base)
+            mapping = _collect_api_keys(env_base)  # pyright: ignore[reportPrivateUsage]
             for name, value in mapping.items():
                 if value == api_key_value:
                     return name
@@ -184,7 +187,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         effective_model: str,
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
-        canonical_usage: dict[str, Any] | None = None,
+        canonical_usage: CanonicalUsageRecord | None = None,
     ) -> None:
         """Capture inbound response payload (best-effort).
 
@@ -195,7 +198,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             effective_model: Model name
             key_name: Key name for redaction
             response_content: The response content (JSON-serializable dict, bytes, or None)
-            canonical_usage: Optional canonical usage record dict
+            canonical_usage: Optional canonical usage record
         """
         try:
             if self._wire_capture and self._wire_capture.enabled():
@@ -228,7 +231,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
 
     def wrap_inbound_stream(
         self,
-        context: Any | None,
+        context: RequestContext | None,
         session_id: str | None,
         backend_type: str,
         effective_model: str,
@@ -285,7 +288,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         effective_model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
-        eos_metadata: dict[str, Any] | None = None,
+        eos_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response (best-effort).
 
@@ -296,7 +299,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             effective_model: Model name
             key_name: Key name for redaction
             canonical_usage: Optional canonical usage record
-            eos_metadata: Optional End-of-Session metadata
+            eos_metadata: Optional End-of-Session metadata (JSON-serializable values only)
         """
         try:
             if self._wire_capture and self._wire_capture.enabled():

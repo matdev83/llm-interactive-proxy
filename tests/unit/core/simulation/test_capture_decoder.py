@@ -49,7 +49,12 @@ class TestDecodeResult:
     def test_failure_with_diagnostics(self):
         """Test failure result with additional diagnostics."""
         error = DecodeError("Parse failed", details={"line": 42})
-        diagnostics = {"raw_bytes": b"test", "attempted_format": "json"}
+        from pydantic.types import JsonValue
+
+        diagnostics: dict[str, JsonValue] = {
+            "raw_bytes_hex": "74657374",
+            "attempted_format": "json",
+        }
         result = DecodeResult.failure(error, diagnostics=diagnostics)
 
         assert result.is_failure is True
@@ -598,3 +603,352 @@ class TestCaptureDecoderStreaming:
         # Should handle gracefully
         assert start_result.is_success or start_result.is_failure
         assert end_result.is_success or end_result.is_failure
+
+
+class TestCaptureDecoderDiagnostics:
+    """Tests for diagnostic structure, JSON-safety, and determinism."""
+
+    def test_diagnostics_are_json_safe(self):
+        """Verify all diagnostic values are JSON-serializable."""
+        decoder = CaptureDecoder()
+
+        # Test various failure scenarios that produce diagnostics
+        test_cases = [
+            # Empty data
+            CaptureEntry(
+                timestamp=1.0,
+                direction=CaptureDirection.CLIENT_TO_PROXY,
+                sequence=0,
+                data=b"",
+            ),
+            # Invalid JSON
+            CaptureEntry(
+                timestamp=1.0,
+                direction=CaptureDirection.CLIENT_TO_PROXY,
+                sequence=0,
+                data=b"not valid json {",
+            ),
+            # Invalid UTF-8
+            CaptureEntry(
+                timestamp=1.0,
+                direction=CaptureDirection.CLIENT_TO_PROXY,
+                sequence=0,
+                data=b"\xff\xfe\xfd",
+            ),
+            # Missing required fields
+            CaptureEntry(
+                timestamp=1.0,
+                direction=CaptureDirection.CLIENT_TO_PROXY,
+                sequence=0,
+                data=json.dumps({"model": "gpt-4"}).encode("utf-8"),
+            ),
+        ]
+
+        for entry in test_cases:
+            result = decoder.decode_inbound_request(entry)
+            assert result.is_failure
+
+            # Verify diagnostics are JSON-serializable
+            if result.diagnostics:
+                json_str = json.dumps(result.diagnostics)
+                assert isinstance(json_str, str)
+                # Verify we can deserialize it back
+                deserialized = json.loads(json_str)
+                assert isinstance(deserialized, dict)
+
+            # Verify error details are JSON-serializable
+            if result.error and result.error.details:
+                json_str = json.dumps(result.error.details)
+                assert isinstance(json_str, str)
+                deserialized = json.loads(json_str)
+                assert isinstance(deserialized, dict)
+
+    def test_diagnostics_determinism(self):
+        """Same failure produces identical diagnostics."""
+        decoder = CaptureDecoder()
+
+        # Create an entry that will fail consistently
+        invalid_json = b"not valid json {"
+        entry = CaptureEntry(
+            timestamp=1.0,
+            direction=CaptureDirection.CLIENT_TO_PROXY,
+            sequence=0,
+            data=invalid_json,
+        )
+
+        # Decode multiple times
+        result1 = decoder.decode_inbound_request(entry)
+        result2 = decoder.decode_inbound_request(entry)
+        result3 = decoder.decode_inbound_request(entry)
+
+        assert result1.is_failure
+        assert result2.is_failure
+        assert result3.is_failure
+
+        # Diagnostics should be identical
+        if result1.diagnostics and result2.diagnostics and result3.diagnostics:
+            assert result1.diagnostics == result2.diagnostics == result3.diagnostics
+
+        # Error details should be identical
+        if (
+            result1.error
+            and result2.error
+            and result3.error
+            and result1.error.details
+            and result2.error.details
+            and result3.error.details
+        ):
+            assert (
+                result1.error.details == result2.error.details == result3.error.details
+            )
+
+    def test_diagnostics_structure_consistency(self):
+        """Diagnostic structure is consistent across decode methods."""
+        decoder = CaptureDecoder()
+
+        # Test with invalid JSON for different decode methods
+        invalid_data = b"not valid json {"
+
+        # Test inbound request
+        inbound_entry = CaptureEntry(
+            timestamp=1.0,
+            direction=CaptureDirection.CLIENT_TO_PROXY,
+            sequence=0,
+            data=invalid_data,
+        )
+        inbound_result = decoder.decode_inbound_request(inbound_entry)
+
+        # Test outbound request
+        outbound_entry = CaptureEntry(
+            timestamp=1.0,
+            direction=CaptureDirection.PROXY_TO_BACKEND,
+            sequence=0,
+            data=invalid_data,
+        )
+        outbound_result = decoder.decode_outbound_request(outbound_entry)
+
+        # Both should fail with similar diagnostic structure
+        assert inbound_result.is_failure
+        assert outbound_result.is_failure
+
+        # Both should have diagnostics (if any)
+        if inbound_result.diagnostics:
+            assert isinstance(inbound_result.diagnostics, dict)
+            # Verify JSON-safety
+            json.dumps(inbound_result.diagnostics)
+
+        if outbound_result.diagnostics:
+            assert isinstance(outbound_result.diagnostics, dict)
+            json.dumps(outbound_result.diagnostics)
+
+    def test_bytes_in_diagnostics_converted_to_json_safe(self):
+        """Bytes are converted to hex strings in diagnostics."""
+        decoder = CaptureDecoder()
+
+        # Create an entry with binary data that will fail UTF-8 decoding
+        binary_data = b"\xff\xfe\xfd\x00\x01\x02"
+        entry = CaptureEntry(
+            timestamp=1.0,
+            direction=CaptureDirection.CLIENT_TO_PROXY,
+            sequence=0,
+            data=binary_data,
+        )
+
+        result = decoder.decode_inbound_request(entry)
+
+        assert result.is_failure
+        assert result.error is not None
+
+        # Check that any bytes in diagnostics are converted to hex strings
+        if result.error.details:
+            for key, value in result.error.details.items():
+                assert not isinstance(value, bytes), f"Found bytes in details[{key}]"
+                if "hex" in key.lower() or "preview" in key.lower():
+                    # Should be a hex string
+                    assert isinstance(value, str)
+
+        if result.diagnostics:
+            for key, value in result.diagnostics.items():
+                assert not isinstance(
+                    value, bytes
+                ), f"Found bytes in diagnostics[{key}]"
+                if "hex" in key.lower():
+                    # Should be a hex string
+                    assert isinstance(value, str)
+
+    def test_diagnostics_merge_correctly(self):
+        """Error details and additional diagnostics merge correctly."""
+        error = DecodeError("Test error", details={"field1": "value1", "field2": 42})
+        from pydantic.types import JsonValue
+
+        additional_diagnostics: dict[str, JsonValue] = {
+            "field3": "value3",
+            "field4": True,
+        }
+
+        result = DecodeResult.failure(error, diagnostics=additional_diagnostics)
+
+        assert result.is_failure
+        assert result.diagnostics is not None
+        # Should contain all fields
+        assert result.diagnostics["field1"] == "value1"
+        assert result.diagnostics["field2"] == 42
+        assert result.diagnostics["field3"] == "value3"
+        assert result.diagnostics["field4"] is True
+
+        # Verify JSON-safety
+        json.dumps(result.diagnostics)
+
+    def test_diagnostics_round_trip_serialization(self):
+        """Diagnostics can be serialized to JSON and back."""
+        decoder = CaptureDecoder()
+
+        # Create various failure scenarios
+        test_entries = [
+            CaptureEntry(
+                timestamp=1.0,
+                direction=CaptureDirection.CLIENT_TO_PROXY,
+                sequence=0,
+                data=b"",
+            ),
+            CaptureEntry(
+                timestamp=1.0,
+                direction=CaptureDirection.CLIENT_TO_PROXY,
+                sequence=0,
+                data=b"invalid json",
+            ),
+            CaptureEntry(
+                timestamp=1.0,
+                direction=CaptureDirection.BACKEND_TO_PROXY,
+                sequence=0,
+                data=b"invalid response",
+            ),
+        ]
+
+        for entry in test_entries:
+            if entry.direction == CaptureDirection.CLIENT_TO_PROXY:
+                result = decoder.decode_inbound_request(entry)
+            else:
+                result = decoder.decode_response(entry)
+
+            assert result.is_failure
+
+            # Test round-trip serialization for diagnostics
+            if result.diagnostics:
+                json_str = json.dumps(result.diagnostics)
+                deserialized = json.loads(json_str)
+                assert deserialized == result.diagnostics
+
+            # Test round-trip serialization for error details
+            if result.error and result.error.details:
+                json_str = json.dumps(result.error.details)
+                deserialized = json.loads(json_str)
+                assert deserialized == result.error.details
+
+    def test_diagnostics_dict_normalization_determinism(self):
+        """Dict normalization produces deterministic output regardless of key order."""
+        decoder = CaptureDecoder()
+
+        # Create dicts with different key orders
+        dict1 = {"z": 3, "a": 1, "m": 2}
+        dict2 = {"a": 1, "m": 2, "z": 3}
+        dict3 = {"m": 2, "z": 3, "a": 1}
+
+        # Normalize all dicts
+        normalized1 = decoder._normalize_to_json_value(dict1)
+        normalized2 = decoder._normalize_to_json_value(dict2)
+        normalized3 = decoder._normalize_to_json_value(dict3)
+
+        # All should produce identical normalized dicts (keys sorted)
+        assert normalized1 == normalized2 == normalized3
+
+        # Serialize to JSON - should produce identical strings
+        json1 = json.dumps(normalized1, sort_keys=True)
+        json2 = json.dumps(normalized2, sort_keys=True)
+        json3 = json.dumps(normalized3, sort_keys=True)
+
+        assert json1 == json2 == json3
+
+        # Verify keys are sorted
+        assert isinstance(normalized1, dict)
+        assert list(normalized1.keys()) == ["a", "m", "z"]
+
+
+class TestCaptureDecoderDeterminismEnhanced:
+    """Enhanced tests for decode determinism including diagnostics."""
+
+    def test_diagnostics_determinism_for_same_failure(self):
+        """Same failure produces identical diagnostics."""
+        decoder = CaptureDecoder()
+
+        # Create a request that will fail validation
+        invalid_request = json.dumps({"model": "gpt-4"})  # Missing required "messages"
+        entry = CaptureEntry(
+            timestamp=1.0,
+            direction=CaptureDirection.CLIENT_TO_PROXY,
+            sequence=0,
+            data=invalid_request.encode("utf-8"),
+        )
+
+        # Decode multiple times
+        results = [decoder.decode_inbound_request(entry) for _ in range(5)]
+
+        # All should fail
+        assert all(r.is_failure for r in results)
+
+        # All diagnostics should be identical
+        diagnostics_list = [r.diagnostics for r in results if r.diagnostics]
+        if diagnostics_list:
+            first_diagnostics = diagnostics_list[0]
+            for diag in diagnostics_list[1:]:
+                assert diag == first_diagnostics
+
+        # All error details should be identical
+        error_details_list = [
+            r.error.details for r in results if r.error and r.error.details
+        ]
+        if error_details_list:
+            first_details = error_details_list[0]
+            for details in error_details_list[1:]:
+                assert details == first_details
+
+    def test_diagnostics_determinism_across_decode_methods(self):
+        """Different decode methods produce consistent diagnostic structures."""
+        decoder = CaptureDecoder()
+
+        # Use the same invalid data for different decode methods
+        invalid_data = b"not valid json {"
+
+        # Test request decoding
+        request_entry = CaptureEntry(
+            timestamp=1.0,
+            direction=CaptureDirection.CLIENT_TO_PROXY,
+            sequence=0,
+            data=invalid_data,
+        )
+        request_result = decoder.decode_inbound_request(request_entry)
+
+        # Test response decoding
+        response_entry = CaptureEntry(
+            timestamp=1.0,
+            direction=CaptureDirection.BACKEND_TO_PROXY,
+            sequence=0,
+            data=invalid_data,
+        )
+        response_result = decoder.decode_response(response_entry)
+
+        # Both should fail
+        assert request_result.is_failure
+        assert response_result.is_failure
+
+        # Both should have JSON-safe diagnostics
+        if request_result.diagnostics:
+            json.dumps(request_result.diagnostics)
+        if response_result.diagnostics:
+            json.dumps(response_result.diagnostics)
+
+        # Both should have JSON-safe error details
+        if request_result.error and request_result.error.details:
+            json.dumps(request_result.error.details)
+        if response_result.error and response_result.error.details:
+            json.dumps(response_result.error.details)

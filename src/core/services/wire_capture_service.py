@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from pydantic.types import JsonValue
+
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
@@ -157,8 +159,8 @@ class WireCapture(IWireCapture):
         backend: str,
         model: str,
         key_name: str | None,
-        response_content: Any,
-        canonical_usage: dict[str, Any] | None = None,
+        response_content: dict[str, JsonValue] | bytes | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
     ) -> None:
         if not self.enabled():
             return
@@ -206,7 +208,7 @@ class WireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
-        eos_metadata: dict[str, Any] | None = None,
+        eos_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
         # Allow EoS metadata even without canonical_usage
@@ -225,7 +227,7 @@ class WireCapture(IWireCapture):
             model=model,
             key_name=key_name,
         )
-        body_dict: dict[str, Any] = {}
+        body_dict: dict[str, JsonValue] = {}
         if canonical_usage_dict:
             body_dict["canonical_usage"] = canonical_usage_dict
         if eos_metadata:
@@ -540,16 +542,29 @@ class WireCapture(IWireCapture):
 
 
 def _safe_json_dump(obj: Any) -> str:
+    """Safely convert object to JSON string with deterministic key ordering.
+    
+    Uses deterministic serialization (sorted keys) to ensure consistent output
+    for diff-based debugging and replay workflows (Requirement 7.3).
+    """
     try:
-        return json.dumps(obj, ensure_ascii=False, indent=2)
+        # Use sort_keys=True for deterministic output (Requirement 7.3)
+        return json.dumps(obj, sort_keys=True, ensure_ascii=False, indent=2)
     except (TypeError, ValueError):
         try:
             if hasattr(obj, "model_dump"):
                 # Use model_dump_json() to avoid creating intermediate dict (performance optimization)
                 if hasattr(obj, "model_dump_json"):
-                    return obj.model_dump_json(indent=2)  # type: ignore[attr-defined, no-any-return]
-                return json.dumps(obj.model_dump(), ensure_ascii=False, indent=2)  # type: ignore[attr-defined]
-            return json.dumps(obj.__dict__, ensure_ascii=False, indent=2)
+                    # model_dump_json() doesn't support sort_keys, so we need to parse and re-serialize
+                    json_str = obj.model_dump_json(indent=2)  # type: ignore[attr-defined, no-any-return]
+                    # Parse and re-serialize with sorted keys for determinism
+                    parsed = json.loads(json_str)
+                    return json.dumps(parsed, sort_keys=True, ensure_ascii=False, indent=2)
+                # Use model_dump() and serialize with sorted keys
+                data = obj.model_dump()  # type: ignore[attr-defined]
+                return json.dumps(data, sort_keys=True, ensure_ascii=False, indent=2)
+            # Use __dict__ and serialize with sorted keys
+            return json.dumps(obj.__dict__, sort_keys=True, ensure_ascii=False, indent=2)
         except (TypeError, ValueError, AttributeError) as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(

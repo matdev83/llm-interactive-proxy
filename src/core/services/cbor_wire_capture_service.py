@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import threading
 import time
@@ -23,7 +22,9 @@ from typing import Any
 from uuid import uuid4
 
 import cbor2
+from pydantic.types import JsonValue
 
+from src.core.common.contract_serialization import serialize_for_capture
 from src.core.config.app_config import AppConfig
 from src.core.domain.cbor_capture import (
     CaptureDirection,
@@ -49,43 +50,13 @@ def _is_mock(value: Any) -> bool:
     return isinstance(module_name, str) and module_name.startswith("unittest.mock")
 
 
-def _extract_bytes(payload: Any) -> bytes:
-    """Extract raw bytes from various payload types."""
-    if isinstance(payload, bytes):
-        return payload
-    if isinstance(payload, bytearray):
-        return bytes(payload)
-    if isinstance(payload, str):
-        return payload.encode("utf-8")
-    if isinstance(payload, dict | list):
-        return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
-            "utf-8"
-        )
-    if hasattr(payload, "model_dump") and callable(payload.model_dump):
-        try:
-            return json.dumps(
-                payload.model_dump(), ensure_ascii=False, separators=(",", ":")
-            ).encode("utf-8")
-        except (TypeError, ValueError, AttributeError) as e:
-            logger.warning(
-                "Failed to serialize payload with model_dump: %s, type: %s",
-                e,
-                type(payload).__name__,
-                exc_info=True,
-            )
-    if hasattr(payload, "__dict__"):
-        try:
-            return json.dumps(
-                dict(payload.__dict__), ensure_ascii=False, separators=(",", ":")
-            ).encode("utf-8")
-        except (TypeError, ValueError, AttributeError) as e:
-            logger.warning(
-                "Failed to serialize payload with __dict__: %s, type: %s",
-                e,
-                type(payload).__name__,
-                exc_info=True,
-            )
-    return str(payload).encode("utf-8")
+def _extract_bytes(payload: Any) -> bytes:  # pyright: ignore[reportUnusedFunction]
+    """Extract raw bytes from various payload types using deterministic serialization.
+
+    DEPRECATED: Use serialize_for_capture() directly for new code.
+    This function is kept for backward compatibility and now delegates to serialize_for_capture().
+    """
+    return serialize_for_capture(payload)
 
 
 class _StreamPassthroughWrapper:
@@ -218,7 +189,9 @@ class CborWireCaptureService(IWireCapture):
             self._enabled = False
         except RuntimeError:
             # RuntimeError may occur from _maybe_start_flush_task() if event loop issues
-            logger.error("Failed to initialize CBOR wire capture (runtime error)", exc_info=True)
+            logger.error(
+                "Failed to initialize CBOR wire capture (runtime error)", exc_info=True
+            )
             self._enabled = False
 
     def _write_header(self) -> None:
@@ -280,9 +253,13 @@ class CborWireCaptureService(IWireCapture):
         model: str | None = None,
         key_name: str | None = None,
         canonical_usage: dict[str, Any] | None = None,
-        eos_metadata: dict[str, Any] | None = None,
+        eos_metadata: dict[str, JsonValue] | None = None,
     ) -> CaptureMetadata:
-        """Extract metadata from context and parameters."""
+        """Extract metadata from context and parameters.
+
+        Note: canonical_usage is expected to be a dict (converted from CanonicalUsageRecord
+        at call site). eos_metadata is expected to be dict[str, JsonValue] (JSON-safe).
+        """
         client_host: str | None = None
         user_agent: str | None = None
         request_id: str | None = None
@@ -302,8 +279,8 @@ class CborWireCaptureService(IWireCapture):
         if not resolved_session or not str(resolved_session).strip():
             resolved_session = request_id or self._session_id
 
-        # Extract EoS metadata if provided
-        eos_fields = {}
+        # Extract EoS metadata if provided (already JSON-safe)
+        eos_fields: dict[str, JsonValue] = {}
         if eos_metadata:
             eos_fields = {
                 "eos": eos_metadata.get("eos", False),
@@ -318,7 +295,61 @@ class CborWireCaptureService(IWireCapture):
                 "eos_error_status_code": eos_metadata.get("eos_error_status_code"),
             }
 
-        return CaptureMetadata(
+        # Extract EoS fields with proper type conversion
+        eos: bool = False
+        eos_signal: str | None = None
+        eos_reason: str | None = None
+        eos_termination_category: str | None = None
+        eos_error_classification: str | None = None
+        eos_error_status_code: int | None = None
+
+        if eos_fields:
+            eos_val = eos_fields.get("eos", False)
+            eos = bool(eos_val) if eos_val is not None else False
+
+            eos_signal_val = eos_fields.get("eos_signal")
+            eos_signal = (
+                str(eos_signal_val)
+                if eos_signal_val is not None and isinstance(eos_signal_val, str)
+                else None
+            )
+
+            eos_reason_val = eos_fields.get("eos_reason")
+            eos_reason = (
+                str(eos_reason_val)
+                if eos_reason_val is not None and isinstance(eos_reason_val, str)
+                else None
+            )
+
+            eos_termination_category_val = eos_fields.get("eos_termination_category")
+            eos_termination_category = (
+                str(eos_termination_category_val)
+                if eos_termination_category_val is not None
+                and isinstance(eos_termination_category_val, str)
+                else None
+            )
+
+            eos_error_classification_val = eos_fields.get("eos_error_classification")
+            eos_error_classification = (
+                str(eos_error_classification_val)
+                if eos_error_classification_val is not None
+                and isinstance(eos_error_classification_val, str)
+                else None
+            )
+
+            eos_error_status_code_val = eos_fields.get("eos_error_status_code")
+            if eos_error_status_code_val is not None:
+                if isinstance(eos_error_status_code_val, int):
+                    eos_error_status_code = eos_error_status_code_val
+                elif (
+                    isinstance(eos_error_status_code_val, float)
+                    and eos_error_status_code_val.is_integer()
+                ):
+                    eos_error_status_code = int(eos_error_status_code_val)
+                else:
+                    eos_error_status_code = None
+
+        metadata = CaptureMetadata(
             session_id=resolved_session,
             backend=backend,
             model=model,
@@ -327,8 +358,15 @@ class CborWireCaptureService(IWireCapture):
             user_agent=user_agent,
             request_id=request_id,
             canonical_usage=canonical_usage,
-            **eos_fields,
+            eos=eos,
+            eos_signal=eos_signal,
+            eos_reason=eos_reason,
+            eos_termination_category=eos_termination_category,
+            eos_error_classification=eos_error_classification,
+            eos_error_status_code=eos_error_status_code,
         )
+
+        return metadata
 
     async def capture_inbound_request(
         self,
@@ -344,8 +382,10 @@ class CborWireCaptureService(IWireCapture):
 
         self._maybe_start_flush_task()
 
-        # Prefer raw_body if provided, otherwise extract from payload
-        data = raw_body if raw_body is not None else _extract_bytes(request_payload)
+        # Prefer raw_body if provided, otherwise extract from payload using deterministic serialization
+        data = (
+            raw_body if raw_body is not None else serialize_for_capture(request_payload)
+        )
 
         # Extract model from payload if available
         model: str | None = None
@@ -384,7 +424,7 @@ class CborWireCaptureService(IWireCapture):
 
         self._maybe_start_flush_task()
 
-        data = _extract_bytes(request_payload)
+        data = serialize_for_capture(request_payload)
         metadata = self._extract_context_metadata(
             context, session_id, backend=backend, model=model, key_name=key_name
         )
@@ -407,8 +447,8 @@ class CborWireCaptureService(IWireCapture):
         backend: str,
         model: str,
         key_name: str | None,
-        response_content: Any,
-        canonical_usage: dict[str, Any] | None = None,
+        response_content: dict[str, JsonValue] | bytes | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
     ) -> None:
         """Capture inbound response from backend."""
         if not self.enabled():
@@ -416,14 +456,17 @@ class CborWireCaptureService(IWireCapture):
 
         self._maybe_start_flush_task()
 
-        data = _extract_bytes(response_content)
+        # Convert CanonicalUsageRecord to dict for internal storage
+        canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
+
+        data = serialize_for_capture(response_content)
         metadata = self._extract_context_metadata(
             context,
             session_id,
             backend=backend,
             model=model,
             key_name=key_name,
-            canonical_usage=canonical_usage,
+            canonical_usage=canonical_usage_dict,
         )
 
         entry = CaptureEntry(
@@ -452,7 +495,7 @@ class CborWireCaptureService(IWireCapture):
 
         self._maybe_start_flush_task()
 
-        data = _extract_bytes(response_content)
+        data = serialize_for_capture(response_content)
         metadata = self._extract_context_metadata(
             context, session_id, backend=backend, model=model, key_name=key_name
         )

@@ -13,7 +13,7 @@ from typing import Any, cast
 from fastapi import HTTPException, Request, Response
 
 from src.anthropic_converters import (
-    _map_finish_reason,
+    _map_finish_reason,  # pyright: ignore[reportPrivateUsage]
     anthropic_to_openai_request,
     openai_stream_to_anthropic_stream,
     openai_to_anthropic_response,
@@ -23,6 +23,7 @@ from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.app.controllers.request_processor_resolver import (
     resolve_request_processor,
 )
+from src.core.common.contract_serialization import serialize_for_logging
 from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
@@ -152,7 +153,9 @@ class AnthropicController:
             else:
                 # Convert various shapes (dict, pydantic, dataclass) to a dict
                 payload: dict[str, Any]
-                if isinstance(request_data, dict):
+                if isinstance(
+                    request_data, dict
+                ):  # pyright: ignore[reportUnnecessaryIsInstance]
                     payload = request_data
                 elif hasattr(request_data, "model_dump"):
                     payload = request_data.model_dump()
@@ -229,7 +232,7 @@ class AnthropicController:
             )
 
             # Set protocol identifier for normalization (Requirement 1.11)
-            if ctx.extensions is None:
+            if ctx.extensions is None:  # pyright: ignore[reportUnnecessaryComparison]
                 ctx.extensions = {}
             ctx.extensions["protocol"] = "anthropic"
 
@@ -392,7 +395,9 @@ class AnthropicController:
 
                         else:
                             # Ensure openai_response_data is a dictionary before using dict()
-                            if isinstance(openai_response_data, dict):
+                            if isinstance(
+                                openai_response_data, dict
+                            ):  # pyright: ignore[reportUnnecessaryIsInstance]
                                 anthropic_response_data = openai_response_data
                             else:
                                 # Convert to a safe fallback structure
@@ -414,7 +419,12 @@ class AnthropicController:
                             exc_info=True,
                         )
                     # If openai_response_data is valid, use it as-is (will be converted later)
-                    if isinstance(openai_response_data, dict) and openai_response_data:
+                    if (
+                        isinstance(
+                            openai_response_data, dict
+                        )  # pyright: ignore[reportUnnecessaryIsInstance]
+                        and openai_response_data
+                    ):
                         anthropic_response_data = openai_response_data
                     else:
                         # Create a safe fallback structure only as last resort
@@ -441,7 +451,14 @@ class AnthropicController:
                 # For streaming, we need to return the adapted response directly
                 # since domain_response_to_fastapi should handle streaming properly
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"Returning streaming response: {adapted_response}")
+                    # Log response summary without exposing full content (NFR4.2)
+                    response_summary = (
+                        serialize_for_logging(adapted_response, redact=True)
+                        if isinstance(adapted_response, dict | list)
+                        or hasattr(adapted_response, "model_dump")
+                        else str(type(adapted_response).__name__)
+                    )
+                    logger.info(f"Returning streaming response: {response_summary}")
                 if isinstance(adapted_response, StreamingResponse):
                     # Ensure Anthropic streaming endpoints advertise proper SSE headers
                     sse_content_type = "text/event-stream; charset=utf-8"
@@ -525,7 +542,9 @@ class AnthropicController:
                             body_content = adapted_response.body
                             if isinstance(body_content, memoryview):
                                 yield body_content.tobytes()
-                            elif isinstance(body_content, bytes):
+                            elif isinstance(
+                                body_content, bytes
+                            ):  # pyright: ignore[reportUnnecessaryIsInstance]
                                 yield body_content
                             else:
                                 yield str(body_content).encode("utf-8")
@@ -540,13 +559,26 @@ class AnthropicController:
             else:
                 # For non-streaming, return Anthropic-formatted JSON response
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info(f"Returning JSON response: {anthropic_response_data}")
+                    # Log response with redaction to prevent secret leakage (NFR4.2)
+                    if isinstance(
+                        anthropic_response_data, dict
+                    ):  # pyright: ignore[reportUnnecessaryIsInstance]
+                        response_summary = serialize_for_logging(
+                            anthropic_response_data, redact=True
+                        )
+                    else:
+                        response_summary = serialize_for_logging(
+                            anthropic_response_data, redact=True
+                        )
+                    logger.info(f"Returning JSON response: {response_summary}")
 
                 status_code = getattr(adapted_response, "status_code", 200)
 
                 # If we're using the OpenAI format (choices), convert it to Anthropic format
                 if (
-                    isinstance(anthropic_response_data, dict)
+                    isinstance(
+                        anthropic_response_data, dict
+                    )  # pyright: ignore[reportUnnecessaryIsInstance]
                     and "choices" in anthropic_response_data
                 ):
                     # Convert OpenAI format to Anthropic format using shared converter

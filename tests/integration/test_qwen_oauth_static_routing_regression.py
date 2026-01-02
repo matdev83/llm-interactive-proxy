@@ -53,6 +53,9 @@ async def test_qwen_oauth_static_routing_model_override_regression():
         }
 
         connector._oauth_credentials = test_creds
+        # CRITICAL: Set connector state flags for test isolation
+        connector.is_functional = True
+        connector._enable_qwen_oauth_backend_debugging_override = True
 
         # Mock the validation and token refresh methods
         with (
@@ -62,9 +65,14 @@ async def test_qwen_oauth_static_routing_model_override_regression():
             patch.object(
                 connector, "_refresh_token_if_needed", new_callable=AsyncMock
             ) as mock_refresh,
+            patch.object(
+                connector, "_load_oauth_credentials", new_callable=AsyncMock
+            ) as mock_load_creds,
+            patch.object(connector, "_start_file_watching"),
         ):
             mock_validate.return_value = True
             mock_refresh.return_value = True
+            mock_load_creds.return_value = True
 
             # Mock the parent OpenAIConnector.chat_completions method to capture the call
             with patch(
@@ -168,6 +176,9 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
         }
 
         connector._oauth_credentials = test_creds
+        # CRITICAL: Set connector state flags for test isolation
+        connector.is_functional = True
+        connector._enable_qwen_oauth_backend_debugging_override = True
 
         # Mock the validation and token refresh methods
         with (
@@ -177,9 +188,14 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
             patch.object(
                 connector, "_refresh_token_if_needed", new_callable=AsyncMock
             ) as mock_refresh,
+            patch.object(
+                connector, "_load_oauth_credentials", new_callable=AsyncMock
+            ) as mock_load_creds,
+            patch.object(connector, "_start_file_watching"),
         ):
             mock_validate.return_value = True
             mock_refresh.return_value = True
+            mock_load_creds.return_value = True
 
             # Mock the parent OpenAIConnector.chat_completions method
             with patch(
@@ -287,6 +303,9 @@ async def test_qwen_oauth_prevents_original_model_leakage():
         }
 
         connector._oauth_credentials = test_creds
+        # CRITICAL: Set connector state flags for test isolation
+        connector.is_functional = True
+        connector._enable_qwen_oauth_backend_debugging_override = True
 
         # Mock the validation and token refresh methods
         with (
@@ -296,9 +315,14 @@ async def test_qwen_oauth_prevents_original_model_leakage():
             patch.object(
                 connector, "_refresh_token_if_needed", new_callable=AsyncMock
             ) as mock_refresh,
+            patch.object(
+                connector, "_load_oauth_credentials", new_callable=AsyncMock
+            ) as mock_load_creds,
+            patch.object(connector, "_start_file_watching"),
         ):
             mock_validate.return_value = True
             mock_refresh.return_value = True
+            mock_load_creds.return_value = True
 
             # Mock the parent OpenAIConnector.chat_completions method
             with patch(
@@ -385,61 +409,79 @@ async def test_qwen_oauth_static_routing_with_real_credentials():
             creds_loaded = await connector._load_oauth_credentials()
             assert creds_loaded, "Should load real credentials"
 
-            # Mock the HTTP client to capture the actual request
-            with patch.object(
-                async_client, "post", new_callable=AsyncMock
-            ) as mock_post:
-                # Mock successful response
-                mock_response = MagicMock()
-                mock_response.status_code = 200
-                mock_response.json.return_value = {
-                    "choices": [{"message": {"content": "Test response"}}],
-                    "usage": {"total_tokens": 10},
-                }
-                mock_response.raise_for_status = MagicMock()
-                mock_post.return_value = mock_response
+            # CRITICAL: Set connector state flags for test isolation
+            # These flags are normally set during initialize() but we're
+            # testing with real credentials without full initialization
+            connector.is_functional = True
+            connector._enable_qwen_oauth_backend_debugging_override = True
 
-                # Create test request with original model
-                test_request_data = ChatRequest(
-                    model="gemini-cli-oauth-personal:models/gemini-2.5-pro",
-                    messages=[ChatMessage(role="user", content="test")],
-                    max_tokens=1,
-                )
+            # Mock token validation/refresh to avoid network calls during testing
+            with (
+                patch.object(
+                    connector, "_validate_runtime_credentials", new_callable=AsyncMock
+                ) as mock_validate,
+                patch.object(
+                    connector, "_refresh_token_if_needed", new_callable=AsyncMock
+                ) as mock_refresh,
+            ):
+                mock_validate.return_value = True
+                mock_refresh.return_value = True
 
-                # Call with static routing override
-                static_override_model = "qwen3-coder-plus"
-                try:
-                    await connector.chat_completions(
-                        request_data=test_request_data,
-                        processed_messages=[],
-                        effective_model=static_override_model,
+                # Mock the HTTP client to capture the actual request
+                with patch.object(
+                    async_client, "post", new_callable=AsyncMock
+                ) as mock_post:
+                    # Mock successful response
+                    mock_response = MagicMock()
+                    mock_response.status_code = 200
+                    mock_response.json.return_value = {
+                        "choices": [{"message": {"content": "Test response"}}],
+                        "usage": {"total_tokens": 10},
+                    }
+                    mock_response.raise_for_status = MagicMock()
+                    mock_post.return_value = mock_response
+
+                    # Create test request with original model
+                    test_request_data = ChatRequest(
+                        model="gemini-cli-oauth-personal:models/gemini-2.5-pro",
+                        messages=[ChatMessage(role="user", content="test")],
+                        max_tokens=1,
                     )
-                except AuthenticationError as exc:
-                    pytest.skip(f"Qwen OAuth token refresh unavailable: {exc}")
 
-                # Verify the HTTP request was made
-                assert mock_post.called, "HTTP POST should be called"
+                    # Call with static routing override
+                    static_override_model = "qwen3-coder-plus"
+                    try:
+                        await connector.chat_completions(
+                            request_data=test_request_data,
+                            processed_messages=[],
+                            effective_model=static_override_model,
+                        )
+                    except AuthenticationError as exc:
+                        pytest.skip(f"Qwen OAuth token refresh unavailable: {exc}")
 
-                # Get the request that would be sent to the API
-                call_args = mock_post.call_args
-                request_url = call_args[0][0]
-                request_json = call_args[1]["json"]
+                    # Verify the HTTP request was made
+                    assert mock_post.called, "HTTP POST should be called"
 
-                # Verify the URL is correct
-                assert "portal.qwen.ai" in request_url, "Should call portal.qwen.ai"
-                assert (
-                    "/chat/completions" in request_url
-                ), "Should call chat/completions endpoint"
+                    # Get the request that would be sent to the API
+                    call_args = mock_post.call_args
+                    request_url = call_args[0][0]
+                    request_json = call_args[1]["json"]
 
-                # CRITICAL: Verify the model in the JSON payload is the static override, not original
-                assert (
-                    request_json["model"] == static_override_model
-                ), f"Expected model '{static_override_model}' in API request, got '{request_json['model']}'"
+                    # Verify the URL is correct
+                    assert "portal.qwen.ai" in request_url, "Should call portal.qwen.ai"
+                    assert (
+                        "/chat/completions" in request_url
+                    ), "Should call chat/completions endpoint"
 
-                # Verify the original model is NOT in the API request
-                assert "gemini-cli-oauth-personal" not in str(
-                    request_json
-                ), "Original model should not appear in API request"
+                    # CRITICAL: Verify the model in the JSON payload is the static override, not original
+                    assert (
+                        request_json["model"] == static_override_model
+                    ), f"Expected model '{static_override_model}' in API request, got '{request_json['model']}'"
+
+                    # Verify the original model is NOT in the API request
+                    assert "gemini-cli-oauth-personal" not in str(
+                        request_json
+                    ), "Original model should not appear in API request"
 
         finally:
             if connector:

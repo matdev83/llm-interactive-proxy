@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import json
 import logging
 import os
 import time
@@ -24,6 +23,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple, cast
 
+from pydantic.types import JsonValue
+
+from src.core.common.contract_serialization import serialize_dict_for_capture
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.config.app_config import AppConfig
 from src.core.domain.request_context import RequestContext
@@ -347,9 +349,20 @@ class BufferedWireCapture(IWireCapture):
         # Calculate and cache the result
         if isinstance(payload, dict | list):
             try:
-                content_length = len(
-                    json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                # Use deterministic serialization for consistent byte count (Requirement 7.3)
+                from src.core.common.contract_serialization import (
+                    serialize_dict_for_capture,
                 )
+
+                if isinstance(payload, dict):
+                    content_length = len(serialize_dict_for_capture(payload))
+                else:
+                    # For lists, use serialize_for_capture which handles lists deterministically
+                    from src.core.common.contract_serialization import (
+                        serialize_for_capture,
+                    )
+
+                    content_length = len(serialize_for_capture(payload))
             except (TypeError, ValueError):
                 content_length = len(str(payload).encode("utf-8"))
         elif isinstance(payload, str):
@@ -369,9 +382,11 @@ class BufferedWireCapture(IWireCapture):
         return content_length
 
     def _serialize_entry_cached(self, entry: WireCaptureEntry) -> str:
-        """Serialize entry to JSON with caching to avoid repeated serialization."""
-        # Serialize without object-identity caching to avoid stale reuse
-        return json.dumps(entry._asdict(), ensure_ascii=False, separators=(",", ":"))
+        """Serialize entry to JSON with deterministic key ordering."""
+        # Use deterministic serialization with sorted keys
+        entry_dict = entry._asdict()
+        json_bytes = serialize_dict_for_capture(entry_dict)
+        return json_bytes.decode("utf-8")
 
     def _maybe_start_flush_task(self) -> None:
         """Start background flush task if not running and loop is available."""
@@ -474,8 +489,8 @@ class BufferedWireCapture(IWireCapture):
         backend: str,
         model: str,
         key_name: str | None,
-        response_content: Any,
-        canonical_usage: dict[str, Any] | None = None,
+        response_content: dict[str, JsonValue] | bytes | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
     ) -> None:
         """Capture inbound response from backend."""
         if not self.enabled():
@@ -483,9 +498,10 @@ class BufferedWireCapture(IWireCapture):
         # Ensure background task runs in async contexts
         self._maybe_start_flush_task()
 
-        metadata = {}
+        # Convert CanonicalUsageRecord to dict for metadata
+        metadata: dict[str, JsonValue] = {}
         if canonical_usage is not None:
-            metadata["canonical_usage"] = canonical_usage
+            metadata["canonical_usage"] = canonical_usage.model_dump()
 
         entry = await self._create_entry(
             direction="inbound_response",
@@ -613,7 +629,7 @@ class BufferedWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
-        eos_metadata: dict[str, Any] | None = None,
+        eos_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
         # Allow EoS metadata even without canonical_usage
@@ -629,7 +645,7 @@ class BufferedWireCapture(IWireCapture):
         canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
 
         # Create completion entry with canonical_usage and/or EoS metadata
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, JsonValue] = {}
         if canonical_usage_dict:
             metadata["canonical_usage"] = canonical_usage_dict
         if eos_metadata:

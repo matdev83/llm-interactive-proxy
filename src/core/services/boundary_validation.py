@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.core.common.contract_serialization import serialize_for_logging
 from src.core.domain.request_context import RequestContext
 
 
@@ -49,8 +50,8 @@ def log_boundary_validation_failure(
     """Log boundary validation failure with correlation identifiers.
 
     Emits a structured warning log with correlation identifiers (request_id,
-    session_id) and violation details. This ensures consistent logging format
-    across all boundary validation points.
+    session_id) and violation details. Details are redacted to prevent secret
+    leakage per NFR4.2.
 
     Args:
         logger: Logger instance to use for logging
@@ -58,9 +59,19 @@ def log_boundary_validation_failure(
         context: Request context for correlation identifiers, or None
         service: Name of the service/component performing validation
         violation_type: Type of boundary violation (e.g., "dict_input", "invalid_type")
-        details: Additional violation details to include in log
+        details: Additional violation details to include in log (will be redacted)
     """
     correlation_ids = extract_correlation_ids(context)
+
+    # Redact details to prevent secret leakage (NFR4.2)
+    # Details might contain contract data, so serialize with redaction
+    redacted_details_str = serialize_for_logging(details, redact=True)
+    try:
+        import json
+        redacted_details = json.loads(redacted_details_str)
+    except (TypeError, ValueError):
+        # Fallback: use original details if serialization fails
+        redacted_details = details
 
     logger.warning(
         f"Boundary validation failed: {message}",
@@ -69,7 +80,7 @@ def log_boundary_validation_failure(
             "session_id": correlation_ids["session_id"],
             "service": service,
             "violation_type": violation_type,
-            "details": details,
+            "details": redacted_details,
         },
         exc_info=False,  # Don't include stack trace for deterministic validation errors
     )

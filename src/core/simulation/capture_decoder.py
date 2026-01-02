@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Generic, TypeVar, cast
 
 from pydantic import ValidationError
+from pydantic.types import JsonValue
 
 from src.core.common.json_validation import JSONValidationError, validate_json_structure
 from src.core.domain.cbor_capture import CaptureDirection, CaptureEntry, CaptureMetadata
@@ -30,7 +31,7 @@ class DecodeError:
     """Error information for decode failures."""
 
     message: str
-    details: dict[str, object] | None = None
+    details: dict[str, JsonValue] | None = None
 
     def __str__(self) -> str:
         return self.message
@@ -47,7 +48,7 @@ class DecodeResult(Generic[T]):
 
     _value: T | None = None
     _error: DecodeError | None = None
-    _diagnostics: dict[str, object] | None = None
+    _diagnostics: dict[str, JsonValue] | None = None
 
     @classmethod
     def success(cls, value: T) -> DecodeResult[T]:
@@ -58,7 +59,7 @@ class DecodeResult(Generic[T]):
     def failure(
         cls,
         error: DecodeError,
-        diagnostics: dict[str, object] | None = None,
+        diagnostics: dict[str, JsonValue] | None = None,
     ) -> DecodeResult[T]:
         """Create a failed decode result."""
         merged_diagnostics = error.details.copy() if error.details else {}
@@ -94,7 +95,7 @@ class DecodeResult(Generic[T]):
         return self._error
 
     @property
-    def diagnostics(self) -> dict[str, object] | None:
+    def diagnostics(self) -> dict[str, JsonValue] | None:
         """Get additional diagnostics (None if success)."""
         return self._diagnostics
 
@@ -105,6 +106,38 @@ class CaptureDecoder:
     Treats raw bytes as source-of-truth and provides typed views when possible.
     Failures are non-blocking and return DecodeResult with error details.
     """
+
+    @staticmethod
+    def _normalize_to_json_value(value: object) -> JsonValue:
+        """Normalize a value to JSON-safe JsonValue type.
+
+        Converts non-JSON-safe types (bytes, complex objects) to JSON-safe
+        representations suitable for diagnostics and error details.
+
+        Args:
+            value: Value to normalize (may be bytes, dict, or other types)
+
+        Returns:
+            JsonValue that can be safely serialized to JSON
+        """
+        if isinstance(value, bytes):
+            # Convert bytes to hex string (more readable than base64 for diagnostics)
+            return value.hex()
+        if isinstance(value, dict):
+            # Recursively normalize dict values
+            # Sort keys for deterministic output (Requirement 7.3: deterministic serialization)
+            return {
+                k: CaptureDecoder._normalize_to_json_value(v)
+                for k, v in sorted(value.items())
+            }
+        if isinstance(value, str | int | float | bool | type(None)):
+            # Already JSON-safe
+            return value
+        if isinstance(value, list):
+            # Recursively normalize list items
+            return [CaptureDecoder._normalize_to_json_value(item) for item in value]
+        # For other types, convert to string representation
+        return str(value)
 
     def decode_inbound_request(
         self, entry: CaptureEntry
@@ -203,10 +236,13 @@ class CaptureDecoder:
         try:
             decoded_str = data.decode("utf-8")
         except UnicodeDecodeError as e:
+            preview_bytes = data[:100] if len(data) > 100 else data
             return DecodeResult.failure(
                 DecodeError(
                     f"Failed to decode bytes as UTF-8: {e}",
-                    details={"data_preview": data[:100] if len(data) > 100 else data},
+                    details={
+                        "data_preview_hex": self._normalize_to_json_value(preview_bytes)
+                    },
                 )
             )
 
@@ -223,7 +259,10 @@ class CaptureDecoder:
                         ),
                     },
                 ),
-                diagnostics={"raw_bytes": data, "attempted_format": "json"},
+                diagnostics={
+                    "raw_bytes_hex": self._normalize_to_json_value(data),
+                    "attempted_format": "json",
+                },
             )
 
         # DoS protection: Validate JSON structure (depth and array size)
@@ -235,7 +274,10 @@ class CaptureDecoder:
                     f"JSON structure validation failed: {e}",
                     details={"validation_error": str(e)},
                 ),
-                diagnostics={"raw_bytes": data, "attempted_format": "json"},
+                diagnostics={
+                    "raw_bytes_hex": self._normalize_to_json_value(data),
+                    "attempted_format": "json",
+                },
             )
 
         # Validate and construct CanonicalChatRequest
@@ -248,7 +290,9 @@ class CaptureDecoder:
                     f"Failed to validate request: {e}",
                     details={"validation_errors": str(e)},
                 ),
-                diagnostics={"parsed_dict": request_dict},
+                diagnostics={
+                    "parsed_dict": self._normalize_to_json_value(request_dict)
+                },
             )
 
     def _decode_non_streaming_response(
@@ -264,10 +308,13 @@ class CaptureDecoder:
         try:
             decoded_str = entry.data.decode("utf-8")
         except UnicodeDecodeError as e:
+            preview_bytes = entry.data[:100]
             return DecodeResult.failure(
                 DecodeError(
                     f"Failed to decode bytes as UTF-8: {e}",
-                    details={"data_preview": entry.data[:100]},
+                    details={
+                        "data_preview_hex": self._normalize_to_json_value(preview_bytes)
+                    },
                 )
             )
 
@@ -279,7 +326,10 @@ class CaptureDecoder:
                     f"Failed to parse JSON: {e}",
                     details={"json_error": str(e)},
                 ),
-                diagnostics={"raw_bytes": entry.data, "attempted_format": "json"},
+                diagnostics={
+                    "raw_bytes_hex": self._normalize_to_json_value(entry.data),
+                    "attempted_format": "json",
+                },
             )
 
         # DoS protection: Validate JSON structure (depth and array size)
@@ -291,7 +341,10 @@ class CaptureDecoder:
                     f"JSON structure validation failed: {e}",
                     details={"validation_error": str(e)},
                 ),
-                diagnostics={"raw_bytes": entry.data, "attempted_format": "json"},
+                diagnostics={
+                    "raw_bytes_hex": self._normalize_to_json_value(entry.data),
+                    "attempted_format": "json",
+                },
             )
 
         # Construct ResponseEnvelope with parsed content

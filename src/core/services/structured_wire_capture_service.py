@@ -10,6 +10,9 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
+from pydantic.types import JsonValue
+
+from src.core.common.contract_serialization import serialize_dict_for_capture
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.common.structlog_config import get_logger
 from src.core.config.app_config import AppConfig
@@ -159,11 +162,14 @@ class StructuredWireCapture(IWireCapture):
         backend: str,
         model: str,
         key_name: str | None,
-        response_content: Any,
-        canonical_usage: dict[str, Any] | None = None,
+        response_content: dict[str, JsonValue] | bytes | None,
+        canonical_usage: CanonicalUsageRecord | None = None,
     ) -> None:
         if not self.enabled():
             return
+
+        # Convert CanonicalUsageRecord to dict for metadata
+        canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
 
         # Create structured JSON entry
         entry = self._create_json_entry(
@@ -178,10 +184,12 @@ class StructuredWireCapture(IWireCapture):
         )
 
         # Add canonical usage to metadata if present
-        if canonical_usage is not None and isinstance(entry, dict):
+        if canonical_usage_dict is not None and isinstance(
+            entry, dict
+        ):  # pyright: ignore[reportUnnecessaryIsInstance]
             if "metadata" not in entry:
                 entry["metadata"] = {}
-            entry["metadata"]["canonical_usage"] = canonical_usage
+            entry["metadata"]["canonical_usage"] = canonical_usage_dict
 
         # Serialize and write to file
         await self._append_json(entry)
@@ -212,7 +220,7 @@ class StructuredWireCapture(IWireCapture):
         )
 
         # Mark as outbound for clarity without changing schema
-        if isinstance(entry, dict):
+        if isinstance(entry, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
             entry.setdefault("metadata", {})["stage"] = "outbound"
 
         await self._append_json(entry)
@@ -273,12 +281,16 @@ class StructuredWireCapture(IWireCapture):
                 except OSError as e:
                     # File I/O errors during wire capture - log at warning level
                     logger.warning(
-                        "Error capturing inbound stream chunk (OS error): %s", e, exc_info=True
+                        "Error capturing inbound stream chunk (OS error): %s",
+                        e,
+                        exc_info=True,
                     )
                 except Exception as e:
                     # Unexpected errors during wire capture - log at warning level
                     logger.warning(
-                        "Error capturing inbound stream chunk (unexpected error): %s", e, exc_info=True
+                        "Error capturing inbound stream chunk (unexpected error): %s",
+                        e,
+                        exc_info=True,
                     )
 
                 yield chunk
@@ -308,7 +320,7 @@ class StructuredWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
-        eos_metadata: dict[str, Any] | None = None,
+        eos_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
         if not self.enabled() or (canonical_usage is None and eos_metadata is None):
@@ -330,7 +342,7 @@ class StructuredWireCapture(IWireCapture):
         )
 
         # Add canonical usage and/or EoS metadata to metadata
-        if isinstance(entry, dict):
+        if isinstance(entry, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
             if "metadata" not in entry:
                 entry["metadata"] = {}
             if canonical_usage_dict:
@@ -364,7 +376,9 @@ class StructuredWireCapture(IWireCapture):
                 key_name=key_name,
                 payload={},
             )
-            if isinstance(header_entry, dict):
+            if isinstance(
+                header_entry, dict
+            ):  # pyright: ignore[reportUnnecessaryIsInstance]
                 header_entry.setdefault("metadata", {})["stage"] = "outbound"
             await self._append_json(header_entry)
 
@@ -387,7 +401,9 @@ class StructuredWireCapture(IWireCapture):
                     payload=text,
                     byte_count=chunk_len,
                 )
-                if isinstance(chunk_entry, dict):
+                if isinstance(
+                    chunk_entry, dict
+                ):  # pyright: ignore[reportUnnecessaryIsInstance]
                     chunk_entry.setdefault("metadata", {}).update(
                         {"stage": "outbound", "chunk_number": chunk_index}
                     )
@@ -399,12 +415,16 @@ class StructuredWireCapture(IWireCapture):
                 except OSError as e:
                     # File I/O errors during wire capture - log at warning level
                     logger.warning(
-                        "Error capturing outbound stream chunk (OS error): %s", e, exc_info=True
+                        "Error capturing outbound stream chunk (OS error): %s",
+                        e,
+                        exc_info=True,
                     )
                 except Exception as e:
                     # Unexpected errors during wire capture - log at warning level
                     logger.warning(
-                        "Error capturing outbound stream chunk (unexpected error): %s", e, exc_info=True
+                        "Error capturing outbound stream chunk (unexpected error): %s",
+                        e,
+                        exc_info=True,
                     )
                 yield chunk
 
@@ -419,7 +439,9 @@ class StructuredWireCapture(IWireCapture):
                 payload={},
                 byte_count=total_bytes,
             )
-            if isinstance(end_entry, dict):
+            if isinstance(
+                end_entry, dict
+            ):  # pyright: ignore[reportUnnecessaryIsInstance]
                 end_entry.setdefault("metadata", {}).update(
                     {"stage": "outbound", "total_chunks": chunk_index}
                 )
@@ -454,13 +476,17 @@ class StructuredWireCapture(IWireCapture):
             except (UnicodeEncodeError, TypeError, ValueError) as e:
                 # Encoding or serialization errors - log at warning level
                 logger.warning(
-                    "Failed to calculate byte count for wire capture entry: %s", e, exc_info=True
+                    "Failed to calculate byte count for wire capture entry: %s",
+                    e,
+                    exc_info=True,
                 )
                 byte_count = -1
             except Exception as e:
                 # Unexpected errors during byte count calculation - log at warning level
                 logger.warning(
-                    "Failed to calculate byte count for wire capture entry (unexpected error): %s", e, exc_info=True
+                    "Failed to calculate byte count for wire capture entry (unexpected error): %s",
+                    e,
+                    exc_info=True,
                 )
                 byte_count = -1
 
@@ -546,14 +572,16 @@ class StructuredWireCapture(IWireCapture):
         return None
 
     async def _append_json(self, entry: dict[str, Any]) -> None:
-        """Write a JSON entry to the capture file."""
+        """Write a JSON entry to the capture file with deterministic serialization."""
         # Best-effort append with a lock to serialize writes
         if not self._file_path:
             return
 
         try:
-            # Convert entry to JSON string (outside lock - no async I/O)
-            json_str = json.dumps(entry, ensure_ascii=False) + "\n"
+            # Convert entry to JSON string with deterministic key ordering
+            # Use serialize_dict_for_capture for deterministic serialization, then decode to string
+            json_bytes = serialize_dict_for_capture(entry)
+            json_str = json_bytes.decode("utf-8") + "\n"
         except (TypeError, ValueError) as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -562,10 +590,10 @@ class StructuredWireCapture(IWireCapture):
                     exc_info=True,
                 )
             try:
-                json_str = (
-                    json.dumps({"fallback_entry": str(entry)}, ensure_ascii=False)
-                    + "\n"
-                )
+                # Use deterministic serialization even for fallback (Requirement 7.3)
+                fallback_dict = {"fallback_entry": str(entry)}
+                json_bytes = serialize_dict_for_capture(fallback_dict)
+                json_str = json_bytes.decode("utf-8") + "\n"
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -710,17 +738,39 @@ class StructuredWireCapture(IWireCapture):
 
 
 def _safe_json_dump(obj: Any) -> str:
-    """Safely convert object to JSON string."""
+    """Safely convert object to JSON string with deterministic key ordering.
+
+    Uses deterministic serialization (sorted keys) to ensure consistent output
+    for byte count calculations and consistency with main capture path (Requirement 7.3).
+    """
     try:
-        return json.dumps(obj, ensure_ascii=False)
+        # Use sort_keys=True and compact separators for deterministic output (Requirement 7.3)
+        return json.dumps(
+            obj, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        )
     except (TypeError, ValueError):
         try:
             if hasattr(obj, "model_dump"):
                 # Use model_dump_json() to avoid creating intermediate dict (performance optimization)
                 if hasattr(obj, "model_dump_json"):
-                    return obj.model_dump_json()  # type: ignore[attr-defined, no-any-return]
-                return json.dumps(obj.model_dump(), ensure_ascii=False)  # type: ignore[attr-defined]
-            return json.dumps(obj.__dict__, ensure_ascii=False)
+                    # model_dump_json() doesn't support sort_keys, so we need to parse and re-serialize
+                    json_str = obj.model_dump_json()  # type: ignore[attr-defined, no-any-return]
+                    # Parse and re-serialize with sorted keys for determinism
+                    parsed = json.loads(json_str)
+                    return json.dumps(
+                        parsed,
+                        sort_keys=True,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                    )
+                # Use model_dump() and serialize with sorted keys
+                data = obj.model_dump()  # type: ignore[attr-defined]
+                return json.dumps(
+                    data, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+                )
+            return json.dumps(
+                obj.__dict__, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+            )
         except Exception as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(

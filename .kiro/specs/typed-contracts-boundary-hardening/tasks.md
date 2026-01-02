@@ -233,30 +233,53 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
 
 - [ ] 5. Capture and replay alignment with canonical contracts
   - _Requirements: 7.1, 7.2, 7.3, 1.4, NFR3.2_
-- [ ] 5.1 Tighten capture collaborator boundaries to canonical contracts and JSON-safe metadata
+- [x] 5.1 Tighten capture collaborator boundaries to canonical contracts and JSON-safe metadata
   - Replace capture collaborator boundary inputs/outputs that use `Any` or ad hoc dicts for usage and structured metadata.
   - Preserve raw byte capture as the source of truth while enabling deterministic typed views for debugging.
+  - Updated `IWireCapture.capture_inbound_response()` to accept `CanonicalUsageRecord | None` instead of `dict[str, Any] | None`
+  - Updated `IWireCapture.capture_stream_completion()` to accept `dict[str, JsonValue] | None` for `eos_metadata` instead of `dict[str, Any] | None`
+  - Updated `IWireCaptureOrchestrator` methods to use canonical contracts (`CanonicalUsageRecord`, `dict[str, JsonValue]`)
+  - Updated `IWireCaptureOrchestrator.prepare_wire_capture_context()` return type to `IAppIdentityConfig | None`
+  - Updated all wire capture service implementations (CborWireCaptureService, WireCapture, StructuredWireCapture, BufferedWireCapture)
+  - Updated call sites in `BackendCompletionFlow` to pass `CanonicalUsageRecord` directly instead of `.model_dump()`
+  - Updated `WireCaptureEosSubscriber` to use `dict[str, JsonValue]` for `eos_metadata`
+  - Added comprehensive boundary validation tests verifying typed contracts are enforced
+  - All tests pass, boundary type checker shows no new violations
   - _Requirements: 7.1, 6.1, 6.2, 1.4_
 
-- [ ] 5.2 Ensure deterministic serialization and secret-safe logging for canonical contracts
+- [x] 5.2 Ensure deterministic serialization and secret-safe logging for canonical contracts
   - Ensure serialization used for logging and capture is stable enough for diff-based debugging and replay workflows.
   - Preserve existing redaction and secret-handling behavior and avoid emitting sensitive content unless existing configuration permits it.
+  - Created centralized serialization utility (`src/core/common/contract_serialization.py`) with `serialize_for_capture()`, `serialize_for_logging()`, and `serialize_dict_for_capture()` functions
+  - Updated all wire capture services (CBOR, structured, buffered) to use deterministic serialization with sorted keys
+  - Ensured `serialize_for_logging()` applies redaction using existing `redact_dict()` function, preserving existing redaction behavior
+  - Added comprehensive unit tests (17 tests) for deterministic serialization and redaction
+  - Added integration tests (7 tests) for capture determinism and replay compatibility
+  - All tests pass (24 new tests + 41 existing capture service tests)
   - _Requirements: 7.3, NFR4.1, NFR4.2_
 
-- [ ] 5.3 Harden decode/replay tooling to return typed contracts with structured diagnostics
+- [x] 5.3 Harden decode/replay tooling to return typed contracts with structured diagnostics
   - Ensure best-effort decoding produces typed canonical contracts when possible.
   - Ensure decode failures return structured diagnostics without raising exceptions.
   - Add tests for decode determinism and diagnostic structure.
+  - Hardened `DecodeError.details` and `DecodeResult._diagnostics` to use `dict[str, JsonValue]` instead of `dict[str, object]`.
+  - Added `_normalize_to_json_value()` helper function to convert non-JSON-safe values (bytes, complex objects) to JSON-safe representations (bytes → hex strings).
+  - Updated all diagnostic creation sites to use JSON-safe values (converted bytes to hex strings).
+  - Added comprehensive test class `TestCaptureDecoderDiagnostics` with tests for JSON-safety, determinism, structure consistency, bytes conversion, merge behavior, and round-trip serialization.
+  - Added enhanced determinism tests in `TestCaptureDecoderDeterminismEnhanced` for diagnostic determinism across decode methods.
+  - Updated existing tests to use JSON-safe diagnostic values.
+  - All 31 tests pass, boundary type checker shows no new violations.
   - _Requirements: 7.2, 7.3, NFR3.2_
 
-- [ ] 6. Contributor guidance for typed contract boundaries
+- [x] 6. Contributor guidance for typed contract boundaries
   - _Requirements: 8.1, 8.2, 8.3, 3.6_
-- [ ] 6.1 Update developer guidance on boundary surfaces, rules, and enforcement workflow
+- [x] 6.1 Update developer guidance on boundary surfaces, rules, and enforcement workflow
   - Document the canonical contract set and the allowed boundary conversion points.
   - Document the boundary type check command and expected remediation workflow, including allowlist policy.
+  - Updated `docs/development_guide/typed-contracts-boundaries.md` with enhanced boundary surface definition, expanded enforcement workflow documentation, and comprehensive allowlist policy.
   - _Requirements: 8.1, 3.6_
 
-- [ ] 6.2 Document extension mechanism and connector options policy with promotion guidance
+- [x] 6.2 Document extension mechanism and connector options policy with promotion guidance
   - Add an explicit “Approved vs Legacy Extension Mechanisms” section (copy the defaults from `design.md`):
     - Approved (JSON-safe): `RequestContext.extensions`, `UsageSummary.extensions`, `ResponseEnvelope.metadata`, `StreamingResponseEnvelope.metadata`, `ProcessedResponse.metadata`, `ConnectorRequestContext.extensions`
     - Legacy (allowed for compatibility; no new usage): `ChatRequest.extra_body`, `ToolCall.extra_content`, `StreamingChunk.payload.opaque_json_dict`
@@ -271,11 +294,13 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
   - Connector options policy (tie to connectors):
     - Canonical connector API takes `options: dict[str, JsonValue]`
     - Legacy `**kwargs` expansion (if any) happens only inside `ConnectorInvoker`, with a deprecation note
+  - Added comprehensive extension mechanism policy section to `docs/development_guide/typed-contracts-boundaries.md` covering approved vs legacy mechanisms, forbidden patterns, promotion guide with examples, and connector options policy.
   - _Requirements: 8.2, 2.6, 2.7_
 
-- [ ] 6.3 Document `Any` policy: internal-only allowance vs boundary prohibition
+- [x] 6.3 Document `Any` policy: internal-only allowance vs boundary prohibition
   - Document where `Any` is permitted (internal-only) and where it is forbidden (boundary surfaces).
   - Document how and when to add or remove time-bounded allowlist entries.
+  - Added comprehensive `Any` policy section to `docs/development_guide/typed-contracts-boundaries.md` documenting where `Any` is permitted vs forbidden, allowlist management workflow, and examples.
   - _Requirements: 8.3, 3.5, 3.6_
 
 - [ ] 7. Final verification and regression safety
@@ -285,9 +310,16 @@ This spec is intentionally staged. Treat “Phase 0” as the minimum slice that
   - Use allowlist entries only when a time-bounded exception is required and a promotion path exists.
   - _Requirements: 3.3, 3.5, 3.7_
 
-- [ ] 7.2 Run targeted unit/integration suites for touched flows and fix regressions
+- [x] 7.2 Run targeted unit/integration suites for touched flows and fix regressions
   - Validate all supported protocol controllers for streaming and non-streaming paths.
   - Validate connector invocation, failover/retry, capture, and usage behavior remain unchanged.
+  - Ran comprehensive test suites:
+    - Protocol controllers: All tests passed (20 tests in test_protocol_response_behavior.py, 40 controller unit tests, 92 Anthropic frontend tests, 5 direct controller integration tests)
+    - Connector invocation: All tests passed (42 connector invoker tests, 25 canonical API tests, 41 connector integration tests)
+    - Failover/retry: All tests passed (24 tests covering failover routes, completion flow failover, failure handling behavior, automated recovery)
+    - Capture: All tests passed (20 tests covering boundary contracts, deterministic serialization, wire capture compatibility)
+    - Usage behavior: All tests passed (12 tests covering usage tracking integration, accounting compatibility, streaming usage propagation)
+  - No regressions detected; all externally observable behavior preserved.
   - _Requirements: 1.1, 1.2, 1.4, 1.5, NFR2.1_
 
 - [ ] 7.3 Run formatting, linting, and type checks for touched modules

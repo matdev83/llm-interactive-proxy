@@ -153,3 +153,161 @@ class TestStreamingResponseEnvelope:
         assert envelope.cancel_callback == cancel_callback
         assert envelope.metadata == {"key": "value"}
         assert envelope.canonical_usage is None
+
+    @pytest.mark.asyncio
+    async def test_body_iterator_indented_data_not_treated_as_sse(self) -> None:
+        """Test that indented data: is NOT treated as already SSE-formatted."""
+
+        async def _iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=b"  data: hi\n\n")
+
+        envelope = StreamingResponseEnvelope(
+            content=_iterator(),
+            media_type="text/event-stream",
+        )
+
+        chunks = []
+        async for chunk in envelope.body_iterator:
+            chunks.append(chunk)
+
+        assert len(chunks) == 1
+        # Should be framed (starts with "data: "), not passed through unchanged
+        assert chunks[0].startswith(b"data: "), "Indented data: should be framed"
+        # The indented "  data: hi\n\n" has two lines: "  data: hi" and "" (empty)
+        # So it becomes "data:   data: hi\ndata: \n\n"
+        assert chunks[0] == b"data:   data: hi\ndata: \n\n"
+
+    @pytest.mark.asyncio
+    async def test_body_iterator_later_line_data_not_fool_detection(self) -> None:
+        """Test that data: on later line does NOT fool 'already SSE' detection."""
+
+        async def _iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=b"hello\n data: hi\n")
+
+        envelope = StreamingResponseEnvelope(
+            content=_iterator(),
+            media_type="text/event-stream",
+        )
+
+        chunks = []
+        async for chunk in envelope.body_iterator:
+            chunks.append(chunk)
+
+        assert len(chunks) == 1
+        # First non-empty line is "hello", so should be framed
+        assert chunks[0].startswith(
+            b"data: hello"
+        ), "Should frame starting with first line"
+        assert b"data: hello" in chunks[0]
+
+    @pytest.mark.asyncio
+    async def test_body_iterator_already_sse_bytes_pass_through(self) -> None:
+        """Test that already SSE-formatted bytes pass through unchanged."""
+
+        async def _iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content=b"event: ping\ndata: ok\n\n")
+
+        envelope = StreamingResponseEnvelope(
+            content=_iterator(),
+            media_type="text/event-stream",
+        )
+
+        chunks = []
+        async for chunk in envelope.body_iterator:
+            chunks.append(chunk)
+
+        assert len(chunks) == 1
+        # Should pass through unchanged (no double framing)
+        assert chunks[0] == b"event: ping\ndata: ok\n\n"
+
+    @pytest.mark.asyncio
+    async def test_body_iterator_already_sse_str_pass_through(self) -> None:
+        """Test that already SSE-formatted string passes through unchanged."""
+
+        async def _iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content="data: ok\n\n")
+
+        envelope = StreamingResponseEnvelope(
+            content=_iterator(),
+            media_type="text/event-stream",
+        )
+
+        chunks = []
+        async for chunk in envelope.body_iterator:
+            chunks.append(chunk)
+
+        assert len(chunks) == 1
+        # Should pass through unchanged (no double framing)
+        assert (
+            chunks[0] == b"data: ok\n\n"
+        ), f"Should not double-frame: got {chunks[0]!r}"
+
+    @pytest.mark.asyncio
+    async def test_body_iterator_multi_line_payload_framing(self) -> None:
+        """Test that multi-line payloads are split into multiple data: lines."""
+
+        async def _iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content="a\nb")
+
+        envelope = StreamingResponseEnvelope(
+            content=_iterator(),
+            media_type="text/event-stream",
+        )
+
+        chunks = []
+        async for chunk in envelope.body_iterator:
+            chunks.append(chunk)
+
+        assert len(chunks) == 1
+        # Should be split into multiple data: lines
+        assert chunks[0] == b"data: a\ndata: b\n\n"
+
+    @pytest.mark.asyncio
+    async def test_body_iterator_non_sse_media_type_no_framing(self) -> None:
+        """Test that non-SSE media types don't apply SSE framing."""
+
+        async def _iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content={"test": "value"})
+
+        envelope = StreamingResponseEnvelope(
+            content=_iterator(),
+            media_type="application/json",
+        )
+
+        chunks = []
+        async for chunk in envelope.body_iterator:
+            chunks.append(chunk)
+
+        assert len(chunks) == 1
+        # Should be JSON without SSE framing
+        decoded = chunks[0].decode("utf-8")
+        assert not decoded.startswith("data: "), "Non-SSE should not have SSE framing"
+        import json
+
+        assert json.loads(decoded) == {"test": "value"}
+
+    @pytest.mark.asyncio
+    async def test_body_iterator_dict_sse_framing(self) -> None:
+        """Test that dict chunks are JSON-serialized and SSE-framed for SSE media type."""
+
+        async def _iterator() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content={"message": "hello", "number": 42})
+
+        envelope = StreamingResponseEnvelope(
+            content=_iterator(),
+            media_type="text/event-stream",
+        )
+
+        chunks = []
+        async for chunk in envelope.body_iterator:
+            chunks.append(chunk)
+
+        assert len(chunks) == 1
+        # Should be SSE-framed JSON
+        decoded = chunks[0].decode("utf-8")
+        assert decoded.startswith("data: {"), "Dict should be SSE-framed"
+        assert decoded.endswith("\n\n"), "Should end with \\n\\n"
+        import json
+
+        json_content = decoded[6:-2]  # Remove "data: " and "\n\n"
+        assert json.loads(json_content) == {"message": "hello", "number": 42}

@@ -143,9 +143,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
         JSON response with error details
     """
     if logger.isEnabledFor(logging.WARNING):
-        logger.warning(
-            "HTTP error %s: %s", exc.status_code, exc.detail, exc_info=True
-        )
+        logger.warning("HTTP error %s: %s", exc.status_code, exc.detail, exc_info=True)
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False
@@ -232,9 +230,13 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
         is_chat_completions = True
 
     # If this is a LLMProxyError, preserve its status_code and details.
-    if isinstance(exc, LLMProxyError):
+    if isinstance(exc, LLMProxyError):  # pyright: ignore[reportUnnecessaryIsInstance]
         if exc.details and logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Error details: %s", exc.details)
+            # Use serialize_for_logging to redact any sensitive data in error details (NFR4.2)
+            from src.core.common.contract_serialization import serialize_for_logging
+
+            redacted_details = serialize_for_logging(exc.details, redact=True)
+            logger.debug("Error details: %s", redacted_details)
 
         status_code = (
             500

@@ -251,6 +251,7 @@ class TestAnthropicCanonicalAPI:
         self, anthropic_backend, canonical_request
     ):
         """Test that ConnectorRequestContext is used for logging correlation."""
+        import src.connectors.anthropic as anthropic_module
 
         # Create a new request with stream=False (CanonicalChatRequest is frozen)
         non_streaming_request = CanonicalChatRequest(
@@ -270,10 +271,9 @@ class TestAnthropicCanonicalAPI:
         canonical_request.request = non_streaming_request
 
         # Capture log messages
-        # Note: explicit isEnabledFor check removed from source for INFO logs
-        # Mock the internal implementation to avoid actual HTTP calls
+        # Use patch.object to ensure we patch the correct logger instance in the module
         with (
-            patch("src.connectors.anthropic.logger") as mock_logger,
+            patch.object(anthropic_module, "logger") as mock_logger,
             patch.object(
                 anthropic_backend,
                 "_handle_non_streaming_response",
@@ -281,9 +281,8 @@ class TestAnthropicCanonicalAPI:
             ) as mock_handler,
         ):
             # Ensure mock logger methods are properly set up
-            mock_logger.info = MagicMock()
-            mock_logger.isEnabledFor = MagicMock(return_value=True)
-            
+            mock_logger.isEnabledFor.return_value = True
+
             mock_handler.return_value = ResponseEnvelope(
                 content={
                     "id": "test-id",
@@ -306,7 +305,17 @@ class TestAnthropicCanonicalAPI:
             assert len(info_calls) > 0
 
             # The implementation adds log_extra via `extra` kwarg
-            call_args = info_calls[0]
+            # Find the forwarding log call
+            forwarding_call = None
+            for call in info_calls:
+                args, _ = call
+                if args and "Forwarding to Anthropic" in str(args[0]):
+                    forwarding_call = call
+                    break
+
+            assert forwarding_call is not None, "Forwarding log message not found"
+
+            call_args = forwarding_call
             # call_args is (args, kwargs)
             # Check for 'extra' in kwargs
             assert "extra" in call_args.kwargs
@@ -442,6 +451,7 @@ class TestAnthropicCanonicalAPI:
     @pytest.mark.asyncio
     async def test_context_in_error_logs(self, anthropic_backend, canonical_request):
         """Test that context correlation identifiers appear in error logs."""
+        import src.connectors.anthropic as anthropic_module
 
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(
@@ -470,7 +480,7 @@ class TestAnthropicCanonicalAPI:
             mock_handler.side_effect = Exception("Test error for context logging")
 
             # Capture log messages
-            with patch("src.connectors.anthropic.logger") as mock_logger:
+            with patch.object(anthropic_module, "logger") as mock_logger:
                 mock_logger.isEnabledFor.return_value = True
 
                 # Call should raise an error
@@ -490,6 +500,7 @@ class TestAnthropicCanonicalAPI:
     @pytest.mark.asyncio
     async def test_context_in_warning_logs(self, anthropic_backend, canonical_request):
         """Test that context correlation identifiers appear in warning logs."""
+        import src.connectors.anthropic as anthropic_module
 
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(
@@ -521,7 +532,7 @@ class TestAnthropicCanonicalAPI:
         anthropic_backend.client.post = AsyncMock(return_value=mock_response)
 
         # Capture log messages
-        with patch("src.connectors.anthropic.logger") as mock_logger:
+        with patch.object(anthropic_module, "logger") as mock_logger:
             mock_logger.isEnabledFor.return_value = True
 
             await anthropic_backend.chat_completions(canonical_request)

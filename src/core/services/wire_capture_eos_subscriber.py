@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from pydantic.types import JsonValue
+
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionTerminationCategory,
     RemoteBackendConnectionEndOfSessionEvent,
@@ -79,8 +81,8 @@ class WireCaptureEosSubscriber:
             if ":" in backend:
                 backend, model = backend.split(":", 1)
 
-            # Build EoS metadata dict
-            eos_metadata: dict[str, bool | str | int | None] = {
+            # Build EoS metadata dict (JSON-safe values only)
+            eos_metadata: dict[str, JsonValue] = {
                 "eos": True,
                 "eos_signal": event.signal_type.value,
                 "eos_reason": event.reason,

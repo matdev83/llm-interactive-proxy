@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
 
 from pydantic.types import JsonValue
 
@@ -14,6 +13,7 @@ from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
+from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.interfaces.domain_entities_interface import ISession
 
 
@@ -164,19 +164,15 @@ class IWireCaptureOrchestrator(ABC):
     @abstractmethod
     async def prepare_wire_capture_context(
         self, backend_type: str, session: ISession | None
-    ) -> Any | None:
+    ) -> IAppIdentityConfig | None:
         """Prepare wire capture context (e.g. identity).
-
-        Note: This returns identity object used by both wire capture and backend.
-        The return type remains Any to maintain compatibility with backend interface
-        which expects IAppIdentityConfig | None.
 
         Args:
             backend_type: The backend type
             session: The session object
 
         Returns:
-            Identity object if applicable (IAppIdentityConfig or compatible type)
+            Identity object if applicable (IAppIdentityConfig or None)
         """
         ...
 
@@ -219,7 +215,7 @@ class IWireCaptureOrchestrator(ABC):
         effective_model: str,
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
-        canonical_usage: dict[str, Any] | None = None,
+        canonical_usage: CanonicalUsageRecord | None = None,
     ) -> None:
         """Capture inbound response payload (best-effort).
 
@@ -230,7 +226,7 @@ class IWireCaptureOrchestrator(ABC):
             effective_model: Model name
             key_name: Key name for redaction
             response_content: The response content (JSON-serializable dict, bytes, or None)
-            canonical_usage: Optional canonical usage record dict
+            canonical_usage: Optional canonical usage record
         """
         ...
 
@@ -268,7 +264,7 @@ class IWireCaptureOrchestrator(ABC):
         effective_model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
-        eos_metadata: dict[str, Any] | None = None,
+        eos_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response.
 
@@ -279,7 +275,7 @@ class IWireCaptureOrchestrator(ABC):
             effective_model: Model name
             key_name: Key name for redaction
             canonical_usage: Optional canonical usage record
-            eos_metadata: Optional End-of-Session metadata dict
+            eos_metadata: Optional End-of-Session metadata dict (JSON-serializable values only)
         """
         ...
 

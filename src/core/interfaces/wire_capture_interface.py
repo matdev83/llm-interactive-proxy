@@ -59,7 +59,7 @@ class IWireCapture(ABC):
         model: str,
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
-        canonical_usage: dict[str, Any] | None = None,
+        canonical_usage: CanonicalUsageRecord | None = None,
     ) -> None:
         """Capture a full non-streaming inbound response.
 
@@ -70,7 +70,7 @@ class IWireCapture(ABC):
             model: Model name
             key_name: Key name for redaction
             response_content: Response content (JSON-serializable dict, bytes, or None)
-            canonical_usage: Optional canonical usage record dict
+            canonical_usage: Optional canonical usage record
         """
 
     @abstractmethod
@@ -131,7 +131,7 @@ class IWireCapture(ABC):
         model: str,
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
-        eos_metadata: dict[str, Any] | None = None,
+        eos_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for a completed streaming response.
 
@@ -146,8 +146,8 @@ class IWireCapture(ABC):
             model: Model name
             key_name: Key name for redaction
             canonical_usage: Optional canonical usage record
-            eos_metadata: Optional End-of-Session metadata dict with keys:
-                eos (bool), eos_signal (str), eos_reason (str),
+            eos_metadata: Optional End-of-Session metadata dict (JSON-serializable values only)
+                with keys: eos (bool), eos_signal (str), eos_reason (str),
                 eos_termination_category (str), eos_error_classification (str),
                 eos_error_status_code (int)
         """

@@ -22,6 +22,7 @@ from src.core.common.exceptions import (
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.backend_completion_collaborators import (
     IBackendAvailabilityChecker,
     IBackendInvoker,
@@ -623,12 +624,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     response_content = result.__dict__
 
                 # Extract canonical usage from envelope if present
-                canonical_usage_for_capture: dict[str, Any] | None = None
+                canonical_usage_for_capture: CanonicalUsageRecord | None = None
                 if (
                     hasattr(result, "canonical_usage")
                     and result.canonical_usage is not None
                 ):
-                    canonical_usage_for_capture = result.canonical_usage.model_dump()
+                    canonical_usage_for_capture = result.canonical_usage
 
                 await self._wire_capture_orchestrator.capture_inbound_response(
                     context=context,
@@ -718,13 +719,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     }
 
                 # Extract canonical usage from envelope if present (may be None for errors)
-                canonical_usage_for_error: dict[str, Any] | None = None
+                canonical_usage_for_error: CanonicalUsageRecord | None = None
                 if (
                     result is not None
                     and isinstance(result, ResponseEnvelope)
                     and result.canonical_usage is not None
                 ):
-                    canonical_usage_for_error = result.canonical_usage.model_dump()
+                    canonical_usage_for_error = result.canonical_usage
                 # Note: For error cases, canonical_usage may not be available
 
                 await self._wire_capture_orchestrator.capture_inbound_response(

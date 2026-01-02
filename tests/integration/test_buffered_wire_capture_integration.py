@@ -447,7 +447,7 @@ async def test_canonical_usage_captured_in_response(test_app, cleanup_wire_captu
         model="gpt-4",
         key_name=None,
         response_content=response_payload,
-        canonical_usage=canonical_usage.model_dump(),  # capture_inbound_response expects dict
+        canonical_usage=canonical_usage,  # Service handles conversion internally
     )
 
     # Flush to ensure data is written

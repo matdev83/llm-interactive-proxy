@@ -300,6 +300,160 @@ except Exception as e:
     # Fall back to raw bytes inspection
 ```
 
+## Serialization Utilities
+
+### Overview
+
+The `src/core/common/contract_serialization.py` module provides centralized utilities for serializing canonical contracts with deterministic output and secret-safe logging. These utilities ensure consistent serialization behavior across wire capture, logging, and debugging workflows.
+
+**Requirements**: This section addresses:
+- **Requirement 7.3**: Deterministic serialization for diff-based debugging and stable replay workflows
+- **NFR4.2**: Secret-safe logging that avoids emitting sensitive request/response content unless explicitly permitted
+
+### Functions
+
+#### `serialize_for_capture(contract: Any) -> bytes`
+
+Serializes a canonical contract for wire capture with deterministic output.
+
+**Requirement**: Implements Requirement 7.3 (deterministic serialization for diff-based debugging and stable replay workflows).
+
+**Characteristics**:
+- **Deterministic**: Identical input always produces identical output (sorted keys, compact format)
+- **No Redaction**: Preserves full fidelity for debugging and replay
+- **CBOR-Compatible**: Output is suitable for CBOR encoding
+
+**Usage**:
+```python
+from src.core.common.contract_serialization import serialize_for_capture
+
+# Serialize request/response for capture
+capture_bytes = serialize_for_capture(canonical_request)
+# Use in wire capture services
+```
+
+**Supported Types**:
+- Pydantic models (via `model_dump(mode="json")`)
+- `dict` and `list` (JSON-serialized with sorted keys)
+- `bytes` and `str` (passed through)
+- Objects with `__dict__` (converted to dict)
+
+#### `serialize_for_logging(contract: Any, *, redact: bool = True) -> str`
+
+Serializes a canonical contract for logging with optional secret redaction.
+
+**Requirements**: 
+- Implements Requirement 7.3 (deterministic serialization for consistent log output)
+- Implements NFR4.2 (secret-safe logging that avoids emitting sensitive content unless explicitly permitted)
+
+**Characteristics**:
+- **Redaction**: By default, redacts sensitive fields (API keys, passwords, etc.)
+- **Deterministic**: Sorted keys for consistent log output
+- **JSON Format**: Returns JSON string suitable for log messages
+
+**Usage**:
+```python
+from src.core.common.contract_serialization import serialize_for_logging
+
+# Log with redaction (default)
+log_str = serialize_for_logging(request, redact=True)
+logger.info("Request: %s", log_str)
+
+# Log without redaction (for debugging)
+log_str = serialize_for_logging(request, redact=False)
+logger.debug("Full request: %s", log_str)
+```
+
+**Redaction Behavior**:
+- Redacts fields matching `DEFAULT_REDACTED_FIELDS` (e.g., `api_key`, `password`, `authorization`)
+- Preserves first 2 and last 2 characters for strings > 6 characters
+- Fully masks strings ≤ 6 characters
+- Recursively redacts nested dictionaries and lists
+
+**Supported Types**:
+- Pydantic models (via `model_dump(mode="json")`)
+- `dict` and `list` (with recursive redaction)
+- Objects with `__dict__` (converted to dict)
+
+#### `serialize_dict_for_capture(data: dict[str, Any]) -> bytes`
+
+Helper function for serializing dictionaries with deterministic formatting.
+
+**Usage**:
+```python
+from src.core.common.contract_serialization import serialize_dict_for_capture
+
+# Serialize metadata dict for capture
+metadata_bytes = serialize_dict_for_capture(metadata_dict)
+```
+
+### When to Use Which Function
+
+| Use Case | Function | Redaction |
+|----------|----------|-----------|
+| Wire capture (CBOR/JSON) | `serialize_for_capture()` | No |
+| Logging (error/debug messages) | `serialize_for_logging()` | Yes (default) |
+| Logging (full fidelity debugging) | `serialize_for_logging(redact=False)` | No |
+| Metadata serialization | `serialize_dict_for_capture()` | No |
+
+### Redaction Policy
+
+**Default Redacted Fields**: Defined in `src/core/common/logging_utils.py`:
+- `api_key`, `apikey`, `api-key`
+- `password`, `passwd`
+- `authorization`, `auth`
+- `token`, `access_token`, `refresh_token`
+- `secret`, `secret_key`
+- And others (see `DEFAULT_REDACTED_FIELDS`)
+
+**Customization**: To redact additional fields, pass a custom `redacted_fields` set to `redact_dict()` (used internally by `serialize_for_logging`).
+
+### Examples
+
+**Wire Capture**:
+```python
+# In wire capture service
+from src.core.common.contract_serialization import serialize_for_capture
+
+capture_bytes = serialize_for_capture(request_payload)
+# Write to CBOR file
+```
+
+**Error Logging**:
+```python
+# In error handler
+from src.core.common.contract_serialization import serialize_for_logging
+
+if exc.details:
+    redacted_details = serialize_for_logging(exc.details, redact=True)
+    logger.error("Error details: %s", redacted_details)
+```
+
+**Boundary Validation Logging**:
+```python
+# In boundary validation
+from src.core.common.contract_serialization import serialize_for_logging
+
+redacted_details = serialize_for_logging(details, redact=True)
+logger.warning("Validation failed: %s", message, extra={"details": redacted_details})
+```
+
+### Deterministic Serialization Policy
+
+**Requirement**: Requirement 7.3 mandates deterministic serialization for diff-based debugging and stable replay workflows.
+
+All serialization functions use deterministic JSON formatting:
+- **Sorted Keys**: `sort_keys=True` ensures consistent key ordering
+- **Compact Format**: `separators=(",", ":")` for capture, `indent=None` for logging
+- **ASCII Handling**: `ensure_ascii=False` preserves Unicode characters
+
+This ensures:
+- Identical inputs produce identical outputs (critical for diff-based debugging)
+- Stable replay workflows (captured data is deterministic)
+- Consistent log output (easier to search and analyze)
+
+**Rationale**: Without deterministic serialization, the same contract could produce different serialized output depending on dictionary key insertion order, making diff-based debugging unreliable and replay workflows inconsistent.
+
 ## Extension-Field Policy
 
 ### Single Extension Container Rule
