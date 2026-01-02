@@ -832,6 +832,7 @@ class AnthropicBackend(LLMBackend):
                     logger.warning(
                         "Failed to read Anthropic error response body: %s",
                         e,
+                        exc_info=True,
                         extra=log_extra if log_extra else None,
                     )
                 body_text = ""
@@ -994,6 +995,7 @@ class AnthropicBackend(LLMBackend):
                                 logger.warning(
                                     "Failed to parse error event: %s",
                                     e,
+                                    exc_info=True,
                                     extra=log_extra if log_extra else None,
                                 )
 
@@ -1158,7 +1160,7 @@ class AnthropicBackend(LLMBackend):
                 # Note: This method doesn't receive context (appears unused).
                 # If called, cancellation logs cannot be correlated with request/session.
                 logger.warning(
-                    "Failed to cancel Anthropic message %s: %s", message_id, e
+                    "Failed to cancel Anthropic message %s: %s", message_id, e, exc_info=True
                 )
 
     # StreamProducer protocol implementation
