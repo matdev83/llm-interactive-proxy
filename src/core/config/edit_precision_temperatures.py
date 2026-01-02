@@ -153,7 +153,11 @@ def load_edit_precision_temperatures_config(
 
         return config
 
-    except Exception as e:
+    except (KeyboardInterrupt, SystemExit, GeneratorExit):
+        # Re-raise system-level exceptions that should never be silently caught
+        raise
+    except (OSError, yaml.YAMLError, TypeError, ValueError) as e:
+        # Handle expected errors: file I/O, YAML parsing, validation
         logger.error(
             f"Failed to load edit precision temperatures config from {config_path}: {e}",
             exc_info=True,

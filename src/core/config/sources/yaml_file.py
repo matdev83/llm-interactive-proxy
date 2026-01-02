@@ -4,6 +4,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
+try:
+    import yaml  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    yaml = None  # type: ignore
+
 from src.core.common.exceptions import ConfigurationError
 from src.core.config.dict_utils import flatten_dict
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
@@ -42,13 +47,17 @@ class YamlFileConfigSource:
                 },
             )
 
-        try:
-            import yaml
+        if yaml is None:
+            raise ConfigurationError(
+                message="PyYAML is not installed",
+                details={"path": str(config_path)},
+            )
 
+        try:
             validate_yaml_against_schema(config_path, self._schema_path)
 
             with config_path.open(encoding="utf-8") as f:
-                file_config: dict[str, Any] = yaml.safe_load(f) or {}
+                file_config = yaml.safe_load(f) or {}
 
             if not isinstance(file_config, dict):
                 raise ConfigurationError(
@@ -72,7 +81,11 @@ class YamlFileConfigSource:
             return file_config
         except ConfigurationError:
             raise
-        except Exception as exc:
+        except (KeyboardInterrupt, SystemExit, GeneratorExit):
+            # Re-raise system-level exceptions that should never be silently caught
+            raise
+        except (OSError, yaml.YAMLError, TypeError, ValueError) as exc:
+            # Handle expected errors: file I/O, YAML parsing, validation
             raise ConfigurationError(
                 message="Error loading configuration file",
                 details={"path": str(config_path)},

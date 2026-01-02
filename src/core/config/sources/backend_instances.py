@@ -6,6 +6,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+try:
+    import yaml  # type: ignore
+except ModuleNotFoundError:  # pragma: no cover
+    yaml = None  # type: ignore
+
 from src.core.common.exceptions import ConfigurationError
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 from src.core.services.backend_registry import backend_registry
@@ -224,12 +229,35 @@ def _load_backend_instance_file(
     connector: str,
     instance_name: str,
 ) -> dict[str, Any] | None:
-    try:
-        import yaml
+    if yaml is None:
+        raise ConfigurationError(
+            message="PyYAML is not installed",
+            details={
+                "path": str(config_file),
+                "instance": instance_name,
+                "connector": connector,
+            },
+        )
 
+    try:
         with config_file.open(encoding="utf-8") as f:
             loaded = yaml.safe_load(f) or {}
-    except Exception as exc:
+
+        if not isinstance(loaded, dict):
+            logger.warning(
+                "Skipping invalid backend instance config file %s: top-level is not a mapping",
+                config_file.name,
+            )
+            return None
+
+        file_config: dict[str, Any] = dict(loaded)
+        file_config["connector"] = connector
+        return file_config
+    except (KeyboardInterrupt, SystemExit, GeneratorExit):
+        # Re-raise system-level exceptions that should never be silently caught
+        raise
+    except (OSError, yaml.YAMLError, TypeError, ValueError) as exc:
+        # Handle expected errors: file I/O, YAML parsing, data type issues
         raise ConfigurationError(
             message="Failed to load backend instance configuration file",
             details={
@@ -238,14 +266,3 @@ def _load_backend_instance_file(
                 "connector": connector,
             },
         ) from exc
-
-    if not isinstance(loaded, dict):
-        logger.warning(
-            "Skipping invalid backend instance config file %s: top-level is not a mapping",
-            config_file.name,
-        )
-        return None
-
-    file_config: dict[str, Any] = dict(loaded)
-    file_config["connector"] = connector
-    return file_config
