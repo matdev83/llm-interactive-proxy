@@ -179,7 +179,8 @@ def parse_model_with_params(
             # If even the fallback fails, log error and use defaults
             logger.error(
                 f"Failed to parse model string '{model}' even without URI parameters: {fallback_error}. "
-                f"Using default backend '{default_backend}' and model '{model}'."
+                f"Using default backend '{default_backend}' and model '{model}'.",
+                exc_info=True,
             )
             backend_type = default_backend if default_backend else "openai"
             model_name = model

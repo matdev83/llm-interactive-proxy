@@ -113,6 +113,7 @@ def resolve_session_key_from_request_context(
             logger.warning(
                 "Failed to create SessionKey from context: %s",
                 e,
+                exc_info=True,
                 extra={"request_id": request_id},
             )
         return None

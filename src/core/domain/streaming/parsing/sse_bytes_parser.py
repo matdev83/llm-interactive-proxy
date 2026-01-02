@@ -82,7 +82,9 @@ class SSEBytesParser(IParserStrategy):
                         return StreamingContent(content=json_part, raw_data=raw_data)
                     except ValueError as e:
                         if "depth" in str(e).lower():
-                            logger.warning("JSON payload too deeply nested: %s", e)
+                            logger.warning(
+                                "JSON payload too deeply nested: %s", e, exc_info=True
+                            )
                             # Reject deeply nested JSON completely for security
                             raise ValueError(f"JSON payload too deeply nested: {e}")
                         raise
