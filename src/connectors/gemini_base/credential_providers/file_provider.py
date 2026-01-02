@@ -154,15 +154,27 @@ class FileCredentialProvider:
                             "Gemini OAuth credentials file not modified, using cached."
                         )
                         return self._cached_credentials
-                except OSError:
-                    pass
+                except OSError as e:
+                    # Failed to stat file - log for debugging and proceed with load
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to stat Gemini OAuth credentials file for modification time: %s",
+                            e,
+                            exc_info=True,
+                        )
 
             # Update last modified time
             try:
                 current_modified = creds_path.stat().st_mtime
                 self._last_modified = current_modified
-            except OSError:
-                pass
+            except OSError as e:
+                # Failed to stat file - log for debugging and proceed with load
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to stat Gemini OAuth credentials file for modification time: %s",
+                        e,
+                        exc_info=True,
+                    )
 
             raw_text = creds_path.read_text(encoding="utf-8")
 

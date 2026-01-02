@@ -397,15 +397,27 @@ class CredentialManager(ICredentialManager):
                             "OpenAI Codex credentials file not modified, using cached."
                         )
                         return True
-                except OSError:
-                    pass
+                except OSError as e:
+                    # Failed to stat file - log for debugging and proceed with load
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Failed to stat OpenAI Codex credentials file for modification time: %s",
+                            e,
+                            exc_info=True,
+                        )
 
             # Update last modified time
             try:
                 mtime = await asyncio.to_thread(_get_mtime)
                 self._last_modified = mtime
-            except OSError:
-                pass
+            except OSError as e:
+                # Failed to stat file - log for debugging and proceed with load
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to stat OpenAI Codex credentials file for modification time: %s",
+                        e,
+                        exc_info=True,
+                    )
 
             data: dict[str, Any] = await asyncio.to_thread(_load_file)
 

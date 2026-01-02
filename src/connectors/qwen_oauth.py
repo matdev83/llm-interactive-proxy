@@ -789,9 +789,14 @@ class QwenOAuthConnector(OpenAIConnector):
                     )
                     return True
                 self._last_modified = current_modified
-            except OSError:
-                # If cannot get file stats, proceed with reading
-                pass
+            except OSError as e:
+                # Failed to stat file - log for debugging and proceed with reading
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to stat Qwen OAuth credentials file for modification time: %s",
+                        e,
+                        exc_info=True,
+                    )
 
             with open(creds_path, encoding="utf-8") as f:
                 credentials = json.load(f)
