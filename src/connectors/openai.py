@@ -321,6 +321,7 @@ class OpenAIConnector(LLMBackend):
                 "Unable to decode JSON payload from OpenAI response (status=%s, preview=%r)",
                 getattr(response, "status_code", "unknown"),
                 (sanitized or text)[:200],
+                exc_info=True,
             )
             return None
 
@@ -1004,15 +1005,54 @@ class OpenAIConnector(LLMBackend):
                 body,
                 extra=log_extra if log_extra else None,
             )
+
+            # Attempt to parse error body as JSON and map Codex-specific errors
+            error_detail: dict[str, Any] | str = body
+            try:
+                parsed_error = json.loads(body)
+                if (
+                    status_code == 400
+                    and isinstance(parsed_error, dict)
+                    and parsed_error.get("detail") == "Instructions are not valid"
+                ):
+                    # Map "Instructions are not valid" errors to actionable messages
+                    error_detail = {
+                        "error": "codex_instructions_invalid",
+                        "message": (
+                            "Codex backend rejected the instructions field as invalid. "
+                            "This usually happens when custom prompt modifications are incompatible with Codex's validation rules."
+                        ),
+                        "detail": parsed_error.get("detail"),
+                        "suggestion": (
+                            "Set prompt_mode to 'codex_default' in your request capabilities "
+                            "(or in config via backends.openai_codex.extra.codex.default_capabilities) "
+                            "to use Codex's default instructions. System prompts are automatically "
+                            "converted to <user_instructions> blocks and do not need to be in the instructions field."
+                        ),
+                        "original_error": parsed_error,
+                    }
+                elif isinstance(parsed_error, dict):
+                    # Use parsed JSON if it's a dict
+                    error_detail = parsed_error
+            except (json.JSONDecodeError, ValueError):
+                # Not JSON or invalid JSON - use body as string (backward compatible)
+                pass
+
             raise HTTPException(
                 status_code=status_code,
-                detail={
-                    "message": body,
-                    "type": (
-                        "openrouter_error" if "openrouter" in url else "openai_error"
-                    ),
-                    "code": status_code,
-                },
+                detail=(
+                    error_detail
+                    if isinstance(error_detail, dict)
+                    else {
+                        "message": str(error_detail),
+                        "type": (
+                            "openrouter_error"
+                            if "openrouter" in url
+                            else "openai_error"
+                        ),
+                        "code": status_code,
+                    }
+                ),
             )
 
         loop = asyncio.get_running_loop()

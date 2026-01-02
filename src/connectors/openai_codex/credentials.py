@@ -153,7 +153,8 @@ class CredentialWatcher:
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to start file watching for OpenAI Codex credentials: %s", e
+                    "Failed to start file watching for OpenAI Codex credentials: %s", e,
+                    exc_info=True,
                 )
 
     def stop(self) -> None:
@@ -258,7 +259,8 @@ class CredentialWatcher:
             except RuntimeError:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Cannot schedule credentials reload: no running event loop available."
+                        "Cannot schedule credentials reload: no running event loop available.",
+                        exc_info=True,
                     )
                 self._reload_scheduling_event.clear()
                 return
