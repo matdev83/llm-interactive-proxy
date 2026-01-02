@@ -141,7 +141,8 @@ class ModelSpecParser:
             # Log warning about parsing failure but provide helpful error message
             logger.warning(
                 f"Failed to parse reasoning model specification '{reasoning_spec}': {e}. "
-                f"Attempting to continue with fallback parsing."
+                f"Attempting to continue with fallback parsing.",
+                exc_info=True,
             )
             raise ValueError(
                 f"Invalid reasoning model specification: '{reasoning_spec}'. "
@@ -170,7 +171,8 @@ class ModelSpecParser:
             # Log warning about parsing failure but provide helpful error message
             logger.warning(
                 f"Failed to parse execution model specification '{execution_spec}': {e}. "
-                f"Attempting to continue with fallback parsing."
+                f"Attempting to continue with fallback parsing.",
+                exc_info=True,
             )
             raise ValueError(
                 f"Invalid execution model specification: '{execution_spec}'. "
