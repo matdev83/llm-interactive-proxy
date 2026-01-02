@@ -81,7 +81,9 @@ class CodexToolSchema(BaseModel):
 
     name: str
     description: str | None = None
-    parameters: dict[str, object] = Field(default_factory=dict)
+    # Matches Codex CLI ToolSpec JSON: `type=function` tools have `parameters`,
+    # but `type=custom` (freeform grammar tools) do not.
+    parameters: dict[str, object] | None = None
     type: str = "function"
     format: dict[str, Any] | None = None
 

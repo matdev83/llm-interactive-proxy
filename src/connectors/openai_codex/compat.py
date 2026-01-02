@@ -200,7 +200,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                     try:
                         result = await self._tool_execution_service.execute_proxy_tool(
                             tool.name,
-                            ToolArguments(payload=tool.parameters),
+                            ToolArguments(payload=tool.parameters or {}),
                             context.session_id,
                         )
                         tool_results.append(result)
@@ -230,7 +230,7 @@ class CompatibilityLayer(ICompatibilityLayer):
                     try:
                         result = await self._tool_execution_service.execute_mcp_tool(
                             tool.name,
-                            ToolArguments(payload=tool.parameters),
+                            ToolArguments(payload=tool.parameters or {}),
                             context.session_id,
                         )
                         tool_results.append(result)
@@ -246,7 +246,9 @@ class CompatibilityLayer(ICompatibilityLayer):
                             str(e),
                             exc_info=True,
                         )
-                        mcp_tool_name = tool.parameters.get("tool_name", "unknown")
+                        mcp_tool_name = (tool.parameters or {}).get(
+                            "tool_name", "unknown"
+                        )
                         tool_results.append(
                             ToolExecutionResult(
                                 success=False,

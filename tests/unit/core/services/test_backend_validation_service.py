@@ -15,14 +15,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.core.config.app_config import AppConfig, BackendConfig, BackendSettings
-
-# Skip all tests if BackendValidationService doesn't exist yet
-try:
-    from src.core.services.backend_validation_service import (  # type: ignore[import-not-found]
-        BackendValidationService,
-    )
-except ImportError:
-    BackendValidationService = None  # type: ignore[assignment, misc]
+from src.core.services.backend_validation_service import BackendValidationService
 
 
 @pytest.fixture
@@ -78,7 +71,7 @@ def app_config_default_backend():
     return AppConfig(
         backends=BackendSettings(
             default_backend="openai",
-            openai=BackendConfig(api_key=["test_key"]),
+            openai=BackendConfig(api_key="test_key"),
         )
     )
 
@@ -89,7 +82,7 @@ def app_config_static_route():
     return AppConfig(
         backends=BackendSettings(
             static_route="anthropic:claude-3-opus",
-            anthropic=BackendConfig(api_key=["test_key"]),
+            anthropic=BackendConfig(api_key="test_key"),
         )
     )
 
@@ -100,9 +93,9 @@ def app_config_multiple_backends():
     return AppConfig(
         backends=BackendSettings(
             default_backend="openai",
-            openai=BackendConfig(api_key=["openai_key"]),
-            anthropic=BackendConfig(api_key=["anthropic_key"]),
-            gemini=BackendConfig(api_key=["gemini_key"]),
+            openai=BackendConfig(api_key="openai_key"),
+            anthropic=BackendConfig(api_key="anthropic_key"),
+            gemini=BackendConfig(api_key="gemini_key"),
         )
     )
 
@@ -122,7 +115,7 @@ def app_config_explicit_backend_only():
     """Create AppConfig with only explicit backend config (no default_backend or static_route)."""
     return AppConfig(
         backends=BackendSettings(
-            gemini=BackendConfig(api_key=["gemini_key"]),
+            gemini=BackendConfig(api_key="gemini_key"),
         )
     )
 
@@ -130,10 +123,6 @@ def app_config_explicit_backend_only():
 class TestBackendValidationServiceConfiguredBackendDetection:
     """Test detection of configured backends from various config sources."""
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_detects_default_backend(
         self,
@@ -159,10 +148,6 @@ class TestBackendValidationServiceConfiguredBackendDetection:
         call_args = mock_backend_factory.ensure_backend.call_args
         assert call_args.kwargs["backend_type"] == "openai"
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_detects_static_route_backend(
         self,
@@ -188,10 +173,6 @@ class TestBackendValidationServiceConfiguredBackendDetection:
         call_args = mock_backend_factory.ensure_backend.call_args
         assert call_args.kwargs["backend_type"] == "anthropic"
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_detects_explicit_backend_configs(
         self,
@@ -217,10 +198,6 @@ class TestBackendValidationServiceConfiguredBackendDetection:
         call_args = mock_backend_factory.ensure_backend.call_args
         assert call_args.kwargs["backend_type"] == "gemini"
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_detects_multiple_configured_backends(
         self,
@@ -250,10 +227,6 @@ class TestBackendValidationServiceConfiguredBackendDetection:
         }
         assert validated_backends == {"openai", "anthropic", "gemini"}
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_ignores_backends_without_api_keys(
         self,
@@ -265,8 +238,8 @@ class TestBackendValidationServiceConfiguredBackendDetection:
         """Test that backends without api_key are not considered configured."""
         config = AppConfig(
             backends=BackendSettings(
-                openai=BackendConfig(api_key=["openai_key"]),  # Has key
-                anthropic=BackendConfig(api_key=[]),  # Empty key list
+                openai=BackendConfig(api_key="openai_key"),  # Has key
+                anthropic=BackendConfig(api_key=None),  # No key
             )
         )
 
@@ -286,10 +259,6 @@ class TestBackendValidationServiceConfiguredBackendDetection:
         call_args = mock_backend_factory.ensure_backend.call_args
         assert call_args.kwargs["backend_type"] == "openai"
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_ignores_unregistered_backends(
         self,
@@ -302,7 +271,7 @@ class TestBackendValidationServiceConfiguredBackendDetection:
         config = AppConfig(
             backends=BackendSettings(
                 default_backend="unknown-backend",
-                unknown_backend=BackendConfig(api_key=["key"]),
+                unknown_backend=BackendConfig(api_key="key"),
             )
         )
         mock_backend_registry.get_registered_backends.return_value = [
@@ -328,10 +297,6 @@ class TestBackendValidationServiceConfiguredBackendDetection:
 class TestBackendValidationServiceNoBackendsBehavior:
     """Test behavior when no backends are configured."""
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_allows_startup_when_no_backends_configured(
         self,
@@ -363,10 +328,6 @@ class TestBackendValidationServiceNoBackendsBehavior:
 class TestBackendValidationServiceNonFunctionalBackends:
     """Test behavior when configured backends are non-functional."""
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_fails_startup_when_all_backends_non_functional_in_production(
         self,
@@ -399,10 +360,6 @@ class TestBackendValidationServiceNonFunctionalBackends:
             for record in caplog.records
         )
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_allows_startup_when_all_backends_non_functional_in_test_env(
         self,
@@ -436,10 +393,6 @@ class TestBackendValidationServiceNonFunctionalBackends:
             "test environment" in record.message.lower() for record in caplog.records
         )
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_allows_startup_when_some_backends_functional(
         self,
@@ -475,10 +428,6 @@ class TestBackendValidationServiceNonFunctionalBackends:
 class TestBackendValidationServiceErrorCollection:
     """Test collection and logging of validation errors."""
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_collects_validation_errors_for_non_functional_backends(
         self,
@@ -514,10 +463,6 @@ class TestBackendValidationServiceErrorCollection:
             or "gemini" in error_messages
         )
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_logs_backend_validation_errors_with_details(
         self,
@@ -551,10 +496,6 @@ class TestBackendValidationServiceErrorCollection:
             "Token expired" in error_message or "Invalid credentials" in error_message
         )
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_handles_backend_initialization_exception(
         self,
@@ -594,34 +535,47 @@ class TestBackendValidationServiceErrorCollection:
 class TestBackendValidationServiceFailFastBehavior:
     """Test fail-fast behavior when required dependencies are missing."""
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_fails_fast_when_backend_factory_missing(
         self,
         mock_http_client_manager,
         mock_backend_registry,
         app_config_default_backend,
+        monkeypatch,
+        caplog,
     ):
-        """Test that validation fails fast when BackendFactory cannot be resolved."""
+        """Test that validation fails fast when BackendFactory is None at runtime.
 
-        # This test should be skipped until implementation exists
-        # When implemented, BackendValidationService should raise ServiceResolutionError
-        # or InitializationError if backend_factory is None or cannot be used
-        pytest.skip(
-            "Fail-fast behavior test - will be enabled when implementation exists"
+        This tests runtime failure handling when backend_factory is None (e.g., in unit tests
+        or edge cases). DI resolution failures (requirement 2.10) are tested separately in
+        test_backend_validation_registration.py.
+        """
+        # Unset test environment to ensure fail-fast behavior
+        monkeypatch.delenv("PYTEST_CURRENT_TEST", raising=False)
+
+        # BackendValidationService stores backend_factory, but will fail when trying to use it
+        validator = BackendValidationService(
+            backend_factory=None,  # type: ignore[arg-type]
+            http_client_manager=mock_http_client_manager,
+            backend_registry=mock_backend_registry,
+        )
+
+        # When validate_all is called, it should catch the exception, log it, and return False
+        with caplog.at_level("ERROR"):
+            result = await validator.validate_all(app_config_default_backend)
+
+        # Should return False (fail fast) and log error
+        assert result is False
+        assert any(
+            "Failed to validate backend" in record.message
+            or "ensure_backend" in record.message
+            for record in caplog.records
         )
 
 
 class TestBackendValidationServiceInterfaceCompliance:
     """Test that BackendValidationService implements IBackendValidator interface."""
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     def test_implements_ibackend_validator_interface(
         self,
         mock_backend_factory,
@@ -640,10 +594,6 @@ class TestBackendValidationServiceInterfaceCompliance:
         assert hasattr(validator, "validate_all")
         assert callable(validator.validate_all)
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_validate_all_signature(
         self,
@@ -670,10 +620,6 @@ class TestBackendValidationServiceInterfaceCompliance:
 class TestBackendValidationServiceStaticRouteParsing:
     """Test parsing of static_route to extract backend name."""
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_extracts_backend_from_static_route_with_model(
         self,
@@ -686,7 +632,7 @@ class TestBackendValidationServiceStaticRouteParsing:
         config = AppConfig(
             backends=BackendSettings(
                 static_route="gemini:gemini-2.5-pro",
-                gemini=BackendConfig(api_key=["key"]),
+                gemini=BackendConfig(api_key="key"),
             )
         )
 
@@ -705,10 +651,6 @@ class TestBackendValidationServiceStaticRouteParsing:
         call_args = mock_backend_factory.ensure_backend.call_args
         assert call_args.kwargs["backend_type"] == "gemini"
 
-    @pytest.mark.skipif(
-        BackendValidationService is None,
-        reason="BackendValidationService not yet implemented",
-    )
     @pytest.mark.asyncio
     async def test_handles_static_route_without_colon(
         self,
@@ -721,7 +663,7 @@ class TestBackendValidationServiceStaticRouteParsing:
         config = AppConfig(
             backends=BackendSettings(
                 static_route="openai",  # No colon
-                openai=BackendConfig(api_key=["key"]),
+                openai=BackendConfig(api_key="key"),
             )
         )
 

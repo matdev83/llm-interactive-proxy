@@ -124,7 +124,8 @@ class BackendFactory(IBackendFactory):
 
         This method centralizes connector initialization logic so callers
         don't need to duplicate api_key/url shaping and backend-specific
-        parameters.
+        parameters. Backend-specific configuration augmentation is delegated
+        to initialization strategies via the strategy registry.
         """
         logger = logging.getLogger(__name__)
 

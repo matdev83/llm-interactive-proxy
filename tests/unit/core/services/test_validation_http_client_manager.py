@@ -15,35 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
-# Attempt import - will be checked in fixture
-try:
-    from src.core.services.validation_http_client_manager import (  # type: ignore[import-not-found]
-        ValidationHttpClientManager,
-    )
-except ImportError:
-    ValidationHttpClientManager = None  # type: ignore[assignment, misc]
-
-
-@pytest.fixture(autouse=True)
-def skip_if_module_not_available() -> None:
-    """Skip tests if ValidationHttpClientManager module is not available."""
-    if ValidationHttpClientManager is None:
-        pytest.skip(
-            "ValidationHttpClientManager not implemented yet (task 4.2)",
-            allow_module_level=False,
-        )
-
-
-def test_module_import_smoke() -> None:
-    """Smoke test to ensure module can be imported (guarantees at least one collected test)."""
-    if ValidationHttpClientManager is None:
-        pytest.skip(
-            "ValidationHttpClientManager not implemented yet (task 4.2)",
-            allow_module_level=False,
-        )
-    # If we get here, module exists
-    assert ValidationHttpClientManager is not None
+from src.core.services.validation_http_client_manager import ValidationHttpClientManager
 
 
 class TestValidationHttpClientManagerCreation:
@@ -264,30 +236,21 @@ class TestValidationHttpClientManagerCleanup:
         completed_task = asyncio.create_task(asyncio.sleep(0.01))
         await completed_task
 
-        # Simulate cleanup tasks being tracked
-        # The manager should have a _cleanup_tasks attribute (set or list)
-        if hasattr(manager, "_cleanup_tasks"):
-            # Add task to manager's cleanup tasks
-            manager._cleanup_tasks.add(completed_task)
+        # Add task to manager's cleanup tasks
+        manager._cleanup_tasks.add(completed_task)
 
-            # Mock wait_for to verify timeout is used
-            with patch("asyncio.wait_for") as mock_wait_for:
-                mock_wait_for.return_value = None
+        # Mock wait_for to verify timeout is used
+        with patch("asyncio.wait_for") as mock_wait_for:
+            mock_wait_for.return_value = None
 
-                await manager.cleanup()
+            await manager.cleanup()
 
-                # Verify wait_for was called with 5 second timeout
-                if mock_wait_for.called:
-                    call_kwargs = mock_wait_for.call_args[1]
-                    assert (
-                        call_kwargs.get("timeout") == 5.0
-                    ), "Cleanup should wait with 5 second timeout"
-        else:
-            # If implementation doesn't exist yet, verify expected pattern
-            # This test will pass once implementation is added
-            pytest.skip(
-                "Implementation not complete - will test once _cleanup_tasks exists"
-            )
+            # Verify wait_for was called with 5 second timeout
+            if mock_wait_for.called:
+                call_kwargs = mock_wait_for.call_args[1]
+                assert (
+                    call_kwargs.get("timeout") == 5.0
+                ), "Cleanup should wait with 5 second timeout"
 
     @pytest.mark.asyncio
     async def test_cleanup_cancels_tasks_on_timeout(self) -> None:
@@ -298,30 +261,24 @@ class TestValidationHttpClientManagerCleanup:
         slow_task = asyncio.create_task(asyncio.sleep(10.0))
 
         try:
-            # Add task to manager's cleanup tasks if attribute exists
-            if hasattr(manager, "_cleanup_tasks"):
-                manager._cleanup_tasks.add(slow_task)
+            # Add task to manager's cleanup tasks
+            manager._cleanup_tasks.add(slow_task)
 
-                # Mock wait_for to raise TimeoutError to simulate timeout
-                with patch("asyncio.wait_for") as mock_wait_for:
+            # Mock wait_for to raise TimeoutError to simulate timeout
+            with patch("asyncio.wait_for") as mock_wait_for:
 
-                    async def timeout_wait_for(coro, timeout=None):
-                        await asyncio.sleep(0.01)  # Small delay
-                        raise asyncio.TimeoutError()
+                async def timeout_wait_for(coro, timeout=None):
+                    await asyncio.sleep(0.01)  # Small delay
+                    raise asyncio.TimeoutError()
 
-                    mock_wait_for.side_effect = timeout_wait_for
+                mock_wait_for.side_effect = timeout_wait_for
 
-                    await manager.cleanup()
+                await manager.cleanup()
 
-                    # Verify task was cancelled or handled
-                    assert (
-                        slow_task.cancelled() or slow_task.done()
-                    ), "Task should be cancelled on timeout"
-            else:
-                # If implementation doesn't exist yet, verify expected pattern
-                pytest.skip(
-                    "Implementation not complete - will test once _cleanup_tasks exists"
-                )
+                # Verify task was cancelled or handled
+                assert (
+                    slow_task.cancelled() or slow_task.done()
+                ), "Task should be cancelled on timeout"
         finally:
             # Clean up
             if not slow_task.done():
@@ -337,21 +294,15 @@ class TestValidationHttpClientManagerCleanup:
         completed_task = asyncio.create_task(asyncio.sleep(0.01))
         await completed_task
 
-        # Add task to manager's cleanup tasks if attribute exists
-        if hasattr(manager, "_cleanup_tasks"):
-            manager._cleanup_tasks.add(completed_task)
+        # Add task to manager's cleanup tasks
+        manager._cleanup_tasks.add(completed_task)
 
-            await manager.cleanup()
+        await manager.cleanup()
 
-            # Verify tasks were cleared
-            assert (
-                len(manager._cleanup_tasks) == 0
-            ), "Cleanup should clear task references after completion"
-        else:
-            # If implementation doesn't exist yet, verify expected pattern
-            pytest.skip(
-                "Implementation not complete - will test once _cleanup_tasks exists"
-            )
+        # Verify tasks were cleared
+        assert (
+            len(manager._cleanup_tasks) == 0
+        ), "Cleanup should clear task references after completion"
 
     @pytest.mark.asyncio
     async def test_cleanup_handles_task_exceptions(self) -> None:
@@ -365,20 +316,14 @@ class TestValidationHttpClientManagerCleanup:
         task = asyncio.create_task(failing_task())
 
         try:
-            # Add task to manager's cleanup tasks if attribute exists
-            if hasattr(manager, "_cleanup_tasks"):
-                manager._cleanup_tasks.add(task)
+            # Add task to manager's cleanup tasks
+            manager._cleanup_tasks.add(task)
 
-                # Cleanup should handle exceptions gracefully
-                await manager.cleanup()
+            # Cleanup should handle exceptions gracefully
+            await manager.cleanup()
 
-                # Verify cleanup completed without raising
-                assert True, "Cleanup should handle task exceptions gracefully"
-            else:
-                # If implementation doesn't exist yet, verify expected pattern
-                pytest.skip(
-                    "Implementation not complete - will test once _cleanup_tasks exists"
-                )
+            # Verify cleanup completed without raising
+            assert True, "Cleanup should handle task exceptions gracefully"
         except RuntimeError:
             # Task exception should be caught and handled
             pass

@@ -101,9 +101,12 @@ class OpenAICodexConnector(OpenAIConnector):
 
     # Supported Codex models - exhaustive list
     SUPPORTED_CODEX_MODELS: tuple[str, ...] = (
+        "gpt-5.2-codex",
+        "gpt-5.2",
         "gpt-5.1-codex-max",
         "gpt-5.1-codex",
         "gpt-5.1-codex-mini",
+        "codex-mini-latest",
         "gpt-5.1",
     )
     # Pre-computed lowercased set for O(1) lookup
@@ -115,7 +118,11 @@ class OpenAICodexConnector(OpenAIConnector):
     REASONING_EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high", "xhigh")
     DEFAULT_REASONING_EFFORT: str = "medium"
     # Only gpt-5.1-codex-max supports xhigh reasoning effort
-    XHIGH_SUPPORTED_MODELS: tuple[str, ...] = ("gpt-5.1-codex-max",)
+    XHIGH_SUPPORTED_MODELS: tuple[str, ...] = (
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.1-codex-max",
+    )
     # Pre-computed lowercased set for O(1) lookup
     _XHIGH_SUPPORTED_MODELS_LOWER: frozenset[str] = frozenset(
         m.lower() for m in XHIGH_SUPPORTED_MODELS
@@ -522,11 +529,11 @@ class OpenAICodexConnector(OpenAIConnector):
             session_service = getattr(self, "_session_service", None)
             self._kilo_tool_translator = KiloToolTranslator(self, session_service)
 
-        if isinstance(self._tool_schema_resolver, ToolSchemaResolver):
-            self._tool_schema_resolver = ToolSchemaResolver(
-                settings=self._connector_settings_model,
-                tool_execution_service=self._tool_execution_service,
-            )
+        # Reinitialize tool schema resolver if needed
+        self._tool_schema_resolver = ToolSchemaResolver(
+            settings=self._connector_settings_model,
+            tool_execution_service=self._tool_execution_service,
+        )
 
         if isinstance(self._payload_builder, PayloadBuilder):
             self._payload_builder = PayloadBuilder(
@@ -546,7 +553,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     @_auth_credentials.setter
     def _auth_credentials(self, value: dict[str, Any] | None) -> None:
-        self._credential_manager._auth_credentials = value
+        self._credential_manager._auth_credentials = value  # type: ignore[reportPrivateUsage]
         token = self._credential_manager.get_access_token()
         if token:
             self.api_key = token
@@ -557,7 +564,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     @_auth_path.setter
     def _auth_path(self, value: Path | None) -> None:
-        self._credential_manager._auth_path = value
+        self._credential_manager._auth_path = value  # type: ignore[reportPrivateUsage]
 
     @property
     def _oauth_dir_override(self) -> Path | None:
@@ -565,7 +572,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     @_oauth_dir_override.setter
     def _oauth_dir_override(self, value: Path | None) -> None:
-        self._credential_manager._oauth_dir_override = value
+        self._credential_manager._oauth_dir_override = value  # type: ignore[reportPrivateUsage]
 
     @property
     def _last_modified(self) -> float:
@@ -573,7 +580,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
     @_last_modified.setter
     def _last_modified(self, value: float) -> None:
-        self._credential_manager._last_modified = float(value)
+        self._credential_manager._last_modified = float(value)  # type: ignore[reportPrivateUsage]
 
     @property
     def _file_observer(self) -> BaseObserver | None:
@@ -592,7 +599,7 @@ class OpenAICodexConnector(OpenAIConnector):
     @classmethod
     def _codex_system_prompt(cls) -> str:
         """Load the Codex system prompt from bundled resources or vendor sources."""
-        return PromptResolver._codex_system_prompt()
+        return PromptResolver._codex_system_prompt()  # type: ignore[reportPrivateUsage]
 
     def _codex_user_agent(self) -> str:
         """Build a Codex CLI compatible User-Agent string."""
@@ -685,8 +692,6 @@ class OpenAICodexConnector(OpenAIConnector):
         """Render custom instruction sections into a Codex <user_instructions> block."""
         sanitized_sections: list[str] = []
         for section in sections:
-            if not isinstance(section, str):
-                continue
             normalized = section.strip()
             if not normalized:
                 continue
@@ -773,25 +778,24 @@ class OpenAICodexConnector(OpenAIConnector):
     def _combine_prompt_sections(
         sections: Sequence[str], deduplicate: bool
     ) -> str | None:
-        return PromptResolver._combine_prompt_sections(sections, deduplicate)
+        return PromptResolver._combine_prompt_sections(sections, deduplicate)  # type: ignore[reportPrivateUsage]
 
     @staticmethod
     def _sanitize_codex_instructions(text: str) -> str:
-        return PromptResolver._sanitize_codex_instructions(text)
+        return PromptResolver._sanitize_codex_instructions(text)  # type: ignore[reportPrivateUsage]
 
     def _default_codex_tools(self) -> list[dict[str, Any]]:
         """Return the tool definitions expected by the Codex Responses API."""
         if self._default_tool_schema_override is not None:
             return deepcopy(self._default_tool_schema_override)
 
-        if isinstance(self._tool_schema_resolver, ToolSchemaResolver):
-            tools = self._tool_schema_resolver._get_default_tools()
-            return [
-                (
-                    tool.model_dump(exclude_none=True)
-                    if hasattr(tool, "model_dump")
-                    else dict(tool)
-                )
+        tools = self._tool_schema_resolver._get_default_tools()  # type: ignore[reportPrivateUsage]
+        return [
+            (
+                tool.model_dump(exclude_none=True)
+                if hasattr(tool, "model_dump")
+                else dict(tool)
+            )
                 for tool in tools
             ]
 
@@ -930,7 +934,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
         # Convert dict or mock to dict
         payload_dict: dict[str, Any]
-        if isinstance(payload, dict):
+        if isinstance(payload, dict):  # type: ignore[reportUnnecessaryIsInstance]
             payload_dict = dict(payload)
         elif hasattr(payload, "model_dump"):
             payload_dict = payload.model_dump()
@@ -1012,7 +1016,7 @@ class OpenAICodexConnector(OpenAIConnector):
             else "none"
         )
         preferred_value = capabilities.tool_text_format or renderer_default
-        preferred = preferred_value.strip() if isinstance(preferred_value, str) else ""
+        preferred = preferred_value.strip() if isinstance(preferred_value, str) else ""  # type: ignore[reportUnnecessaryIsInstance]
         if not preferred:
             return renderer_default
         if preferred.lower() in {"default", "inherit"}:
@@ -1256,7 +1260,7 @@ class OpenAICodexConnector(OpenAIConnector):
                         "Compatibility layer apply failed: %s", exc, exc_info=True
                     )
 
-        payload, conversation_id = self._build_codex_payload(
+        payload, _conversation_id = self._build_codex_payload(
             request_data,
             payload_messages,
             effective_model,
@@ -1265,7 +1269,7 @@ class OpenAICodexConnector(OpenAIConnector):
 
         if is_kilocode and translated_tools["codex_tools"]:
             payload_tools = payload.tools
-            if not isinstance(payload_tools, list):
+            if not isinstance(payload_tools, list):  # type: ignore[reportUnnecessaryIsInstance]
                 payload_tools = []
                 payload.tools = payload_tools
 
@@ -1282,7 +1286,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 if not schema:
                     continue
                 schema_name = schema.name
-                if not isinstance(schema_name, str):
+                if not isinstance(schema_name, str):  # type: ignore[reportUnnecessaryIsInstance]
                     continue
                 if schema_name in existing_names:
                     continue
@@ -1326,6 +1330,16 @@ class OpenAICodexConnector(OpenAIConnector):
 
         payload_obj = self._coerce_payload_for_executor(payload, executor_context)
         response = await self._response_executor.execute(payload_obj, executor_context)
+
+        # Codex backend requires streaming SSE; if the client requested non-streaming,
+        # accumulate the stream into a single ResponseEnvelope.
+        if not stream_val and isinstance(response, StreamingResponseEnvelope):
+            from src.connectors.gemini_base.response_accumulator import (
+                StreamingResponseAccumulator,
+            )
+
+            accumulator = StreamingResponseAccumulator(backend_type=self.backend_type)
+            response = await accumulator.accumulate(response)
 
         # Apply KiloCode formatting if needed (preserves existing behavior)
         if is_kilocode and tool_results:
@@ -1398,7 +1412,7 @@ class OpenAICodexConnector(OpenAIConnector):
     # -----------------------------
     def _validate_credentials_file_exists(self) -> ValidationResult:
         if hasattr(self._credential_manager, "_validate_credentials_file_exists"):
-            result = self._credential_manager._validate_credentials_file_exists()
+            result = self._credential_manager._validate_credentials_file_exists()  # type: ignore[reportPrivateUsage]
             return cast(ValidationResult, result)
         return ValidationResult.failure("Credential manager not available")
 
@@ -1406,7 +1420,7 @@ class OpenAICodexConnector(OpenAIConnector):
         self, credentials: dict[str, Any]
     ) -> ValidationResult:
         if hasattr(self._credential_manager, "_validate_credentials_structure"):
-            result = self._credential_manager._validate_credentials_structure(
+            result = self._credential_manager._validate_credentials_structure(  # type: ignore[reportPrivateUsage]
                 credentials
             )
             return cast(ValidationResult, result)
@@ -1606,7 +1620,7 @@ class OpenAICodexConnector(OpenAIConnector):
             self._reload_scheduling_event.clear()
 
     async def _load_auth(self, force_reload: bool = False) -> bool:
-        loaded = await self._credential_manager._load_auth(force_reload=force_reload)
+        loaded = await self._credential_manager._load_auth(force_reload=force_reload)  # type: ignore[reportPrivateUsage]
         loaded_bool = bool(loaded)
         if loaded_bool:
             token = self._credential_manager.get_access_token()
@@ -1715,9 +1729,7 @@ class OpenAICodexConnector(OpenAIConnector):
             )
             effective_model = strip_vendor_prefix(parsed_model, OPENAI_VENDOR_PREFIX)
         except Exception as exc:
-            logger.debug(
-                "Failed to parse model URI params: %s", exc, exc_info=True
-            )
+            logger.debug("Failed to parse model URI params: %s", exc, exc_info=True)
             if ":" in effective_model:
                 effective_model = effective_model.split(":", 1)[1]
             effective_model = strip_vendor_prefix(effective_model, OPENAI_VENDOR_PREFIX)
@@ -1841,9 +1853,9 @@ class OpenAICodexConnector(OpenAIConnector):
         # Note: compatibility_state is typically only created for Codex requests,
         # which use ResponseExecutor directly. This method handles non-Codex models
         # that fall back to parent OpenAI connector.
-        if isinstance(payload, dict):
+        if isinstance(payload, dict):  # type: ignore[reportUnnecessaryIsInstance]
             metadata = payload.get("metadata", {})
-            if isinstance(metadata, dict):
+            if isinstance(metadata, dict):  # type: ignore[reportUnnecessaryIsInstance]
                 compatibility_state = metadata.get("compatibility_state")
 
         try:

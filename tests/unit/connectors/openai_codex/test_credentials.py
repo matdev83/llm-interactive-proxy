@@ -6,6 +6,7 @@ and file watcher debounce behavior.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import json
 import tempfile
@@ -20,7 +21,7 @@ from src.connectors.openai_codex.credentials import (
     OpenAICredentialsFileHandler,
 )
 from src.connectors.openai_codex.interfaces import ICredentialManager
-from watchdog.events import FileSystemEvent
+from watchdog.events import FileSystemEvent  # type: ignore[reportAttributeAccessIssue]
 
 
 class TestCredentialManager:
@@ -119,6 +120,38 @@ class TestCredentialManager:
         """Test that get_access_token returns None when credentials not loaded."""
         token = manager.get_access_token()
         assert token is None
+
+    @pytest.mark.asyncio
+    async def test_get_account_id_extracts_from_jwt_access_token(
+        self, manager, http_client
+    ):
+        """Test that get_account_id falls back to JWT claim extraction."""
+        payload = {
+            "https://api.openai.com/auth": {
+                "chatgpt_account_id": "acct_test_123",
+            }
+        }
+
+        def _b64url(obj: dict) -> str:
+            raw = json.dumps(obj).encode("utf-8")
+            return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+        token = f"{_b64url({'alg': 'none', 'typ': 'JWT'})}.{_b64url(payload)}."
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as f:
+            auth_data = {"tokens": {"access_token": token, "refresh_token": "r"}}
+            json.dump(auth_data, f)
+            temp_path = Path(f.name)
+
+        try:
+            await manager.initialize(auth_path=temp_path)
+            assert manager.get_account_id() == "acct_test_123"
+        finally:
+            await manager.shutdown()
+            with contextlib.suppress(Exception):
+                temp_path.unlink()
 
     @pytest.mark.asyncio
     async def test_refresh_access_token_success(

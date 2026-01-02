@@ -359,14 +359,11 @@ class TestPayloadBuilder:
     def test_build_translated_payload_stream_default(
         self, builder, mock_connector, sample_context
     ):
-        """Test that stream uses request value (or True if not specified)."""
+        """Test that Codex backend always uses streaming SSE."""
         mock_connector._is_native_responses_payload.return_value = False
-        # Sample context has stream=False, so payload should reflect that
-        # (the "default" True only kicks in when stream is completely absent)
         payload = builder.build_payload(sample_context)
 
-        # Request has stream=False, so payload should inherit that
-        assert payload.stream is sample_context.request.stream
+        assert payload.stream is True
 
     def test_build_translated_payload_conversation_id(
         self, builder, mock_connector, sample_context

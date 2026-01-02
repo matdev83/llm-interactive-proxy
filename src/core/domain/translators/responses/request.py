@@ -103,6 +103,22 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
     if responses_request.response_format is not None:
         extra_body["response_format"] = responses_request.response_format.model_dump()
 
+    # Preserve the raw Responses `input` array (including function_call history) for
+    # backends that can forward it directly (e.g., ChatGPT Codex backend).
+    if responses_request.input is not None:
+        extra_body["input"] = responses_request.input
+        # Enable Codex passthrough automatically when the caller used Responses `input`.
+        # This allows Codex clients (and OpenCode-style clients) to preserve tool history
+        # that cannot be faithfully reconstructed from chat messages alone.
+        codex_caps = extra_body.get("codex_capabilities")
+        if not isinstance(codex_caps, dict):
+            codex_caps = {}
+            extra_body["codex_capabilities"] = codex_caps
+        codex_caps.setdefault("codex_passthrough", True)
+
+    if responses_request.instructions is not None:
+        extra_body["instructions"] = responses_request.instructions
+
     if responses_request.include is not None:
         extra_body["include"] = responses_request.include
     if responses_request.store is not None:
@@ -239,6 +255,17 @@ def from_domain_to_responses_request(request: CanonicalChatRequest) -> dict[str,
     if request.extra_body:
         extra_body_copy = dict(request.extra_body)
 
+        # If the incoming request was a Responses request with `input`, prefer replaying it
+        # verbatim so tool-call history survives translation.
+        raw_input = extra_body_copy.pop("input", None)
+        if raw_input is not None:
+            payload["input"] = raw_input
+            payload.pop("messages", None)
+
+        raw_instructions = extra_body_copy.pop("instructions", None)
+        if raw_instructions is not None:
+            payload["instructions"] = raw_instructions
+
         response_format = extra_body_copy.pop("response_format", None)
         if response_format is not None:
             if isinstance(response_format, dict):
@@ -260,6 +287,8 @@ def _filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     allowed_keys: set[str] = {
+        "input",
+        "instructions",
         "metadata",
         "safety_identifier",
         "prompt_cache_key",

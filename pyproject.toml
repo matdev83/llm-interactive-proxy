@@ -168,6 +168,7 @@ markers = [
     "codex: marks tests for Codex backend (included by default)",
     "testmon_cache: marks tests that should disable testmon cache",
     "real_time: marks tests that legitimately require real system wall-clock time (requires reason parameter)",
+    "performance: marks tests as performance benchmarks (excluded by default, use with -m performance)",
 ]
 
 [tool.mdformat]

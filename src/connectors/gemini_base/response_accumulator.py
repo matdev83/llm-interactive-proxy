@@ -11,6 +11,8 @@ import time
 import uuid
 from typing import Any
 
+from fastapi import HTTPException
+
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -69,6 +71,27 @@ class StreamingResponseAccumulator:
                     accumulated_reasoning_parts,
                     error_data,
                 ) = result
+
+        except HTTPException as exc:
+            detail = exc.detail
+            if isinstance(detail, dict):
+                error_data = dict(detail)
+                error_data.setdefault("code", exc.status_code)
+                if "message" not in error_data:
+                    if isinstance(error_data.get("error"), str):
+                        error_data["message"] = error_data["error"]
+                    else:
+                        error_data["message"] = str(detail)
+            else:
+                error_data = {
+                    "message": str(detail),
+                    "type": "backend_error",
+                    "code": exc.status_code,
+                }
+
+            return self._build_error_response(
+                error_data, streaming_response.headers or {}
+            )
 
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
@@ -452,6 +475,9 @@ def response_envelope_to_stream_chunk(
     from typing import cast
 
     from pydantic.types import JsonValue
+
     # Cast payload to ProcessedChunkContent (dict[str, JsonValue] is valid)
     payload_content: dict[str, JsonValue] = cast(dict[str, JsonValue], payload)
-    return ProcessedResponse(content=payload_content, metadata=metadata, usage=response.usage)
+    return ProcessedResponse(
+        content=payload_content, metadata=metadata, usage=response.usage
+    )

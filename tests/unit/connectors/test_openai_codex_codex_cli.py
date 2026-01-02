@@ -92,15 +92,21 @@ def test_is_codex_model_detection(connector: OpenAICodexConnector) -> None:
     """Test that _is_codex_model only recognizes supported Codex models.
 
     Supported models are explicitly listed in SUPPORTED_CODEX_MODELS:
+    - gpt-5.2-codex
+    - gpt-5.2
     - gpt-5.1-codex-max
     - gpt-5.1-codex
     - gpt-5.1-codex-mini
+    - codex-mini-latest
     - gpt-5.1
     """
     # Valid models (with and without vendor prefix)
+    assert connector._is_codex_model("gpt-5.2-codex") is True
+    assert connector._is_codex_model("gpt-5.2") is True
     assert connector._is_codex_model("gpt-5.1-codex-max") is True
     assert connector._is_codex_model("gpt-5.1-codex") is True
     assert connector._is_codex_model("gpt-5.1-codex-mini") is True
+    assert connector._is_codex_model("codex-mini-latest") is True
     assert connector._is_codex_model("gpt-5.1") is True
     assert connector._is_codex_model("openai/gpt-5.1-codex-max") is True
     assert connector._is_codex_model("openai/gpt-5.1") is True
@@ -109,9 +115,6 @@ def test_is_codex_model_detection(connector: OpenAICodexConnector) -> None:
     assert (
         connector._is_codex_model("gpt-5-codex") is False
     )  # Old naming (no .1), not supported
-    assert (
-        connector._is_codex_model("codex-mini-latest") is False
-    )  # Not a supported model
     assert connector._is_codex_model("gpt-4.1") is False
     assert connector._is_codex_model("gpt-4") is False
     assert connector._is_codex_model("claude-3") is False
@@ -715,7 +718,9 @@ async def test_streaming_auth_failure_chunk_triggers_retry(
         chunk = await result.content.__anext__()
         assert isinstance(chunk, ProcessedResponse)
         assert chunk.content is not None
-        assert chunk.content["choices"][0]["delta"]["content"] == "hello"
+        assert isinstance(chunk.content, dict)
+        content_dict = cast(dict[str, Any], chunk.content)
+        assert content_dict["choices"][0]["delta"]["content"] == "hello"
         assert headers_seen == [
             "Bearer token_old",
             "Bearer token_new_1",
@@ -1279,27 +1284,24 @@ async def test_codex_api_http_error_propagation(
         connector, "get_headers", return_value={"Authorization": "Bearer valid-token"}
     )
     connector.api_key = "Bearer valid-token"
-    error_response = httpx.Response(
-        status_code=429,
-        json={"error": "rate limit exceeded"},
-        request=httpx.Request("POST", "https://example.com"),
-    )
+
+    # Codex backend is streamed under the hood even for non-streaming requests; errors can surface
+    # during stream handshake/consumption and are converted into a non-streaming error envelope.
     mocker.patch.object(
-        connector.client,
-        "post",
+        connector._response_executor._base_connector,
+        "_handle_streaming_response",
         AsyncMock(
-            side_effect=httpx.HTTPStatusError(
-                "Too Many Requests",
-                response=error_response,
-                request=error_response.request,
+            side_effect=HTTPException(
+                status_code=429, detail={"error": "rate limit exceeded"}
             )
         ),
     )
 
-    with pytest.raises(HTTPException) as exc_info:
-        await connector.chat_completions(
-            chat_request, chat_request.messages, "gpt-5.1-codex"
-        )
+    result = await connector.chat_completions(
+        chat_request, chat_request.messages, "gpt-5.1-codex"
+    )
 
-    assert exc_info.value.status_code == 429
-    assert exc_info.value.detail == {"error": "rate limit exceeded"}
+    assert isinstance(result, ResponseEnvelope)
+    assert result.status_code == 429
+    assert isinstance(result.content, dict)
+    assert result.content.get("error", {}).get("error") == "rate limit exceeded"

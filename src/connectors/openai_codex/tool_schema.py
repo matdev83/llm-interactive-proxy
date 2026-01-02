@@ -220,14 +220,14 @@ class ToolSchemaResolver(IToolSchemaResolver):
 
             # Add default tools first
             for tool in default_tools:
-                if isinstance(tool, CodexToolSchema):
+                if isinstance(tool, CodexToolSchema):  # type: ignore[reportUnnecessaryIsInstance]
                     name_value = tool.name
-                    params = tool.parameters
+                    params = tool.parameters or {}
                 else:
                     name_value = tool.get("name")
                     params = tool.get("parameters", {})
 
-                if isinstance(name_value, str):
+                if isinstance(name_value, str):  # type: ignore[reportUnnecessaryIsInstance]
                     merged_tools[name_value] = deepcopy(tool)
                     # Create signature from parameters for collision detection
                     # Cache the signature to avoid redundant serialization
@@ -237,7 +237,7 @@ class ToolSchemaResolver(IToolSchemaResolver):
             for tool in custom_tools:
                 if isinstance(tool, CodexToolSchema):
                     name_value = tool.name
-                    params = tool.parameters
+                    params = tool.parameters or {}
                 else:
                     name_value = tool.get("name")
                     params = tool.get("parameters", {})
@@ -282,13 +282,13 @@ class ToolSchemaResolver(IToolSchemaResolver):
         """
         schemas: list[CodexToolSchema] = []
         for tool in tools:
-            if isinstance(tool, CodexToolSchema):
+            if isinstance(tool, CodexToolSchema):  # type: ignore[reportUnnecessaryIsInstance]
                 schemas.append(tool)
                 continue
 
             if isinstance(tool, dict):
                 tool_dict = deepcopy(tool)
-            elif isinstance(tool, BaseModel):
+            elif isinstance(tool, BaseModel):  # type: ignore[reportUnnecessaryIsInstance]
                 tool_dict = tool.model_dump(mode="python")
             else:
                 continue

@@ -5,6 +5,8 @@ Tests cover error mapping, usage metadata, capture data handling, and streaming 
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -147,6 +149,7 @@ class TestResponseExecutor:
         assert isinstance(result, ResponseEnvelope)
         assert result.status_code == 200
         assert result.usage == domain_response.usage
+        assert result.metadata is not None
         assert result.metadata["backend"] == "openai-codex"
         assert result.metadata["model"] == sample_context.effective_model
         assert result.metadata["session_id"] == sample_context.session_id
@@ -388,6 +391,7 @@ class TestResponseExecutor:
         # - Call _handle_streaming_response to get stream_handle
         # - Update headers_holder from stream_handle.headers
         # - Iterate over stream_handle.iterator and yield chunks
+        assert result.content is not None
         async for chunk in result.content:
             chunks.append(chunk)
             # Verify handler was called
@@ -449,6 +453,7 @@ class TestResponseExecutor:
 
         assert isinstance(result, StreamingResponseEnvelope)
         # Consume stream to trigger retry logic
+        assert result.content is not None
         async for _ in result.content:
             pass
         # Should have attempted refresh once (on first 401)
@@ -480,8 +485,10 @@ class TestResponseExecutor:
         result = await executor_exhausted.execute(streaming_payload, sample_context)
 
         # Exception is raised when consuming the stream
+        assert result.content is not None
+        content = cast(AsyncIterator[ProcessedResponse], result.content)
         with pytest.raises(HTTPException) as exc_info:
-            async for _ in result.content:
+            async for _ in content:
                 pass
 
         assert exc_info.value.status_code == 401
@@ -536,6 +543,7 @@ class TestResponseExecutor:
 
         assert isinstance(result, StreamingResponseEnvelope)
         # Consume stream to trigger retry logic
+        assert result.content is not None
         chunks = []
         async for chunk in result.content:
             chunks.append(chunk)
@@ -582,8 +590,10 @@ class TestResponseExecutor:
         result = await executor_exhausted.execute(streaming_payload, sample_context)
 
         # Should raise after retries exhausted
+        assert result.content is not None
+        content = cast(AsyncIterator[ProcessedResponse], result.content)
         with pytest.raises(HTTPException) as exc_info:
-            async for _ in result.content:
+            async for _ in content:
                 pass
 
         assert exc_info.value.status_code == 401
@@ -614,8 +624,10 @@ class TestResponseExecutor:
         result = await executor_with_retries.execute(streaming_payload, sample_context)
 
         # Exception is raised when consuming the stream after refresh fails
+        assert result.content is not None
+        content = cast(AsyncIterator[ProcessedResponse], result.content)
         with pytest.raises(HTTPException) as exc_info:
-            async for _ in result.content:
+            async for _ in content:
                 pass
 
         assert exc_info.value.status_code == 401
@@ -1456,7 +1468,7 @@ class TestResponseExecutor:
         assert captured_headers["conversation_id"] == "test-conversation-key-123"
         # session_id should also be set (for logging/correlation)
         assert "session_id" in captured_headers
-        assert captured_headers["session_id"] == sample_context.session_id
+        assert captured_headers["session_id"] == "test-conversation-key-123"
 
     @pytest.mark.asyncio
     async def test_conversation_id_fallback_to_session_id_when_prompt_cache_key_missing(

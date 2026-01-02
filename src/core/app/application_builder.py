@@ -233,19 +233,55 @@ class ApplicationBuilder:
         """
         Validate that all stages can be executed successfully.
 
+        This method builds a validation-only service provider (without post-build hooks)
+        and temporarily installs it so stage validation can resolve required services
+        without requiring stage execution side effects. The validation provider is
+        always disposed after validation completes (success or failure) to prevent resource leaks.
+
         Args:
             config: The application configuration
 
         Raises:
             RuntimeError: If any stage validation fails
         """
-        for stage_name, stage in self._stages.items():
-            try:
-                is_valid: bool = await stage.validate(self._services, config)
-                if not is_valid:
-                    raise RuntimeError(f"Stage '{stage_name}' validation failed")
-            except Exception as e:  # type: ignore[misc]
-                raise RuntimeError(f"Stage '{stage_name}' validation error: {e}") from e
+        from src.core.di.provider_lifecycle import temporary_service_provider
+
+        # Build validation-only provider without post-build hooks
+        # This prevents registration-time side effects unrelated to validation
+        validation_provider = self._services.build_service_provider(
+            run_post_build_hooks=False
+        )
+
+        # Install validation provider temporarily so stage validation can resolve services
+        # The context manager ensures the previous provider is always restored
+        try:
+            with temporary_service_provider(validation_provider):
+                try:
+                    for stage_name, stage in self._stages.items():
+                        try:
+                            is_valid: bool = await stage.validate(
+                                self._services, config
+                            )
+                            if not is_valid:
+                                raise RuntimeError(
+                                    f"Stage '{stage_name}' validation failed"
+                                )
+                        except Exception as e:  # type: ignore[misc]
+                            raise RuntimeError(
+                                f"Stage '{stage_name}' validation error: {e}"
+                            ) from e
+                except Exception:
+                    # Dispose ServiceCollection on validation failure to prevent resource leaks
+                    # from validation-created resources (e.g., HTTP clients)
+                    with contextlib.suppress(Exception):
+                        await self._services.dispose()
+                    raise
+        finally:
+            # Always dispose validation provider (success or failure) to prevent resource leaks
+            # This happens after the context manager restores the previous provider
+            if hasattr(validation_provider, "dispose"):
+                with contextlib.suppress(Exception):
+                    await validation_provider.dispose()  # type: ignore[reportAttributeAccessIssue]
 
     async def build(self, config: AppConfig) -> FastAPI:
         """
@@ -279,6 +315,14 @@ class ApplicationBuilder:
         from src.core.config.semantic_validation import validate_static_route
 
         validate_static_route(config)
+
+        # Replace DI-registered AppConfig and IConfig with runtime config instance
+        # This ensures validation services see the same config that the builder was given
+        from src.core.di.registration_helpers.core_foundational import (
+            register_app_config,
+        )
+
+        register_app_config(self._services, config)
 
         # Validate stages before execution
         await self.validate_stages(config)

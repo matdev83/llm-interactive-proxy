@@ -5,6 +5,7 @@ This module provides payload construction with passthrough detection.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from copy import deepcopy
@@ -99,6 +100,14 @@ class PayloadBuilder(IPayloadBuilder):
         else:
             return False
 
+        # If the proxy translated a Responses request into CanonicalChatRequest, it may have
+        # stored the raw Responses `input` array in extra_body for passthrough.
+        extra_body = data.get("extra_body")
+        if isinstance(extra_body, dict) and "input" in extra_body:
+            input_val = extra_body.get("input")
+            if isinstance(input_val, list):
+                return True
+
         # Early return for obvious OpenAI Chat format (has 'messages' list)
         if (
             "messages" in data
@@ -140,26 +149,55 @@ class PayloadBuilder(IPayloadBuilder):
         """
         request_data = context.request
 
-        # Extract payload dict
+        passthrough_dict: dict[str, Any] = {}
+        raw_payload: dict[str, Any] | None = None
+
         if hasattr(request_data, "model_dump"):
-            passthrough_dict = request_data.model_dump(exclude_none=True)
-        else:
-            passthrough_dict = deepcopy(dict(request_data))
+            raw_payload = request_data.model_dump(exclude_none=True)
+        elif isinstance(request_data, dict):
+            raw_payload = deepcopy(dict(request_data))
+
+        # Primary passthrough source: raw Responses payload stored under extra_body["input"] (and friends).
+        # This is how /v1/responses requests survive translation into CanonicalChatRequest.
+        extra_body = getattr(request_data, "extra_body", None)
+        if isinstance(extra_body, dict) and isinstance(extra_body.get("input"), list):
+            # Keep only Responses-relevant fields to avoid leaking connector-specific extras.
+            for key in (
+                "input",
+                "instructions",
+                "tools",
+                "tool_choice",
+                "parallel_tool_calls",
+                "reasoning",
+                "text",
+                "include",
+                "prompt_cache_key",
+                "store",
+                "stream",
+            ):
+                if key in extra_body:
+                    passthrough_dict[key] = deepcopy(extra_body[key])
+        elif raw_payload is not None:
+            passthrough_dict = raw_payload
 
         # Ensure model is set
         passthrough_dict.setdefault("model", context.effective_model)
 
-        # Ensure stream is set
-        passthrough_dict["stream"] = getattr(request_data, "stream", True)
+        # Codex backend expects streaming SSE; Codex CLI always sets stream=true.
+        passthrough_dict["stream"] = True
+
+        # Codex backend requires store=false (stateless). Keep the request stateless even if the client
+        # asks otherwise; the ChatGPT backend differs from the Platform API here.
+        passthrough_dict["store"] = False
 
         # Ensure prompt_cache_key exists
-        conv_id = (
-            passthrough_dict.get("conversation_id")
-            or passthrough_dict.get("session_id")
-            or passthrough_dict.get("prompt_cache_key")
-            or str(uuid.uuid4())
+        passthrough_dict["prompt_cache_key"] = self._resolve_prompt_cache_key(
+            request_data, passthrough_dict
         )
-        passthrough_dict["prompt_cache_key"] = conv_id
+
+        # Ensure include is present when reasoning is used (Codex CLI behavior).
+        if not passthrough_dict.get("include") and passthrough_dict.get("reasoning"):
+            passthrough_dict["include"] = ["reasoning.encrypted_content"]
 
         # Convert to CodexPayload
         # Note: passthrough payload may have different structure, so we need to adapt
@@ -192,12 +230,10 @@ class PayloadBuilder(IPayloadBuilder):
         instructions = self._resolve_instructions(context)
 
         # Build conversation ID
-        conversation_id = str(uuid.uuid4())
+        conversation_id = self._resolve_prompt_cache_key(context.request, None)
 
-        # Resolve stream flag from request
-        stream_flag = getattr(context.request, "stream", True)
-        if isinstance(context.request, dict):
-            stream_flag = context.request.get("stream", True)
+        # Codex backend expects streaming SSE; Codex CLI always streams.
+        stream_flag = True
 
         # Build payload
         payload = CodexPayload(
@@ -216,6 +252,40 @@ class PayloadBuilder(IPayloadBuilder):
         )
 
         return payload
+
+    @staticmethod
+    def _resolve_prompt_cache_key(
+        request_data: Any, passthrough_dict: dict[str, Any] | None
+    ) -> str:
+        """Resolve a stable prompt_cache_key/conversation id.
+
+        Priority order mirrors Codex/OpenCode usage:
+        1) explicit prompt_cache_key (Responses)
+        2) conversation_id/session_id (legacy)
+        3) CanonicalChatRequest.session_id (proxy correlation)
+        4) UUID fallback
+        """
+        candidates: list[Any] = []
+        if passthrough_dict:
+            candidates.extend(
+                [
+                    passthrough_dict.get("prompt_cache_key"),
+                    passthrough_dict.get("conversation_id"),
+                    passthrough_dict.get("session_id"),
+                ]
+            )
+
+        extra_body = getattr(request_data, "extra_body", None)
+        if isinstance(extra_body, dict):
+            candidates.append(extra_body.get("prompt_cache_key"))
+            candidates.append(extra_body.get("conversation_id"))
+            candidates.append(extra_body.get("session_id"))
+
+        candidates.append(getattr(request_data, "session_id", None))
+        for value in candidates:
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return str(uuid.uuid4())
 
     def _resolve_reasoning_effort(self, context: CodexRequestContext) -> str | None:
         """Resolve reasoning effort from request context.
@@ -301,12 +371,12 @@ class PayloadBuilder(IPayloadBuilder):
         # Combine sections using PromptResolver static method
         from src.connectors.openai_codex.prompt import PromptResolver
 
-        result = PromptResolver._combine_prompt_sections(combined, deduplicate)
+        result = PromptResolver._combine_prompt_sections(combined, deduplicate)  # type: ignore[reportPrivateUsage]
         if not result:
             return None
 
         # Sanitize using PromptResolver static method
-        sanitized = PromptResolver._sanitize_codex_instructions(result)
+        sanitized = PromptResolver._sanitize_codex_instructions(result)  # type: ignore[reportPrivateUsage]
         return sanitized if sanitized else None
 
     def _extract_custom_instruction_sections(self, request_data: Any) -> list[str]:
@@ -379,9 +449,12 @@ class PayloadBuilder(IPayloadBuilder):
         Returns:
             Validated CodexPayload instance
         """
-        # Convert input items while preserving structure
-        input_items = []
-        for item in payload_dict.get("input", []):
+        # Convert input items while preserving structure (and make them safe for Codex stateless mode).
+        raw_input = payload_dict.get("input", [])
+        safe_input = self._sanitize_responses_input(raw_input)
+
+        input_items: list[CodexInputItem] = []
+        for item in safe_input:
             if isinstance(item, dict):
                 item_dict = dict(item)
                 if "type" not in item_dict and (
@@ -399,19 +472,49 @@ class PayloadBuilder(IPayloadBuilder):
 
         # Convert tools
         tools: list[CodexToolSchema] = []
-        for tool_dict in payload_dict.get("tools", []):
-            name = tool_dict.get("name")
-            if not name and isinstance(tool_dict.get("function"), dict):
-                name = tool_dict["function"].get("name")
-            if name:
-                tools.append(
-                    CodexToolSchema(
-                        name=str(name),
-                        description=tool_dict.get("description"),
-                        parameters=tool_dict.get("parameters", {}),
-                        type=tool_dict.get("type", "function"),
-                    )
+        for tool_candidate in payload_dict.get("tools", []) or []:
+            if not isinstance(tool_candidate, dict):
+                continue
+            tool_dict = dict(tool_candidate)
+            function_dict = (
+                tool_dict.get("function")
+                if isinstance(tool_dict.get("function"), dict)
+                else None
+            )
+
+            name_value = tool_dict.get("name")
+            if not name_value and function_dict:
+                name_value = function_dict.get("name")
+
+            if not isinstance(name_value, str) or not name_value.strip():
+                continue
+
+            description = tool_dict.get("description")
+            parameters = tool_dict.get("parameters")
+            fmt = tool_dict.get("format")
+            if function_dict:
+                if description is None:
+                    description = function_dict.get("description")
+                if parameters is None:
+                    parameters = function_dict.get("parameters")
+
+            tools.append(
+                CodexToolSchema(
+                    name=name_value.strip(),
+                    description=description if isinstance(description, str) else None,
+                    parameters=(
+                        parameters
+                        if isinstance(parameters, dict)
+                        else (
+                            None
+                            if str(tool_dict.get("type", "function")) == "custom"
+                            else {}
+                        )
+                    ),
+                    type=tool_dict.get("type", "function"),
+                    format=fmt if isinstance(fmt, dict) else None,
                 )
+            )
 
         # Extract reasoning
         reasoning: ReasoningSpec | None = None
@@ -437,3 +540,79 @@ class PayloadBuilder(IPayloadBuilder):
             instructions=payload_dict.get("instructions"),
             extras=payload_dict.get("extras"),
         )
+
+    @staticmethod
+    def _sanitize_responses_input(input_value: Any) -> list[dict[str, Any] | Any]:
+        """Make a Responses `input` array safe for ChatGPT Codex backend.
+
+        - Removes `item_reference` entries (AI SDK/OpenCode server-state references)
+        - Strips per-item `id` fields for stateless mode (`store: false`)
+        - Removes unsupported per-item `metadata` blocks
+        - Converts orphaned `function_call_output` entries into assistant messages
+          to preserve context while avoiding backend validation errors
+        """
+        if not isinstance(input_value, list):
+            return []
+
+        filtered: list[dict[str, Any]] = []
+        for item in input_value:
+            if not isinstance(item, dict):
+                continue
+
+            item_type = item.get("type")
+            if item_type == "item_reference":
+                continue
+
+            item_dict = dict(item)
+            item_dict.pop("id", None)
+            item_dict.pop("metadata", None)
+            filtered.append(item_dict)
+
+        function_call_ids: set[str] = set()
+        for item in filtered:
+            if item.get("type") == "function_call":
+                call_id = item.get("call_id")
+                if isinstance(call_id, str) and call_id:
+                    function_call_ids.add(call_id)
+
+        safe: list[dict[str, Any]] = []
+        for item in filtered:
+            if item.get("type") == "function_call_output":
+                call_id = item.get("call_id")
+                if (
+                    isinstance(call_id, str)
+                    and call_id
+                    and call_id not in function_call_ids
+                ):
+                    tool_name = item.get("name")
+                    if not isinstance(tool_name, str) or not tool_name:
+                        tool_name = "tool"
+                    output_val = item.get("output")
+                    if isinstance(output_val, str):
+                        output_text = output_val
+                    else:
+                        try:
+                            output_text = json.dumps(output_val)
+                        except Exception:
+                            output_text = str(output_val)
+
+                    if len(output_text) > 16000:
+                        output_text = output_text[:16000] + "\n...[truncated]"
+
+                    safe.append(
+                        {
+                            "type": "message",
+                            "role": "assistant",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": f"[Previous {tool_name} result; call_id={call_id}]: {output_text}",
+                                }
+                            ],
+                        }
+                    )
+                    continue
+
+            safe.append(item)
+
+        return safe
