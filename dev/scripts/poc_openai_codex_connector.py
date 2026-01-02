@@ -72,10 +72,7 @@ def _print_response_text(envelope: ResponseEnvelope) -> int:
 
 
 def _extract_stream_delta(chunk: Any) -> tuple[str, list[Any] | None]:
-    if isinstance(chunk, ProcessedResponse):
-        payload = chunk.content
-    else:
-        payload = chunk
+    payload = _chunk_to_payload(chunk)
 
     if not isinstance(payload, dict):
         return "", None
@@ -101,7 +98,12 @@ def _extract_stream_delta(chunk: Any) -> tuple[str, list[Any] | None]:
 
 def _chunk_to_payload(chunk: Any) -> Any:
     if isinstance(chunk, ProcessedResponse):
-        return chunk.content
+        chunk = chunk.content
+    if hasattr(chunk, "model_dump"):
+        try:
+            return chunk.model_dump(exclude_none=True)
+        except TypeError:
+            return chunk.model_dump()
     return chunk
 
 
@@ -126,6 +128,15 @@ async def _run() -> int:
         "--system",
         default=None,
         help="Optional system message (sent as role=system in /v1/chat/completions style).",
+    )
+    parser.add_argument(
+        "--prompt-mode",
+        default=None,
+        choices=["codex_default", "merge_custom", "custom_only"],
+        help=(
+            "Optional override for Codex prompt handling. "
+            "Implemented via request.extra_body.codex_capabilities.prompt_mode."
+        ),
     )
     parser.add_argument(
         "--codex-home",
@@ -194,6 +205,14 @@ async def _run() -> int:
             stream=bool(args.stream),
             session_id=f"poc-{uuid.uuid4().hex[:12]}",
         )
+        if isinstance(args.prompt_mode, str) and args.prompt_mode.strip():
+            request.extra_body = {
+                **(request.extra_body or {}),
+                "codex_capabilities": {
+                    **(request.extra_body or {}).get("codex_capabilities", {}),
+                    "prompt_mode": args.prompt_mode.strip(),
+                },
+            }
 
         result = await connector.chat_completions(
             request_data=request,

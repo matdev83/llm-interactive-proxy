@@ -146,6 +146,13 @@ class StreamingResponseAccumulator:
         else:
             chunk_content = chunk
 
+        # Handle Pydantic models (CanonicalStreamChunk, etc.)
+        if hasattr(chunk_content, "model_dump"):
+            try:
+                chunk_content = chunk_content.model_dump(exclude_none=True)
+            except TypeError:
+                chunk_content = chunk_content.model_dump()
+
         # Handle dict content directly
         if isinstance(chunk_content, dict):
             return self._process_openai_chunk(
