@@ -334,7 +334,8 @@ class AnthropicOAuthBackend(AnthropicBackend):
 
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        f"Error during Anthropic OAuth credentials reload: {e}"
+                        f"Error during Anthropic OAuth credentials reload: {e}",
+                        exc_info=True,
                     )
                 self._degrade([f"Credentials reload failed: {e}"])
 
@@ -375,7 +376,9 @@ class AnthropicOAuthBackend(AnthropicBackend):
         except RuntimeError as exc:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to schedule Anthropic OAuth credentials reload: %s", exc
+                    "Failed to schedule Anthropic OAuth credentials reload: %s",
+                    exc,
+                    exc_info=True,
                 )
 
     # -----------------------------

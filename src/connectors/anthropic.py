@@ -1253,6 +1253,7 @@ class AnthropicBackend(LLMBackend):
                         "Anthropic API error %s: %s",
                         response.status_code,
                         body_text,
+                        exc_info=True,
                     )
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 if logger.isEnabledFor(logging.WARNING):
