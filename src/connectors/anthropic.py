@@ -740,7 +740,7 @@ class AnthropicBackend(LLMBackend):
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to Anthropic API: {e}"
-            )
+            ) from e
 
         # Let httpx raise for HTTP errors so callers/tests receive HTTPStatusError
         try:

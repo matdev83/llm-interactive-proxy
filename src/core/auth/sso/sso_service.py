@@ -403,7 +403,7 @@ class SSOService:
             # Feature: sso-authentication, Property 3: Strict token verification
             # Requirement 11.4: Validate tokens according to protocol specifications
             # Do not fall back to unverified decoding - reject invalid tokens
-            logger.error("ID token verification failed: %s", e)
+            logger.error("ID token verification failed: %s", e, exc_info=True)
             raise AuthenticationError(
                 f"ID token signature verification failed: {e!s}",
                 details={"error": str(e), "jwks_uri": jwks_uri},

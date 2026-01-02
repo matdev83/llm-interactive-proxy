@@ -117,5 +117,4 @@ class TestExecutionReminderEosSubscriber:
                 "Error handling EoS event for test reminder (session %s): %s",
                 event.session_id,
                 e,
-                exc_info=True,
             )
