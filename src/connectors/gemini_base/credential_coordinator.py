@@ -231,7 +231,9 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
                 self._file_watcher_state.main_loop = asyncio.get_event_loop()
             except RuntimeError:
                 # No event loop available, skip file watching
-                logger.warning("No event loop available for file watching")
+                logger.warning(
+                    "No event loop available for file watching", exc_info=True
+                )
                 return
 
         FileWatcher.start_file_watching(

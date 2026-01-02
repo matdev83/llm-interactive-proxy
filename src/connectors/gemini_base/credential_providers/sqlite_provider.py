@@ -147,12 +147,18 @@ class AntigravitySQLiteCredentialProvider:
                 return self._parse_auth_status_value(raw_value)
         except sqlite3.Error as exc:
             logger.warning(
-                "Unable to read Antigravity state database at %s: %s", db_path, exc
+                "Unable to read Antigravity state database at %s: %s",
+                db_path,
+                exc,
+                exc_info=True,
             )
             return None
         except Exception as exc:  # pragma: no cover - defensive guardrail
             logger.warning(
-                "Unexpected error reading Antigravity state db %s: %s", db_path, exc
+                "Unexpected error reading Antigravity state db %s: %s",
+                db_path,
+                exc,
+                exc_info=True,
             )
             return None
 
