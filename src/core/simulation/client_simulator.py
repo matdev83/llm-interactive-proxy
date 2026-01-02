@@ -252,7 +252,11 @@ class ClientSimulator:
                             )
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(f"Error consuming stream: {e}")
+                logger.warning(
+                    "Error consuming stream: %s",
+                    e,
+                    exc_info=True,
+                )
 
         # Check for missing chunks
         if len(actual_chunks) < len(expected_chunks):

@@ -241,7 +241,10 @@ class CredentialWatcher:
 
                 else:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Failed to reload credentials from file")
+                        logger.warning(
+                            "Failed to reload credentials from file",
+                            exc_info=True,
+                        )
             except Exception as e:
                 logger.error(
                     f"Error during OpenAI Codex credentials reload: {e}", exc_info=True

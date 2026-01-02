@@ -274,7 +274,11 @@ class AntigravityAuthMixin:
             return None
         except json.JSONDecodeError as exc:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to parse Antigravity auth status JSON: %s", exc)
+                logger.warning(
+                    "Failed to parse Antigravity auth status JSON: %s",
+                    exc,
+                    exc_info=True,
+                )
             return None
         except Exception as exc:  # pragma: no cover
             if logger.isEnabledFor(logging.ERROR):
@@ -418,7 +422,10 @@ class AntigravityAuthMixin:
                 errors.append(f"Unexpected error reading {path}: {exc}")
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error loading Antigravity credentials from %s: %s", path, exc, exc_info=True
+                        "Error loading Antigravity credentials from %s: %s",
+                        path,
+                        exc,
+                        exc_info=True,
                     )
 
         if errors:
