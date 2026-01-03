@@ -170,8 +170,14 @@ def from_domain_to_gemini_stream_chunk(chunk: Any) -> dict[str, Any]:
                                 parts.append(
                                     {"functionCall": {"name": name, "args": args_dict}}
                                 )
-                            except json.JSONDecodeError:
-                                pass
+                            except json.JSONDecodeError as err:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Failed to parse function call arguments in stream chunk, skipping: tool_name=%s, error=%s",
+                                        name,
+                                        err,
+                                        exc_info=True,
+                                    )
 
         fr = (
             choice.get("finish_reason")

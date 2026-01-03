@@ -128,8 +128,14 @@ def normalize_tool_arguments(
                         try:
                             parsed_value = json.loads(repaired)
                             outcome = "recovered"
-                        except (json.JSONDecodeError, TypeError, ValueError):
-                            pass
+                        except (json.JSONDecodeError, TypeError, ValueError) as err:
+                            # Even after repair, JSON is still invalid - fall back to raw text
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Failed to parse repaired JSON in tool arguments normalization, using raw text: error=%s",
+                                    err,
+                                    exc_info=True,
+                                )
                 except (KeyboardInterrupt, SystemExit):
                     # System-level exceptions should propagate
                     raise

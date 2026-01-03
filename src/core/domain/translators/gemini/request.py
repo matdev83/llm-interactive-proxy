@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import suppress
 from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
@@ -57,10 +58,9 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
     ) -> int | None:
         cli_value = os.environ.get("THINKING_BUDGET")
         if cli_value is not None:
-            try:
+            # Intentionally silent: If env var is not a valid integer, fall back to next priority
+            with suppress(ValueError):
                 return int(cli_value)
-            except ValueError:
-                pass
 
         if explicit_budget is not None:
             return explicit_budget

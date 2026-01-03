@@ -118,7 +118,7 @@ class StreamingPipeline:
                     return
                 raise
             except GeneratorExit:
-                # Generator is being closed, this is expected
+                # GeneratorExit during cleanup is expected behavior - no logging needed
                 pass
 
         try:

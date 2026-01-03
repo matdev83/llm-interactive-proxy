@@ -309,8 +309,15 @@ class DeterministicToolEventCollector:
                 # Extract relative path preserving original case
                 relative = normalized[len(root) + 1 :]
                 return relative if relative else normalized
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as err:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to make path relative during normalization, using normalized path: path=%s, root=%s, error=%s",
+                    path,
+                    project_root,
+                    err,
+                    exc_info=True,
+                )
 
         # If we can't make it relative, return as-is with forward slashes
         return normalized
