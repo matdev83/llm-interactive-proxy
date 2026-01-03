@@ -5,7 +5,6 @@ Handles Anthropic API endpoints.
 """
 
 import asyncio
-import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
@@ -261,8 +260,11 @@ class AnthropicController:
                     )
                 except (AttributeError, RuntimeError):
                     # Wire capture service not available or disabled (benign)
-                    with contextlib.suppress(AttributeError, RuntimeError):
-                        pass
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Wire capture inbound request skipped (service unavailable or disabled)",
+                            exc_info=True,
+                        )
                 except Exception as e:
                     # Unexpected error - log for debugging
                     if logger.isEnabledFor(logging.WARNING):
@@ -525,7 +527,11 @@ class AnthropicController:
                             )
                         except (AttributeError, RuntimeError):
                             # Wire capture service not available or disabled
-                            pass
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Wire capture outbound stream wrapping skipped (service unavailable or disabled)",
+                                    exc_info=True,
+                                )
                         except Exception as e:
                             # Unexpected error - log for debugging
                             if logger.isEnabledFor(logging.WARNING):
@@ -686,7 +692,11 @@ def get_anthropic_controller(service_provider: IServiceProvider) -> AnthropicCon
         except (ServiceResolutionError, AttributeError):
             # Service not registered or provider doesn't have get_service method
             # This is expected when wire capture is disabled
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Wire capture service not available in DI container (service not registered or disabled)",
+                    exc_info=True,
+                )
         except Exception as e:
             # Unexpected error during service resolution - log for debugging
             if logger.isEnabledFor(logging.WARNING):

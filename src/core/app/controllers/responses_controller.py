@@ -283,7 +283,11 @@ class ResponsesController:
                                 return parsed_content
                         except (json.JSONDecodeError, ValueError):
                             # Not a JSON string, proceed with other checks
-                            pass
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Content is not a JSON string (cannot parse as JSON)",
+                                    exc_info=True,
+                                )
 
                     # Check if response has metadata with original Responses API response
                     response_metadata = None

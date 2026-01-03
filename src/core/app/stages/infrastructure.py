@@ -65,7 +65,12 @@ class InfrastructureStage(InitializationStage):
                         else:
                             loop.run_until_complete(self._http_client.aclose())
                     except (RuntimeError, AttributeError):
-                        pass
+                        # Event loop not available or attribute missing (cleanup context)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "HTTP client cleanup skipped in destructor (event loop unavailable)",
+                                exc_info=True,
+                            )
             except Exception as e:
                 # Log cleanup errors for debugging, but don't raise in destructor
                 if logger.isEnabledFor(logging.WARNING):

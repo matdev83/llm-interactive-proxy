@@ -1045,7 +1045,11 @@ def get_chat_controller(service_provider: IServiceProvider) -> ChatController:
     except (ServiceResolutionError, AttributeError):
         # Service not registered or provider doesn't have get_service method
         # This is expected when wire capture is disabled
-        pass
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Wire capture service not available in DI container (service not registered or disabled)",
+                exc_info=True,
+            )
     except Exception as e:
         # Unexpected error during service resolution - log for debugging
         if logger.isEnabledFor(logging.WARNING):
