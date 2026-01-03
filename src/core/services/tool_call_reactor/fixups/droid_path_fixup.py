@@ -173,7 +173,8 @@ class DroidPathFixup:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "DroidPathFixup: Path traversal detected (drive mismatch). "
-                    "Returning original path."
+                    "Returning original path.",
+                    exc_info=True,
                 )
             return path
 

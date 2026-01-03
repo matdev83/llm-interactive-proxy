@@ -118,7 +118,8 @@ class AccessPolicy:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
                         f"Failed to compile blocked pattern '{pattern}' "
-                        f"in policy '{self.name}': {e}"
+                        f"in policy '{self.name}': {e}",
+                        exc_info=True,
                     )
 
     def matches_context(self, model_name: str, agent: str | None = None) -> bool:

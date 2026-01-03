@@ -238,7 +238,8 @@ class DroidAntigravityPathFixHandler(IToolCallHandler):
             # Can happen if paths are on different drives
             logger.warning(
                 "DroidAntigravityPathFixHandler: Path traversal detected (drive mismatch). "
-                "Returning original path."
+                "Returning original path.",
+                exc_info=True,
             )
             return path
 
