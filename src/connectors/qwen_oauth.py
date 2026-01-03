@@ -679,7 +679,8 @@ class QwenOAuthConnector(OpenAIConnector):
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
             logger.error(
-                f"HTTP error during API token refresh: {e.response.status_code}"
+                f"HTTP error during API token refresh: {e.response.status_code}",
+                exc_info=True,
             )
             return False
 
@@ -822,7 +823,10 @@ class QwenOAuthConnector(OpenAIConnector):
         try:
             return await asyncio.to_thread(_load_sync)
         except json.JSONDecodeError as e:
-            logger.error(f"Error decoding Qwen OAuth credentials JSON: {e}")
+            logger.error(
+                f"Error decoding Qwen OAuth credentials JSON: {e}",
+                exc_info=True,
+            )
             return False
         except (OSError, ValueError) as e:
             # OSError: file I/O errors (permission denied, file not found, etc.)
@@ -1221,7 +1225,9 @@ class QwenOAuthConnector(OpenAIConnector):
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to calculate streaming token usage: %s", e
+                            "Failed to calculate streaming token usage: %s",
+                            e,
+                            exc_info=True,
                         )
 
             # Yield the final stop chunk with usage merged in
