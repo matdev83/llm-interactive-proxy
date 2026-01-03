@@ -187,6 +187,7 @@ class TranslationService:
                             "JSON decode error in Responses API request - model=%s, error=%s",
                             getattr(request, "model", "unknown"),
                             exc,
+                            exc_info=True,
                         )
                     raise ValueError(f"Invalid JSON in request: {exc}") from exc
                 if logger.isEnabledFor(logging.ERROR):
@@ -194,6 +195,7 @@ class TranslationService:
                         "Invalid format in Responses API request - model=%s, error=%s",
                         getattr(request, "model", "unknown"),
                         exc,
+                        exc_info=True,
                     )
                 raise ValueError(f"Invalid request format: {exc}") from exc
             except Exception as exc:
@@ -394,6 +396,7 @@ class TranslationService:
                     "Failed to convert response to Responses API format - response_id=%s, error=%s",
                     getattr(response, "id", "unknown"),
                     exc,
+                    exc_info=True,
                 )
             raise
 
@@ -422,6 +425,7 @@ class TranslationService:
                     "Failed to convert request to Responses API format - model=%s, error=%s",
                     request.model,
                     exc,
+                    exc_info=True,
                 )
             raise
 

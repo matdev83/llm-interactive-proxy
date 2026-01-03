@@ -399,7 +399,8 @@ class ToolCallReactorService(IToolCallReactor):
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Tool call arguments exceeded maximum recursion depth; storing"
-                    " placeholder instead of raising."
+                    " placeholder instead of raising.",
+                    exc_info=True,
                 )
             return {
                 cls._SNAPSHOT_WARNING_KEY: cls._SNAPSHOT_WARNING_VALUE,
