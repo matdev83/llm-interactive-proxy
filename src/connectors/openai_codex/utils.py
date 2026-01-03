@@ -70,7 +70,7 @@ def load_json_env(var_name: str) -> Any:
     try:
         return json.loads(raw_value)
     except json.JSONDecodeError:
-        logger.warning("Ignoring invalid JSON in %s", var_name)
+        logger.warning("Ignoring invalid JSON in %s", var_name, exc_info=True)
         return None
 
 

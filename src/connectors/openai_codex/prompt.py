@@ -130,7 +130,7 @@ class PromptResolver(IPromptResolver):
         seen: set[str] = set()
         ordered: list[str] = []
         for section in sections:
-            if not isinstance(section, str):
+            if not isinstance(section, str):  # type: ignore[unreachable]
                 continue
             normalized = section.strip()
             if not normalized:
@@ -207,7 +207,8 @@ class PromptResolver(IPromptResolver):
             pass
         except Exception as exc:  # pragma: no cover - diagnostic path
             logger.warning(
-                "Failed to load Codex system prompt from package resources: %s", exc,
+                "Failed to load Codex system prompt from package resources: %s",
+                exc,
                 exc_info=True,
             )
 
@@ -230,7 +231,10 @@ class PromptResolver(IPromptResolver):
                     return candidate.read_text(encoding="utf-8")
             except Exception as exc:  # pragma: no cover - diagnostic path
                 logger.warning(
-                    "Failed loading Codex prompt from %s: %s", candidate, exc
+                    "Failed loading Codex prompt from %s: %s",
+                    candidate,
+                    exc,
+                    exc_info=True,
                 )
 
         raise RuntimeError(
