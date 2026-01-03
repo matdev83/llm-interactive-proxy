@@ -412,6 +412,7 @@ class MemoryService:
                 logger.warning(
                     "Analysis queue full, dropping session %s (backpressure)",
                     session_id,
+                    exc_info=True,
                 )
                 async with self._state_lock:
                     if session_id in self._session_states:
@@ -553,6 +554,7 @@ class MemoryService:
                 logger.warning(
                     "Analysis queue full during delayed processing, dropping session %s (backpressure)",
                     session_id,
+                    exc_info=True,
                 )
                 async with self._state_lock:
                     if session_id in self._session_states:

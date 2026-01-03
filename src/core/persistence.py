@@ -169,6 +169,7 @@ class ServiceProviderBackendBinder(BackendBinderProtocol):
                 "Could not resolve IBackendService while applying default backend '%s'; "
                 "continuing without binding backend instance",
                 backend_name,
+                exc_info=True,
             )
             return
 
@@ -278,7 +279,9 @@ class ServiceProviderFailoverRouteValidator(FailoverRouteValidatorProtocol):
             return FailoverValidationResult(is_valid=True, warning=warning)
 
         try:
-            is_valid, message = asyncio.run(coroutine)
+            validation = asyncio.run(coroutine)
+            is_valid = validation.is_valid
+            message = validation.error_message
         except BackendError as exc:
             if self._strict_error_supplier():
                 raise ConfigurationError(
@@ -429,6 +432,7 @@ class ConfigManager:
             logger.warning(
                 "Could not resolve ISessionService while applying interactive mode; "
                 "continuing without updating session service",
+                exc_info=True,
             )
         except Exception as exc:
             logger.error(
@@ -440,7 +444,10 @@ class ConfigManager:
                 raise ConfigurationError(
                     "An unexpected error occurred while applying interactive mode."
                 ) from exc
-            logger.warning("Skipping interactive mode update due to unexpected error")
+            logger.warning(
+                "Skipping interactive mode update due to unexpected error",
+                exc_info=True,
+            )
 
     def _apply_redact_api_keys(self, redact_value: Any) -> None:
         if isinstance(redact_value, bool) and self.app_state:
