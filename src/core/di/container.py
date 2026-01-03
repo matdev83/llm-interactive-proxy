@@ -493,19 +493,16 @@ class ServiceCollection(IServiceCollection):
                 import httpx
 
                 if isinstance(old_instance, httpx.AsyncClient):
-                    try:
+                    with contextlib.suppress(RuntimeError, AttributeError):
+                        # No event loop - client will be closed by finalizer
                         loop = asyncio.get_event_loop()
                         if loop.is_running():
                             # Schedule async close task and track it to prevent resource leaks
                             cleanup_task = asyncio.create_task(old_instance.aclose())
                             self._cleanup_tasks.add(cleanup_task)
                         else:
-
                             # Run synchronously if no event loop
                             loop.run_until_complete(old_instance.aclose())
-                    except (RuntimeError, AttributeError):
-                        # No event loop - client will be closed by finalizer
-                        pass
 
         self._descriptors[service_type] = ServiceDescriptor(
             service_type=service_type,

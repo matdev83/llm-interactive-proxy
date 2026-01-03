@@ -6,6 +6,7 @@ Ensures stable capture/replay workflows and prevents sensitive data leakage.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from typing import Any
 
@@ -68,13 +69,12 @@ def serialize_for_capture(contract: Any) -> bytes:
 
     # Handle objects with __dict__
     if hasattr(contract, "__dict__"):
-        try:
+        with contextlib.suppress(TypeError, ValueError):
+            # Fall back to string representation if __dict__ conversion fails
             data = dict(contract.__dict__)
             return json.dumps(
                 data, sort_keys=True, ensure_ascii=False, separators=(",", ":")
             ).encode("utf-8")
-        except (TypeError, ValueError):
-            pass
 
     # Final fallback: string representation
     return str(contract).encode("utf-8")

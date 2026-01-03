@@ -446,10 +446,9 @@ class ApiKeyRedactionFilter(logging.Filter):
             for attr in ("message", "exc_text", "stack_info"):
                 val = getattr(record, attr, None)
                 if isinstance(val, str):
-                    try:  # noqa: SIM105
+                    with contextlib.suppress(TypeError, ValueError, AttributeError, re.error):
+                        # Don't fail logging if sanitization of these attributes fails
                         setattr(record, attr, self._sanitize(val))
-                    except (TypeError, ValueError, AttributeError, re.error):
-                        pass
         except (TypeError, ValueError, AttributeError, re.error, RecursionError) as e:
             if get_logger(__name__).isEnabledFor(logging.WARNING):
                 get_logger(__name__).warning(

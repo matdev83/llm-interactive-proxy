@@ -162,18 +162,16 @@ class AssessmentConfig:
                 config._env_set_fields.add("enabled")
 
         if threshold := os.getenv("LLM_ASSESSMENT_TURN_THRESHOLD"):
-            try:
+            with contextlib.suppress(ValueError):
+                # Keep default value if env var is not a valid integer
                 config.turn_threshold = int(threshold)
                 config._env_set_fields.add("turn_threshold")
-            except ValueError:
-                pass  # Keep default
 
         if confidence := os.getenv("LLM_ASSESSMENT_CONFIDENCE_THRESHOLD"):
-            try:
+            with contextlib.suppress(ValueError):
+                # Keep default value if env var is not a valid float
                 config.confidence_threshold = float(confidence)
                 config._env_set_fields.add("confidence_threshold")
-            except ValueError:
-                pass  # Keep default
 
         if backend := os.getenv("LLM_ASSESSMENT_BACKEND"):
             backend_value = backend.strip()
