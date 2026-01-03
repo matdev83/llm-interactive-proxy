@@ -24,6 +24,10 @@ from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
+from src.core.ports.streaming_contracts import StreamingContent
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
 
 logger = logging.getLogger(__name__)
 
