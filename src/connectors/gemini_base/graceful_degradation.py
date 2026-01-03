@@ -12,7 +12,6 @@ degradation during rate limiting, including:
 import logging
 import random
 import time
-from typing import Any
 
 from src.connectors.gemini_base.config import (
     GracefulDegradationConfig,
@@ -210,7 +209,7 @@ class GracefulDegradationManager:
         """Mark graceful degradation as permanently failed."""
         self.permanently_failed = True
 
-    def get_metrics(self) -> dict[str, Any]:
+    def get_metrics(self) -> dict[str, float | int]:
         """Get current metrics as a dictionary."""
         return self.metrics.as_dict()
 

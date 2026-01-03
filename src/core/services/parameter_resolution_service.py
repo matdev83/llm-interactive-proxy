@@ -39,6 +39,17 @@ class ParameterDebugInfo(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class ResolvedParameterValues(BaseModel):
+    """Model for resolved parameter values."""
+
+    temperature: float | None = None
+    reasoning_effort: str | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+
+    model_config = {"extra": "forbid"}
+
+
 @dataclass
 class ResolvedParameters:
     """Container for resolved parameters with source tracking."""
@@ -48,9 +59,9 @@ class ResolvedParameters:
     top_p: ParameterSource | None = None
     top_k: ParameterSource | None = None
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, float | str | None]:
         """
-        Extract just the parameter values for backend application.
+        Extract just of parameter values for backend application.
 
         Returns:
             Dictionary with parameter names and their effective values,
@@ -64,21 +75,15 @@ class ResolvedParameters:
             >>> params.to_dict()
             {"temperature": 0.5, "reasoning_effort": "high"}
         """
-        result: dict[str, Any] = {}
-
-        if self.temperature is not None:
-            result["temperature"] = self.temperature.value
-
-        if self.top_p is not None:
-            result["top_p"] = self.top_p.value
-
-        if self.top_k is not None:
-            result["top_k"] = self.top_k.value
-
-        if self.reasoning_effort is not None:
-            result["reasoning_effort"] = self.reasoning_effort.value
-
-        return result
+        values = ResolvedParameterValues(
+            temperature=self.temperature.value if self.temperature else None,
+            top_p=self.top_p.value if self.top_p else None,
+            top_k=self.top_k.value if self.top_k else None,
+            reasoning_effort=(
+                self.reasoning_effort.value if self.reasoning_effort else None
+            ),
+        )
+        return values.model_dump(exclude_none=True)
 
     def get_debug_info(self) -> dict[str, ParameterDebugInfo]:
         """

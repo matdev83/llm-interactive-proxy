@@ -18,12 +18,25 @@ from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, TypeVar, cast
+from typing import TypeVar, cast
+
+from pydantic import BaseModel
 
 from src.core.common.exceptions import ServiceUnavailableError
 
 logger = logging.getLogger(__name__)
 T = TypeVar("T")
+
+
+class ConcurrencyMetricsModel(BaseModel):
+    """Model for concurrency metrics."""
+
+    lock_contention_count: int
+    deadlock_detection_count: int
+    race_condition_warnings: int
+    retry_attempts: int
+    circuit_breaker_trips: int
+    lock_wait_times: list[float]
 
 
 class ConcurrencyMetrics:
@@ -65,17 +78,17 @@ class ConcurrencyMetrics:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning("Potential race condition in operation: %s", operation)
 
-    def get_metrics(self) -> dict[str, Any]:
-        """Get a copy of the metrics."""
+    def get_metrics(self) -> ConcurrencyMetricsModel:
+        """Get a copy of metrics."""
         with self._metrics_lock:
-            return {
-                "lock_contention_count": self.lock_contention_count,
-                "deadlock_detection_count": self.deadlock_detection_count,
-                "race_condition_warnings": self.race_condition_warnings,
-                "retry_attempts": self.retry_attempts,
-                "circuit_breaker_trips": self.circuit_breaker_trips,
-                "lock_wait_times": self.lock_wait_times.copy(),
-            }
+            return ConcurrencyMetricsModel(
+                lock_contention_count=self.lock_contention_count,
+                deadlock_detection_count=self.deadlock_detection_count,
+                race_condition_warnings=self.race_condition_warnings,
+                retry_attempts=self.retry_attempts,
+                circuit_breaker_trips=self.circuit_breaker_trips,
+                lock_wait_times=self.lock_wait_times.copy(),
+            )
 
     def record_retry_attempt(self, operation: str, attempt: int) -> None:
         """Record retry attempt."""
@@ -395,19 +408,19 @@ class ConcurrencyGuard:
             self._semaphore.release()
 
 
-def get_production_metrics() -> dict[str, Any]:
+def get_production_metrics() -> dict[str, float | int]:
     """Get comprehensive production metrics."""
     metrics = production_metrics.get_metrics()
-    wait_times = metrics["lock_wait_times"]
+    wait_times = metrics.lock_wait_times
     avg_wait_time = sum(wait_times) / len(wait_times) if wait_times else 0
     max_wait_time = max(wait_times) if wait_times else 0
 
     return {
-        "lock_contention_count": metrics["lock_contention_count"],
-        "deadlock_detection_count": metrics["deadlock_detection_count"],
-        "race_condition_warnings": metrics["race_condition_warnings"],
-        "retry_attempts": metrics["retry_attempts"],
-        "circuit_breaker_trips": metrics["circuit_breaker_trips"],
+        "lock_contention_count": metrics.lock_contention_count,
+        "deadlock_detection_count": metrics.deadlock_detection_count,
+        "race_condition_warnings": metrics.race_condition_warnings,
+        "retry_attempts": metrics.retry_attempts,
+        "circuit_breaker_trips": metrics.circuit_breaker_trips,
         "avg_lock_wait_time": avg_wait_time,
         "max_lock_wait_time": max_wait_time,
         "total_lock_operations": len(wait_times),
