@@ -128,6 +128,7 @@ class ICMPHealthChecker:
             logger.warning(
                 "ICMP ping requires elevated privileges. Disabling ping checks. Error: %s",
                 e,
+                exc_info=True,
             )
             # Don't emit event - just disable ping checks
         except Exception as e:
@@ -189,7 +190,10 @@ class ICMPHealthChecker:
         try:
             import ping3
         except ImportError:
-            logger.warning("ping3 library not installed. Disabling ping checks.")
+            logger.warning(
+                "ping3 library not installed. Disabling ping checks.",
+                exc_info=True,
+            )
             self._ping_available = False
             return None
 

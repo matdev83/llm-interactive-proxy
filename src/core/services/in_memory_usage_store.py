@@ -255,7 +255,8 @@ class InMemoryUsageStore:
                         loaded_count += 1
                     except Exception as e:
                         logger.error(
-                            f"Failed to load record {record_data.get('id')}: {e}"
+                            f"Failed to load record {record_data.get('id')}: {e}",
+                            exc_info=True,
                         )
 
                 # Don't mark as dirty after loading

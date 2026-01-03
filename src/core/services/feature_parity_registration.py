@@ -57,14 +57,14 @@ def _register_core_features(registry: FeatureParityRegistry) -> None:
         registry.register_feature(ResponseLoggingFeature())
         registry.register_feature(ContentFilterFeature())
     except ImportError as e:
-        logger.warning("Could not import core features: %s", e)
+        logger.warning("Could not import core features: %s", e, exc_info=True)
 
     try:
         from src.core.services.empty_response_middleware import EmptyResponseFeature
 
         registry.register_feature(EmptyResponseFeature())
     except ImportError as e:
-        logger.warning("Could not import EmptyResponseFeature: %s", e)
+        logger.warning("Could not import EmptyResponseFeature: %s", e, exc_info=True)
 
     # Note: StructuredOutputFeature and JsonRepairFeature require DI dependencies
     # (json_repair_service, config) - they should be registered at DI time
