@@ -125,7 +125,9 @@ class AssessmentPromptLoader:
                         logger.warning(
                             "Failed to read system prompt file: %s", e, exc_info=True
                         )
-                    logger.warning("Using fallback system prompt (hardcoded default)")
+                    logger.warning(
+                        "Using fallback system prompt (hardcoded default)", exc_info=True
+                    )
                     self._system_prompt = FALLBACK_SYSTEM_PROMPT
             else:
                 if logger.isEnabledFor(logging.WARNING):

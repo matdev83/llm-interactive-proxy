@@ -382,6 +382,7 @@ class ToolCallRepairProcessor(IStreamProcessor):
                     self._logger.warning(
                         "Invalid tool loop mode '%s' provided; falling back to break mode.",
                         mode_value,
+                        exc_info=True,
                     )
 
         return ToolLoopMode.BREAK

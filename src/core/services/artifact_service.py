@@ -225,7 +225,7 @@ class ArtifactService:
         except OSError as exc:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to read tool artifact %s: %s", artifact_path, exc
+                    "Failed to read tool artifact %s: %s", artifact_path, exc, exc_info=True
                 )
             return None
 
