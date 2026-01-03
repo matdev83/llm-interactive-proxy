@@ -228,6 +228,7 @@ class BackendNonStreamingResponseHandler(INonStreamingBackendResponseHandler):
                     logger.warning(
                         "Received streaming response for non-streaming request in session %s",
                         processing_context.session_id,
+                        exc_info=True,
                     )
                 # Convert to non-streaming by extracting first chunk
 

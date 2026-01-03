@@ -402,7 +402,8 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         except asyncio.TimeoutError:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Timeout waiting for backend shutdown tasks, cancelling remaining tasks"
+                    "Timeout waiting for backend shutdown tasks, cancelling remaining tasks",
+                    exc_info=True,
                 )
             # Cancel any remaining tasks
             for task in pending_tasks:

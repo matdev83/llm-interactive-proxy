@@ -170,7 +170,8 @@ class AsyncUsageWriteQueue:
             except asyncio.TimeoutError:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "AsyncUsageWriteQueue shutdown timed out, cancelling"
+                        "AsyncUsageWriteQueue shutdown timed out, cancelling",
+                        exc_info=True,
                     )
                 self._background_task.cancel()
                 import contextlib
@@ -212,6 +213,7 @@ class AsyncUsageWriteQueue:
                     "Insert queue full, dropping record %s (queue_size=%d)",
                     record.id,
                     self._max_queue_size,
+                    exc_info=True,
                 )
             return False
 
@@ -237,6 +239,7 @@ class AsyncUsageWriteQueue:
                     "Update queue full, dropping record %s (queue_size=%d)",
                     record.id,
                     self._max_queue_size,
+                    exc_info=True,
                 )
             return False
 
