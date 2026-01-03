@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
 from typing import Any, cast
 
 from fastapi import HTTPException, Request, Response
+from pydantic import BaseModel, Field
 
 from src.anthropic_converters import (
     _map_finish_reason,  # pyright: ignore[reportPrivateUsage]
@@ -46,6 +47,14 @@ from src.core.transport.fastapi.response_adapters import domain_response_to_fast
 logger = logging.getLogger(__name__)
 
 
+class UsageFromHeaders(BaseModel):
+    """Usage information extracted from response headers."""
+
+    prompt_tokens: int = Field(default=0, description="Number of prompt tokens")
+    completion_tokens: int = Field(default=0, description="Number of completion tokens")
+    total_tokens: int = Field(default=0, description="Total number of tokens")
+
+
 class AnthropicController:
     """Controller for Anthropic-related endpoints."""
 
@@ -62,7 +71,7 @@ class AnthropicController:
         self._processor = request_processor
         self._wire_capture = wire_capture
 
-    def _extract_usage_from_headers(self, response: Any) -> dict[str, int] | None:
+    def _extract_usage_from_headers(self, response: Any) -> UsageFromHeaders | None:
         """Extract usage information from response headers.
 
         FastAPI responses may have usage info in x-usage-* headers.
@@ -80,11 +89,11 @@ class AnthropicController:
             total_tokens = int(headers.get("x-usage-total-tokens", 0))
 
             if prompt_tokens or completion_tokens or total_tokens:
-                return {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "total_tokens": total_tokens,
-                }
+                return UsageFromHeaders(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                )
         except (ValueError, TypeError) as e:
             # Optional metadata extraction - log for debugging but return None gracefully
             if logger.isEnabledFor(logging.DEBUG):
@@ -296,6 +305,7 @@ class AnthropicController:
                     # If JSON parsing returned a string (e.g., response was just quoted text),
                     # convert it to a proper OpenAI-style response structure
                     if isinstance(openai_response_data, str):
+                        usage = self._extract_usage_from_headers(adapted_response)
                         openai_response_data = {
                             "choices": [
                                 {
@@ -304,10 +314,11 @@ class AnthropicController:
                                 }
                             ],
                             # Extract usage from response headers if available
-                            "usage": self._extract_usage_from_headers(adapted_response),
+                            "usage": usage.model_dump() if usage else None,
                         }
                 except json.JSONDecodeError:
                     # If it's not valid JSON, treat it as a plain text response
+                    usage = self._extract_usage_from_headers(adapted_response)
                     openai_response_data = {
                         "choices": [
                             {
@@ -316,7 +327,7 @@ class AnthropicController:
                             }
                         ],
                         # Extract usage from response headers if available
-                        "usage": self._extract_usage_from_headers(adapted_response),
+                        "usage": usage.model_dump() if usage else None,
                     }
 
                 # Preferred path: if we still have access to the domain ChatResponse,

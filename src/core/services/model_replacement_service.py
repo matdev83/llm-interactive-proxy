@@ -106,26 +106,25 @@ class ModelReplacementService:
                 f"Configuration: enabled={self._config.enabled}, "
                 f"probability={self._config.probability}, "
                 f"backend_model={self._config.backend_model}, "
-                f"turn_count={self._config.turn_count}"
+                f"turn_count={self._config.turn_count}",
+                exc_info=True,
             )
             raise
 
         # Validate replacement backend exists and cache parsed values
         if self._config.enabled:
             try:
-                replacement_backend, replacement_model = (
-                    self._config.parse_backend_model()
-                )
+                parsed = self._config.parse_backend_model()
 
                 # Performance optimization: Cache parsed backend:model to avoid
                 # repeated string parsing on every activation
-                self._cached_replacement_backend = replacement_backend
-                self._cached_replacement_model = replacement_model
+                self._cached_replacement_backend = parsed.backend
+                self._cached_replacement_model = parsed.model
 
                 registered_backends = self._backend_registry.get_registered_backends()
-                if replacement_backend not in registered_backends:
+                if parsed.backend not in registered_backends:
                     error_msg = (
-                        f"Replacement backend '{replacement_backend}' is not registered. "
+                        f"Replacement backend '{parsed.backend}' is not registered. "
                         f"Available backends: {', '.join(registered_backends)}"
                     )
                     logger.error(
@@ -307,9 +306,9 @@ class ModelReplacementService:
                 or self._cached_replacement_model is None
             ):
                 # Fallback to parsing if cache is not initialized (shouldn't happen)
-                replacement_backend, replacement_model = (
-                    self._config.parse_backend_model()
-                )
+                parsed = self._config.parse_backend_model()
+                replacement_backend = parsed.backend
+                replacement_model = parsed.model
             else:
                 replacement_backend = self._cached_replacement_backend
                 replacement_model = self._cached_replacement_model

@@ -187,7 +187,7 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                                 "tokens_saved_estimate": compaction_result.tokens_saved_estimate,
                                 "original_tokens_estimate": token_estimate,
                                 # Export metrics for observability (Req 4.1)
-                                "metrics": compaction_result.to_metrics(),
+                                "metrics": compaction_result.to_metrics().model_dump(),
                             },
                         )
                     if compaction_result.was_compacted:

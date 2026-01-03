@@ -14,11 +14,46 @@ Requirements covered:
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+from pydantic import BaseModel, Field
+
 from src.core.domain.chat import ChatMessage
 from src.core.domain.configuration.compaction_config import (
     CompactionConfig,
     CompactionPolicies,
 )
+
+
+class CompactionMetrics(BaseModel):
+    """Metrics for observability (Req 4.1).
+
+    Suitable for Prometheus/CloudWatch/etc.
+    Does not include any message content.
+    """
+
+    compaction_messages_compacted: int = Field(description="Number of messages compacted")
+    compaction_bytes_saved: int = Field(description="Approximate bytes reduced by compaction")
+    compaction_tokens_saved_estimate: int = Field(description="Estimated tokens reduced (approximate)")
+    compaction_original_count: int = Field(description="Number of messages before compaction")
+    compaction_stale_resources_count: int = Field(description="Number of stale resource identities")
+    compaction_failed_open: int = Field(description="1 if fail-open was triggered, 0 otherwise")
+
+
+class CompactionLogContext(BaseModel):
+    """Structured log context (Req 4.2, 4.3).
+
+    Suitable for structured logging.
+    Resource identities are included but not removed content (Req 4.5).
+    """
+
+    compacted_count: int = Field(description="Number of messages that were compacted")
+    bytes_saved: int = Field(description="Approximate bytes reduced by compaction")
+    tokens_saved_estimate: int = Field(description="Estimated tokens reduced (approximate)")
+    original_message_count: int = Field(description="Number of messages before compaction")
+    was_compacted: bool = Field(description="True if any compaction occurred")
+    failed_open: bool = Field(description="True if compaction failed and returned original messages")
+    stale_resources: str | None = Field(default=None, description="Comma-separated list of stale resource identities (truncated to 10)")
+    stale_resources_truncated: bool | None = Field(default=None, description="True if stale_resources list was truncated")
+    error: str | None = Field(default=None, description="Error message if fail-open was triggered")
 
 
 @dataclass
@@ -55,44 +90,48 @@ class CompactionResult:
         """Returns True if compaction failed and returned original messages."""
         return self.error is not None
 
-    def to_metrics(self) -> dict[str, int | float]:
+    def to_metrics(self) -> CompactionMetrics:
         """Convert result to metrics dictionary for observability (Req 4.1).
 
         Returns metrics suitable for Prometheus/CloudWatch/etc.
         Does not include any message content.
         """
-        return {
-            "compaction_messages_compacted": self.compacted_count,
-            "compaction_bytes_saved": self.bytes_saved,
-            "compaction_tokens_saved_estimate": self.tokens_saved_estimate,
-            "compaction_original_count": self.original_message_count,
-            "compaction_stale_resources_count": len(self.stale_resources),
-            "compaction_failed_open": 1 if self.failed_open else 0,
-        }
+        return CompactionMetrics(
+            compaction_messages_compacted=self.compacted_count,
+            compaction_bytes_saved=self.bytes_saved,
+            compaction_tokens_saved_estimate=self.tokens_saved_estimate,
+            compaction_original_count=self.original_message_count,
+            compaction_stale_resources_count=len(self.stale_resources),
+            compaction_failed_open=1 if self.failed_open else 0,
+        )
 
-    def to_log_context(self) -> dict[str, str | int | bool]:
+    def to_log_context(self) -> CompactionLogContext:
         """Convert result to structured log context (Req 4.2, 4.3).
 
         Returns a dictionary suitable for structured logging.
         Resource identities are included but not removed content (Req 4.5).
         """
-        context: dict[str, str | int | bool] = {
-            "compacted_count": self.compacted_count,
-            "bytes_saved": self.bytes_saved,
-            "tokens_saved_estimate": self.tokens_saved_estimate,
-            "original_message_count": self.original_message_count,
-            "was_compacted": self.was_compacted,
-            "failed_open": self.failed_open,
-        }
+        stale_resources_str: str | None = None
+        stale_resources_truncated: bool | None = None
+
         if self.stale_resources:
             # Limit to first 10 resources to avoid log bloat
             resources_list = list(self.stale_resources)[:10]
-            context["stale_resources"] = ",".join(resources_list)
+            stale_resources_str = ",".join(resources_list)
             if len(self.stale_resources) > 10:
-                context["stale_resources_truncated"] = True
-        if self.error:
-            context["error"] = self.error
-        return context
+                stale_resources_truncated = True
+
+        return CompactionLogContext(
+            compacted_count=self.compacted_count,
+            bytes_saved=self.bytes_saved,
+            tokens_saved_estimate=self.tokens_saved_estimate,
+            original_message_count=self.original_message_count,
+            was_compacted=self.was_compacted,
+            failed_open=self.failed_open,
+            stale_resources=stale_resources_str,
+            stale_resources_truncated=stale_resources_truncated,
+            error=self.error,
+        )
 
 
 class IHistoryCompactionService(ABC):

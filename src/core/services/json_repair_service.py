@@ -172,7 +172,7 @@ class JsonRepairService:
                         "failed_value": getattr(e, "instance", None),
                     },
                 ) from e
-            logger.warning("JSON schema validation failed: %s", e)
+            logger.warning("JSON schema validation failed: %s", e, exc_info=True)
             # repaired_dict may not be defined if exception occurred before assignment
             try:
                 repaired_dict = self.repair_json(json_string)
@@ -202,7 +202,7 @@ class JsonRepairService:
                         "error_message": str(e),
                     },
                 ) from e
-            logger.warning("Failed to repair or validate JSON: %s", e)
+            logger.warning("Failed to repair or validate JSON: %s", e, exc_info=True)
             return JsonRepairResult(success=False, content=None)
 
     def repair_json(self, json_string: str) -> Any:
@@ -373,7 +373,8 @@ class JsonRepairService:
             except JsonSchemaValidationError as validation_error:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Schema validation failed for session {session_id}: {validation_error}"
+                        f"Schema validation failed for session {session_id}: {validation_error}",
+                        exc_info=True,
                     )
 
                 if strict:

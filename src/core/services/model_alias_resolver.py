@@ -79,7 +79,8 @@ class ModelAliasResolver(IModelAliasResolver):
             except (re.error, AttributeError, TypeError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Invalid regex pattern in model alias or mock object: {e}"
+                        f"Invalid regex pattern in model alias or mock object: {e}",
+                        exc_info=True,
                     )
                 continue
 

@@ -391,12 +391,12 @@ class TestHistoryCompactionObservability:
 
         metrics = result.to_metrics()
 
-        assert metrics["compaction_messages_compacted"] == 5
-        assert metrics["compaction_bytes_saved"] == 2500
-        assert metrics["compaction_tokens_saved_estimate"] == 625
-        assert metrics["compaction_original_count"] == 10
-        assert metrics["compaction_stale_resources_count"] == 3
-        assert metrics["compaction_failed_open"] == 0
+        assert metrics.compaction_messages_compacted == 5
+        assert metrics.compaction_bytes_saved == 2500
+        assert metrics.compaction_tokens_saved_estimate == 625
+        assert metrics.compaction_original_count == 10
+        assert metrics.compaction_stale_resources_count == 3
+        assert metrics.compaction_failed_open == 0
 
     def test_compaction_result_to_log_context_format(self) -> None:
         """Verify CompactionResult.to_log_context() provides expected format."""
@@ -411,12 +411,12 @@ class TestHistoryCompactionObservability:
 
         context = result.to_log_context()
 
-        assert context["compacted_count"] == 3
-        assert context["bytes_saved"] == 1500
-        assert context["was_compacted"] is True
-        assert context["failed_open"] is False
-        assert "stale_resources" in context
-        assert "view_file:/x.py" in context["stale_resources"]
+        assert context.compacted_count == 3
+        assert context.bytes_saved == 1500
+        assert context.was_compacted is True
+        assert context.failed_open is False
+        assert context.stale_resources is not None
+        assert "view_file:/x.py" in context.stale_resources
 
     @pytest.mark.asyncio
     async def test_metrics_included_in_compaction_log(
@@ -544,7 +544,7 @@ class TestHistoryCompactionObservability:
         # Verify metrics field matches the expected output of to_metrics()
         metrics = getattr(record, "metrics", None)
         assert metrics is not None
-        expected_metrics = compaction_result.to_metrics()
+        expected_metrics = compaction_result.to_metrics().model_dump()
         assert metrics == expected_metrics, "Metrics should match to_metrics() output"
 
 
