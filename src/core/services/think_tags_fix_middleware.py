@@ -969,7 +969,12 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
                             elif msg_content is not None:
                                 content = str(msg_content)
                 except (IndexError, KeyError, TypeError):
-                    pass
+                    # Malformed OpenAI-style response structure - will fall back to str(response)
+                    if self._logger.isEnabledFor(logging.DEBUG):
+                        self._logger.debug(
+                            "Failed to extract content from OpenAI-style response structure",
+                            exc_info=True,
+                        )
         elif response is not None:
             content = str(response)
 

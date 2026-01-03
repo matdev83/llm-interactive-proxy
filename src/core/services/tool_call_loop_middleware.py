@@ -221,16 +221,16 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
             # Schedule it as a fire-and-forget task if event loop is available
             import asyncio
 
-            try:
+            # Intentionally silent: no event loop available during shutdown
+            import contextlib
+
+            with contextlib.suppress(RuntimeError):
                 # We don't use the loop variable, just check it exists
                 asyncio.get_running_loop()
                 # Fire and forget - don't await, but store reference to avoid GC
                 task = asyncio.create_task(self._lifecycle.clear_stream(session_id))
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
-            except RuntimeError:
-                # No event loop available, skip async cleanup
-                pass
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content."""
@@ -597,16 +597,16 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             # Schedule it as a fire-and-forget task if event loop is available
             import asyncio
 
-            try:
+            # Intentionally silent: no event loop available during shutdown
+            import contextlib
+
+            with contextlib.suppress(RuntimeError):
                 # We don't use the loop variable, just check it exists
                 asyncio.get_running_loop()
                 # Fire and forget - don't await, but store reference to avoid GC
                 task = asyncio.create_task(self._lifecycle.clear_stream(session_id))
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
-            except RuntimeError:
-                # No event loop available, skip async cleanup
-                pass
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content.

@@ -548,7 +548,6 @@ class ToolCallRepairService(IToolCallRepairService):
 
             # Use heuristics to determine if this is a tool call or not
 
-
             if not self._is_likely_tool_call(root, xml_snippet):
                 continue
 
@@ -627,13 +626,11 @@ class ToolCallRepairService(IToolCallRepairService):
                 # If it's a string, convert to dict format
                 if isinstance(arguments_raw, str):
                     arguments_raw = {"content": arguments_raw}
-                
+
                 if not isinstance(arguments_raw, dict):
                     arguments_raw = {}
 
                 arguments = self._normalize_tool_arguments(
-
-
                     tool_name_candidate,
                     arguments_raw,
                 )
@@ -768,7 +765,13 @@ class ToolCallRepairService(IToolCallRepairService):
             float(text)
             return True
         except ValueError:
-            pass
+            # Not a number - will continue to other checks
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Text is not a number-like value: %s",
+                    text,
+                    exc_info=True,
+                )
 
         # Path-like values (Unix paths)
         if text.startswith(("/", "./", "../", "~/")):
@@ -1185,8 +1188,6 @@ class ToolCallRepairService(IToolCallRepairService):
         # where <json_string> is a valid JSON object when parsed
         if (
             len(arguments) == 1
-
-
             and "content" in arguments
             and isinstance(arguments["content"], str)
         ):

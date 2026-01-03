@@ -242,7 +242,13 @@ class RateLimitErrorHandler(BaseErrorHandler):
             try:
                 return float(retry_after_direct)
             except (ValueError, TypeError):
-                pass
+                # Invalid retry_after format - will use default fallback
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to parse retry_after from error attribute: %s",
+                        retry_after_direct,
+                        exc_info=True,
+                    )
 
         # Default fallback
         return self._default_cooldown
