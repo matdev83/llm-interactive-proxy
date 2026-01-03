@@ -185,25 +185,22 @@ class AssessmentConfig:
             config._env_set_fields.add("model")
 
         if window := os.getenv("LLM_ASSESSMENT_HISTORY_WINDOW"):
-            try:
+            with contextlib.suppress(ValueError):
+                # Keep default value if env var is not a valid integer
                 config.history_window = int(window)
                 config._env_set_fields.add("history_window")
-            except ValueError:
-                pass  # Keep default
 
         if min_interval := os.getenv("LLM_ASSESSMENT_MIN_INTERVAL"):
-            try:
+            with contextlib.suppress(ValueError):
+                # Keep default value if env var is not a valid integer
                 config.min_interval = int(min_interval)
                 config._env_set_fields.add("min_interval")
-            except ValueError:
-                pass  # Keep default
 
         if max_interval := os.getenv("LLM_ASSESSMENT_MAX_INTERVAL"):
-            try:
+            with contextlib.suppress(ValueError):
+                # Keep default value if env var is not a valid integer
                 config.max_interval = int(max_interval)
                 config._env_set_fields.add("max_interval")
-            except ValueError:
-                pass  # Keep default
 
         return config
 

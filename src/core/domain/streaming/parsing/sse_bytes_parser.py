@@ -173,12 +173,19 @@ class SSEBytesParser(IParserStrategy):
                 return StreamingContent.from_raw(parsed_json)
             except json.JSONDecodeError:
                 # Fall back to string content if JSON is malformed
-                pass
+                logger.debug(
+                    "JSON parse failed, treating as plain string content: %r",
+                    stripped[:100],
+                )
             except ValueError as e:
                 if "depth" in str(e).lower():
                     # Reject deeply nested JSON completely for security
                     raise ValueError(f"JSON payload too deeply nested: {e}")
                 # Fall back to string content for other validation errors
+                logger.debug(
+                    "JSON validation failed, treating as plain string content: %s",
+                    e,
+                )
 
         # Treat as plain string
         return StreamingContent(content=decoded_str, raw_data=raw_data)
