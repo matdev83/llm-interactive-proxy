@@ -80,6 +80,7 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
             logger.warning(
                 "Responses stream chunk JSON decode failed: %s",
                 stripped_chunk[:300],
+                exc_info=True,
             )
             return {
                 "error": "Invalid chunk format: expected JSON after 'data:' prefix",
@@ -146,7 +147,9 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
         )
     except Exception as exc:
         logger.warning(
-            "Failed to convert OpenAI chunk to CanonicalStreamChunk: %s", exc, exc_info=True
+            "Failed to convert OpenAI chunk to CanonicalStreamChunk: %s",
+            exc,
+            exc_info=True,
         )
         return {"error": f"Failed to convert chunk: {exc}"}
 

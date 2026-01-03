@@ -90,7 +90,9 @@ def parse_responses_stream_chunk(chunk: Any) -> ParsedResponsesStreamChunk:
             chunk = json.loads(stripped_chunk)
         except json.JSONDecodeError as exc:
             logger.warning(
-                "Responses stream chunk JSON decode failed: %s", stripped_chunk[:300]
+                "Responses stream chunk JSON decode failed: %s",
+                stripped_chunk[:300],
+                exc_info=True,
             )
             return ParsedResponsesStreamChunk(
                 chunk=None,

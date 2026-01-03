@@ -182,6 +182,7 @@ class AnalysisWorker:
                         "Summary generation timed out for session %s (limit: %ds)",
                         session_id,
                         self._config.analysis_timeout_seconds,
+                        exc_info=True,
                     )
 
         except Exception as e:

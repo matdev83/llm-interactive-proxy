@@ -93,7 +93,7 @@ class SSEBytesParser(IParserStrategy):
                 return self._parse_as_string_safely(decoded_str, raw_data)
         except UnicodeDecodeError:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Could not decode bytes: %r", raw_data)
+                logger.warning("Could not decode bytes: %r", raw_data, exc_info=True)
             return StreamingContent(content="", raw_data=raw_data)
 
     def _parse_json_safely(self, json_str: str) -> Any:

@@ -158,6 +158,7 @@ class ProcessedResponseParser(IParserStrategy):
                     logger.warning(
                         "Could not decode bytes in ProcessedResponse: %r",
                         content_val,
+                        exc_info=True,
                     )
                     content_str = ""
             else:
