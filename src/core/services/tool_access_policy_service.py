@@ -81,7 +81,8 @@ class AccessPolicy:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Failed to compile model_pattern '{self.model_pattern}' "
-                    f"in policy '{self.name}': {e}"
+                    f"in policy '{self.name}': {e}",
+                    exc_info=True,
                 )
             self._model_regex = None
 
@@ -92,7 +93,8 @@ class AccessPolicy:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
                         f"Failed to compile agent_pattern '{self.agent_pattern}' "
-                        f"in policy '{self.name}': {e}"
+                        f"in policy '{self.name}': {e}",
+                        exc_info=True,
                     )
                 self._agent_regex = None
 
@@ -104,7 +106,8 @@ class AccessPolicy:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
                         f"Failed to compile allowed pattern '{pattern}' "
-                        f"in policy '{self.name}': {e}"
+                        f"in policy '{self.name}': {e}",
+                        exc_info=True,
                     )
 
         self._blocked_regexes = []

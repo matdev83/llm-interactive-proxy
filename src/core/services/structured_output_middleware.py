@@ -132,7 +132,7 @@ class StructuredOutputFeature(IResponseFeature):
     ) -> Any:
         """Shared validation logic for both paths."""
         try:
-            processed_content, parsed_object = (
+            result = (
                 self._json_repair_service.process_structured_response(
                     content=content,
                     schema=schema,
@@ -140,6 +140,8 @@ class StructuredOutputFeature(IResponseFeature):
                     strict=strict,
                 )
             )
+            processed_content: str = result.content
+            parsed_object: dict[str, Any] | None = result.parsed_object
 
             updated_response = self._update_response(
                 response, processed_content, parsed_object
@@ -182,6 +184,7 @@ class StructuredOutputFeature(IResponseFeature):
                     "Structured output validation failed for session %s: %s",
                     session_id,
                     e,
+                    exc_info=True,
                 )
 
             self._add_error_metadata(response, str(e))
@@ -399,7 +402,7 @@ class StructuredOutputMiddleware(IResponseMiddleware):
 
         try:
             # Process the structured response
-            processed_content, parsed_object = (
+            result = (
                 self._json_repair_service.process_structured_response(
                     content=content,
                     schema=schema,
@@ -407,6 +410,8 @@ class StructuredOutputMiddleware(IResponseMiddleware):
                     strict=strict_validation,
                 )
             )
+            processed_content: str = result.content
+            parsed_object: dict[str, Any] | None = result.parsed_object
 
             # Update the response with processed content and parsed object
             updated_response = self._update_response(
@@ -447,7 +452,8 @@ class StructuredOutputMiddleware(IResponseMiddleware):
         except (ValidationError, JSONParsingError) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Structured output validation failed for session {session_id}: {e}"
+                    f"Structured output validation failed for session {session_id}: {e}",
+                    exc_info=True,
                 )
 
             # Add error information to the response metadata
