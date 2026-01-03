@@ -7,6 +7,7 @@ wrapping the prepare -> execute -> accumulate/post-process steps.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
@@ -91,11 +92,10 @@ class CodeAssistOrchestrator:
         )
 
         prefetched: list[ProcessedResponse] = []
-        try:
+        # Empty generator is a valid state - no error, just no data to prefetch
+        with contextlib.suppress(StopAsyncIteration):
             first_chunk = await base_generator.__anext__()
             prefetched.append(first_chunk)
-        except StopAsyncIteration:
-            pass
 
         async def continue_from_prefetch() -> AsyncGenerator[ProcessedResponse, None]:
             for chunk in prefetched:

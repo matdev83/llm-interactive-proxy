@@ -80,7 +80,11 @@ def parse_retry_from_message(message: str) -> float | None:
         try:
             return float(pattern1.group(1))
         except ValueError:
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to parse retry delay from pattern1 in message",
+                    exc_info=True,
+                )
 
     # Pattern 2: "wait X seconds" or "wait Xs"
     pattern2 = re.search(
@@ -92,7 +96,11 @@ def parse_retry_from_message(message: str) -> float | None:
         try:
             return float(pattern2.group(1))
         except ValueError:
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to parse retry delay from pattern2 in message",
+                    exc_info=True,
+                )
 
     # Pattern 3: Duration format like "1m30s" or "2m" in the message
     pattern3 = re.search(

@@ -596,7 +596,11 @@ class StreamingExecutor:
                                 try:
                                     parsed_error = json.loads(candidate_json)
                                 except json.JSONDecodeError:
-                                    pass
+                                    if logger.isEnabledFor(logging.DEBUG):
+                                        logger.debug(
+                                            "Failed to parse error JSON from streaming content",
+                                            exc_info=True,
+                                        )
                                 else:
                                     error_json_buffer_parts = None
                                     if (
