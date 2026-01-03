@@ -238,7 +238,7 @@ class JsonRepairProcessor(IStreamProcessor):
                     details={"original_buffer": full_buffer},
                 ) from e
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("JSON repair raised error: %s", e)
+                logger.warning("JSON repair raised error: %s", e, exc_info=True)
             return JsonRepairResult(success=False, content=None)
 
         if result.success:

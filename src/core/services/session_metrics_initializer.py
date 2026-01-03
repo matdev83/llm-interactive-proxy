@@ -98,6 +98,7 @@ class SessionMetricsInitializer(ISessionMetricsInitializer):
                 "persistence unavailable - proceeding without metrics",
                 self._timeout_seconds,
                 session_id,
+                exc_info=True,
                 extra={
                     "session_id": session_id,
                     "protocol": session_key.protocol,

@@ -346,6 +346,7 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                 logger.warning(
                     "Invalid regex in edit_precision.exclude_agents_regex: %s",
                     e,
+                    exc_info=True,
                 )
             return False
 

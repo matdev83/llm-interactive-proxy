@@ -175,7 +175,8 @@ class PathValidationService(IPathValidator):
         except Exception as e:
             self._logger.error(
                 f"Error checking boundary for path '{path}' "
-                f"against '{boundary}': {e}"
+                f"against '{boundary}': {e}",
+                exc_info=True,
             )
             return False
 

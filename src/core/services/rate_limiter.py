@@ -519,6 +519,7 @@ class ConfigurableRateLimiter(IRateLimiter):
                         key,
                         limit_raw,
                         window_raw,
+                        exc_info=True,
                     )
                 continue
 
