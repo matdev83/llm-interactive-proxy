@@ -13,6 +13,7 @@ from src.anthropic_converters import (
     _convert_anthropic_image_to_openai,
     anthropic_to_openai_request,
     openai_to_anthropic_response,
+    OpenAIImageUrlBlock,
 )
 from src.anthropic_models import (
     AnthropicMessage,
@@ -123,9 +124,9 @@ class TestImageUrlSource:
         result = _convert_anthropic_image_to_openai(anthropic_block)
 
         assert result is not None
-        assert result["type"] == "image_url"
-        assert "image_url" in result
-        assert result["image_url"]["url"] == "data:image/png;base64,dGVzdC1pbWFnZQ=="
+        assert result.type == "image_url"
+        assert result.image_url is not None
+        assert result.image_url.url == "data:image/png;base64,dGVzdC1pbWFnZQ=="
 
     def test_convert_url_image_to_openai(self) -> None:
         """Test converting URL image to OpenAI format."""
@@ -139,8 +140,9 @@ class TestImageUrlSource:
         result = _convert_anthropic_image_to_openai(anthropic_block)
 
         assert result is not None
-        assert result["type"] == "image_url"
-        assert result["image_url"]["url"] == "https://example.com/image.jpg"
+        assert result.type == "image_url"
+        assert result.image_url is not None
+        assert result.image_url.url == "https://example.com/image.jpg"
 
     def test_convert_empty_source_returns_none(self) -> None:
         """Test that empty source returns None."""

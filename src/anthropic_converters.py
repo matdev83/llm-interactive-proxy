@@ -6,12 +6,58 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.logging_utils import redact_dict
 
 logger = logging.getLogger(__name__)
+
+
+class OpenAIImageUrl(BaseModel):
+    """OpenAI image URL format."""
+
+    url: str = Field(description="Image URL in data URI or HTTPS format")
+
+
+class OpenAIImageUrlBlock(BaseModel):
+    """OpenAI image_url content block format."""
+
+    type: Literal["image_url"] = Field(default="image_url", description="Block type")
+    image_url: OpenAIImageUrl = Field(description="Image URL data")
+
+
+class AnthropicImageSource(BaseModel):
+    """Anthropic image source format."""
+
+    type: Literal["base64", "url"]
+    media_type: str | None = Field(None, alias="media_type", description="MIME type for base64 images")
+    data: str | None = Field(None, description="Base64 image data")
+    url: str | None = Field(None, description="Image URL")
+
+    model_config = {"populate_by_name": True}
+
+
+class AnthropicImageBlock(BaseModel):
+    """Anthropic image block format."""
+
+    type: Literal["image"]
+    source: AnthropicImageSource
+
+
+class OpenAIToolCallFunction(BaseModel):
+    """OpenAI function call details."""
+
+    name: str = Field(description="Function name")
+    arguments: str = Field(description="Function arguments as JSON string")
+
+
+class OpenAIToolCallBlock(BaseModel):
+    """OpenAI tool call block format."""
+
+    id: str = Field(description="Tool call ID")
+    type: Literal["function"] = Field(default="function", description="Block type")
+    function: OpenAIToolCallFunction = Field(description="Function call details")
 
 
 # Fields that may contain sensitive data and should be redacted from logs
@@ -204,7 +250,7 @@ def anthropic_to_openai_request(
 
                 elif btype == "tool_use":
                     _flush_text_accumulator()
-                    tool_calls.append(_convert_tool_use_block(block))
+                    tool_calls.append(_convert_tool_use_block(block).model_dump(by_alias=True))
 
                 elif btype == "thinking":
                     _flush_text_accumulator()
@@ -222,9 +268,17 @@ def anthropic_to_openai_request(
                     image_part = _convert_anthropic_image_to_openai(block)
                     if image_part:
                         # Copy cache_control if present in image block
+                        image_dict = image_part.model_dump(by_alias=True)
                         if "cache_control" in block:
-                            image_part["cache_control"] = block["cache_control"]
-                        content_parts.append(image_part)
+                            content_parts.append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": image_dict.get("image_url"),
+                                    "cache_control": block["cache_control"],
+                                }
+                            )
+                        else:
+                            content_parts.append(image_dict)
 
                 elif btype == "document":
                     # Documents are converted to text representation for now
@@ -676,7 +730,9 @@ def _extract_tool_calls(
     return None
 
 
-def _convert_anthropic_image_to_openai(block: dict[str, Any]) -> dict[str, Any] | None:
+def _convert_anthropic_image_to_openai(
+    block: dict[str, Any],
+) -> OpenAIImageUrlBlock | None:
     """Convert Anthropic image block to OpenAI image_url format.
 
     Anthropic format:
@@ -708,14 +764,15 @@ def _convert_anthropic_image_to_openai(block: dict[str, Any]) -> dict[str, Any] 
         media_type = source.get("media_type", "image/jpeg")
         data = source.get("data", "")
         if data:
-            return {
-                "type": "image_url",
-                "image_url": {"url": f"data:{media_type};base64,{data}"},
-            }
+            return OpenAIImageUrlBlock(
+                image_url=OpenAIImageUrl(url=f"data:{media_type};base64,{data}")
+            )
     elif source_type == "url":
         url = source.get("url", "")
         if url:
-            return {"type": "image_url", "image_url": {"url": url}}
+            return OpenAIImageUrlBlock(
+                image_url=OpenAIImageUrl(url=url)
+            )
 
     return None
 
@@ -751,7 +808,27 @@ def _convert_anthropic_tool_choice(tool_choice: Any) -> Any:
     return tool_choice
 
 
-def _convert_tool_use_block(block: dict[str, Any]) -> dict[str, Any]:
+def _convert_tool_use_block(block: dict[str, Any]) -> OpenAIToolCallBlock:
+    """Convert Anthropic tool_use block to OpenAI function call format.
+
+    Anthropic format:
+    {
+        "type": "tool_use",
+        "id": "...",
+        "name": "...",
+        "input": {...}
+    }
+
+    OpenAI format:
+    {
+        "id": "...",
+        "type": "function",
+        "function": {
+            "name": "...",
+            "arguments": "{...}"
+        }
+    }
+    """
     function_dict = block.get("name") or block.get("function", {})
     if isinstance(function_dict, dict):
         function_name = function_dict.get("name")
@@ -774,14 +851,13 @@ def _convert_tool_use_block(block: dict[str, Any]) -> dict[str, Any]:
             )
         arguments_str = json.dumps({"_raw": arguments_obj})
 
-    return {
-        "id": block.get("id") or "toolu_0",
-        "type": "function",
-        "function": {
-            "name": function_name or "tool",
-            "arguments": arguments_str,
-        },
-    }
+    return OpenAIToolCallBlock(
+        id=block.get("id") or "toolu_0",
+        function=OpenAIToolCallFunction(
+            name=function_name or "tool",
+            arguments=arguments_str,
+        ),
+    )
 
 
 def _flatten_tool_result_content(content: Any) -> str:
@@ -1276,4 +1352,9 @@ __all__ = [
     "get_anthropic_models",
     # Usage types
     "AnthropicUsageSummary",
+    # Typed conversion models
+    "OpenAIImageUrl",
+    "OpenAIImageUrlBlock",
+    "OpenAIToolCallFunction",
+    "OpenAIToolCallBlock",
 ]
