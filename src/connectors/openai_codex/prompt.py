@@ -207,7 +207,8 @@ class PromptResolver(IPromptResolver):
             pass
         except Exception as exc:  # pragma: no cover - diagnostic path
             logger.warning(
-                "Failed to load Codex system prompt from package resources: %s", exc
+                "Failed to load Codex system prompt from package resources: %s", exc,
+                exc_info=True,
             )
 
         fallback_paths = [

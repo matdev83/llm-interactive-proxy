@@ -1258,7 +1258,8 @@ class AnthropicBackend(LLMBackend):
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to read Anthropic error response body: %s", e
+                        "Failed to read Anthropic error response body: %s", e,
+                        exc_info=True,
                     )
                 body_text = ""
             finally:
