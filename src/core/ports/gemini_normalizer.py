@@ -122,6 +122,7 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
             except json.JSONDecodeError as e:
                 logger.warning(
                     "Failed to parse JSON line",
+                    exc_info=True,
                     extra={
                         "provider": self.provider,
                         "error": str(e),
@@ -320,6 +321,7 @@ class GeminiStreamNormalizer(BaseStreamNormalizer):
         except (TypeError, ValueError) as e:
             logger.warning(
                 "Failed to serialize function call arguments",
+                exc_info=True,
                 extra={"provider": self.provider, "error": str(e)},
             )
             args_json = "{}"

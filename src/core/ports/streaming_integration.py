@@ -199,6 +199,7 @@ async def integrate_streaming_pipeline(
             "Failed to create streaming pipeline for provider %s: %s. No legacy fallback available.",
             provider,
             e,
+            exc_info=True,
         )
 
         error_chunk = await handle_streaming_error(e, stream_id, provider)

@@ -341,6 +341,7 @@ class AnthropicStreamNormalizer(BaseStreamNormalizer):
                 except json.JSONDecodeError as e:
                     logger.warning(
                         "Failed to parse Anthropic event data as JSON",
+                        exc_info=True,
                         extra={
                             "provider": self.provider,
                             "event_type": event_type,

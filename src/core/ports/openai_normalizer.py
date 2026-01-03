@@ -86,6 +86,7 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
                     except json.JSONDecodeError as e:
                         logger.warning(
                             "Failed to parse SSE event as JSON",
+                            exc_info=True,
                             extra={
                                 "provider": self.provider,
                                 "error": str(e),
