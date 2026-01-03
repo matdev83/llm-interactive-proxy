@@ -80,6 +80,7 @@ class EditPrecisionFeature(IResponseFeature):
                                 "Invalid edit precision pattern: %s - %s",
                                 pattern,
                                 err,
+                                exc_info=True,
                             )
         except (ImportError, ModuleNotFoundError) as err:
             # Module import failures - expected if edit_precision_patterns module not available
@@ -87,6 +88,7 @@ class EditPrecisionFeature(IResponseFeature):
                 self._logger.warning(
                     "Edit precision patterns module not available: %s - using default patterns only",
                     err,
+                    exc_info=True,
                 )
         except Exception as err:
             # Catch any truly unexpected errors during config loading
@@ -117,7 +119,7 @@ class EditPrecisionFeature(IResponseFeature):
         except Exception as err:
             if self._logger.isEnabledFor(logging.WARNING):
                 self._logger.warning(
-                    "Failed to compile combined edit precision pattern: %s", err
+                    "Failed to compile combined edit precision pattern: %s", err, exc_info=True
                 )
             self._combined_pattern = None
 

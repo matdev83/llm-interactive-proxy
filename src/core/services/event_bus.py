@@ -407,7 +407,9 @@ class EventBus(IEventBus):
                 )
             except asyncio.TimeoutError:
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Timeout waiting for event handlers, cancelling")
+                    logger.warning(
+                        "Timeout waiting for event handlers, cancelling", exc_info=True
+                    )
                 for task in pending:
                     if not task.done():
                         task.cancel()

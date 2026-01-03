@@ -305,6 +305,7 @@ class EndOfSessionService(IEndOfSessionService):
                 "EoS event dispatch timeout (%.1fs) for session %s, continuing without waiting",
                 timeout,
                 event.session_id,
+                exc_info=True,
                 extra={
                     "session_id": event.session_id,
                     "timeout_seconds": timeout,
