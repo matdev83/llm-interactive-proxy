@@ -7,6 +7,7 @@ with typed domain models (never dicts).
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import inspect
 import logging
@@ -207,7 +208,7 @@ class ConnectorInvoker:
             return True
 
         # Check if annotation is a type that matches (handle Union, etc.)
-        try:
+        with contextlib.suppress(AttributeError, TypeError):
             from typing import get_args, get_origin
 
             origin = get_origin(param_annotation)
@@ -215,8 +216,6 @@ class ConnectorInvoker:
                 args = get_args(param_annotation)
                 if ConnectorChatCompletionsRequest in args:
                     return True
-        except (AttributeError, TypeError):
-            pass
 
         # Require explicit type annotation - do not fall back to True without verification
         # This prevents misclassifying legacy connectors that happen to have a parameter named "request"

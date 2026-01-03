@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import platform
+from contextlib import suppress as contextlib_suppress
 from pathlib import Path
 from typing import Any
 
@@ -153,13 +154,11 @@ class PathValidationService(IPathValidator):
             # Path.relative_to() handles this correctly by default
 
             # Check if path is within boundary using relative_to
-            try:
+            # If ValueError is raised, path is not relative to boundary - expected control flow
+            with contextlib_suppress(ValueError):
                 path.relative_to(boundary)
                 # If we get here, path is within boundary
                 return True
-            except ValueError:
-                # path is not relative to boundary
-                pass
 
             # If allow_parent, check if boundary is within path
             # This allows access to parent directories of the project root

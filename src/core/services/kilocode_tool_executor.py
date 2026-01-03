@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import re
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -327,7 +328,8 @@ class KiloCodeToolExecutor:
     async def _search_file(self, file_path: Path, regex: re.Pattern[str]) -> list[str]:
         """Search for pattern in a single file."""
         matches = []
-        try:
+        # Skip files we can't read (binary files or permission errors) - intentional silence
+        with suppress(UnicodeDecodeError, PermissionError):
             content = await asyncio.to_thread(
                 lambda: file_path.read_text(encoding="utf-8", errors="replace")
             )
@@ -338,9 +340,6 @@ class KiloCodeToolExecutor:
                     # Format: filename:line_number:line_content
                     relative_path = file_path.relative_to(self.working_directory)
                     matches.append(f"{relative_path}:{line_num}:{line.strip()}")
-        except (UnicodeDecodeError, PermissionError):
-            # Skip files we can't read
-            pass
 
         return matches
 

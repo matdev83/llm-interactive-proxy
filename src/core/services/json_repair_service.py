@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import deque
+from contextlib import suppress as contextlib_suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -473,20 +474,10 @@ class JsonRepairService:
                         test_object[prop_name] = {}
 
             # Attempt validation to ensure schema is well-formed
-            try:
+            # It's okay if the test object doesn't validate - we just want to ensure
+            # the schema itself is well-formed enough for jsonschema to process
+            with contextlib_suppress(JsonSchemaValidationError):
                 validate(instance=test_object, schema=schema)
-            except JsonSchemaValidationError:
-                # It's okay if the test object doesn't validate - we just want to ensure
-                # the schema itself is well-formed enough for jsonschema to process
-                pass
-            except Exception as e:
-                raise ValidationError(
-                    message=f"Schema is malformed and cannot be used for validation: {e}",
-                    details={
-                        "schema": schema,
-                        "validation_library_error": str(e),
-                    },
-                ) from e
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Schema validation successful")

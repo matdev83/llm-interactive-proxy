@@ -6,6 +6,7 @@ implementing invisible resilience through wait-and-retry and automatic failover.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -256,10 +257,8 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
 
         # Direct retry_after in details
         if "retry_after" in details:
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 return float(details["retry_after"])
-            except (TypeError, ValueError):
-                pass
 
         # Google-style nested details
         error_info = details.get("error", details)
