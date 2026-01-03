@@ -291,16 +291,17 @@ class AsyncUsageWriteQueue:
         while not self._shutdown_event.is_set():
             try:
                 # Wait for flush interval or shutdown
-                try:
+                # Timeout is expected - used as periodic timer (intentionally silent control flow)
+                import contextlib
+
+                with contextlib.suppress(asyncio.TimeoutError):
                     await asyncio.wait_for(
                         self._shutdown_event.wait(),
                         timeout=self._flush_interval,
                     )
                     # Shutdown signaled
                     break
-                except asyncio.TimeoutError:
-                    # Timeout - time to flush
-                    pass
+                # Timeout occurred - time to flush
 
                 await self._flush_batches()
 
@@ -371,7 +372,12 @@ class AsyncUsageWriteQueue:
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Failed to insert batch of %d records: %s", len(batch), e, exc_info=True)
+                logger.error(
+                    "Failed to insert batch of %d records: %s",
+                    len(batch),
+                    e,
+                    exc_info=True,
+                )
             # Records are lost - could implement retry queue here
 
         finally:
@@ -401,7 +407,12 @@ class AsyncUsageWriteQueue:
 
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
-                logger.error("Failed to update batch of %d records: %s", len(batch), e, exc_info=True)
+                logger.error(
+                    "Failed to update batch of %d records: %s",
+                    len(batch),
+                    e,
+                    exc_info=True,
+                )
             # Records are lost - could implement retry queue here
 
         finally:

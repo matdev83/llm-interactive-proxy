@@ -783,6 +783,8 @@ class CborWireCaptureService(IWireCapture):
 
     async def _background_flush_loop(self) -> None:
         """Background task to periodically flush buffer."""
+        import contextlib
+
         try:
             while self._enabled:
                 try:
@@ -809,7 +811,9 @@ class CborWireCaptureService(IWireCapture):
                     )
                     continue
         except asyncio.CancelledError:
-            pass
+            # Task cancelled during shutdown (intentionally silent control flow)
+            with contextlib.suppress(asyncio.CancelledError):
+                pass
         finally:
             # Final flush on exit
             if self._enabled and self._buffer:

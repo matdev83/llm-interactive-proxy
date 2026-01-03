@@ -1094,6 +1094,8 @@ class BufferedWireCapture(IWireCapture):
 
     async def _background_flush_loop(self) -> None:
         """Background task to periodically flush buffer."""
+        import contextlib
+
         try:
             while self._enabled:
                 try:
@@ -1121,7 +1123,9 @@ class BufferedWireCapture(IWireCapture):
                     )
                     continue
         except asyncio.CancelledError:
-            pass
+            # Task cancelled during shutdown (intentionally silent control flow)
+            with contextlib.suppress(asyncio.CancelledError):
+                pass
         finally:
             if self._enabled:
                 try:
@@ -1154,7 +1158,11 @@ class BufferedWireCapture(IWireCapture):
             try:
                 await self._flush_task
             except asyncio.CancelledError:
-                pass
+                # Expected during task cancellation (intentionally silent control flow)
+                import contextlib
+
+                with contextlib.suppress(asyncio.CancelledError):
+                    pass
             except Exception as e:
                 logger.warning(
                     "Unexpected exception during wire capture shutdown: %s",

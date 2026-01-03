@@ -492,7 +492,10 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                 if not self._cancelled:
                                     self._cancelled = True
                                     # Schedule cancellation callback execution
-                                    try:
+                                    import contextlib
+
+                                    # Suppress RuntimeError when no event loop exists (intentionally silent control flow)
+                                    with contextlib.suppress(RuntimeError):
                                         loop = asyncio.get_running_loop()
                                         # Call cancel_callback to get coroutine, then create task and track it
                                         coro = self._cancel_callback()
@@ -510,9 +513,6 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                         task.add_done_callback(
                                             self._cancellation_tasks.discard
                                         )
-                                    except RuntimeError:
-                                        # No event loop, skip cancellation
-                                        pass
 
                         cancellable: ICancellable = StreamingCancellable(
                             result.cancel_callback,
