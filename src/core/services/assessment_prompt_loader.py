@@ -153,7 +153,9 @@ class AssessmentPromptLoader:
                         logger.warning(
                             "Failed to read task prompt file: %s", e, exc_info=True
                         )
-                    logger.warning("Using fallback task prompt (hardcoded default)")
+                    logger.warning(
+                        "Using fallback task prompt (hardcoded default)", exc_info=True
+                    )
                     self._task_prompt = FALLBACK_TASK_PROMPT
             else:
                 if logger.isEnabledFor(logging.WARNING):
@@ -213,7 +215,9 @@ class AssessmentPromptLoader:
                         logger.warning(
                             "Failed to read response schema file: %s", e, exc_info=True
                         )
-                    logger.warning("Using fallback response schema (hardcoded default)")
+                    logger.warning(
+                        "Using fallback response schema (hardcoded default)", exc_info=True
+                    )
                     self._response_schema = FALLBACK_RESPONSE_SCHEMA
             else:
                 if logger.isEnabledFor(logging.WARNING):
@@ -242,7 +246,8 @@ class AssessmentPromptLoader:
                             exc_info=True,
                         )
                     logger.warning(
-                        "Using fallback steering template (hardcoded default)"
+                        "Using fallback steering template (hardcoded default)",
+                        exc_info=True,
                     )
                     self._steering_template = FALLBACK_STEERING_TEMPLATE
             else:

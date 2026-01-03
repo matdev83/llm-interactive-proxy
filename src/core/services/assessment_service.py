@@ -126,7 +126,8 @@ class AssessmentService(IAssessmentService):
         except Exception as e:
             duration = time.time() - start_time
             logger.error(
-                f"Assessment failed for session {session_id}: {e}, duration={duration:.2f}s"
+                f"Assessment failed for session {session_id}: {e}, duration={duration:.2f}s",
+                exc_info=True,
             )
             raise AssessmentError(f"Assessment failed: {e}") from e
 
@@ -167,7 +168,8 @@ class AssessmentService(IAssessmentService):
         except Exception as e:
             if is_log_level_enabled(logger, logging.WARNING):
                 logger.warning(
-                    f"Assessment failed gracefully for session {session_id}: {e}"
+                    f"Assessment failed gracefully for session {session_id}: {e}",
+                    exc_info=True,
                 )
             return None
 
