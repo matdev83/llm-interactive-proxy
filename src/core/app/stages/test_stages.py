@@ -7,6 +7,7 @@ replacing production services with mocks and test doubles.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
@@ -141,14 +142,13 @@ class MockBackendStage(BaseTestBackendStage):
         except ImportError:
             return None
 
-        try:
+        client = None
+        with contextlib.suppress(RuntimeError):
+            # Service not registered
             provider = services.build_service_provider()
             client = provider.get_service(httpx.AsyncClient)
-            if client is not None:
-                return client
-        except RuntimeError:
-            # Service not registered
-            pass
+        if client is not None:
+            return client
         return None
 
     def _register_backend_config_provider(self, services: ServiceCollection) -> None:

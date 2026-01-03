@@ -26,7 +26,9 @@ def get_app_config_from_state(app: Any) -> Any:
     service_provider = getattr(app, "state", None)  # noqa: DIP-violation-test-utility
     if service_provider and hasattr(service_provider, "service_provider"):
         # Try to get AppConfig through IApplicationState
-        try:
+        import contextlib
+
+        with contextlib.suppress(ImportError, AttributeError):
             from src.core.interfaces.application_state_interface import (
                 IApplicationState,
             )
@@ -36,8 +38,6 @@ def get_app_config_from_state(app: Any) -> Any:
             )
             if app_state_service:
                 app_config = app_state_service.get_setting("app_config")
-        except (ImportError, AttributeError):
-            pass
 
     # Fallback for legacy test code - this will be removed once all code is migrated
     if (

@@ -7,6 +7,7 @@ DI-driven command paths behave consistently.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from typing import Any
 
@@ -30,13 +31,11 @@ def parse_command_arguments(args_str: str | None) -> dict[str, Any]:
         return args
 
     # Try JSON first
-    try:
+    with contextlib.suppress(json.JSONDecodeError):
         parsed = json.loads(args_str)
         if isinstance(parsed, dict):
             return parsed
         return {"value": parsed}
-    except json.JSONDecodeError:
-        pass
 
     # Fallback simple parser: key=value pairs or flags
     for raw in args_str.split(","):

@@ -329,7 +329,8 @@ class ServerLifecycleManager:
             await asyncio.gather(*servers)
         except KeyboardInterrupt:
             # Allow clean exit on Ctrl+C
-            pass
+            if logger.isEnabledFor(logging.INFO):
+                logger.info("Server interrupted by user (Ctrl+C)")
         except Exception as e:
             logging.exception("Server failed: %s", e)
             raise
