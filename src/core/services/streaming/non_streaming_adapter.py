@@ -14,6 +14,7 @@ from typing import Any, cast
 
 from pydantic.types import JsonValue
 
+from src.core.domain.chat import ToolCall
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import (
     ProcessedChunkContent,
@@ -342,22 +343,24 @@ def _extract_metadata(response: Any) -> dict[str, Any]:
     return {}
 
 
-def _extract_tool_calls(response: Any) -> list[dict[str, Any]] | None:
-    """Extract tool_calls from various response formats."""
+def _extract_tool_calls(response: Any) -> list[ToolCall] | None:
+    """Extract tool_calls from various response formats and convert to ToolCall objects."""
     if isinstance(response, ProcessedResponse):
         metadata = response.metadata or {}
         tool_calls = metadata.get("tool_calls")
         if isinstance(tool_calls, list) and all(
             isinstance(item, dict) for item in tool_calls
         ):
-            return cast(list[dict[str, Any]], tool_calls)
+            # Convert dict tool_calls to ToolCall objects
+            return [ToolCall.model_validate(item) for item in tool_calls]
 
     if isinstance(response, StreamingContent):
         tool_calls = response.metadata.get("tool_calls")
         if isinstance(tool_calls, list) and all(
             isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
         ):
-            return cast(list[dict[str, Any]], tool_calls)
+            # Convert dict tool_calls to ToolCall objects
+            return [ToolCall.model_validate(item) for item in tool_calls]
 
     if isinstance(response, dict):
         # Check in choices[0].message.tool_calls (OpenAI format)
@@ -371,12 +374,14 @@ def _extract_tool_calls(response: Any) -> list[dict[str, Any]] | None:
                     if isinstance(tool_calls, list) and all(
                         isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
                     ):
-                        return cast(list[dict[str, Any]], tool_calls)
+                        # Convert dict tool_calls to ToolCall objects
+                        return [ToolCall.model_validate(item) for item in tool_calls]
         # Check direct tool_calls field
         tool_calls = response.get("tool_calls")
         if isinstance(tool_calls, list) and all(
             isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
         ):
-            return cast(list[dict[str, Any]], tool_calls)
+            # Convert dict tool_calls to ToolCall objects
+            return [ToolCall.model_validate(item) for item in tool_calls]
 
     return None

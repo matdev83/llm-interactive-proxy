@@ -163,7 +163,12 @@ def _load_gemini_oauth_client_config() -> GeminiOAuthClientConfig:
                     )
         except (ValueError, KeyError, TypeError):
             # Ignore parsing errors and continue to next source
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to parse OAuth client config from %s, trying next source",
+                    path,
+                    exc_info=True,
+                )
 
     env_client_id = os.getenv("GEMINI_CLI_CLIENT_ID")
     env_client_secret = os.getenv("GEMINI_CLI_CLIENT_SECRET")
@@ -935,7 +940,12 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     return True
                 self._last_modified = current_modified
             except OSError:
-                pass
+                # File stat failed (likely deleted between checks), proceed with read attempt
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to get file modification time, proceeding to read",
+                        exc_info=True,
+                    )
 
             def _read_sync() -> dict[str, Any]:
                 with open(creds_path, encoding="utf-8") as f:

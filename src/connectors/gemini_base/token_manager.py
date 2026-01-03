@@ -371,7 +371,15 @@ class TokenManager:
         if hasattr(self, "_cli_refresh_process"):
             process = self._cli_refresh_process
             if process is not None:
-                try:
+                # Use contextlib.suppress for expected cleanup exceptions
+                import contextlib
+
+                # Expected exceptions during subprocess cleanup:
+                # - OSError: process operations may fail during shutdown
+                # - ProcessLookupError: process already terminated
+                # - AttributeError: partial initialization state
+                # Suppress these as they're cleanup-time artifacts
+                with contextlib.suppress(OSError, ProcessLookupError, AttributeError):
                     if process.poll() is None:
                         # Process is still running, terminate it
                         process.terminate()
@@ -380,28 +388,14 @@ class TokenManager:
                         except subprocess.TimeoutExpired:
                             # Process didn't terminate, force kill
                             process.kill()
-                            import contextlib
-
                             with contextlib.suppress(
                                 subprocess.TimeoutExpired, OSError
                             ):
                                 process.wait(timeout=5)
-                except (OSError, ProcessLookupError, AttributeError):
-                    # Expected exceptions during subprocess cleanup:
-                    # - OSError: process operations may fail during shutdown
-                    # - ProcessLookupError: process already terminated
-                    # - AttributeError: partial initialization state
-                    # Suppress these as they're cleanup-time artifacts
-                    pass
-                except Exception:
-                    # Truly unexpected exceptions during interpreter shutdown.
-                    # Logging system may be down, so we suppress these exceptions.
-                    # Still let system-level exceptions propagate (SystemExit, KeyboardInterrupt, etc.)
-                    # Note: We don't log here as logging system may be unavailable during shutdown
-                    pass
-                finally:
-                    # Always clear the reference to prevent leaks
-                    self._cli_refresh_process = None
+
+                # Finally clause runs regardless of exceptions
+                # Always clear the reference to prevent leaks
+                self._cli_refresh_process = None
 
 
 __all__ = [

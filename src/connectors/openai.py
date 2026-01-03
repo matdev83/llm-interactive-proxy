@@ -755,7 +755,11 @@ class OpenAIConnector(LLMBackend):
                 payload["messages"] = normalized_messages
             except (KeyError, TypeError, AttributeError):
                 # Fallback - leave whatever the converter produced
-                pass
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Message normalization failed, using converter output as fallback",
+                        exc_info=True,
+                    )
 
         # The caller may supply an "effective_model" which should override
         # the model value coming from the domain request. Many tests expect
