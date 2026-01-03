@@ -957,14 +957,14 @@ class QwenOAuthConnector(OpenAIConnector):
 
             # Step 3: Validate loaded credentials structure
             if self._oauth_credentials:
-                is_valid, validation_errors = self._validate_credentials_structure(
+                validation_result = self._validate_credentials_structure(
                     self._oauth_credentials
                 )
-                if not is_valid:
+                if not validation_result.is_valid:
                     logger.error(
-                        f"Loaded credentials are invalid: {'; '.join(validation_errors)}"
+                        f"Loaded credentials are invalid: {'; '.join(validation_result.errors)}"
                     )
-                    self._credential_validation_errors = validation_errors
+                    self._credential_validation_errors = validation_result.errors
                     self._initialization_failed = True
                     self.is_functional = False
 
@@ -1866,16 +1866,13 @@ class QwenOAuthConnector(OpenAIConnector):
                                 process.wait(timeout=5)
                 except Exception:
                     # Suppress all exceptions during interpreter shutdown
-                    # The logging system may already be torn down, so wrap logging in try-except
-                    try:
+                    # The logging system may already be torn down, so wrap logging in contextlib.suppress
+                    with contextlib.suppress(Exception):
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
                                 "Failed to cleanup CLI refresh process during __del__",
                                 exc_info=True,
                             )
-                    except Exception:
-                        # Logging system unavailable - suppress silently
-                        pass
                 finally:
                     # Always clear the reference to prevent leaks
                     self._cli_refresh_process = None

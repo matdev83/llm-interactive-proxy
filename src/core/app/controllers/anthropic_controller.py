@@ -5,6 +5,7 @@ Handles Anthropic API endpoints.
 """
 
 import asyncio
+import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
@@ -259,8 +260,9 @@ class AnthropicController:
                         raw_body=raw_body_bytes,
                     )
                 except (AttributeError, RuntimeError):
-                    # Wire capture service not available or disabled
-                    pass
+                    # Wire capture service not available or disabled (benign)
+                    with contextlib.suppress(AttributeError, RuntimeError):
+                        pass
                 except Exception as e:
                     # Unexpected error - log for debugging
                     if logger.isEnabledFor(logging.WARNING):

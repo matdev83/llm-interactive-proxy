@@ -1012,7 +1012,8 @@ class OpenAIConnector(LLMBackend):
 
             # Attempt to parse error body as JSON and map Codex-specific errors
             error_detail: dict[str, Any] | str = body
-            try:
+            with contextlib.suppress(json.JSONDecodeError, ValueError):
+                # Parse JSON; on failure, body remains as string (backward compatible)
                 parsed_error = json.loads(body)
                 if (
                     status_code == 400
@@ -1038,9 +1039,6 @@ class OpenAIConnector(LLMBackend):
                 elif isinstance(parsed_error, dict):
                     # Use parsed JSON if it's a dict
                     error_detail = parsed_error
-            except (json.JSONDecodeError, ValueError):
-                # Not JSON or invalid JSON - use body as string (backward compatible)
-                pass
 
             raise HTTPException(
                 status_code=status_code,
@@ -1409,7 +1407,8 @@ class OpenAIConnector(LLMBackend):
 
         # Update messages with processed_messages if available
         if processed_messages:
-            try:
+            with contextlib.suppress(KeyError, TypeError, AttributeError):
+                # Normalize messages; on failure, leave whatever the converter produced (fallback)
                 normalized_messages: list[dict[str, Any]] = []
                 for m in processed_messages:
                     # If the message is a pydantic model, use model_dump
@@ -1437,9 +1436,6 @@ class OpenAIConnector(LLMBackend):
                     normalized_messages.append(msg)
 
                 payload["messages"] = normalized_messages
-            except (KeyError, TypeError, AttributeError):
-                # Fallback - leave whatever the converter produced
-                pass
 
         headers_override = kwargs.pop("headers_override", None)
         resolved_headers: dict[str, str] | None = None

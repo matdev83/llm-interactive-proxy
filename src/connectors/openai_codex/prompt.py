@@ -5,6 +5,7 @@ This module provides prompt resolution and instruction merging functionality.
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -195,21 +196,14 @@ class PromptResolver(IPromptResolver):
 
         logger = logging.getLogger(__name__)
 
-        try:
+        with contextlib.suppress(FileNotFoundError, ModuleNotFoundError):
+            # Try loading from package resources; on failure, fall back to file system paths
             from importlib import resources as importlib_resources
 
             return importlib_resources.read_text(
                 CODEX_PROMPT_RESOURCE_PACKAGE,
                 CODEX_PROMPT_RESOURCE_NAME,
                 encoding="utf-8",
-            )
-        except (FileNotFoundError, ModuleNotFoundError):
-            pass
-        except Exception as exc:  # pragma: no cover - diagnostic path
-            logger.warning(
-                "Failed to load Codex system prompt from package resources: %s",
-                exc,
-                exc_info=True,
             )
 
         fallback_paths = [
