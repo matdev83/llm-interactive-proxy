@@ -201,7 +201,9 @@ class DangerousCommandCheck(ISecurityCheck):
                     self._compiled_patterns.append((name, compiled, desc))
                 except re.error:
                     if logger.isEnabledFor(logging.WARNING):
-                        logger.warning("Failed to compile built-in pattern: %s", name)
+                        logger.warning(
+                            "Failed to compile built-in pattern: %s", name, exc_info=True
+                        )
 
         # Add custom rules
         for rule in config.rules:
@@ -214,7 +216,9 @@ class DangerousCommandCheck(ISecurityCheck):
                 except re.error:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to compile custom pattern: %s", rule.name
+                            "Failed to compile custom pattern: %s",
+                            rule.name,
+                            exc_info=True,
                         )
 
     @property

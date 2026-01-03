@@ -431,7 +431,9 @@ class WireCapture(IWireCapture):
         except OSError as e:
             # Ignore rotation failures
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error during wire capture rotation: %s", e)
+                logger.warning(
+                    "Error during wire capture rotation: %s", e, exc_info=True
+                )
 
     async def _enforce_total_cap_async(self, incoming_size: int = 0) -> None:
         """Optimized version that uses cached size to avoid expensive file scanning."""
@@ -479,7 +481,9 @@ class WireCapture(IWireCapture):
             self._size_cache_valid = True
         except OSError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error recalculating wire capture total size: %s", e)
+                logger.warning(
+                    "Error recalculating wire capture total size: %s", e, exc_info=True
+                )
             self._cached_total_size = 0
             self._size_cache_valid = False
 
@@ -543,7 +547,7 @@ class WireCapture(IWireCapture):
 
 def _safe_json_dump(obj: Any) -> str:
     """Safely convert object to JSON string with deterministic key ordering.
-    
+
     Uses deterministic serialization (sorted keys) to ensure consistent output
     for diff-based debugging and replay workflows (Requirement 7.3).
     """
@@ -559,12 +563,16 @@ def _safe_json_dump(obj: Any) -> str:
                     json_str = obj.model_dump_json(indent=2)  # type: ignore[attr-defined, no-any-return]
                     # Parse and re-serialize with sorted keys for determinism
                     parsed = json.loads(json_str)
-                    return json.dumps(parsed, sort_keys=True, ensure_ascii=False, indent=2)
+                    return json.dumps(
+                        parsed, sort_keys=True, ensure_ascii=False, indent=2
+                    )
                 # Use model_dump() and serialize with sorted keys
                 data = obj.model_dump()  # type: ignore[attr-defined]
                 return json.dumps(data, sort_keys=True, ensure_ascii=False, indent=2)
             # Use __dict__ and serialize with sorted keys
-            return json.dumps(obj.__dict__, sort_keys=True, ensure_ascii=False, indent=2)
+            return json.dumps(
+                obj.__dict__, sort_keys=True, ensure_ascii=False, indent=2
+            )
         except (TypeError, ValueError, AttributeError) as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
