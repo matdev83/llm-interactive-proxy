@@ -700,7 +700,8 @@ class ResponsesController:
         except LLMProxyError as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"LLM Proxy error in Responses API - request_id={request_id}, error={e}"
+                    f"LLM Proxy error in Responses API - request_id={request_id}, error={e}",
+                    exc_info=True,
                 )
             # Map domain exceptions to HTTP exceptions
             raise map_domain_exception_to_http_exception(e) from e

@@ -559,7 +559,7 @@ class ApplicationBuilder:
             configure_middleware(app, config)
         except ImportError:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Middleware configuration not available")
+                logger.warning("Middleware configuration not available", exc_info=True)
 
     def _register_routes(self, app: FastAPI) -> None:
         """Register routes for the FastAPI application."""
@@ -569,7 +569,7 @@ class ApplicationBuilder:
             register_routes(app)
         except ImportError:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Route registration not available")
+                logger.warning("Route registration not available", exc_info=True)
 
     def _register_exception_handlers(self, app: FastAPI) -> None:
         """Register exception handlers for the FastAPI application."""
@@ -581,7 +581,7 @@ class ApplicationBuilder:
             register_exception_handlers(app)
         except ImportError:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Exception handlers not available")
+                logger.warning("Exception handlers not available", exc_info=True)
 
     def _add_lifecycle_handlers(
         self, app: FastAPI, service_provider: IServiceProvider

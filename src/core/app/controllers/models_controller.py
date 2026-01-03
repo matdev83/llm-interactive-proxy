@@ -397,6 +397,7 @@ async def _list_models_impl(
                                 "Failed to initialize backend %s: %s",
                                 backend_type,
                                 init_exc,
+                                exc_info=True,
                             )
                         # Depending on the backend, failure to initialize might mean it's unusable.
                         # For opencode-zen, initialize sets is_functional.
