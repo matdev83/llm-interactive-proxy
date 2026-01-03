@@ -1405,8 +1405,10 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 errors.append(f"Unexpected error reading {path}: {exc}")
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error loading Antigravity credentials from %s: %s", path, exc,
-                        exc_info=True
+                        "Error loading Antigravity credentials from %s: %s",
+                        path,
+                        exc,
+                        exc_info=True,
                     )
 
         if errors:
@@ -1480,8 +1482,22 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                     _ = task
                             else:
                                 # Loop exists but not running - run cleanup synchronously
-                                with contextlib.suppress(Exception):
+                                try:
                                     loop.run_until_complete(self.client.aclose())
+                                except Exception:
+                                    # Exception during sync cleanup - log and suppress
+                                    try:
+                                        import logging
+
+                                        cleanup_logger = logging.getLogger(__name__)
+                                        if cleanup_logger.isEnabledFor(logging.DEBUG):
+                                            cleanup_logger.debug(
+                                                "Exception during synchronous cleanup of AntigravityOAuthConnector client",
+                                                exc_info=True,
+                                            )
+                                    except Exception:
+                                        # Logging system unavailable - suppress silently
+                                        pass
                     except (RuntimeError, AttributeError):
                         # No event loop available - can't close async client
                         # This is acceptable during interpreter shutdown
@@ -1499,8 +1515,16 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                             exc_info=True,
                         )
                 except Exception:
-                    # Logging system unavailable - suppress silently
-                    pass
+                    # Logging system unavailable - try stderr as fallback
+                    try:
+                        import sys
+
+                        sys.stderr.write(
+                            "Warning: Logging system unavailable during AntigravityOAuthConnector cleanup\n"
+                        )
+                    except Exception:
+                        # Even stderr is unavailable - suppress silently
+                        pass
 
         # Call parent cleanup
         super().__del__()

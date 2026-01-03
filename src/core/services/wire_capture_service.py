@@ -530,7 +530,11 @@ class WireCapture(IWireCapture):
                     self._size_cache_valid = True
         except OSError as e:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Error enforcing total cap on wire capture logs: %s", e)
+                logger.warning(
+                    "Error enforcing total cap on wire capture logs: %s",
+                    e,
+                    exc_info=True,
+                )
             # Invalidate cache on error
             self._size_cache_valid = False
 

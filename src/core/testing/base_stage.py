@@ -165,7 +165,8 @@ class ValidatedTestStage(InitializationStage):
                 logger.error(
                     f"Session service validation failed for {service_type.__name__}: {e}\n"
                     f"HINT: Use EnforcedMockFactory.create_session_service_mock() instead of "
-                    f"creating AsyncMock directly."
+                    f"creating AsyncMock directly.",
+                    exc_info=True,
                 )
 
         # Check for improperly configured AsyncMocks

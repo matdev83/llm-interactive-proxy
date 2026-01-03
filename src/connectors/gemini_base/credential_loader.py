@@ -137,20 +137,26 @@ class CredentialLoader:
 
         if not creds_path.exists():
             errors.append(f"OAuth credentials file not found at {creds_path}")
-            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
+            return CredentialFileValidationResult(
+                is_valid=False, errors=errors, path=creds_path
+            )
 
         if not creds_path.is_file():
             errors.append(
                 f"OAuth credentials path exists but is not a file: {creds_path}"
             )
-            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
+            return CredentialFileValidationResult(
+                is_valid=False, errors=errors, path=creds_path
+            )
 
         try:
             with open(creds_path, encoding="utf-8") as f:
                 credentials = json.load(f)
 
             # Validate the loaded credentials
-            structure_result = CredentialLoader.validate_credentials_structure(credentials)
+            structure_result = CredentialLoader.validate_credentials_structure(
+                credentials
+            )
             errors.extend(structure_result.errors)
 
             return CredentialFileValidationResult(
@@ -159,13 +165,19 @@ class CredentialLoader:
 
         except json.JSONDecodeError as e:
             errors.append(f"Invalid JSON in credentials file: {e}")
-            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
+            return CredentialFileValidationResult(
+                is_valid=False, errors=errors, path=creds_path
+            )
         except PermissionError:
             errors.append(f"Permission denied reading credentials file: {creds_path}")
-            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
+            return CredentialFileValidationResult(
+                is_valid=False, errors=errors, path=creds_path
+            )
         except Exception as e:
             errors.append(f"Unexpected error reading credentials file: {e}")
-            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
+            return CredentialFileValidationResult(
+                is_valid=False, errors=errors, path=creds_path
+            )
 
     @staticmethod
     def validate_active_credentials_path(
@@ -275,14 +287,22 @@ class CredentialLoader:
                         return True
                 except OSError:
                     # If cannot get file stats, proceed with reading
-                    pass
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "OSError when checking credentials file modification time",
+                            exc_info=True,
+                        )
 
             # Update last modified time
             try:
                 current_modified = creds_path.stat().st_mtime
                 storage._last_modified = current_modified  # type: ignore[misc]
             except OSError:
-                pass
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "OSError when updating credentials file modification time",
+                        exc_info=True,
+                    )
 
             raw_text = creds_path.read_text(encoding="utf-8")
             credentials = json.loads(raw_text)
