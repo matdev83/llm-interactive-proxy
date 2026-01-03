@@ -291,7 +291,7 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
         )
     except ImportError as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Could not register ToolCallRepairService: %s", e)
+            logger.warning("Could not register ToolCallRepairService: %s", e, exc_info=True)
 
     # Register HistoryCompactionService
     from src.core.interfaces.history_compaction_interface import (

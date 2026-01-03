@@ -62,6 +62,7 @@ class CommandParser:
             logger.warning(
                 "Failed to import command handler module: %s - handlers will not be available",
                 e,
+                exc_info=True,
             )
         except OSError as exc:
             # Filesystem errors during module iteration (e.g., permission issues)
