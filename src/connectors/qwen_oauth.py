@@ -251,7 +251,8 @@ class QwenOAuthConnector(OpenAIConnector):
         except FileNotFoundError:
             self._last_cli_refresh_attempt = now
             logger.error(
-                "Qwen CLI binary not found; cannot refresh OAuth token automatically."
+                "Qwen CLI binary not found; cannot refresh OAuth token automatically.",
+                exc_info=True,
             )
         except Exception as exc:  # pragma: no cover - defensive logging
             self._last_cli_refresh_attempt = now

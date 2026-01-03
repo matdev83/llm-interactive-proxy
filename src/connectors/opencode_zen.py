@@ -509,6 +509,7 @@ class OpencodeZenConnector(OpenAIConnector):
                         "Token used: %s. "
                         "Reloading credentials and retrying...",
                         masked_token,
+                        exc_info=True,
                     )
                 if await self._load_oauth_credentials():
                     # Retry the stream
@@ -628,7 +629,8 @@ class OpencodeZenConnector(OpenAIConnector):
 
             if is_401:
                 logger.warning(
-                    "Received 401 from OpenCode Zen backend. Reloading credentials and retrying..."
+                    "Received 401 from OpenCode Zen backend. Reloading credentials and retrying...",
+                    exc_info=True,
                 )
                 # Reload credentials (force check)
                 if await self._load_oauth_credentials():
