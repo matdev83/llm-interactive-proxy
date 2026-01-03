@@ -92,8 +92,15 @@ class ReasoningConfigApplicator(IReasoningConfigApplicator):
                                 numeric_value = min(
                                     int(current_value), int(numeric_value)
                                 )
-                    except (TypeError, ValueError):
-                        pass
+                    except (TypeError, ValueError) as e:
+                        # Failed to apply edit precision constraint - use override value
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Failed to apply edit precision constraint for field '%s': %s",
+                                field,
+                                e,
+                                exc_info=True,
+                            )
 
                 updates[field] = numeric_value
 
@@ -270,7 +277,9 @@ class ReasoningConfigApplicator(IReasoningConfigApplicator):
             # Log at DEBUG level and continue (fail-open behavior)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to apply reasoning config (expected error): %s", e, exc_info=True
+                    "Failed to apply reasoning config (expected error): %s",
+                    e,
+                    exc_info=True,
                 )
         except Exception as e:
             # Unexpected exceptions should be logged at WARNING level for visibility

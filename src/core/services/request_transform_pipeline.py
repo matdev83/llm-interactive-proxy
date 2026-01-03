@@ -502,12 +502,13 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
             # Suppress hybrid reasoning
             if app_config is not None:
-                try:
+                # Intentionally silent control flow: AttributeError/TypeError indicates config attribute not available
+                with contextlib.suppress(AttributeError, TypeError):
                     hrp = getattr(app_config, "hybrid_reasoning_probability", 0.5)
                     extra_body["_temp_hybrid_reasoning_probability"] = 0.0
                     # Also set metadata for observability
                     meta = extra_body.get("_edit_precision_meta")
-                    if not isinstance(meta, dict):
+                    if meta is None:
                         meta = {}
                         extra_body["_edit_precision_meta"] = meta
                     meta["applied_hybrid_reasoning_probability"] = 0.0
@@ -518,8 +519,6 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                             hrp,
                             extra={"session_id": session_id},
                         )
-                except (AttributeError, TypeError):
-                    pass
 
             request = request.model_copy(update={"extra_body": extra_body})
         except Exception as e:

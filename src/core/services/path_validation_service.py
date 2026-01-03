@@ -163,11 +163,10 @@ class PathValidationService(IPathValidator):
             # If allow_parent, check if boundary is within path
             # This allows access to parent directories of the project root
             if allow_parent:
-                try:
+                # Intentionally silent control flow: ValueError indicates boundary is not within path
+                with contextlib_suppress(ValueError):
                     boundary.relative_to(path)
                     return True
-                except ValueError:
-                    pass
 
             return False
 

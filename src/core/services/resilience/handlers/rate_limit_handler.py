@@ -155,12 +155,13 @@ class RateLimitErrorHandler(BaseErrorHandler):
         # Check RateLimitExceededError.reset_at (Unix timestamp)
         reset_at = getattr(error, "reset_at", None)
         if reset_at is not None:
-            try:
+            # Intentionally silent control flow: TypeError/ValueError indicates invalid timestamp format
+            import contextlib
+
+            with contextlib.suppress(ValueError, TypeError):
                 remaining = float(reset_at) - time.time()
                 if remaining > 0:
                     return remaining
-            except (ValueError, TypeError):
-                pass
 
         # Check details dict for retry_after_seconds
         details = getattr(error, "details", None) or {}
@@ -168,10 +169,11 @@ class RateLimitErrorHandler(BaseErrorHandler):
             # Direct retry_after_seconds
             retry_seconds = details.get("retry_after_seconds")
             if retry_seconds is not None:
-                try:
+                # Intentionally silent control flow: TypeError/ValueError indicates invalid retry_after_seconds format
+                import contextlib
+
+                with contextlib.suppress(ValueError, TypeError):
                     return float(retry_seconds)
-                except (ValueError, TypeError):
-                    pass
 
             # Check headers for Retry-After
             headers = details.get("headers", {})
