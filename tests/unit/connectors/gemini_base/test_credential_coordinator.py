@@ -13,6 +13,10 @@ import pytest
 from src.connectors.gemini_base.credential_coordinator import (
     GeminiCredentialCoordinator,
 )
+from src.connectors.gemini_base.credential_loader import (
+    CredentialFileValidationResult,
+    CredentialStructureValidationResult,
+)
 from src.connectors.gemini_base.file_watcher import FileWatcherState
 from src.connectors.gemini_base.models import GeminiOAuthCredentials
 from src.connectors.gemini_base.token_manager import TokenManager
@@ -79,9 +83,11 @@ class TestInitialize:
         """Verify credentials are loaded on initialize."""
         # Setup mocks
         mock_credential_loader.validate_credentials_file_exists.return_value = (
-            True,
-            [],
-            Path("/test/oauth_creds.json"),
+            CredentialFileValidationResult(
+                is_valid=True,
+                errors=[],
+                path=Path("/test/oauth_creds.json"),
+            )
         )
         mock_credential_loader.load_oauth_credentials = AsyncMock(return_value=True)
 
@@ -97,7 +103,9 @@ class TestInitialize:
             return True
 
         mock_credential_loader.load_oauth_credentials.side_effect = load_side_effect
-        mock_credential_loader.validate_credentials_structure.return_value = (True, [])
+        mock_credential_loader.validate_credentials_structure.return_value = (
+            CredentialStructureValidationResult(is_valid=True, errors=[])
+        )
 
         # Execute
         await coordinator.initialize(gemini_cli_oauth_path=None)

@@ -808,7 +808,8 @@ class TestPytestCompressionServiceDetection:
             {"command": "py.test -k sample"},
         )
 
-        assert detection == (True, "py.test -k sample")
+        assert detection is not None
+        assert detection.command == "py.test -k sample"
 
     def test_scan_tool_call_for_pytest_handles_function_arguments(self) -> None:
         """Ensure ToolCall wrappers using py.test are detected."""
@@ -823,4 +824,5 @@ class TestPytestCompressionServiceDetection:
 
         detection = service.scan_tool_call_for_pytest(tool_call)
 
-        assert detection == (True, "py.test -q")
+        assert detection is not None
+        assert detection.command == "py.test -q"

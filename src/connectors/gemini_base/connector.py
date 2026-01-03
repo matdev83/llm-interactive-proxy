@@ -41,7 +41,11 @@ from src.connectors.gemini_base.config import (
 from src.connectors.gemini_base.credential_coordinator import (
     GeminiCredentialCoordinator,
 )
-from src.connectors.gemini_base.credential_loader import CredentialLoader
+from src.connectors.gemini_base.credential_loader import (
+    CredentialLoader,
+    CredentialPathValidationResult,
+    CredentialStructureValidationResult,
+)
 from src.connectors.gemini_base.credentials import (
     TOKEN_EXPIRY_BUFFER_SECONDS,
 )
@@ -664,18 +668,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any], silent: bool = False
-    ) -> tuple[bool, list[str]]:
+    ) -> CredentialStructureValidationResult:
         """Validate the structure and content of OAuth credentials."""
         return CredentialLoader.validate_credentials_structure(credentials, silent)
 
-    def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
+    def _validate_credentials_file_exists(self) -> CredentialStructureValidationResult:
         """Validate that the OAuth credentials file exists and is readable."""
-        is_valid, errors, _ = CredentialLoader.validate_credentials_file_exists(
+        file_result = CredentialLoader.validate_credentials_file_exists(
             self.gemini_cli_oauth_path
         )
-        return is_valid, errors
+        return CredentialStructureValidationResult(
+            is_valid=file_result.is_valid, errors=file_result.errors
+        )
 
-    def _validate_active_credentials_path(self) -> tuple[bool, list[str]]:
+    def _validate_active_credentials_path(self) -> CredentialPathValidationResult:
         """Validate the currently used credentials path, if known."""
         return CredentialLoader.validate_active_credentials_path(
             self._credentials_path, self.gemini_cli_oauth_path
@@ -884,11 +890,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             previous_fingerprint = self._credentials_fingerprint
 
             # Validate file first (silently)
-            ok, errs = self._validate_active_credentials_path()
-            if not ok:
-                self._degrade(errs)
+            path_result = self._validate_active_credentials_path()
+            if not path_result.is_valid:
+                self._degrade(path_result.errors)
                 logger.warning(
-                    f"Updated credentials file is invalid: {'; '.join(errs)}"
+                    f"Updated credentials file is invalid: {'; '.join(path_result.errors)}"
                 )
                 return
 
@@ -1228,8 +1234,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             response = await self.client.get(url, headers=headers, timeout=15.0)
         except Exception as exc:
             logger.warning(
-                "Failed to reach fetchAvailableModels endpoint %s: %s", url, exc,
-                exc_info=True
+                "Failed to reach fetchAvailableModels endpoint %s: %s",
+                url,
+                exc,
+                exc_info=True,
             )
             return
 
@@ -1246,8 +1254,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             data = response.json()
         except Exception as exc:
             logger.warning(
-                "Failed to decode fetchAvailableModels response from %s: %s", url, exc,
-                exc_info=True
+                "Failed to decode fetchAvailableModels response from %s: %s",
+                url,
+                exc,
+                exc_info=True,
             )
             return
 
@@ -2176,7 +2186,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             arguments_parser = provider.get_service(IToolArgumentsParser)  # type: ignore[type-abstract]
             arguments_fixup_pipeline = provider.get_service(IToolArgumentsFixupPipeline)  # type: ignore[type-abstract]
         except Exception as exc:
-            logger.warning("Failed to get tool call reactor services for VTC: %s", exc, exc_info=True)
+            logger.warning(
+                "Failed to get tool call reactor services for VTC: %s",
+                exc,
+                exc_info=True,
+            )
 
         reactor_context = {
             "backend_name": self.backend_type,

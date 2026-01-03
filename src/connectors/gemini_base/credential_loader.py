@@ -15,7 +15,31 @@ import logging
 from pathlib import Path
 from typing import Any, Protocol
 
+from pydantic import BaseModel
+
 logger = logging.getLogger(__name__)
+
+
+class CredentialStructureValidationResult(BaseModel):
+    """Result of validating OAuth credential structure."""
+
+    is_valid: bool
+    errors: list[str]
+
+
+class CredentialFileValidationResult(BaseModel):
+    """Result of validating OAuth credentials file existence and structure."""
+
+    is_valid: bool
+    errors: list[str]
+    path: Path
+
+
+class CredentialPathValidationResult(BaseModel):
+    """Result of validating an active credentials path."""
+
+    is_valid: bool
+    errors: list[str]
 
 
 class CredentialStorage(Protocol):
@@ -41,7 +65,7 @@ class CredentialLoader:
     @staticmethod
     def validate_credentials_structure(
         credentials: dict[str, Any], silent: bool = False
-    ) -> tuple[bool, list[str]]:
+    ) -> CredentialStructureValidationResult:
         """Validate the structure and content of OAuth credentials.
 
         Args:
@@ -49,7 +73,7 @@ class CredentialLoader:
             silent: If True, suppress INFO level logging.
 
         Returns:
-            Tuple of (is_valid, list_of_errors).
+            CredentialStructureValidationResult containing validation status and errors.
         """
         errors: list[str] = []
 
@@ -86,19 +110,21 @@ class CredentialLoader:
                         "refresh will be triggered."
                     )
 
-        return len(errors) == 0, errors
+        return CredentialStructureValidationResult(
+            is_valid=len(errors) == 0, errors=errors
+        )
 
     @staticmethod
     def validate_credentials_file_exists(
         gemini_cli_oauth_path: str | None,
-    ) -> tuple[bool, list[str], Path | None]:
+    ) -> CredentialFileValidationResult:
         """Validate that the OAuth credentials file exists and is readable.
 
         Args:
             gemini_cli_oauth_path: Custom path to .gemini directory, or None for default.
 
         Returns:
-            Tuple of (is_valid, list_of_errors, resolved_path).
+            CredentialFileValidationResult containing validation status, errors, and resolved path.
         """
         errors: list[str] = []
 
@@ -111,41 +137,41 @@ class CredentialLoader:
 
         if not creds_path.exists():
             errors.append(f"OAuth credentials file not found at {creds_path}")
-            return False, errors, creds_path
+            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
 
         if not creds_path.is_file():
             errors.append(
                 f"OAuth credentials path exists but is not a file: {creds_path}"
             )
-            return False, errors, creds_path
+            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
 
         try:
             with open(creds_path, encoding="utf-8") as f:
                 credentials = json.load(f)
 
             # Validate the loaded credentials
-            is_valid, validation_errors = (
-                CredentialLoader.validate_credentials_structure(credentials)
-            )
-            errors.extend(validation_errors)
+            structure_result = CredentialLoader.validate_credentials_structure(credentials)
+            errors.extend(structure_result.errors)
 
-            return is_valid, errors, creds_path
+            return CredentialFileValidationResult(
+                is_valid=structure_result.is_valid, errors=errors, path=creds_path
+            )
 
         except json.JSONDecodeError as e:
             errors.append(f"Invalid JSON in credentials file: {e}")
-            return False, errors, creds_path
+            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
         except PermissionError:
             errors.append(f"Permission denied reading credentials file: {creds_path}")
-            return False, errors, creds_path
+            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
         except Exception as e:
             errors.append(f"Unexpected error reading credentials file: {e}")
-            return False, errors, creds_path
+            return CredentialFileValidationResult(is_valid=False, errors=errors, path=creds_path)
 
     @staticmethod
     def validate_active_credentials_path(
         credentials_path: Path | None,
         gemini_cli_oauth_path: str | None,
-    ) -> tuple[bool, list[str]]:
+    ) -> CredentialPathValidationResult:
         """Validate the currently used credentials path, if known.
 
         This avoids incorrectly validating a different credential source (e.g.,
@@ -156,7 +182,7 @@ class CredentialLoader:
             gemini_cli_oauth_path: Custom path to .gemini directory.
 
         Returns:
-            Tuple of (is_valid, list_of_errors).
+            CredentialPathValidationResult containing validation status and errors.
         """
         if credentials_path:
             errors: list[str] = []
@@ -172,12 +198,16 @@ class CredentialLoader:
                     f"Error accessing credentials path {credentials_path}: {exc}"
                 )
 
-            return len(errors) == 0, errors
+            return CredentialPathValidationResult(
+                is_valid=len(errors) == 0, errors=errors
+            )
 
-        is_valid, errors, _ = CredentialLoader.validate_credentials_file_exists(
+        file_result = CredentialLoader.validate_credentials_file_exists(
             gemini_cli_oauth_path
         )
-        return is_valid, errors
+        return CredentialPathValidationResult(
+            is_valid=file_result.is_valid, errors=file_result.errors
+        )
 
     @staticmethod
     def compute_credentials_fingerprint(credentials: dict[str, Any]) -> str:

@@ -2,9 +2,19 @@ import logging
 import re
 from typing import Any
 
+from pydantic import BaseModel
+
 from src.core.domain.chat import ToolCall
 
 logger = logging.getLogger(__name__)
+
+
+class PytestDetectionResult(BaseModel):
+    """Result of detecting pytest command in a tool call."""
+
+    command: str
+
+    model_config = {"extra": "allow"}
 
 
 class PytestCompressionService:
@@ -31,7 +41,9 @@ class PytestCompressionService:
         # Pattern to detect pytest in command arguments (supports pytest and py.test aliases)
         self.pytest_pattern = re.compile(r"\bpy\.?test\b", re.IGNORECASE)
 
-    def scan_tool_call_for_pytest(self, tool_call: ToolCall) -> tuple[bool, str] | None:
+    def scan_tool_call_for_pytest(
+        self, tool_call: ToolCall
+    ) -> PytestDetectionResult | None:
         """
         Scans a tool call for pytest commands.
 
@@ -39,12 +51,14 @@ class PytestCompressionService:
             tool_call: The tool call to scan.
 
         Returns:
-            A tuple containing (True, command_string) if pytest is detected,
-            otherwise None.
+            PytestDetectionResult if pytest is detected, otherwise None.
         """
-        return self.scan_for_pytest(
+        detection_result = self.scan_for_pytest(
             tool_call.function.name, tool_call.function.arguments
         )
+        if detection_result:
+            return detection_result
+        return None
 
     def _extract_command_string(self, arguments: Any) -> str | None:
         """Extract a shell command string from tool arguments.
@@ -111,11 +125,11 @@ class PytestCompressionService:
 
     def scan_for_pytest(
         self, tool_name: str, arguments: Any
-    ) -> tuple[bool, str] | None:
+    ) -> PytestDetectionResult | None:
         """
         Scan tool_name and arguments for pytest command.
 
-        Returns (True, command_string) if pytest is detected, otherwise None.
+        Returns PytestDetectionResult if pytest is detected, otherwise None.
         """
         # Only scan shell execution tools (case-insensitive match)
         if tool_name.lower() not in self._normalized_shell_tool_names:
@@ -130,6 +144,6 @@ class PytestCompressionService:
             logger.info(
                 f"Detected pytest command in tool call '{tool_name}': {command_to_check}"
             )
-            return True, command_to_check
+            return PytestDetectionResult(command=command_to_check)
 
         return None

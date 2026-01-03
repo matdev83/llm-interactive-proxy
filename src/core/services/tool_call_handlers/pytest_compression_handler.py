@@ -77,7 +77,7 @@ class PytestCompressionHandler(IToolCallHandler):
             # Not a pytest command; do not swallow
             return ToolCallReactionResult(should_swallow=False)
 
-        is_pytest, command = scan_result
+        command = scan_result.command
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(

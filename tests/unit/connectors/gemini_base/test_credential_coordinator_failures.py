@@ -14,6 +14,10 @@ import pytest
 from src.connectors.gemini_base.credential_coordinator import (
     GeminiCredentialCoordinator,
 )
+from src.connectors.gemini_base.credential_loader import (
+    CredentialFileValidationResult,
+    CredentialStructureValidationResult,
+)
 from src.connectors.gemini_base.file_watcher import FileWatcherState
 from src.connectors.gemini_base.models import GeminiOAuthCredentials
 from src.connectors.gemini_base.token_manager import TokenManager
@@ -165,9 +169,11 @@ class TestCredentialValidationErrors:
             "src.connectors.gemini_base.credential_coordinator.CredentialLoader"
         ) as mock_loader:
             mock_loader.validate_credentials_file_exists.return_value = (
-                True,
-                [],
-                Path("/test/oauth_creds.json"),
+                CredentialFileValidationResult(
+                    is_valid=True,
+                    errors=[],
+                    path=Path("/test/oauth_creds.json"),
+                )
             )
             mock_loader.load_oauth_credentials = AsyncMock(return_value=False)
 

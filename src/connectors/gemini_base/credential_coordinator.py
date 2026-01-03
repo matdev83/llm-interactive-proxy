@@ -10,7 +10,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from src.connectors.gemini_base.credential_loader import CredentialLoader
+from src.connectors.gemini_base.credential_loader import (
+    CredentialLoader,
+)
 from src.connectors.gemini_base.file_watcher import FileWatcher, FileWatcherState
 from src.connectors.gemini_base.interfaces import ICredentialCoordinator
 from src.connectors.gemini_base.models import GeminiOAuthCredentials
@@ -180,38 +182,38 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
         self._gemini_cli_oauth_path = gemini_cli_oauth_path
 
         # 1) Validate credentials file exists
-        is_valid, errors, creds_path = (
-            CredentialLoader.validate_credentials_file_exists(gemini_cli_oauth_path)
+        file_result = CredentialLoader.validate_credentials_file_exists(
+            gemini_cli_oauth_path
         )
-        if not is_valid:
+        if not file_result.is_valid:
             raise AuthenticationError(
-                message=f"Failed to validate credentials file: {'; '.join(errors)}",
-                details={"errors": errors},
+                message=f"Failed to validate credentials file: {'; '.join(file_result.errors)}",
+                details={"errors": file_result.errors},
             )
 
-        self._credentials_path = creds_path
+        self._credentials_path = file_result.path
 
         # 2) Load credentials
         if not await self._load_credentials_internal(force_reload=False, silent=False):
             raise AuthenticationError(
                 message="Failed to load credentials despite validation passing",
-                details={"path": str(creds_path) if creds_path else None},
+                details={"path": str(file_result.path) if file_result.path else None},
             )
 
         # 3) Validate structure
         if self._credentials is None:
             raise AuthenticationError(
                 message="OAuth credentials are None after loading",
-                details={"path": str(creds_path) if creds_path else None},
+                details={"path": str(file_result.path) if file_result.path else None},
             )
 
-        is_valid, errors = CredentialLoader.validate_credentials_structure(
+        structure_result = CredentialLoader.validate_credentials_structure(
             self._credentials.to_dict(), silent=False
         )
-        if not is_valid:
+        if not structure_result.is_valid:
             raise AuthenticationError(
-                message=f"Invalid credentials structure: {'; '.join(errors)}",
-                details={"errors": errors},
+                message=f"Invalid credentials structure: {'; '.join(structure_result.errors)}",
+                details={"errors": structure_result.errors},
             )
 
         # 4) Refresh if needed
@@ -302,12 +304,12 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
             previous_fingerprint = self._credentials_fingerprint
 
             # Validate file first (silently)
-            is_valid, errors, _ = CredentialLoader.validate_credentials_file_exists(
+            file_result = CredentialLoader.validate_credentials_file_exists(
                 self._gemini_cli_oauth_path
             )
-            if not is_valid:
+            if not file_result.is_valid:
                 logger.warning(
-                    f"Updated credentials file is invalid: {'; '.join(errors)}"
+                    f"Updated credentials file is invalid: {'; '.join(file_result.errors)}"
                 )
                 return
 
