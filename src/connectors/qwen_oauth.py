@@ -14,10 +14,6 @@ from concurrent.futures import Future
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from dataclasses import dataclass
-from collections.abc import AsyncGenerator
-from concurrent.futures import Future
-
 import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
@@ -102,7 +98,9 @@ class CredentialsFileValidationResult(BaseModel):
     """
 
     is_valid: bool = Field(description="Whether the credentials file is valid")
-    errors: list[str] = Field(default_factory=list, description="List of validation error messages")
+    errors: list[str] = Field(
+        default_factory=list, description="List of validation error messages"
+    )
 
     model_config = {"frozen": True}
 
@@ -372,14 +370,14 @@ class QwenOAuthConnector(OpenAIConnector):
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
-    ) -> tuple[bool, list[str]]:
-        """Validate the structure and content of OAuth credentials.
+    ) -> CredentialsFileValidationResult:
+        """Validate structure and content of OAuth credentials.
 
         Args:
             credentials: The credentials dictionary to validate
 
         Returns:
-            Tuple of (is_valid, list_of_errors)
+            CredentialsFileValidationResult with is_valid and errors fields
         """
         errors = []
 
@@ -398,6 +396,7 @@ class QwenOAuthConnector(OpenAIConnector):
                 errors.append(
                     "Invalid expiry_date: must be a number (timestamp in milliseconds)"
                 )
+
             else:
                 # Convert to seconds and check if expired
                 expiry_date_s = float(expiry_date) / 1000.0
@@ -410,7 +409,7 @@ class QwenOAuthConnector(OpenAIConnector):
                         time.ctime(current_time),
                     )
 
-        return len(errors) == 0, errors
+        return CredentialsFileValidationResult(is_valid=len(errors) == 0, errors=errors)
 
     def _validate_credentials_file_exists(self) -> CredentialsFileValidationResult:
         """Validate that the OAuth credentials file exists and is readable.
@@ -438,9 +437,9 @@ class QwenOAuthConnector(OpenAIConnector):
                 credentials = json.load(f)
 
             # Validate the loaded credentials
-            is_valid, validation_errors = self._validate_credentials_structure(
-                credentials
-            )
+            validation_result = self._validate_credentials_structure(credentials)
+            is_valid = validation_result.is_valid
+            validation_errors = validation_result.errors
             errors.extend(validation_errors)
 
             return CredentialsFileValidationResult(is_valid=is_valid, errors=errors)
@@ -463,10 +462,10 @@ class QwenOAuthConnector(OpenAIConnector):
         Returns:
             CredentialsFileValidationResult with is_valid and errors fields
         """
-        is_valid, errors = await asyncio.to_thread(
+        validation_result = await asyncio.to_thread(
             self._validate_credentials_file_exists
         )
-        return CredentialsFileValidationResult(is_valid=is_valid, errors=errors)
+        return validation_result
 
     def get_validation_errors(self) -> list[str]:
         """Get the current list of credential validation errors.
