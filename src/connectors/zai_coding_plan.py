@@ -324,6 +324,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                             selected_model,
                             self._detail_to_text(exc.detail),
                             legacy_model,
+                            exc_info=True,
                         )
                     # Create canonical request with legacy model
                     legacy_request = replace(request, effective_model=legacy_model)
@@ -403,6 +404,7 @@ class ZaiCodingPlanBackend(OpenAIConnector):
                         selected_model,
                         self._detail_to_text(exc.detail),
                         legacy_model,
+                        exc_info=True,
                     )
                 legacy_request = domain_request.model_copy(
                     update={"model": legacy_model}

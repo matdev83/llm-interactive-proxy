@@ -60,7 +60,7 @@ def _register_sandboxing_handler(
                 exc,
                 exc_info=True,
             )
-            logger.error("Sandboxing will be disabled")
+            logger.error("Sandboxing will be disabled", exc_info=True)
         return
 
     if errors:

@@ -1504,12 +1504,15 @@ class QwenOAuthConnector(OpenAIConnector):
                 logger.warning(
                     "Re-raising domain exception: %s",
                     type(e).__name__,
+                    exc_info=True,
                 )
             raise
         except HTTPException as e:
             # Re-raise HTTP exceptions (e.g., 400, 404) without wrapping
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Re-raising HTTPException: %s", e.status_code)
+                logger.warning(
+                    "Re-raising HTTPException: %s", e.status_code, exc_info=True
+                )
             raise
         except Exception as e:
             # Convert other exceptions to BackendError
