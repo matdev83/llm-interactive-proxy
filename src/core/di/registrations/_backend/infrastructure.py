@@ -46,6 +46,7 @@ def register_http_client(services: ServiceCollection) -> None:
                 logger.warning(
                     "HTTP/2 client creation failed, falling back to HTTP/1.1: %s",
                     e,
+                    exc_info=True,
                 )
             return httpx.AsyncClient(
                 http2=False,

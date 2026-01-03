@@ -88,7 +88,11 @@ class JSONStringParser(IParserStrategy):
                     parsed_json, max_array_elements=MAX_JSON_ARRAY_ELEMENTS
                 )
             except JSONValidationError as e:
-                logger.warning("JSON structure validation failed: %s", e)
+                logger.warning(
+                    "JSON structure validation failed: %s",
+                    e,
+                    exc_info=True,
+                )
                 raise ValueError(f"JSON structure validation failed: {e}") from e
 
             # Recursively parse the JSON using StreamingContent.from_raw

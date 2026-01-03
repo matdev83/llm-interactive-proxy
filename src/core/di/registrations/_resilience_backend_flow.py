@@ -498,4 +498,8 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
         )
     except ImportError as e:
         if logger.isEnabledFor(logging.WARNING):
-            logger.warning("Could not register BackendCompletionFlow wiring: %s", e)
+            logger.warning(
+                "Could not register BackendCompletionFlow wiring: %s",
+                e,
+                exc_info=True,
+            )

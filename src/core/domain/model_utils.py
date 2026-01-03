@@ -151,7 +151,8 @@ def parse_model_with_params(
                 # Log warning for malformed query string but continue
                 logger.warning(
                     f"Malformed URI query string in model '{model}': {parse_error}. "
-                    f"Continuing without URI parameters."
+                    f"Continuing without URI parameters.",
+                    exc_info=True,
                 )
                 uri_params = {}
 
@@ -168,7 +169,8 @@ def parse_model_with_params(
         # Graceful error handling - log warning and fall back to no parameters
         logger.warning(
             f"Failed to parse URI parameters from model string '{model}': {e}. "
-            f"Continuing without URI parameters."
+            f"Continuing without URI parameters.",
+            exc_info=True,
         )
         # Fall back to existing parse_model_backend
         try:
