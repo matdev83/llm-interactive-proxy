@@ -169,7 +169,8 @@ class AssessmentMiddleware:
             # Never let assessment errors break the main conversation flow
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"Assessment middleware error for session {session_id}: {e}"
+                    f"Assessment middleware error for session {session_id}: {e}",
+                    exc_info=True,
                 )
             return request
 

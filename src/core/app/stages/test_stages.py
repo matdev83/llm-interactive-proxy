@@ -288,7 +288,8 @@ class MockBackendStage(BaseTestBackendStage):
             except Exception as e:
                 # Log delegation failure but fall through to the generic mock response
                 logger.warning(
-                    f"Delegation to patched backend in mock_chat_completions failed: {e}"
+                    f"Delegation to patched backend in mock_chat_completions failed: {e}",
+                    exc_info=True,
                 )
 
             # Check if tools are requested

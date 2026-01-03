@@ -90,6 +90,7 @@ class CaptchaService:
         except httpx.HTTPStatusError as exc:
             logger.warning(
                 "Captcha provider returned HTTP error",
+                exc_info=True,
                 extra={
                     "status": exc.response.status_code,
                     "provider": config.provider,

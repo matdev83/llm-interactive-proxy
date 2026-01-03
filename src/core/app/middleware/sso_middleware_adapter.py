@@ -117,6 +117,7 @@ class SSOMiddlewareAdapter(BaseHTTPMiddleware):
                             logger.warning(
                                 "JSON structure validation failed for SSO inspection: %s",
                                 e,
+                                exc_info=True,
                             )
                             # Continue without messages to prevent DoS
                     else:

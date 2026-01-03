@@ -708,7 +708,8 @@ class ResponsesController:
         except HTTPException as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
-                    f"HTTP error in Responses API - request_id={request_id}, status={e.status_code}, detail={e.detail}"
+                    f"HTTP error in Responses API - request_id={request_id}, status={e.status_code}, detail={e.detail}",
+                    exc_info=True,
                 )
             # Re-raise HTTP exceptions
             raise
