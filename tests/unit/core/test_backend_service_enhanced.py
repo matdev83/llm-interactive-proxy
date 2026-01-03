@@ -22,9 +22,11 @@ from src.core.common.exceptions import (
 )
 from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import (
+    ChatCompletionChoiceMessage,
     ChatMessage,
     ChatRequest,
 )
+from src.core.domain.validation import BackendModelValidation
 from src.core.domain.request_context import (
     RequestContext,
     RequestCookies,
@@ -900,13 +902,13 @@ class TestBackendServiceValidation:
             return_value=mock_backend,
         ):
             # Act
-            valid, error = await backend_service.validate_backend_and_model(
+            result = await backend_service.validate_backend_and_model(
                 BackendType.OPENAI, "valid-model"
             )
 
             # Assert
-            assert valid is True
-            assert error is None
+            assert result.is_valid is True
+            assert result.error_message is None
 
     @pytest.mark.asyncio
     async def test_validate_backend_and_model_invalid_model(
@@ -922,13 +924,13 @@ class TestBackendServiceValidation:
             return_value=mock_backend,
         ):
             # Act
-            valid, error = await backend_service.validate_backend_and_model(
+            result = await backend_service.validate_backend_and_model(
                 BackendType.OPENAI, "invalid-model"
             )
 
             # Assert
-            assert valid is False
-            assert "not available" in error
+            assert result.is_valid is False
+            assert "not available" in result.error_message
 
     @pytest.mark.asyncio
     async def test_validate_backend_and_model_backend_error(self, backend_service):
@@ -940,14 +942,14 @@ class TestBackendServiceValidation:
             side_effect=ValueError("Backend error"),
         ):
             # Act
-            valid, error = await backend_service.validate_backend_and_model(
+            result = await backend_service.validate_backend_and_model(
                 BackendType.OPENAI, "model"
             )
 
             # Assert
-            assert valid is False
-            assert "Backend validation failed" in error
-            assert "Backend error" in error
+            assert result.is_valid is False
+            assert "Backend validation failed" in result.error_message
+            assert "Backend error" in result.error_message
 
     @pytest.mark.asyncio
     async def test_validate_backend_and_model_backend_error_object(
@@ -961,14 +963,14 @@ class TestBackendServiceValidation:
             "get_or_create",
             side_effect=backend_error,
         ):
-            valid, error = await backend_service.validate_backend_and_model(
+            result = await backend_service.validate_backend_and_model(
                 BackendType.OPENAI, "model"
             )
 
-        assert valid is False
-        assert error is not None
-        assert "Backend validation failed" in error
-        assert "boom" in error
+        assert result.is_valid is False
+        assert result.error_message is not None
+        assert "Backend validation failed" in result.error_message
+        assert "boom" in result.error_message
 
 
 class TestBackendServiceFailover:

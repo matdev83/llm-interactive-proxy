@@ -37,18 +37,24 @@ class TestProcessTextForCommands:
 
             async def validate_backend_and_model(
                 self, backend: str, model: str
-            ) -> tuple[bool, str | None]:
-                """Test adapter implementation that checks the fake backend's available models."""
+            ) -> BackendModelValidation:
+                """Test adapter implementation that checks to fake backend's available models."""
                 be = self._backends.get(backend)
                 if be is None:
-                    return False, f"Backend {backend} not supported"
+                    return BackendModelValidation.invalid(
+                        f"Backend {backend} not supported"
+                    )
                 try:
                     avail = be.get_available_models()
                 except Exception:
-                    return False, f"Backend {backend} did not report available models"
+                    return BackendModelValidation.invalid(
+                        f"Backend {backend} did not report available models"
+                    )
                 if model in avail:
-                    return True, None
-                return False, f"Model {model} not available on backend {backend}"
+                    return BackendModelValidation.valid()
+                return BackendModelValidation.invalid(
+                    f"Model {model} not available on backend {backend}"
+                )
 
         service_provider = Mock()
         service_provider.get_required_service.return_value = _FakeBackendService(

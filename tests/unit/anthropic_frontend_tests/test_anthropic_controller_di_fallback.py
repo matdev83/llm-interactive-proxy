@@ -79,8 +79,8 @@ class _StubBackendService(IBackendService):
 
     async def validate_backend_and_model(
         self, backend: str, model: str
-    ) -> tuple[bool, str | None]:
-        return True, None
+    ) -> BackendModelValidation:
+        return BackendModelValidation.valid()
 
     async def chat_completions(
         self, request: ChatRequest, **kwargs: Any

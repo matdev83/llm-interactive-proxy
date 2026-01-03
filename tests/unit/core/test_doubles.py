@@ -22,6 +22,7 @@ from src.core.domain.chat import (
 )
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
+from src.core.domain.validation import BackendModelValidation
 from src.core.domain.configuration import (
     LoopDetectionConfig,
     ReasoningConfig,
@@ -234,14 +235,22 @@ class MockBackendService(IBackendService, IBackendProcessor):
 
     async def validate_backend_and_model(
         self, backend: str, model: str
-    ) -> tuple[bool, str | None]:
+    ) -> BackendModelValidation:
         if backend not in self.validations:
-            return False, f"Backend {backend} not supported"
+            return BackendModelValidation.invalid(
+                f"Backend {backend} not supported"
+            )
         if model not in self.validations[backend]:
-            return False, f"Model {model} not supported on backend {backend}"
+            return BackendModelValidation.invalid(
+                f"Model {model} not supported on backend {backend}"
+            )
         is_valid = self.validations[backend][model]
-        error = None if is_valid else f"Invalid model {model} for backend {backend}"
-        return is_valid, error
+        if is_valid:
+            return BackendModelValidation.valid()
+        else:
+            return BackendModelValidation.invalid(
+                f"Invalid model {model} for backend {backend}"
+            )
 
 
 #

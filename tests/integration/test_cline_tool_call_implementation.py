@@ -8,13 +8,14 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.stages.test_stages import CustomTestStage
 from src.core.app.test_builder import ApplicationTestBuilder
 from src.core.config.app_config import AppConfig
+from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.backend_service_interface import IBackendService
-
 
 @pytest.fixture
 async def mock_backend_service() -> MagicMock:
@@ -22,7 +23,9 @@ async def mock_backend_service() -> MagicMock:
     mock_backend = MagicMock(spec=IBackendService)
     mock_backend.get_available_models = MagicMock(return_value=["gpt-4"])
     mock_backend.validate_backend = AsyncMock(return_value=(True, None))
-    mock_backend.validate_backend_and_model = AsyncMock(return_value=(True, None))
+    mock_backend.validate_backend_and_model = AsyncMock(
+        return_value=BackendModelValidation.valid()
+    )
     mock_backend.get_backend_status = AsyncMock(return_value={"status": "healthy"})
     return mock_backend
 

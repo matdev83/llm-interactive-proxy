@@ -9,6 +9,7 @@ from src.connectors.base import LLMBackend
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -89,8 +90,8 @@ class MockBackendService(IBackendService):
 
     async def validate_backend_and_model(
         self, backend: str, model: str
-    ) -> tuple[bool, str | None]:
-        return True, None
+    ) -> BackendModelValidation:
+        return BackendModelValidation.valid()
 
     def get_active_backends(self) -> dict[str, LLMBackend]:
         """Get all active backend instances.

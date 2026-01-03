@@ -8,6 +8,7 @@ from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.validation import BackendModelValidation
 
 __all__ = ["BackendError", "IBackendService"]
 
@@ -43,7 +44,7 @@ class IBackendService(ABC):
     @abstractmethod
     async def validate_backend_and_model(
         self, backend: str, model: str
-    ) -> tuple[bool, str | None]:
+    ) -> BackendModelValidation:
         """Validate that a backend and model combination is valid.
 
         Args:
@@ -51,7 +52,7 @@ class IBackendService(ABC):
             model: The model identifier
 
         Returns:
-            A tuple of (is_valid, error_message)
+            BackendModelValidation result indicating validity and optional error message
         """
 
     @abstractmethod

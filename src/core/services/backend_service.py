@@ -19,6 +19,7 @@ from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_completion_flow_interface import (
     IBackendCompletionFlow,
@@ -289,7 +290,7 @@ class BackendService(IBackendService):
 
     async def validate_backend_and_model(
         self, backend: str, model: str
-    ) -> tuple[bool, str | None]:
+    ) -> BackendModelValidation:
         """Validate that a backend and model combination is valid"""
         try:
             backend_instance: LLMBackend = (
@@ -298,15 +299,17 @@ class BackendService(IBackendService):
 
             available_models: list[str] = backend_instance.get_available_models()
             if model in available_models:
-                return True, None
+                return BackendModelValidation.valid()
 
-            return False, f"Model {model} not available on backend {backend}"
+            return BackendModelValidation.invalid(
+                f"Model {model} not available on backend {backend}"
+            )
         except (BackendError, TypeError, ValueError, AttributeError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Backend validation failed for %s: %s", backend, e, exc_info=True
                 )
-            return False, f"Backend validation failed: {e!s}"
+            return BackendModelValidation.invalid(f"Backend validation failed: {e!s}")
 
     # NOTE: Legacy rate limit backoff methods (_enforce_rate_limit_backoff,
     # _register_rate_limit_backoff) have been removed. Rate limiting is now

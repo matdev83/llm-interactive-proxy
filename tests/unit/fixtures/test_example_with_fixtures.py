@@ -83,11 +83,11 @@ async def test_backend_service_fixture(backend_service: IBackendService) -> None
 
     # The backend_service fixture now returns a MockBackendService,
     # which has predefined behavior for get_available_models.
-    is_valid, error_message = await backend_service.validate_backend_and_model(
+    result = await backend_service.validate_backend_and_model(
         "openrouter", "test-model"
     )
-    assert is_valid
-    assert error_message is None
+    assert result.is_valid
+    assert result.error_message is None
 
 
 @pytest.mark.command

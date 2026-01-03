@@ -297,13 +297,13 @@ class TestBackendServiceHypothesis:
             return_value=mock_backend,
         ):
             # Act
-            valid, error = await service.validate_backend_and_model(
+            result = await service.validate_backend_and_model(
                 backend_type, model_name
             )
 
             # Assert
-            assert valid is True
-            assert error is None
+            assert result.is_valid is True
+            assert result.error_message is None
 
     @pytest.mark.asyncio
     async def test_call_completion_rate_limited_with_hypothesis(
