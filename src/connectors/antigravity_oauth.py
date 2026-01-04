@@ -14,6 +14,7 @@ This connector uses the Strategy Pattern with the following strategies:
 """
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -1485,8 +1486,9 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                 try:
                                     loop.run_until_complete(self.client.aclose())
                                 except Exception:
-                                    # Exception during sync cleanup - log and suppress
-                                    try:
+                                    # Exception during sync cleanup - attempt logging
+                                    with contextlib.suppress(Exception):
+                                        # Logging system may be unavailable during interpreter shutdown
                                         import logging
 
                                         cleanup_logger = logging.getLogger(__name__)
@@ -1495,13 +1497,19 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                                                 "Exception during synchronous cleanup of AntigravityOAuthConnector client",
                                                 exc_info=True,
                                             )
-                                    except Exception:
-                                        # Logging system unavailable - suppress silently
-                                        pass
                     except (RuntimeError, AttributeError):
                         # No event loop available - can't close async client
-                        # This is acceptable during interpreter shutdown
-                        pass
+                        # This is acceptable during interpreter shutdown - attempt to log, then suppress
+                        with contextlib.suppress(Exception):
+                            # Logging system may be unavailable during interpreter shutdown
+                            import logging
+
+                            no_loop_logger = logging.getLogger(__name__)
+                            if no_loop_logger.isEnabledFor(logging.DEBUG):
+                                no_loop_logger.debug(
+                                    "No event loop available during AntigravityOAuthConnector cleanup",
+                                    exc_info=True,
+                                )
             except Exception:
                 # Best-effort logging during cleanup (logging system may be torn down)
                 # Use try-except to avoid raising if logging fails
@@ -1516,15 +1524,13 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         )
                 except Exception:
                     # Logging system unavailable - try stderr as fallback
-                    try:
+                    with contextlib.suppress(Exception):  # type: ignore[reportPossiblyUnboundVariable]
+                        # stderr.write may fail during interpreter shutdown
                         import sys
 
                         sys.stderr.write(
                             "Warning: Logging system unavailable during AntigravityOAuthConnector cleanup\n"
                         )
-                    except Exception:
-                        # Even stderr is unavailable - suppress silently
-                        pass
 
         # Call parent cleanup
         super().__del__()

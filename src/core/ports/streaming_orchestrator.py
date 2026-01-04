@@ -118,8 +118,15 @@ class StreamingPipeline:
                     return
                 raise
             except GeneratorExit:
-                # GeneratorExit during cleanup is expected behavior - no logging needed
-                pass
+                # GeneratorExit during cleanup is expected behavior - normal generator lifecycle
+                if stream_id and logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "GeneratorExit during stream cleanup - expected during generator close",
+                        extra={
+                            "provider": provider,
+                            "stream_id": stream_id,
+                        },
+                    )
 
         try:
             async with AsyncExitStack() as stack:
