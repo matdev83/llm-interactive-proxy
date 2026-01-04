@@ -827,9 +827,15 @@ class UniversalToolExecutor:
                     # Format: filename:line_number:line_content
                     relative_path = file_path.relative_to(self.working_directory)
                     matches.append(f"{relative_path}:{line_num}:{line.strip()}")
-        except (UnicodeDecodeError, PermissionError):
-            # Skip files we can't read
-            pass
+        except (UnicodeDecodeError, PermissionError) as e:
+            # Skip files we can't read, but log at DEBUG level for visibility
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping file %s due to read error (binary or permission issue): %s",
+                    file_path,
+                    e,
+                    exc_info=True,
+                )
 
         return matches
 

@@ -256,9 +256,7 @@ def _extract_simple_format(
     return tool_calls, cleaned
 
 
-def _extract_simple_tool(
-    content: str, tool_name: str
-) -> SimpleToolExtractionResult:
+def _extract_simple_tool(content: str, tool_name: str) -> SimpleToolExtractionResult:
     """
     Extract a specific tool from content in simple format.
 
@@ -295,9 +293,7 @@ def _extract_simple_tool(
 
             logger.debug("Extracted simple-format tool call: %s", tool_name)
 
-    return SimpleToolExtractionResult(
-        tool_calls=tool_calls, cleaned_content=cleaned
-    )
+    return SimpleToolExtractionResult(tool_calls=tool_calls, cleaned_content=cleaned)
 
 
 def _parse_parameters(params_xml: str) -> ParsedParameters:
@@ -361,14 +357,24 @@ def _parse_param_value(value: str) -> Any:
         try:
             return json.loads(value)
         except json.JSONDecodeError:
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Value looks like JSON but failed to parse, treating as string: %s",
+                    value,
+                    exc_info=True,
+                )
 
     # Try integer
     if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
         try:
             return int(value)
         except ValueError:
-            pass
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Value looks like an integer but failed to parse: %s",
+                    value,
+                    exc_info=True,
+                )
 
     # Try boolean
     if value.lower() in ("true", "false"):

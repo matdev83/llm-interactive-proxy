@@ -627,7 +627,7 @@ class ToolCallRepairService(IToolCallRepairService):
                 if isinstance(arguments_raw, str):
                     arguments_raw = {"content": arguments_raw}
 
-                if not isinstance(arguments_raw, dict):
+                if not arguments_raw:
                     arguments_raw = {}
 
                 arguments = self._normalize_tool_arguments(
@@ -1135,8 +1135,14 @@ class ToolCallRepairService(IToolCallRepairService):
                                     if inner_key not in result:
                                         result[inner_key] = inner_value
                                 continue
-                        except json.JSONDecodeError:
-                            pass  # Fall through to add as-is
+                        except json.JSONDecodeError as e:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Content string is not valid JSON, will use as-is: %s (error: %s)",
+                                    value,
+                                    e,
+                                    exc_info=True,
+                                )
                 if key not in result:
                     result[key] = value
 
@@ -1227,7 +1233,13 @@ class ToolCallRepairService(IToolCallRepairService):
                                 len(parsed),
                             )
                         return parsed
-                except json.JSONDecodeError:
-                    pass  # Not valid JSON, keep original
+                except json.JSONDecodeError as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Content string is not valid JSON, keeping original: %s (error: %s)",
+                            content_str,
+                            e,
+                            exc_info=True,
+                        )
 
         return arguments
