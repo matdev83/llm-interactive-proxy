@@ -295,10 +295,11 @@ class MockBackendStage(BaseTestBackendStage):
             # Check if tools are requested
             tools = getattr(request, "tools", None) if request else None
             tool_choice = getattr(request, "tool_choice", None) if request else None
-            has_tools = bool(tools or tool_choice)
+            # Respect tool_choice="none" - don't return tool_calls when explicitly disabled
+            should_return_tool_calls = bool(tools) and tool_choice != "none"
 
             # Create message content based on whether tools are requested
-            if has_tools:
+            if should_return_tool_calls:
                 message_content = {
                     "role": "assistant",
                     "content": "Mock response from test backend",
