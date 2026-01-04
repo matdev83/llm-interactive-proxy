@@ -424,7 +424,7 @@ class TestBlockingLogic:
         assert result.replacement_response is not None
         assert "Paths outside project root" in result.replacement_response
         assert result.metadata["decision"] == "blocked"
-        assert handler.get_metrics()["blocked_count"] == 1
+        assert handler.get_metrics().blocked_count == 1
 
     @pytest.mark.asyncio
     async def test_allow_path_inside_boundary(self):
@@ -467,7 +467,7 @@ class TestBlockingLogic:
 
         assert result.should_swallow is False
         assert result.metadata["decision"] == "allowed"
-        assert handler.get_metrics()["allowed_count"] == 1
+        assert handler.get_metrics().allowed_count == 1
 
     @pytest.mark.asyncio
     async def test_strict_mode_blocks_unparseable_paths(self):
@@ -511,7 +511,7 @@ class TestBlockingLogic:
         assert result.replacement_response is not None
         assert "Failed to extract file paths" in result.replacement_response
         assert result.metadata["decision"] == "blocked"
-        assert handler.get_metrics()["validation_errors"] == 1
+        assert handler.get_metrics().validation_errors == 1
 
     @pytest.mark.asyncio
     async def test_non_strict_mode_allows_unparseable_paths(self):
@@ -553,7 +553,7 @@ class TestBlockingLogic:
 
         assert result.should_swallow is False
         assert result.metadata["decision"] == "extraction_error_fail_open"
-        assert handler.get_metrics()["validation_errors"] == 1
+        assert handler.get_metrics().validation_errors == 1
 
     @pytest.mark.asyncio
     async def test_error_message_includes_project_root(self):
@@ -911,9 +911,9 @@ class TestMetricsTracking:
 
         # Initial metrics
         metrics = handler.get_metrics()
-        assert metrics["blocked_count"] == 0
-        assert metrics["allowed_count"] == 0
-        assert metrics["validation_errors"] == 0
+        assert metrics.blocked_count == 0
+        assert metrics.allowed_count == 0
+        assert metrics.validation_errors == 0
 
         # Block first tool call
         context1 = ToolCallContext(
@@ -927,8 +927,8 @@ class TestMetricsTracking:
         await handler.handle(context1)
 
         metrics = handler.get_metrics()
-        assert metrics["blocked_count"] == 1
-        assert metrics["allowed_count"] == 0
+        assert metrics.blocked_count == 1
+        assert metrics.allowed_count == 0
 
         # Block second tool call
         context2 = ToolCallContext(
@@ -942,8 +942,8 @@ class TestMetricsTracking:
         await handler.handle(context2)
 
         metrics = handler.get_metrics()
-        assert metrics["blocked_count"] == 2
-        assert metrics["allowed_count"] == 0
+        assert metrics.blocked_count == 2
+        assert metrics.allowed_count == 0
 
     @pytest.mark.asyncio
     async def test_allowed_count_increment(self):
@@ -975,7 +975,7 @@ class TestMetricsTracking:
 
         # Initial metrics
         metrics = handler.get_metrics()
-        assert metrics["allowed_count"] == 0
+        assert metrics.allowed_count == 0
 
         # Allow first tool call
         context1 = ToolCallContext(
@@ -989,8 +989,8 @@ class TestMetricsTracking:
         await handler.handle(context1)
 
         metrics = handler.get_metrics()
-        assert metrics["allowed_count"] == 1
-        assert metrics["blocked_count"] == 0
+        assert metrics.allowed_count == 1
+        assert metrics.blocked_count == 0
 
         # Allow second tool call
         context2 = ToolCallContext(
@@ -1004,8 +1004,8 @@ class TestMetricsTracking:
         await handler.handle(context2)
 
         metrics = handler.get_metrics()
-        assert metrics["allowed_count"] == 2
-        assert metrics["blocked_count"] == 0
+        assert metrics.allowed_count == 2
+        assert metrics.blocked_count == 0
 
     @pytest.mark.asyncio
     async def test_validation_error_count(self):
@@ -1036,7 +1036,7 @@ class TestMetricsTracking:
 
         # Initial metrics
         metrics = handler.get_metrics()
-        assert metrics["validation_errors"] == 0
+        assert metrics.validation_errors == 0
 
         # Trigger validation error
         context1 = ToolCallContext(
@@ -1050,7 +1050,7 @@ class TestMetricsTracking:
         await handler.handle(context1)
 
         metrics = handler.get_metrics()
-        assert metrics["validation_errors"] == 1
+        assert metrics.validation_errors == 1
 
         # Trigger another validation error
         context2 = ToolCallContext(
@@ -1064,7 +1064,7 @@ class TestMetricsTracking:
         await handler.handle(context2)
 
         metrics = handler.get_metrics()
-        assert metrics["validation_errors"] == 2
+        assert metrics.validation_errors == 2
 
     @pytest.mark.asyncio
     async def test_mixed_metrics(self):
@@ -1139,9 +1139,9 @@ class TestMetricsTracking:
 
         # Check final metrics
         metrics = handler.get_metrics()
-        assert metrics["allowed_count"] == 1
-        assert metrics["blocked_count"] == 1
-        assert metrics["validation_errors"] == 1
+        assert metrics.allowed_count == 1
+        assert metrics.blocked_count == 1
+        assert metrics.validation_errors == 1
 
     @pytest.mark.asyncio
     async def test_metrics_persist_across_calls(self):
@@ -1188,7 +1188,7 @@ class TestMetricsTracking:
 
         # Metrics should accumulate
         metrics = handler.get_metrics()
-        assert metrics["allowed_count"] == 5
+        assert metrics.allowed_count == 5
 
         # Configure for blocked path
         validator.extract_paths_from_arguments = Mock(return_value=["/etc/passwd"])
@@ -1209,5 +1209,5 @@ class TestMetricsTracking:
 
         # Metrics should continue to accumulate
         metrics = handler.get_metrics()
-        assert metrics["allowed_count"] == 5
-        assert metrics["blocked_count"] == 3
+        assert metrics.allowed_count == 5
+        assert metrics.blocked_count == 3

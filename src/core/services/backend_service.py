@@ -39,7 +39,6 @@ from src.core.interfaces.failover_interface import (
     IFailoverStrategy,
 )
 from src.core.interfaces.failover_planner_interface import IFailoverPlanner
-from src.core.services.failover_service import FailoverAttempt
 from src.core.interfaces.failure_strategy_interface import (
     FailureDecision,
     IFailureHandlingStrategy,
@@ -69,7 +68,7 @@ from src.core.interfaces.usage_tracking_wrapper_interface import IUsageTrackingW
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_routing_service import BackendRoutingService
-from src.core.services.failover_service import FailoverService
+from src.core.services.failover_service import FailoverAttempt, FailoverService
 from src.core.services.stream_formatting_service import StreamFormattingService
 
 logger = logging.getLogger(__name__)
@@ -251,10 +250,14 @@ class BackendService(IBackendService):
         IFailoverPlanner. Preserved for backward compatibility
         with existing tests that call this method directly.
         """
-        return self._failover_planner.get_failover_plan(
+        plan = self._failover_planner.get_failover_plan(
             model=model,
             backend=backend_type,
         )
+        # Convert tuples to FailoverAttempt objects
+        return [
+            FailoverAttempt(backend=backend, model=model) for backend, model in plan
+        ]
 
     def _filter_unhealthy_backends(
         self, plan: list[FailoverAttempt]

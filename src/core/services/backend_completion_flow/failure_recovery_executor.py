@@ -30,8 +30,8 @@ from src.core.interfaces.failure_strategy_interface import (
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
-from src.core.services.failover_service import FailoverAttempt
 from src.core.services.backend_routing_service import BackendRoutingService
+from src.core.services.failover_service import FailoverAttempt
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
@@ -103,9 +103,13 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             plan = self._failover_planner.get_failover_plan(
                 effective_model, backend_type
             )
+            # Convert tuples to FailoverAttempt objects for attempt_failover_plan
+            normalized_plan = [
+                FailoverAttempt(backend=backend, model=model) for backend, model in plan
+            ]
 
             return await self.attempt_failover_plan(
-                request, plan, stream, backend_type, call_completion_callback, context
+                request, normalized_plan, stream, backend_type, call_completion_callback, context
             )
         except BackendError:
             raise
@@ -121,7 +125,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
     async def attempt_failover_plan(
         self,
         request: ChatRequest,
-        plan: list[FailoverAttempt],
+        plan: list[FailoverAttempt] | list[tuple[str, str]],
         stream: bool,
         backend_type: str,
         call_completion_callback: Callable[
@@ -139,7 +143,15 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         if not plan:
             raise BackendError(message="all backends failed", backend_name=backend_type)
 
-        for attempt in plan:
+        # Normalize plan to FailoverAttempt objects
+        normalized_plan: list[FailoverAttempt] = []
+        for item in plan:
+            if isinstance(item, tuple):
+                normalized_plan.append(FailoverAttempt(backend=item[0], model=item[1]))
+            else:
+                normalized_plan.append(item)
+
+        for attempt in normalized_plan:
             # Cancellation gate: ensure session is not cancelled before each failover attempt
             if self._cancellation_coordinator is not None and session_key is not None:
                 self._cancellation_coordinator.ensure_not_cancelled(session_key)

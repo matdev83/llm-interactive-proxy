@@ -18,7 +18,7 @@ class IFailoverPlanner(ABC):
     @abstractmethod
     def get_failover_plan(
         self, model: str, backend: str | None = None
-    ) -> list[FailoverAttempt]:
+    ) -> list[tuple[str, str]]:
         """Select and filter failover plan for a request.
 
         This method:
@@ -32,7 +32,7 @@ class IFailoverPlanner(ABC):
             backend: The original backend name (if known)
 
         Returns:
-            Ordered list of failover attempts to try
+            Ordered list of (backend, model) tuples to try
         """
 
     @abstractmethod

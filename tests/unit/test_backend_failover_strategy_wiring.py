@@ -217,7 +217,12 @@ def test_failover_plan_uses_coordinator_when_flag_disabled() -> None:
         ("openrouter", "meta/llama"),
     ]
     plan = svc._get_failover_plan("m1", "openai")  # type: ignore[attr-defined]
-    assert plan == [("openai", "gpt-4o"), ("openrouter", "meta/llama")]
+    # _get_failover_plan returns FailoverAttempt objects
+    assert len(plan) == 2
+    assert plan[0].backend == "openai"
+    assert plan[0].model == "gpt-4o"
+    assert plan[1].backend == "openrouter"
+    assert plan[1].model == "meta/llama"
 
 
 def test_failover_plan_uses_strategy_when_flag_enabled() -> None:
@@ -227,4 +232,9 @@ def test_failover_plan_uses_strategy_when_flag_enabled() -> None:
     # Configure the failover planner mock to return the expected result from strategy
     svc._failover_planner.get_failover_plan.return_value = [("s1", "mA"), ("s2", "mB")]
     plan = svc._get_failover_plan("m1", "openai")  # type: ignore[attr-defined]
-    assert plan == [("s1", "mA"), ("s2", "mB")]
+    # _get_failover_plan returns FailoverAttempt objects
+    assert len(plan) == 2
+    assert plan[0].backend == "s1"
+    assert plan[0].model == "mA"
+    assert plan[1].backend == "s2"
+    assert plan[1].model == "mB"

@@ -14,7 +14,6 @@ This connector uses the Strategy Pattern with the following strategies:
 """
 
 import asyncio
-import contextlib
 import hashlib
 import json
 import logging

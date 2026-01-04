@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
@@ -53,7 +54,11 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
                         tool_call_obj = ToolCall(**tc)
                         validated_tool_calls.append(tool_call_obj)
                     except (TypeError, ValueError) as e:
-                        print(f"DEBUG: ToolCall validation failed: {e}. Data: {tc}")  # DEBUG PRINT
+                        logger = logging.getLogger(__name__)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "ToolCall validation failed: %s. Data: %s", e, tc
+                            )
                         continue
                 elif isinstance(tc, ToolCall):
                     validated_tool_calls.append(tc)
@@ -110,9 +115,19 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
         usage=UsageSummary.from_dict(normalized_usage) if normalized_usage else None,
         service_tier=response.get("service_tier"),
     )
-    # DEBUG PRINT
-    if choices and choices[0].message.tool_calls is None and response.get("choices") and response["choices"][0].get("message", {}).get("tool_calls"):
-        print(f"DEBUG: openai_to_domain_response DROPPED tool calls! Input: {response['choices'][0]['message']['tool_calls']}")
+    # Debug log dropped tool calls for non-streaming requests
+    logger = logging.getLogger(__name__)
+    if (
+        choices
+        and choices[0].message.tool_calls is None
+        and response.get("choices")
+        and response["choices"][0].get("message", {}).get("tool_calls")
+        and logger.isEnabledFor(logging.DEBUG)
+    ):
+        logger.debug(
+            "openai_to_domain_response DROPPED tool calls! Input: %s",
+            response["choices"][0]["message"]["tool_calls"],
+        )
     return result
 
 

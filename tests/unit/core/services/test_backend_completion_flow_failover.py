@@ -47,10 +47,9 @@ class TestComplexFailoverExecution:
         self, failover_executor, mock_dependencies
     ):
         """Test that complex failover creates plan and attempts it."""
-        from src.core.services.failover_service import FailoverAttempt
-        
+        # get_failover_plan returns tuples, not FailoverAttempt objects
         mock_dependencies["failover_planner"].get_failover_plan = Mock(
-            return_value=[FailoverAttempt(backend="gemini", model="gemini-2.0-flash")]
+            return_value=[("gemini", "gemini-2.0-flash")]
         )
 
         mock_callback = AsyncMock(

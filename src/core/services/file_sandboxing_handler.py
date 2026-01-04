@@ -150,17 +150,17 @@ class FileSandboxingHandler(IToolCallHandler):
         """
         return 80
 
-    def get_metrics(self) -> dict[str, int]:
+    def get_metrics(self) -> FileSandboxingMetrics:
         """Get metrics for monitoring handler performance.
 
         Returns:
-            Dictionary containing blocked_count, allowed_count, and validation_errors
+            FileSandboxingMetrics object containing blocked_count, allowed_count, and validation_errors
         """
-        return {
-            "blocked_count": self._blocked_count,
-            "allowed_count": self._allowed_count,
-            "validation_errors": self._validation_errors,
-        }
+        return FileSandboxingMetrics(
+            blocked_count=self._blocked_count,
+            allowed_count=self._allowed_count,
+            validation_errors=self._validation_errors,
+        )
 
     def _is_file_changing_tool(self, tool_name: str) -> bool:
         """Check if a tool name matches file-changing tool patterns.

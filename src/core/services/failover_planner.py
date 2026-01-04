@@ -84,7 +84,7 @@ class FailoverPlanner(IFailoverPlanner):
 
     def get_failover_plan(
         self, model: str, backend: str | None = None
-    ) -> list[FailoverAttempt]:
+    ) -> list[tuple[str, str]]:
         """Select and filter failover plan for a request.
 
         This method:
@@ -98,7 +98,7 @@ class FailoverPlanner(IFailoverPlanner):
             backend: The original backend name (if known)
 
         Returns:
-            Ordered list of failover attempts to try
+            Ordered list of (backend, model) tuples to try
         """
         # Check if failover strategy is enabled
         use_strategy: bool = False
@@ -122,7 +122,9 @@ class FailoverPlanner(IFailoverPlanner):
                 )
                 # Convert tuples to FailoverAttempt objects if needed (for backward compatibility)
                 normalized_plan = self._normalize_plan(plan)
-                return self.filter_unhealthy_backends(normalized_plan)
+                filtered_plan = self.filter_unhealthy_backends(normalized_plan)
+                # Convert back to tuples for return
+                return [(attempt.backend, attempt.model) for attempt in filtered_plan]
             except (BackendError, RateLimitExceededError) as e:
                 # Log debug info if strategy fails
                 if logger.isEnabledFor(logging.DEBUG):
@@ -135,8 +137,9 @@ class FailoverPlanner(IFailoverPlanner):
         attempts = self._failover_coordinator.get_failover_attempts(
             model, backend_for_coordinator
         )
-        # Coordinator returns FailoverAttempt objects, no need to convert to tuples
-        return self.filter_unhealthy_backends(attempts)
+        # Coordinator returns FailoverAttempt objects, convert to tuples
+        filtered_plan = self.filter_unhealthy_backends(attempts)
+        return [(attempt.backend, attempt.model) for attempt in filtered_plan]
 
     def filter_unhealthy_backends(
         self, plan: list[FailoverAttempt]

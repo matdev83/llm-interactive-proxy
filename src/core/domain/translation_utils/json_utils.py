@@ -73,13 +73,12 @@ def _sanitize_dict_for_json(
     if _depth > max_depth:
         return {}
 
-    # _seen checks removed
-    # if _seen is None:
-    #     _seen = set()
-    # obj_id = id(data)
-    # if obj_id in _seen:
-    #     return {}
-    # _seen.add(obj_id)
+    if _seen is None:
+        _seen = set()
+    obj_id = id(data)
+    if obj_id in _seen:
+        return {}
+    _seen.add(obj_id)
     try:
         sanitized: dict[str, Any] = {}
         sanitized_value: Any = None
@@ -119,8 +118,7 @@ def _sanitize_dict_for_json(
 
         return sanitized
     finally:
-        # _seen.remove(obj_id)
-        pass
+        _seen.remove(obj_id)
 
 
 def _sanitize_list_for_json(
@@ -135,7 +133,12 @@ def _sanitize_list_for_json(
     if _depth > max_depth:
         return []
 
-    # Simplified implementation without _seen tracking to fix tool_calls loss
+    if _seen is None:
+        _seen = set()
+    obj_id = id(data)
+    if obj_id in _seen:
+        return []
+    _seen.add(obj_id)
     try:
         sanitized: list[Any] = []
         for item in data:
@@ -178,6 +181,8 @@ def _sanitize_list_for_json(
         return sanitized
     except Exception:
         return []
+    finally:
+        _seen.remove(obj_id)
 
 
 def is_json_serializable(value: Any, *, max_depth: int = _MAX_SANITIZE_DEPTH) -> bool:
