@@ -30,12 +30,24 @@ class CompactionMetrics(BaseModel):
     Does not include any message content.
     """
 
-    compaction_messages_compacted: int = Field(description="Number of messages compacted")
-    compaction_bytes_saved: int = Field(description="Approximate bytes reduced by compaction")
-    compaction_tokens_saved_estimate: int = Field(description="Estimated tokens reduced (approximate)")
-    compaction_original_count: int = Field(description="Number of messages before compaction")
-    compaction_stale_resources_count: int = Field(description="Number of stale resource identities")
-    compaction_failed_open: int = Field(description="1 if fail-open was triggered, 0 otherwise")
+    compaction_messages_compacted: int = Field(
+        description="Number of messages compacted"
+    )
+    compaction_bytes_saved: int = Field(
+        description="Approximate bytes reduced by compaction"
+    )
+    compaction_tokens_saved_estimate: int = Field(
+        description="Estimated tokens reduced (approximate)"
+    )
+    compaction_original_count: int = Field(
+        description="Number of messages before compaction"
+    )
+    compaction_stale_resources_count: int = Field(
+        description="Number of stale resource identities"
+    )
+    compaction_failed_open: int = Field(
+        description="1 if fail-open was triggered, 0 otherwise"
+    )
 
 
 class CompactionLogContext(BaseModel):
@@ -47,13 +59,26 @@ class CompactionLogContext(BaseModel):
 
     compacted_count: int = Field(description="Number of messages that were compacted")
     bytes_saved: int = Field(description="Approximate bytes reduced by compaction")
-    tokens_saved_estimate: int = Field(description="Estimated tokens reduced (approximate)")
-    original_message_count: int = Field(description="Number of messages before compaction")
+    tokens_saved_estimate: int = Field(
+        description="Estimated tokens reduced (approximate)"
+    )
+    original_message_count: int = Field(
+        description="Number of messages before compaction"
+    )
     was_compacted: bool = Field(description="True if any compaction occurred")
-    failed_open: bool = Field(description="True if compaction failed and returned original messages")
-    stale_resources: str | None = Field(default=None, description="Comma-separated list of stale resource identities (truncated to 10)")
-    stale_resources_truncated: bool | None = Field(default=None, description="True if stale_resources list was truncated")
-    error: str | None = Field(default=None, description="Error message if fail-open was triggered")
+    failed_open: bool = Field(
+        description="True if compaction failed and returned original messages"
+    )
+    stale_resources: str | None = Field(
+        default=None,
+        description="Comma-separated list of stale resource identities (truncated to 10)",
+    )
+    stale_resources_truncated: bool | None = Field(
+        default=None, description="True if stale_resources list was truncated"
+    )
+    error: str | None = Field(
+        default=None, description="Error message if fail-open was triggered"
+    )
 
 
 @dataclass

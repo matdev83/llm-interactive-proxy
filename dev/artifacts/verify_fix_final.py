@@ -18,14 +18,14 @@ def test_unbounded_growth_fixed():
     """Test that _pending doesn't grow beyond max limit."""
     matcher = _TextToolCallMatcher(max_pending=100)
 
-    print(f"Initial state: _pending={len(matcher._pending)}, max_pending={matcher._max_pending}")
+    print(
+        f"Initial state: _pending={len(matcher._pending)}, max_pending={matcher._max_pending}"
+    )
 
     # Register many tool calls without matching them
     for i in range(1000):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
         if (i + 1) % 200 == 0:
@@ -38,7 +38,9 @@ def test_unbounded_growth_fixed():
     # Verify fix: _pending should be capped at max
     if len(matcher._pending) > matcher._max_pending:
         print("\n!!! MEMORY LEAK STILL EXISTS !!!")
-        print(f"_pending ({len(matcher._pending)}) exceeds max ({matcher._max_pending})")
+        print(
+            f"_pending ({len(matcher._pending)}) exceeds max ({matcher._max_pending})"
+        )
         return False
     else:
         print(f"\n✓ Fix verified: _pending is capped at {matcher._max_pending}")
@@ -50,14 +52,14 @@ def main():
     success = test_unbounded_growth_fixed()
 
     if success:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("MEMORY LEAK FIXED - VERIFIED!")
-        print("="*60)
+        print("=" * 60)
         sys.exit(0)
     else:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("FIX INCOMPLETE")
-        print("="*60)
+        print("=" * 60)
         sys.exit(1)
 
 

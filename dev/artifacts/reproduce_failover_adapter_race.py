@@ -4,10 +4,11 @@ Reproduction script for race condition in failover_command_handler.
 This script simulates concurrent access to SessionStateApplicationStateAdapter's
 _local_state dictionary which lacks lock protection.
 """
+
 import asyncio
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 from src.core.commands.handlers.failover_command_handler import (
     SessionStateApplicationStateAdapter,

@@ -13,31 +13,33 @@ def inspect_module(module_path: Path, module_name: str):
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         return []
-    
+
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    
+
     classes = []
     for name in dir(module):
         obj = getattr(module, name)
-        if hasattr(obj, '__bases__'):
+        if hasattr(obj, "__bases__"):
             try:
                 from src.core.interfaces.model_bases import DomainModel
+
                 if issubclass(obj, DomainModel) and obj != DomainModel:
-                    if hasattr(obj, 'model_fields'):
+                    if hasattr(obj, "model_fields"):
                         classes.append((name, obj))
             except (ImportError, TypeError):
                 pass
-    
+
     return classes
 
-models_dir = Path('src/core/config/models')
+
+models_dir = Path("src/core/config/models")
 all_classes = []
 
-for model_file in models_dir.glob('*.py'):
-    if model_file.name.startswith('_'):
+for model_file in models_dir.glob("*.py"):
+    if model_file.name.startswith("_"):
         continue
-    
+
     module_name = f"src.core.config.models.{model_file.stem}"
     classes = inspect_module(model_file, module_name)
     for cls_name, cls in classes:

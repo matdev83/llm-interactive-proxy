@@ -448,13 +448,15 @@ class TestOpenRouterTemperatureHandling:
         mock_request = Mock()
         # Store the payload that was passed to build_request for verification
         captured_payload = {}
-        
+
         def build_request_side_effect(*args, **kwargs):
             if "json" in kwargs:
                 captured_payload.update(kwargs["json"])
             return mock_request
-        
-        openrouter_backend.client.build_request = Mock(side_effect=build_request_side_effect)
+
+        openrouter_backend.client.build_request = Mock(
+            side_effect=build_request_side_effect
+        )
         openrouter_backend.client.send = AsyncMock(return_value=mock_response)
 
         # Call the method
@@ -467,7 +469,7 @@ class TestOpenRouterTemperatureHandling:
             key_name="OPENROUTER_API_KEY_1",
             api_key="test-key",
         )
-        
+
         # Consume at least one chunk from the streaming response to trigger stream_completion
         # This ensures build_request is called
         if hasattr(result, "__aiter__"):
@@ -493,6 +495,7 @@ class TestOpenRouterTemperatureHandling:
             # If build_request wasn't called, verify via _prepare_payload directly
             # This tests that temperature is included in the payload preparation
             from src.core.domain.chat import CanonicalChatRequest
+
             domain_request = CanonicalChatRequest.model_validate(
                 sample_request_data.model_dump()
             )

@@ -86,7 +86,10 @@ class TestIdentityApplicator:
         assert "identity" in overrides
         assert "url" in overrides["identity"]
         assert overrides["identity"]["url"].get("mode") == "override"
-        assert overrides["identity"]["url"].get("override_value") == "https://custom.example.com"
+        assert (
+            overrides["identity"]["url"].get("override_value")
+            == "https://custom.example.com"
+        )
         assert resolution.is_set("identity.url.override_value")
         assert resolution.is_set("identity.url.mode")
         cli_params = resolution.latest_by_source(ParameterSource.CLI)
@@ -165,4 +168,6 @@ class TestIdentityApplicator:
         assert "identity" in overrides
         assert len(overrides) == 1
         for key in overrides:
-            assert key == "identity", f"IdentityApplicator modified unexpected key: {key}"
+            assert (
+                key == "identity"
+            ), f"IdentityApplicator modified unexpected key: {key}"

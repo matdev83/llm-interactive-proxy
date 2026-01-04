@@ -37,4 +37,3 @@ class SSEFormatter:
             return content
         else:
             return str(content).encode("utf-8")
-

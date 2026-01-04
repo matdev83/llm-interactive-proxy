@@ -124,7 +124,15 @@ class UniversalMCPClient:
 
             return True
 
-        except (ConnectionError, TimeoutError, OSError, ValueError, TypeError, RuntimeError, KeyError) as e:
+        except (
+            ConnectionError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            TypeError,
+            RuntimeError,
+            KeyError,
+        ) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Failed to connect to MCP server {server_name}: {e}", exc_info=True
@@ -165,7 +173,14 @@ class UniversalMCPClient:
                         f"Discovered MCP tool: {tool_name} from server {server_name}"
                     )
 
-        except (ConnectionError, TimeoutError, OSError, ValueError, KeyError, TypeError) as e:
+        except (
+            ConnectionError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Failed to discover tools from server {server_name}: {e}",
@@ -225,7 +240,14 @@ class UniversalMCPClient:
                 mcp_result=result,
             )
 
-        except (ConnectionError, TimeoutError, OSError, ValueError, KeyError, TypeError) as e:
+        except (
+            ConnectionError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+        ) as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(
                     f"Error executing MCP tool {tool_name}: {e}", exc_info=True

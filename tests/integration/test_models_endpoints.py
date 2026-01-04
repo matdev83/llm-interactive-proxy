@@ -598,7 +598,9 @@ class TestModelsEndpointIntegration:
                 assert m1["id"] == m2["id"]
 
     @pytest.mark.integration
-    @real_time(reason="Measures actual endpoint response time to ensure performance requirements are met.")
+    @real_time(
+        reason="Measures actual endpoint response time to ensure performance requirements are met."
+    )
     def test_models_endpoint_performance(self, monkeypatch):
         """Test models endpoint performance."""
         import time

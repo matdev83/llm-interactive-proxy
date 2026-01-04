@@ -1,7 +1,7 @@
 """Remove outer try/except from _register_mock_backend_service function."""
 
 # Read the file
-with open("src/core/app/stages/test_stages.py", "r", encoding="utf-8") as f:
+with open("src/core/app/stages/test_stages.py", encoding="utf-8") as f:
     lines = f.readlines()
 
 # Find the function boundaries
@@ -13,7 +13,13 @@ try_end = None
 for i, line in enumerate(lines):
     if "def _register_mock_backend_service(" in line and "-> None:" in line:
         func_start = i
-    if func_start is not None and line.strip() and not line.startswith(' ') and not line.startswith('\t') and i > func_start:
+    if (
+        func_start is not None
+        and line.strip()
+        and not line.startswith(" ")
+        and not line.startswith("\t")
+        and i > func_start
+    ):
         func_end = i
         break
 
@@ -23,7 +29,7 @@ if func_start is None:
 
 # Find the outer try and except
 for i in range(func_start, func_end):
-    if '        try:' in lines[i] and 'try:' == lines[i].strip():
+    if "        try:" in lines[i] and lines[i].strip() == "try:":
         # Check if this is at the right indent level for function body
         try_start = i
         break
@@ -34,7 +40,7 @@ if try_start is None:
 
 # Find the except clause that matches the outer try
 for i in range(try_start + 1, func_end):
-    if '        except ImportError as e:' in lines[i]:
+    if "        except ImportError as e:" in lines[i]:
         try_end = i + 3  # Skip except and the two logging lines
         break
 

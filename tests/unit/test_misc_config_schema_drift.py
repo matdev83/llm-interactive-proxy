@@ -22,9 +22,7 @@ class TestMiscConfigSchemaDrift:
         with schema_path.open() as f:
             schema = yaml.safe_load(f)
 
-        schema_fields = set(
-            schema["properties"]["empty_response"]["properties"].keys()
-        )
+        schema_fields = set(schema["properties"]["empty_response"]["properties"].keys())
         code_fields = set(EmptyResponseConfig.model_fields.keys())
 
         missing = code_fields - schema_fields
@@ -41,9 +39,7 @@ class TestMiscConfigSchemaDrift:
         with schema_path.open() as f:
             schema = yaml.safe_load(f)
 
-        schema_fields = set(
-            schema["properties"]["edit_precision"]["properties"].keys()
-        )
+        schema_fields = set(schema["properties"]["edit_precision"]["properties"].keys())
         code_fields = set(EditPrecisionConfig.model_fields.keys())
 
         missing = code_fields - schema_fields
@@ -60,9 +56,7 @@ class TestMiscConfigSchemaDrift:
         with schema_path.open() as f:
             schema = yaml.safe_load(f)
 
-        schema_fields = set(
-            schema["properties"]["rewriting"]["properties"].keys()
-        )
+        schema_fields = set(schema["properties"]["rewriting"]["properties"].keys())
         code_fields = set(RewritingConfig.model_fields.keys())
 
         missing = code_fields - schema_fields
@@ -89,9 +83,7 @@ empty_response:
         try:
             validate_yaml_against_schema(test_file, schema_path)
         except Exception as e:
-            raise AssertionError(
-                f"Valid empty_response config failed validation: {e}"
-            )
+            raise AssertionError(f"Valid empty_response config failed validation: {e}")
         finally:
             test_file.unlink()
 
@@ -118,9 +110,7 @@ edit_precision:
         try:
             validate_yaml_against_schema(test_file, schema_path)
         except Exception as e:
-            raise AssertionError(
-                f"Valid edit_precision config failed validation: {e}"
-            )
+            raise AssertionError(f"Valid edit_precision config failed validation: {e}")
         finally:
             test_file.unlink()
 
@@ -142,8 +132,6 @@ rewriting:
         try:
             validate_yaml_against_schema(test_file, schema_path)
         except Exception as e:
-            raise AssertionError(
-                f"Valid rewriting config failed validation: {e}"
-            )
+            raise AssertionError(f"Valid rewriting config failed validation: {e}")
         finally:
             test_file.unlink()

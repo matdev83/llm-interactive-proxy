@@ -33,18 +33,24 @@ class MockConnector:
                 return
 
             if self._reload_scheduling_in_progress:
-                print(f"  [Thread {threading.current_thread().name}] Reload already in progress, skipping")
+                print(
+                    f"  [Thread {threading.current_thread().name}] Reload already in progress, skipping"
+                )
                 return
 
             self._reload_scheduling_in_progress = True
-            print(f"  [Thread {threading.current_thread().name}] Set scheduling in progress to True (inside lock)")
+            print(
+                f"  [Thread {threading.current_thread().name}] Set scheduling in progress to True (inside lock)"
+            )
 
         # RACE CONDITION: Flag is set inside lock, but task creation happens OUTSIDE lock
         # Multiple threads can pass the above check and create multiple tasks
 
         def reload_task():
             self._reload_count += 1
-            print(f"  [Thread {threading.current_thread().name}] Executing reload #{self._reload_count}")
+            print(
+                f"  [Thread {threading.current_thread().name}] Executing reload #{self._reload_count}"
+            )
             time.sleep(0.1)  # Simulate work
 
         # Simulate creating and scheduling task outside the lock
@@ -54,7 +60,9 @@ class MockConnector:
                 task = loop.create_task(asyncio.coroutine(reload_task)())
                 self._pending_reload_task = task
                 self._reload_scheduling_in_progress = False
-                print(f"  [Thread {threading.current_thread().name}] Created task, reset flag to False (inside lock)")
+                print(
+                    f"  [Thread {threading.current_thread().name}] Created task, reset flag to False (inside lock)"
+                )
         except:
             pass
 
@@ -78,9 +86,7 @@ def test_race_condition():
 
     # Simulate a pending task (like from previous reload)
     loop = asyncio.new_event_loop()
-    connector._pending_reload_task = loop.create_task(
-        asyncio.coroutine(lambda: None)()
-    )
+    connector._pending_reload_task = loop.create_task(asyncio.coroutine(lambda: None)())
 
     print("\n=== RACE CONDITION TEST: _schedule_credentials_reload ===")
     print("Simulating concurrent file modification events from multiple threads...")
@@ -91,8 +97,7 @@ def test_race_condition():
     threads = []
     for i in range(5):
         t = threading.Thread(
-            target=connector._schedule_credentials_reload,
-            name=f"FileWatcher-{i}"
+            target=connector._schedule_credentials_reload, name=f"FileWatcher-{i}"
         )
         threads.append(t)
 
@@ -113,7 +118,7 @@ def test_race_condition():
     print(f"Final scheduling_in_progress flag: {final_state['scheduling_in_progress']}")
     print(f"Pending task: {final_state['pending_task']}")
 
-    if final_state['reload_count'] > 1:
+    if final_state["reload_count"] > 1:
         print("\n RACE CONDITION REPRODUCED: Multiple concurrent reloads executed!")
         print("This demonstrates the TOCTOU race in _schedule_credentials_reload")
         return True

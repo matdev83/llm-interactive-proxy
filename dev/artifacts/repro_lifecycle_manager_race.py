@@ -1,4 +1,5 @@
 """Repro script for race condition in BackendLifecycleManager._shutdown_tasks."""
+
 import asyncio
 import sys
 from pathlib import Path

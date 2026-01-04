@@ -28,7 +28,7 @@ def create_large_array_json(size: int) -> dict:
 def test_json_validation_utility():
     """Test the JSON validation utility directly."""
     print("Testing JSON validation utility...")
-    
+
     # Test 1: Normal JSON should pass
     normal_json = {"key": "value", "nested": {"key2": "value2"}}
     try:
@@ -37,7 +37,7 @@ def test_json_validation_utility():
     except JSONValidationError:
         print("  FAIL: Normal JSON was rejected")
         return False
-    
+
     # Test 2: Deep nesting should fail
     deep_json = create_deeply_nested_json(150)  # Exceeds MAX_JSON_DEPTH (100)
     try:
@@ -46,25 +46,27 @@ def test_json_validation_utility():
         return False
     except JSONValidationError:
         print("  PASS: Deep nesting correctly rejected")
-    
+
     # Test 3: Large array should fail
-    large_array_json = create_large_array_json(2_000_000)  # Exceeds MAX_ARRAY_ELEMENTS (1M)
+    large_array_json = create_large_array_json(
+        2_000_000
+    )  # Exceeds MAX_ARRAY_ELEMENTS (1M)
     try:
         validate_json_structure(large_array_json)
         print("  FAIL: Large array was not rejected")
         return False
     except JSONValidationError:
         print("  PASS: Large array correctly rejected")
-    
+
     return True
 
 
 def test_json_string_parser():
     """Test JSONStringParser with malicious payloads."""
     print("\nTesting JSONStringParser...")
-    
+
     parser = JSONStringParser()
-    
+
     # Test 1: Normal JSON should work
     normal_json_str = json.dumps({"key": "value"})
     try:
@@ -73,7 +75,7 @@ def test_json_string_parser():
     except Exception as e:
         print(f"  FAIL: Normal JSON failed: {e}")
         return False
-    
+
     # Test 2: Deep nesting should be rejected
     deep_json = create_deeply_nested_json(150)
     deep_json_str = json.dumps(deep_json)
@@ -87,7 +89,7 @@ def test_json_string_parser():
         else:
             print(f"  FAIL: Wrong error type: {e}")
             return False
-    
+
     # Test 3: Large array should be rejected
     # Note: Size check happens first, which is valid DoS protection
     # Test with array that fits size limit but exceeds element limit
@@ -102,12 +104,22 @@ def test_json_string_parser():
         # Size-based rejection is valid DoS protection (happens before array validation)
         # Array validation would also catch it if size check didn't
         error_str = str(e).lower()
-        if any(keyword in error_str for keyword in ["validation", "array", "size", "large", "elements", "exceeds"]):
+        if any(
+            keyword in error_str
+            for keyword in [
+                "validation",
+                "array",
+                "size",
+                "large",
+                "elements",
+                "exceeds",
+            ]
+        ):
             print("  PASS: Large array correctly rejected (size or element limit)")
         else:
             print(f"  FAIL: Wrong error type: {e}")
             return False
-    
+
     # Test 4: Very large payload should be rejected
     huge_string = "A" * (11 * 1024 * 1024)  # 11MB, exceeds 10MB limit
     huge_json_str = json.dumps({"data": huge_string})
@@ -121,22 +133,22 @@ def test_json_string_parser():
         else:
             print(f"  FAIL: Wrong error type: {e}")
             return False
-    
+
     return True
 
 
 if __name__ == "__main__":
     print("DoS Fix Verification")
     print("=" * 60)
-    
+
     all_passed = True
-    
+
     if not test_json_validation_utility():
         all_passed = False
-    
+
     if not test_json_string_parser():
         all_passed = False
-    
+
     print("\n" + "=" * 60)
     if all_passed:
         print("SUCCESS: All DoS protections are working correctly!")
@@ -144,4 +156,3 @@ if __name__ == "__main__":
     else:
         print("FAILURE: Some DoS protections are not working!")
         sys.exit(1)
-

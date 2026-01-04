@@ -82,7 +82,6 @@ class TestServiceCollectionTaskLeakRegression:
             clock.advance(0.01)  # Reduced from 0.05 for performance
             await sleep_task
 
-
         # Check that tasks don't accumulate unbounded
         # Some tasks may still be pending, but should be manageable
         pending_tasks = [t for t in services._cleanup_tasks if not t.done()]
@@ -153,7 +152,6 @@ class TestServiceCollectionTaskLeakRegression:
             clock.advance(0.02)  # Reduced from 0.1 for performance
             await sleep_task
 
-
         # Tasks should complete even without dispose()
         # (though dispose() should still be called in production)
         pending_tasks = [t for t in services._cleanup_tasks if not t.done()]
@@ -189,7 +187,6 @@ class TestServiceCollectionTaskLeakRegression:
             sleep_task = asyncio.create_task(asyncio.sleep(0.02))
             clock.advance(0.02)  # Reduced from 0.1 for performance
             await sleep_task
-
 
         # Check that tasks don't accumulate excessively
         final_task_count = len(asyncio.all_tasks())

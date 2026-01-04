@@ -70,7 +70,8 @@ class TestWebSocketDoSRegression:
             "nested": {
                 "more": {
                     "deep": {
-                        "structures": [large_data] * 10  # Reduced from 100 to 10 for performance
+                        "structures": [large_data]
+                        * 10  # Reduced from 100 to 10 for performance
                     }
                 }
             },
@@ -84,7 +85,9 @@ class TestWebSocketDoSRegression:
         # Using 1MB base + minimal padding ensures it exceeds 1MB limit efficiently
         large_payload = self.create_large_payload(size_mb=1)
         # Add extra data to ensure it exceeds limit (reduced padding for performance)
-        large_payload["extra"] = "x" * (50 * 1024)  # Reduced from 150KB to 50KB for performance
+        large_payload["extra"] = "x" * (
+            50 * 1024
+        )  # Reduced from 150KB to 50KB for performance
         payload_json = json.dumps(large_payload)
         payload_size = len(payload_json.encode("utf-8"))
 

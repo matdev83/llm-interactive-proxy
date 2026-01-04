@@ -119,7 +119,9 @@ class EditPrecisionFeature(IResponseFeature):
         except Exception as err:
             if self._logger.isEnabledFor(logging.WARNING):
                 self._logger.warning(
-                    "Failed to compile combined edit precision pattern: %s", err, exc_info=True
+                    "Failed to compile combined edit precision pattern: %s",
+                    err,
+                    exc_info=True,
                 )
             self._combined_pattern = None
 

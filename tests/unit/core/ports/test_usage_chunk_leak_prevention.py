@@ -79,7 +79,9 @@ class TestUsageInFinalChunk:
             # Verify structure matches OpenRouter spec
             assert "id" in parsed, "Result should have id"
             assert "choices" in parsed, "Result should have choices"
-            assert parsed["choices"][0]["finish_reason"] == "stop", "Should be stop chunk"
+            assert (
+                parsed["choices"][0]["finish_reason"] == "stop"
+            ), "Should be stop chunk"
             assert "usage" in parsed, "Usage should be at top level"
             assert parsed["usage"]["prompt_tokens"] == 14803
             assert parsed["usage"]["completion_tokens"] == 18
@@ -128,7 +130,9 @@ class TestUsageInFinalChunk:
             # Content should be empty or not contain usage JSON
             if content:
                 assert "prompt_tokens" not in content, "Usage should not be in content"
-                assert "completion_tokens" not in content, "Usage should not be in content"
+                assert (
+                    "completion_tokens" not in content
+                ), "Usage should not be in content"
 
     def test_regular_content_chunk_still_works(self) -> None:
         """Regular content chunks should still be processed correctly."""

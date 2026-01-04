@@ -6,16 +6,17 @@ Final verification that XML DoS vulnerability is fixed in SSO Service.
 import os
 import sys
 
-# Add src to path 
+# Add src to path
 current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.join(current_dir, '..', '..')
-src_path = os.path.join(project_root, 'src')
+project_root = os.path.join(current_dir, "..", "..")
+src_path = os.path.join(project_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
 
 try:
     from src.core.auth.sso.exceptions import AuthenticationError
     from src.core.auth.sso.sso_service import safe_xml_parse
+
     print("[OK] Successfully imported safe_xml_parse from fixed module")
 except ImportError as e:
     print(f"[FAIL] Failed to import: {e}")
@@ -25,7 +26,7 @@ except ImportError as e:
 def test_xml_bomb_attack():
     """Test that XML bomb attacks are blocked."""
     print("\n1. Testing XML Bomb Attack Protection...")
-    
+
     xml_bomb = """<?xml version="1.0"?>
 <!DOCTYPE lolz [
   <!ENTITY lol "lol">
@@ -54,7 +55,7 @@ def test_xml_bomb_attack():
 def test_legitimate_xml():
     """Test that legitimate XML still works."""
     print("\n2. Testing Legitimate XML Processing...")
-    
+
     legitimate_saml = """<?xml version="1.0"?>
 <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol">
   <saml:Assertion xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">
@@ -78,20 +79,20 @@ def main():
     """Run all vulnerability tests."""
     print("XML DoS Vulnerability Fix Verification")
     print("=" * 60)
-    
+
     tests_passed = 0
     total_tests = 2
-    
+
     if test_xml_bomb_attack():
         tests_passed += 1
-    
+
     if test_legitimate_xml():
         tests_passed += 1
-    
+
     print("\n" + "=" * 60)
     print("VERIFICATION SUMMARY:")
     print(f"Tests passed: {tests_passed}/{total_tests}")
-    
+
     if tests_passed == total_tests:
         print("\n[SUCCESS] All XML DoS vulnerabilities have been fixed!")
         print("\nThe SSO service is now protected against:")

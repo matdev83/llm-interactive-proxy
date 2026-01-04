@@ -4,11 +4,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
-config_path = Path('config/reasoning_aliases.yaml.example')
-schema_path = Path('config/schemas/reasoning_aliases.schema.yaml')
+config_path = Path("config/reasoning_aliases.yaml.example")
+schema_path = Path("config/schemas/reasoning_aliases.schema.yaml")
 
 try:
     validate_yaml_against_schema(config_path, schema_path)
-    print('OK')
+    print("OK")
 except Exception as e:
-    print(f'FAIL: {e}')
+    print(f"FAIL: {e}")

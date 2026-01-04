@@ -353,7 +353,7 @@ async def test_chat_completions_raises_after_double_401(
     """Connector should raise AuthenticationError when retries fail."""
     secrets_path = tmp_path / "secrets.json"
     from unittest.mock import patch
-    
+
     base_time = 1000.0
     with patch("time.time", return_value=base_time):
         _write_auth_payload(

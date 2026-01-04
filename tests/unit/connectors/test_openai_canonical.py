@@ -81,16 +81,16 @@ class TestOpenAICanonicalAPI:
     def test_implements_canonical_protocol(self, openai_connector):
         """Test that OpenAIConnector implements ICanonicalChatCompletionsBackend."""
         import inspect
-        
+
         # Check if canonical method exists by inspecting signature
         # The canonical API should have a parameter named "request" as the first argument
         method = getattr(openai_connector, "chat_completions", None)
         assert method is not None, "chat_completions method not found"
-        
+
         try:
             sig = inspect.signature(method)
             params = list(sig.parameters.values())
-            
+
             # Check if the first parameter is "request"
             if len(params) >= 1 and params[0].name == "request":
                 # Canonical API found
@@ -124,23 +124,26 @@ class TestOpenAICanonicalAPI:
             mock_internal.return_value = ResponseEnvelope(
                 content={"id": "test-id", "model": "gpt-4", "choices": []},
             )
-            
+
             # Call canonical API
             await openai_connector.chat_completions(canonical_request)
-            
+
             # Verify it was called with typed contracts
             mock_internal.assert_called_once()
             call_args = mock_internal.call_args
-            
+
             # Verify request.request is CanonicalChatRequest
             assert isinstance(canonical_request.request, CanonicalChatRequest)
-            
+
             # Verify processed_messages is Sequence[ChatMessage]
-            assert all(isinstance(msg, ChatMessage) for msg in canonical_request.processed_messages)
-            
+            assert all(
+                isinstance(msg, ChatMessage)
+                for msg in canonical_request.processed_messages
+            )
+
             # Verify options is dict[str, JsonValue]
             assert isinstance(canonical_request.options, dict)
-            
+
             # Verify the canonical request was passed correctly
             assert call_args[0][0] == canonical_request
 
@@ -154,7 +157,7 @@ class TestOpenAICanonicalAPI:
             "openai_url": "https://custom.openai.com/v1",
             "headers_override": {"custom": "header"},
         }
-        
+
         # Mock the internal implementation to verify options are used
         with patch.object(
             openai_connector,
@@ -164,16 +167,21 @@ class TestOpenAICanonicalAPI:
             mock_internal.return_value = ResponseEnvelope(
                 content={"id": "test-id", "model": "gpt-4", "choices": []},
             )
-            
+
             await openai_connector.chat_completions(canonical_request)
-            
+
             # Verify options were passed correctly
-            assert canonical_request.options["openai_url"] == "https://custom.openai.com/v1"
-            
+            assert (
+                canonical_request.options["openai_url"]
+                == "https://custom.openai.com/v1"
+            )
+
             # Verify the canonical request with options was passed
             call_args = mock_internal.call_args
             passed_request = call_args[0][0]
-            assert passed_request.options["openai_url"] == "https://custom.openai.com/v1"
+            assert (
+                passed_request.options["openai_url"] == "https://custom.openai.com/v1"
+            )
 
     @pytest.mark.asyncio
     async def test_context_used_for_logging_correlation(
@@ -187,7 +195,7 @@ class TestOpenAICanonicalAPI:
             max_tokens=100,
             stream=False,
         )
-        
+
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(
             request_id="test-req-789",
@@ -196,7 +204,7 @@ class TestOpenAICanonicalAPI:
             extensions={},
         )
         canonical_request.request = non_streaming_request
-        
+
         # Mock the internal implementation to avoid actual HTTP calls
         with patch.object(
             openai_connector,
@@ -207,9 +215,9 @@ class TestOpenAICanonicalAPI:
                 content={"id": "test-id", "model": "gpt-4", "choices": []},
                 status_code=200,
             )
-            
+
             result = await openai_connector.chat_completions(canonical_request)
-            
+
             # Verify context was extracted and available
             assert result is not None
             # Context is extracted in _chat_completions_canonical and available for logging
@@ -228,7 +236,7 @@ class TestOpenAICanonicalAPI:
             stream=True,
         )
         canonical_request.request = streaming_request
-        
+
         # Mock streaming pipeline integration
         with patch(
             "src.core.ports.streaming_integration.integrate_streaming_pipeline",
@@ -239,7 +247,7 @@ class TestOpenAICanonicalAPI:
                 media_type="text/event-stream",
                 headers={},
             )
-            
+
             # Mock stream_completion
             with patch.object(
                 openai_connector,
@@ -247,9 +255,9 @@ class TestOpenAICanonicalAPI:
                 new_callable=AsyncMock,
             ) as mock_stream:
                 mock_stream.return_value = AsyncMock()
-                
+
                 result = await openai_connector.chat_completions(canonical_request)
-                
+
                 # Verify streaming path was taken
                 assert isinstance(result, StreamingResponseEnvelope)
                 mock_stream.assert_called_once()
@@ -267,7 +275,7 @@ class TestOpenAICanonicalAPI:
             stream=False,
         )
         canonical_request.request = non_streaming_request
-        
+
         # Mock non-streaming handler
         with patch.object(
             openai_connector,
@@ -278,9 +286,9 @@ class TestOpenAICanonicalAPI:
                 content={"id": "test-id", "model": "gpt-4", "choices": []},
                 status_code=200,
             )
-            
+
             result = await openai_connector.chat_completions(canonical_request)
-            
+
             # Verify non-streaming path was taken
             assert isinstance(result, ResponseEnvelope)
             mock_handler.assert_called_once()
@@ -291,7 +299,7 @@ class TestOpenAICanonicalAPI:
     ):
         """Test that options are validated as JSON-safe values."""
         import json
-        
+
         # Set options with JSON-safe values
         canonical_request.options = {
             "openai_url": "https://custom.openai.com/v1",
@@ -300,7 +308,7 @@ class TestOpenAICanonicalAPI:
             "boolean": True,
             "null_value": None,
         }
-        
+
         # Mock the internal implementation
         with patch.object(
             openai_connector,
@@ -310,31 +318,31 @@ class TestOpenAICanonicalAPI:
             mock_internal.return_value = ResponseEnvelope(
                 content={"id": "test-id", "model": "gpt-4", "choices": []},
             )
-            
+
             await openai_connector.chat_completions(canonical_request)
-            
+
             # Verify all options are JSON-serializable
             call_args = mock_internal.call_args
             passed_request = call_args[0][0]
-            
+
             # All values should be JSON-serializable
             try:
                 json.dumps(passed_request.options)
             except (TypeError, ValueError) as e:
                 pytest.fail(f"Options contain non-JSON-safe values: {e}")
-            
+
             # Verify options were passed correctly
-            assert passed_request.options["openai_url"] == "https://custom.openai.com/v1"
+            assert (
+                passed_request.options["openai_url"] == "https://custom.openai.com/v1"
+            )
             assert passed_request.options["numeric"] == 42
             assert passed_request.options["boolean"] is True
 
     @pytest.mark.asyncio
-    async def test_context_in_error_logs(
-        self, openai_connector, canonical_request
-    ):
+    async def test_context_in_error_logs(self, openai_connector, canonical_request):
         """Test that context correlation identifiers appear in error logs."""
         from json import JSONDecodeError
-        
+
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(
             request_id="test-req-error-789",
@@ -342,7 +350,7 @@ class TestOpenAICanonicalAPI:
             client_host="10.0.0.100",
             extensions={},
         )
-        
+
         # Create a non-streaming request
         non_streaming_request = CanonicalChatRequest(
             model="gpt-4",
@@ -351,7 +359,7 @@ class TestOpenAICanonicalAPI:
             stream=False,
         )
         canonical_request.request = non_streaming_request
-        
+
         # Mock HTTP client to return error response that triggers JSON parsing error
         mock_response = AsyncMock()
         mock_response.status_code = 500
@@ -359,23 +367,25 @@ class TestOpenAICanonicalAPI:
         # Make json() raise JSONDecodeError to trigger the warning log path we fixed
         mock_response.json.side_effect = JSONDecodeError("Invalid JSON", "", 0)
         mock_response.text = "Internal server error"
-        
+
         # Mock the internal handler to verify context is passed
         with patch.object(
             openai_connector,
             "_handle_non_streaming_response",
             new_callable=AsyncMock,
         ) as mock_handler:
-            mock_handler.side_effect = HTTPException(status_code=500, detail="Test error")
-            
+            mock_handler.side_effect = HTTPException(
+                status_code=500, detail="Test error"
+            )
+
             # Capture log messages
             with patch("src.connectors.openai.logger") as mock_logger:
                 mock_logger.isEnabledFor.return_value = True
-                
+
                 # Call should raise an error
                 with pytest.raises(Exception, match="Test error"):
                     await openai_connector.chat_completions(canonical_request)
-                
+
                 # Verify context was passed to helper method
                 mock_handler.assert_called_once()
                 call_args = mock_handler.call_args
@@ -387,11 +397,9 @@ class TestOpenAICanonicalAPI:
                 assert passed_context.session_id == "test-session-error-012"
 
     @pytest.mark.asyncio
-    async def test_context_in_warning_logs(
-        self, openai_connector, canonical_request
-    ):
+    async def test_context_in_warning_logs(self, openai_connector, canonical_request):
         """Test that context correlation identifiers appear in warning logs."""
-        
+
         # Set up context with correlation identifiers
         canonical_request.context = ConnectorRequestContext(
             request_id="test-req-warn-789",
@@ -399,7 +407,7 @@ class TestOpenAICanonicalAPI:
             client_host="10.0.0.200",
             extensions={},
         )
-        
+
         # Create a request that triggers a warning (e.g., failed prompt token calculation)
         non_streaming_request = CanonicalChatRequest(
             model="gpt-4",
@@ -408,7 +416,7 @@ class TestOpenAICanonicalAPI:
             stream=False,
         )
         canonical_request.request = non_streaming_request
-        
+
         # Mock the internal implementation to trigger a warning
         with patch.object(
             openai_connector,
@@ -419,22 +427,24 @@ class TestOpenAICanonicalAPI:
                 content={"id": "test-id", "model": "gpt-4", "choices": []},
                 status_code=200,
             )
-            
+
             # Mock extract_prompt_text to raise (triggers warning in streaming path)
             # But we're testing non-streaming, so let's test with a different scenario
             # Instead, let's verify context is passed to helper methods
-            
+
             # Capture log messages
             with patch("src.connectors.openai.logger") as mock_logger:
                 mock_logger.isEnabledFor.return_value = True
-                
+
                 await openai_connector.chat_completions(canonical_request)
-                
+
                 # Verify context was passed to helper (indirect verification)
                 mock_handler.assert_called_once()
                 call_args = mock_handler.call_args
                 # Check that context parameter was passed
-                assert len(call_args[0]) >= 5  # url, payload, headers, session_id, context
+                assert (
+                    len(call_args[0]) >= 5
+                )  # url, payload, headers, session_id, context
                 passed_context = call_args[0][4] if len(call_args[0]) > 4 else None
                 assert passed_context is not None
                 assert passed_context.request_id == "test-req-warn-789"

@@ -194,9 +194,11 @@ class TestCredentialValidationErrors:
             "src.connectors.gemini_base.credential_coordinator.CredentialLoader"
         ) as mock_loader:
             mock_loader.validate_credentials_file_exists.return_value = (
-                True,
-                [],
-                Path("/test/oauth_creds.json"),
+                CredentialFileValidationResult(
+                    is_valid=True,
+                    errors=[],
+                    path=Path("/test/oauth_creds.json"),
+                )
             )
 
             # Use valid credentials that load but fail structure validation
@@ -206,8 +208,9 @@ class TestCredentialValidationErrors:
 
             mock_loader.load_oauth_credentials = AsyncMock(side_effect=load_side_effect)
             mock_loader.validate_credentials_structure.return_value = (
-                False,
-                ["Missing required field: project_id"],
+                CredentialStructureValidationResult(
+                    is_valid=False, errors=["Missing required field: project_id"]
+                )
             )
 
             with pytest.raises(AuthenticationError) as exc_info:
@@ -224,9 +227,11 @@ class TestCredentialValidationErrors:
             "src.connectors.gemini_base.credential_coordinator.CredentialLoader"
         ) as mock_loader:
             mock_loader.validate_credentials_file_exists.return_value = (
-                False,
-                ["OAuth credentials file not found"],
-                None,
+                CredentialFileValidationResult(
+                    is_valid=False,
+                    errors=["OAuth credentials file not found"],
+                    path=Path("/nonexistent"),
+                )
             )
 
             with pytest.raises(AuthenticationError) as exc_info:
@@ -305,9 +310,11 @@ class TestInitializeSuccessPaths:
             ) as mock_watcher,
         ):
             mock_loader.validate_credentials_file_exists.return_value = (
-                True,
-                [],
-                Path("/test/oauth_creds.json"),
+                CredentialFileValidationResult(
+                    is_valid=True,
+                    errors=[],
+                    path=Path("/test/oauth_creds.json"),
+                )
             )
 
             async def load_side_effect(storage: Mock, *args, **kwargs) -> bool:
@@ -315,7 +322,9 @@ class TestInitializeSuccessPaths:
                 return True
 
             mock_loader.load_oauth_credentials = AsyncMock(side_effect=load_side_effect)
-            mock_loader.validate_credentials_structure.return_value = (True, [])
+            mock_loader.validate_credentials_structure.return_value = (
+                CredentialStructureValidationResult(is_valid=True, errors=[])
+            )
 
             # Initialize
             await coordinator.initialize(gemini_cli_oauth_path=None)
@@ -352,9 +361,11 @@ class TestInitializeSuccessPaths:
             ) as mock_start_watching,
         ):
             mock_loader.validate_credentials_file_exists.return_value = (
-                True,
-                [],
-                Path("/test/oauth_creds.json"),
+                CredentialFileValidationResult(
+                    is_valid=True,
+                    errors=[],
+                    path=Path("/test/oauth_creds.json"),
+                )
             )
 
             async def load_side_effect(storage: Mock, *args, **kwargs) -> bool:
@@ -362,7 +373,9 @@ class TestInitializeSuccessPaths:
                 return True
 
             mock_loader.load_oauth_credentials = AsyncMock(side_effect=load_side_effect)
-            mock_loader.validate_credentials_structure.return_value = (True, [])
+            mock_loader.validate_credentials_structure.return_value = (
+                CredentialStructureValidationResult(is_valid=True, errors=[])
+            )
 
             # File watcher raises exception (simulating internal failure)
             mock_start_watching.side_effect = Exception("File watcher failed")
@@ -414,9 +427,11 @@ class TestInitializeSuccessPaths:
         ) as mock_loader:
             # File validation succeeds
             mock_loader.validate_credentials_file_exists.return_value = (
-                True,
-                [],
-                Path("/test/oauth_creds.json"),
+                CredentialFileValidationResult(
+                    is_valid=True,
+                    errors=[],
+                    path=Path("/test/oauth_creds.json"),
+                )
             )
 
             # Reload returns new credentials
@@ -425,7 +440,9 @@ class TestInitializeSuccessPaths:
                 return True
 
             mock_loader.load_oauth_credentials = AsyncMock(side_effect=load_side_effect)
-            mock_loader.validate_credentials_structure.return_value = (True, [])
+            mock_loader.validate_credentials_structure.return_value = (
+                CredentialStructureValidationResult(is_valid=True, errors=[])
+            )
 
             # Execute file change handler
             await coordinator._handle_credentials_file_change()
@@ -456,9 +473,9 @@ class TestInitializeSuccessPaths:
         ) as mock_loader:
             # File validation fails
             mock_loader.validate_credentials_file_exists.return_value = (
-                False,
-                ["File not found"],
-                None,
+                CredentialFileValidationResult(
+                    is_valid=False, errors=["File not found"], path=Path("/nonexistent")
+                )
             )
 
             # Execute file change handler - should not raise
@@ -500,9 +517,11 @@ class TestInitializeSuccessPaths:
         ) as mock_loader:
             # File validation succeeds
             mock_loader.validate_credentials_file_exists.return_value = (
-                True,
-                [],
-                Path("/test/oauth_creds.json"),
+                CredentialFileValidationResult(
+                    is_valid=True,
+                    errors=[],
+                    path=Path("/test/oauth_creds.json"),
+                )
             )
 
             # Reload returns new credentials
@@ -511,7 +530,9 @@ class TestInitializeSuccessPaths:
                 return True
 
             mock_loader.load_oauth_credentials = AsyncMock(side_effect=load_side_effect)
-            mock_loader.validate_credentials_structure.return_value = (True, [])
+            mock_loader.validate_credentials_structure.return_value = (
+                CredentialStructureValidationResult(is_valid=True, errors=[])
+            )
 
             # Execute file change handler
             await coordinator._handle_credentials_file_change()

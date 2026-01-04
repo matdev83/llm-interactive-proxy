@@ -58,7 +58,6 @@ class UsageNormalizer:
         # Handle UsageSummary objects
         from src.core.domain.usage_summary import UsageSummary
 
-
         if isinstance(usage, UsageSummary):
             usage = usage.to_legacy_dict()
 

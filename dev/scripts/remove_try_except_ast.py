@@ -1,10 +1,9 @@
 """Script to remove outer try/except blocks from test_stages.py using AST parsing."""
 
 import ast
-import textwrap
 
 # Read the original file
-with open("src/core/app/stages/test_stages.py", "r", encoding="utf-8") as f:
+with open("src/core/app/stages/test_stages.py", encoding="utf-8") as f:
     original_content = f.read()
 
 # Parse the AST

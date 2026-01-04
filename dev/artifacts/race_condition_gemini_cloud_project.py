@@ -3,6 +3,7 @@
 This script demonstrates the race condition in _schedule_credentials_reload
 where multiple file modifications can cause inconsistent state.
 """
+
 import asyncio
 import threading
 import time

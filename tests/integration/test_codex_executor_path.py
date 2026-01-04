@@ -148,7 +148,9 @@ async def test_executor_called_for_streaming_codex_requests(auth_dir: Path):
             )
 
             async def mock_stream():
-                yield ProcessedResponse(content={"choices": [{"delta": {"content": "test"}}]})
+                yield ProcessedResponse(
+                    content={"choices": [{"delta": {"content": "test"}}]}
+                )
 
             mock_executor.execute.return_value = StreamingResponseEnvelope(
                 content=mock_stream(),
@@ -228,9 +230,14 @@ async def test_non_codex_models_bypass_executor(auth_dir: Path):
                 )
 
             # Patch the parent class method
-            with patch.object(
-                connector.__class__.__bases__[0], "chat_completions", tracked_chat_completions
-            ), contextlib.suppress(Exception):  # May fail due to mocking, but we're just checking call paths
+            with (
+                patch.object(
+                    connector.__class__.__bases__[0],
+                    "chat_completions",
+                    tracked_chat_completions,
+                ),
+                contextlib.suppress(Exception),
+            ):  # May fail due to mocking, but we're just checking call paths
                 await connector.chat_completions(
                     request_data=request,
                     processed_messages=[],

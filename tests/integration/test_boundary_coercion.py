@@ -134,10 +134,15 @@ class TestBoundaryValidationLogging:
             session_id="test-session-456",
         )
 
-        dict_request = {"model": "gpt-4", "messages": [{"role": "user", "content": "test"}]}
+        dict_request = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "test"}],
+        }
 
         # Capture log calls
-        with patch("src.core.services.backend_completion_flow.service.logger") as mock_logger:
+        with patch(
+            "src.core.services.backend_completion_flow.service.logger"
+        ) as mock_logger:
             with pytest.raises(InvalidRequestError):
                 await flow.call_completion(
                     request=dict_request,  # type: ignore[arg-type]
@@ -174,9 +179,14 @@ class TestBoundaryValidationLogging:
             connector_invoker=MagicMock(),
         )
 
-        dict_request = {"model": "gpt-4", "messages": [{"role": "user", "content": "test"}]}
+        dict_request = {
+            "model": "gpt-4",
+            "messages": [{"role": "user", "content": "test"}],
+        }
 
-        with patch("src.core.services.backend_completion_flow.service.logger") as mock_logger:
+        with patch(
+            "src.core.services.backend_completion_flow.service.logger"
+        ) as mock_logger:
             with pytest.raises(InvalidRequestError):
                 await flow.call_completion(
                     request=dict_request,  # type: ignore[arg-type]

@@ -1,25 +1,25 @@
 def safe_xml_parse(xml_data: str | bytes) -> ET.Element:
     """
     Safely parse XML data with protection against DoS attacks.
-    
+
     Protects against:
     - XML bomb attacks (Billion Laughs) - exponential entity expansion
     - Deeply nested XML - stack overflow
     - Large XML content - memory exhaustion
-    
+
     Args:
         xml_data: XML string or bytes to parse
-        
+
     Returns:
         Parsed XML element
-        
+
     Raises:
         AuthenticationError: If XML is unsafe or malformed
     """
     # Convert bytes to string if needed
     if isinstance(xml_data, bytes):
         try:
-            xml_str = xml_data.decode('utf-8')
+            xml_str = xml_data.decode("utf-8")
         except UnicodeDecodeError as e:
             raise AuthenticationError(
                 f"XML data contains invalid UTF-8: {e!s}",
@@ -28,7 +28,7 @@ def safe_xml_parse(xml_data: str | bytes) -> ET.Element:
             ) from e
     else:
         xml_str = xml_data
-    
+
     # Check size limits (prevent memory exhaustion)
     MAX_XML_SIZE = 10 * 1024 * 1024  # 10MB
     if len(xml_str) > MAX_XML_SIZE:
@@ -40,9 +40,9 @@ def safe_xml_parse(xml_data: str | bytes) -> ET.Element:
                 "max_size": MAX_XML_SIZE,
             },
         )
-    
+
     # Check for XML bomb patterns (entity expansion attacks)
-    if '<!DOCTYPE' in xml_str and ('<!ENTITY' in xml_str):
+    if "<!DOCTYPE" in xml_str and ("<!ENTITY" in xml_str):
         # Look for entity expansion patterns typical in XML bombs
         import re
 
@@ -52,14 +52,14 @@ def safe_xml_parse(xml_data: str | bytes) -> ET.Element:
                 "XML contains potentially malicious entity expansion",
                 details={"error": "xml_entity_expansion"},
             )
-    
+
     # Limit nesting depth to prevent stack overflow
     max_depth = 100
-    
+
     # Count nested tags to estimate depth
     open_tags = 0
     for char in xml_str:
-        if char == '<':
+        if char == "<":
             open_tags += 1
             if open_tags > max_depth:
                 raise AuthenticationError(
@@ -70,7 +70,7 @@ def safe_xml_parse(xml_data: str | bytes) -> ET.Element:
                         "max_depth": max_depth,
                     },
                 )
-    
+
     # Parse with safety measures
     try:
         original_limit = sys.getrecursionlimit()
@@ -88,7 +88,7 @@ def safe_xml_parse(xml_data: str | bytes) -> ET.Element:
 
         finally:
             sys.setrecursionlimit(original_limit)
-            
+
     except ET.ParseError as e:
         raise AuthenticationError(
             f"XML parsing failed: {e!s}",

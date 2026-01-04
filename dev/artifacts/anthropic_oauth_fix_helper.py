@@ -2,6 +2,7 @@
 Recreate just the _schedule_credentials_reload method with proper formatting
 """
 
+
 def _schedule_credentials_reload(self) -> str:
     """Return the source code for the fixed _schedule_credentials_reload method"""
     return '''    def _schedule_credentials_reload(self) -> None:

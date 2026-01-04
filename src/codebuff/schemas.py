@@ -91,7 +91,6 @@ class PromptAction(DomainModel):
     agentId: str | None = Field(None, alias="agentId")
 
 
-
 class InitAction(DomainModel):
     """Init action for session initialization.
 
@@ -171,7 +170,6 @@ class PromptResponseAction(DomainModel):
     toolCalls: list[ToolCall] | None = Field(None, alias="toolCalls")
     toolResults: list[dict[str, Any]] | None = Field(None, alias="toolResults")
     output: dict[str, Any] | None = None
-
 
 
 class PromptErrorAction(DomainModel):

@@ -1,10 +1,11 @@
 """
 More aggressive race condition test to detect lost updates.
 """
+
 import asyncio
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 from src.core.domain.assessment import (
     AssessmentResult,
@@ -58,7 +59,9 @@ async def test_assessment_history_lost_updates():
 
     if final_count < total_expected:
         print("\nRACE CONDITION CONFIRMED: Lost updates detected!")
-        print("This happens when concurrent list.append() calls race and overwrite each other")
+        print(
+            "This happens when concurrent list.append() calls race and overwrite each other"
+        )
         return True
     else:
         print("\nNo lost updates detected in this run")

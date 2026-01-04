@@ -46,9 +46,7 @@ async def test_cache_invalidation_concurrent_access():
         detector.invalidate_cache_for_backend_change("backend_1", "backend_2")
 
     tasks = [asyncio.create_task(concurrent_access()) for _ in range(5)]
-    tasks.append(
-        asyncio.create_task(invalidate_wrapper())
-    )
+    tasks.append(asyncio.create_task(invalidate_wrapper()))
 
     # Should complete without errors
     await asyncio.gather(*tasks, return_exceptions=True)

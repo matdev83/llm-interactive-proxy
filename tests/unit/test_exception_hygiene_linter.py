@@ -692,8 +692,8 @@ logger = logging.getLogger(__name__)
 def example():
     try:
         risky_operation()
-    # exception-hygiene: ignore=EXH001
     except ValueError as e:
+        # exception-hygiene: ignore=EXH001
         logger.error("Failed")
 """
     file_path = tmp_path / "sample.py"

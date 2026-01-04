@@ -7,8 +7,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
-config_path = Path('config/backends/zai/default_models.yaml')
-schema_path = Path('config/schemas/zai_default_models.schema.yaml')
+config_path = Path("config/backends/zai/default_models.yaml")
+schema_path = Path("config/schemas/zai_default_models.schema.yaml")
 
 print(f"Validating {config_path} against {schema_path}...")
 

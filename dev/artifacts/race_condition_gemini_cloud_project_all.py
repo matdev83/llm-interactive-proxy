@@ -27,7 +27,7 @@ class MockConnector:
 def test_schedule_credentials_reload_race():
     """
     Test 1: TOCTOU race in _schedule_credentials_reload
-    
+
     Race scenario:
     - Thread A: Sets _reload_scheduling_in_progress=True inside lock, exits lock
     - Thread B: Sees _reload_scheduling_in_progress=True, returns early
@@ -40,9 +40,10 @@ def test_schedule_credentials_reload_race():
 
     def schedule_reload():
         with connector._reload_task_lock:
-            if (
-                connector._pending_reload_task is not None
-                and (connector._pending_reload_task.done() if hasattr(connector._pending_reload_task, 'done') else True)
+            if connector._pending_reload_task is not None and (
+                connector._pending_reload_task.done()
+                if hasattr(connector._pending_reload_task, "done")
+                else True
             ):
                 return
 
@@ -64,13 +65,15 @@ def test_schedule_credentials_reload_race():
                 results["reset_count"] += 1
 
         connector._pending_reload_task = "fake_task"
-        if hasattr(connector._pending_reload_task, 'add_done_callback'):
+        if hasattr(connector._pending_reload_task, "add_done_callback"):
             connector._pending_reload_task.add_done_callback(clear_callback)
 
     print("\n=== TEST 1: _schedule_credentials_reload TOCTOU race ===")
     print("Launching 5 concurrent reload attempts...")
     print("Expected: 1 scheduling, 0 skips")
-    print("Race scenario: Multiple threads pass the progress check before flag is reset")
+    print(
+        "Race scenario: Multiple threads pass the progress check before flag is reset"
+    )
 
     threads = []
     for i in range(5):
@@ -88,7 +91,7 @@ def test_schedule_credentials_reload_race():
     print(f"  Skipped (due to progress flag): {results['skip_count']}")
     print(f"  Flag resets: {results['reset_count']}")
 
-    if results['scheduling_count'] > 1 or results['skip_count'] > 0:
+    if results["scheduling_count"] > 1 or results["skip_count"] > 0:
         print("\n  RACE CONDITION REPRODUCED!")
         return True
     else:
@@ -136,7 +139,9 @@ def test_validate_runtime_credentials_race():
     print("\n=== TEST 2: _validate_runtime_credentials state race ===")
     print("Launching 10 concurrent validation attempts...")
     print("Expected: Only 1 validation failure should be recorded")
-    print("Race scenario: Multiple threads pass the state check before fail_init is called")
+    print(
+        "Race scenario: Multiple threads pass the state check before fail_init is called"
+    )
 
     threads = []
     for i in range(10):
@@ -151,7 +156,9 @@ def test_validate_runtime_credentials_race():
 
     print("\nResults:")
     print(f"  Total validation calls: {call_count}")
-    print(f"  Validation errors recorded: {len(connector._credential_validation_errors)}")
+    print(
+        f"  Validation errors recorded: {len(connector._credential_validation_errors)}"
+    )
     print(f"  is_functional: {connector.is_functional}")
     print(f"  _initialization_failed: {connector._initialization_failed}")
 
@@ -185,7 +192,9 @@ def test_fail_init_race():
     print("\n=== TEST 3: _fail_init/_degrade/_recover flag race ===")
     print("Launching 10 concurrent fail_init attempts...")
     print("Expected: Only 1 set of error state (last one wins)")
-    print("Race scenario: Multiple threads modify same state, losing intermediate changes")
+    print(
+        "Race scenario: Multiple threads modify same state, losing intermediate changes"
+    )
 
     threads = []
     for i in range(10):
@@ -228,9 +237,15 @@ def run_all_tests():
     print("\n" + "=" * 70)
     print("FINAL SUMMARY")
     print("=" * 70)
-    print(f"Test 1 (_schedule_credentials_reload): {'PASSED' if not results['test1'] else 'FAILED - RACE DETECTED'}")
-    print(f"Test 2 (_validate_runtime_credentials): {'PASSED' if not results['test2'] else 'FAILED - RACE DETECTED'}")
-    print(f"Test 3 (_fail_init flag race): {'PASSED' if not results['test3'] else 'FAILED - RACE DETECTED'}")
+    print(
+        f"Test 1 (_schedule_credentials_reload): {'PASSED' if not results['test1'] else 'FAILED - RACE DETECTED'}"
+    )
+    print(
+        f"Test 2 (_validate_runtime_credentials): {'PASSED' if not results['test2'] else 'FAILED - RACE DETECTED'}"
+    )
+    print(
+        f"Test 3 (_fail_init flag race): {'PASSED' if not results['test3'] else 'FAILED - RACE DETECTED'}"
+    )
 
     race_count = sum(1 for v in results.values() if v)
     print(f"\nTotal races detected: {race_count}/3")

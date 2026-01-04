@@ -170,4 +170,6 @@ class TestAssessmentApplicator:
         assert "assessment" in overrides
         assert len(overrides) == 1
         for key in overrides:
-            assert key == "assessment", f"AssessmentApplicator modified unexpected key: {key}"
+            assert (
+                key == "assessment"
+            ), f"AssessmentApplicator modified unexpected key: {key}"

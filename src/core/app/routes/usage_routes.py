@@ -200,7 +200,6 @@ async def get_usage_stats(
         # Convert to response format
         return _aggregated_stats_to_response(stats)
 
-
     except HTTPException:
         raise
     except Exception as e:
@@ -269,7 +268,6 @@ def _aggregated_stats_to_response(stats: AggregatedStats) -> UsageStatisticsResp
         )
 
     return result
-
 
 
 @router.get("/recent")
@@ -350,7 +348,6 @@ async def get_recent_usage(
             limit=limit,
             offset=offset,
         )
-
 
     except HTTPException:
         raise
@@ -449,7 +446,6 @@ async def export_usage_data(
             filters=filter_metadata,
             records=records_data,
         )
-
 
     except HTTPException:
         raise

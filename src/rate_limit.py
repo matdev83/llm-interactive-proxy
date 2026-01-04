@@ -59,9 +59,11 @@ class RateLimitRegistry:
         valid_times: list[float] = []
 
         with self._lock:
-            if combos is None or not combos: # Changed: handle empty list like None
+            if combos is None or not combos:  # Changed: handle empty list like None
                 # Iterate over all items in the cache
-                for key, ts in list(self._until.items()):  # Use list() to iterate over a copy
+                for key, ts in list(
+                    self._until.items()
+                ):  # Use list() to iterate over a copy
                     if now >= ts:
                         with contextlib.suppress(KeyError):
                             del self._until[key]

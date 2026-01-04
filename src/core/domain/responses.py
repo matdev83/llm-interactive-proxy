@@ -64,11 +64,11 @@ class StreamingResponseEnvelope(InternalDTO):
 
         def _is_already_sse_formatted(text: str) -> bool:
             """Check if text content is already SSE-formatted.
-            
+
             SSE lines can start with: data:, event:, id:, retry:, or : (comment).
             Only the first non-empty line is checked, and it must start at column 0
             (no leading whitespace) to be considered SSE-formatted.
-            
+
             This prevents false positives from indented data: or data: appearing
             on later lines.
             """
@@ -82,14 +82,14 @@ class StreamingResponseEnvelope(InternalDTO):
 
         def _frame_as_sse(payload: str) -> bytes:
             """Frame a payload as SSE with proper multi-line handling.
-            
+
             Per SSE spec, multi-line payloads should be split and each line
             prefixed with "data: ". The event ends with \\n\\n.
             """
             lines = payload.splitlines()
             if not lines:
                 return b"data: \n\n"
-            
+
             # Prefix each line with "data: " and join with newlines
             framed_lines = [f"data: {line}" for line in lines]
             return "\n".join(framed_lines).encode("utf-8") + b"\n\n"
@@ -114,6 +114,7 @@ class StreamingResponseEnvelope(InternalDTO):
                         except UnicodeDecodeError:
                             # If not valid UTF-8, use base64 encoding for SSE
                             import base64
+
                             text_content = base64.b64encode(chunk).decode("ascii")
                             yield _frame_as_sse(text_content)
                         else:

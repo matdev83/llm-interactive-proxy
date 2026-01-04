@@ -121,7 +121,10 @@ class RequestProcessor(IRequestProcessor):
                     from src.core.services.non_forwardable_message_enforcer import (
                         PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
                     )
-                    context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = boundary_value
+
+                    context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = (
+                        boundary_value
+                    )
 
         # Process commands and handle command-only flows
         result = await self._command_handler.handle(

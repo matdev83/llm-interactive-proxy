@@ -43,9 +43,9 @@ class TestStreamingMetricsConcurrency:
         global_metrics = metrics.get_global_metrics()
         # Each function runs num_threads * num_increments times
         expected_chunks = num_threads * num_increments
-        assert global_metrics["chunks_sent"] == expected_chunks, (
-            f"Expected {expected_chunks} chunks_sent, got {global_metrics['chunks_sent']}"
-        )
-        assert global_metrics["sentinels_emitted"] == expected_chunks, (
-            f"Expected {expected_chunks} sentinels_emitted, got {global_metrics['sentinels_emitted']}"
-        )
+        assert (
+            global_metrics["chunks_sent"] == expected_chunks
+        ), f"Expected {expected_chunks} chunks_sent, got {global_metrics['chunks_sent']}"
+        assert (
+            global_metrics["sentinels_emitted"] == expected_chunks
+        ), f"Expected {expected_chunks} sentinels_emitted, got {global_metrics['sentinels_emitted']}"

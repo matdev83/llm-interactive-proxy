@@ -56,7 +56,6 @@ class FormatConverter:
 
         return openai_messages
 
-
     def create_response_chunk(
         self,
         user_input_id: str,
@@ -179,4 +178,3 @@ class FormatConverter:
         )
 
         return ServerActionMessage(type="action", data=init_action)
-

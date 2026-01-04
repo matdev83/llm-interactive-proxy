@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
 example_path = Path("config/sso_auth.example.yaml")

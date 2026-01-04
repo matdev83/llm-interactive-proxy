@@ -272,7 +272,9 @@ class HybridConnector(LLMBackend, HybridConnectorCompatibilityMixin):
                     "received_type": "dict",
                     "expected_type": "CanonicalChatRequest | ChatRequest",
                     "connector": "hybrid",
-                    "session_id": correlation_ids["session_id"],  # Include in details for visibility
+                    "session_id": correlation_ids[
+                        "session_id"
+                    ],  # Include in details for visibility
                 },
             )
 

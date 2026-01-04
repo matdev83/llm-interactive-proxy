@@ -13,6 +13,8 @@ from pathlib import Path
 from re import Pattern
 from typing import TYPE_CHECKING
 
+from pydantic import BaseModel
+
 from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
 from src.core.interfaces.path_validator_interface import IPathValidator
 from src.core.interfaces.session_service_interface import ISessionService
@@ -24,6 +26,15 @@ from src.core.interfaces.tool_call_reactor_interface import (
 
 if TYPE_CHECKING:
     pass
+
+
+class FileSandboxingMetrics(BaseModel):
+    """Metrics for file sandboxing handler."""
+
+    blocked_count: int = 0
+    allowed_count: int = 0
+    validation_errors: int = 0
+
 
 logger = logging.getLogger(__name__)
 
@@ -381,7 +392,9 @@ class FileSandboxingHandler(IToolCallHandler):
                         },
                     )
 
-            if invalid_path_errors and logger.isEnabledFor(logging.WARNING):  # non-strict mode
+            if invalid_path_errors and logger.isEnabledFor(
+                logging.WARNING
+            ):  # non-strict mode
                 logger.warning(
                     "Allowing tool call '%s' despite path validation errors (non-strict mode): %s",
                     context.tool_name,

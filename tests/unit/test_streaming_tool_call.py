@@ -246,9 +246,11 @@ async def test_streaming_tool_call_in_first_chunk():
         stream=True,
     )
     request = MagicMock()
+
     # Mock request.body() as an async function that returns empty bytes
     async def mock_body():
         return b""
+
     request.body = mock_body
     response = await chat_controller.handle_chat_completion(
         request=request, request_data=chat_request

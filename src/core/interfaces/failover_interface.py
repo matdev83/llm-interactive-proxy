@@ -25,6 +25,6 @@ class IFailoverStrategy(Protocol):
     This formalizes the decision policy independently from concrete services.
     """
 
-    def get_failover_plan(self, model: str, backend_type: str) -> list[tuple[str, str]]:
-        """Return ordered (backend, model) pairs to attempt for a request."""
+    def get_failover_plan(self, model: str, backend_type: str) -> list[FailoverAttempt]:
+        """Return ordered failover attempts to try for a request."""
         ...

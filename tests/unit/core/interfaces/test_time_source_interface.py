@@ -84,4 +84,3 @@ class TestITimeSourceContract:
         """Test that ITimeSource cannot be instantiated directly."""
         with pytest.raises(TypeError):
             ITimeSource()  # type: ignore[misc]
-

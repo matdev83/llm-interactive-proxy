@@ -188,9 +188,7 @@ class BackendConfiguration(ValueObject, IBackendConfig):
             new_elements.append(element)
             new_routes[name] = route.model_copy(update={"elements": new_elements})
         else:
-            new_routes[name] = FailoverRoute(
-                name=name, policy="k", elements=[element]
-            )
+            new_routes[name] = FailoverRoute(name=name, policy="k", elements=[element])
         return self.model_copy(update={"failover_routes_data": new_routes})
 
     def with_prepended_route_element(self, name: str, element: str) -> IBackendConfig:
@@ -202,9 +200,7 @@ class BackendConfiguration(ValueObject, IBackendConfig):
             new_elements.insert(0, element)
             new_routes[name] = route.model_copy(update={"elements": new_elements})
         else:
-            new_routes[name] = FailoverRoute(
-                name=name, policy="k", elements=[element]
-            )
+            new_routes[name] = FailoverRoute(name=name, policy="k", elements=[element])
         return self.model_copy(update={"failover_routes_data": new_routes})
 
     # Utility methods

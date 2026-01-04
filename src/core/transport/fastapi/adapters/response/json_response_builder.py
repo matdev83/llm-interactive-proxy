@@ -216,6 +216,8 @@ class JSONResponseBuilder:
         )
 
         # Create JSON response
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("JSONResponse safe_content: %s", safe_content)
         return self._create_json_response(safe_content, final_status_code, safe_headers)
 
     def _prepare_json_content(self, content: Any) -> Any:

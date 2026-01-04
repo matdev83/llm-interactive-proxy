@@ -123,4 +123,3 @@ __all__ = [
     "OpenAIErrorChoice",
     "OpenAIErrorChunk",
 ]
-

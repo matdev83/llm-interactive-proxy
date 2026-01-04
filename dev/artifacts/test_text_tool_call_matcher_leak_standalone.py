@@ -77,9 +77,7 @@ def test_unbounded_pending_growth():
     # Register many tool calls without matching them
     for i in range(1000):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
         if (i + 1) % 100 == 0:
@@ -107,16 +105,14 @@ def test_partial_match_still_leaks():
     """
     matcher = _TextToolCallMatcher()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: Partial matching still causes growth")
-    print("="*60)
+    print("=" * 60)
 
     # Register 100 tool calls, only match half of them
     for i in range(100):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
         # Match every other tool call
@@ -124,7 +120,7 @@ def test_partial_match_still_leaks():
             result = TextToolResult(
                 canonical_name=f"tool_{i}",
                 command_text=f"command_{i}",
-                output_text="output"
+                output_text="output",
             )
             matcher.match_textual_result(result)
 
@@ -150,23 +146,23 @@ def test_name_mismatch_still_leaks():
     """
     matcher = _TextToolCallMatcher()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: Name mismatches cause leaks")
-    print("="*60)
+    print("=" * 60)
 
     # Register tool calls with one name
     for i in range(100):
         matcher.register(
             call_id=f"call_{i}",
             name="execute_command",  # Same name
-            command_text=f"command_{i}"
+            command_text=f"command_{i}",
         )
 
     # Try to match with different name
     result = TextToolResult(
         canonical_name="run_shell",  # Different name - won't match
         command_text="command_0",
-        output_text="output"
+        output_text="output",
     )
     matcher.match_textual_result(result)
 
@@ -193,16 +189,18 @@ def main():
     leak_detected |= test_name_mismatch_still_leaks()
 
     if leak_detected:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("MEMORY LEAK CONFIRMED!")
-        print("="*60)
+        print("=" * 60)
         print("\nFix: Add max_size parameter and enforce limit in register()")
         print("     Clear _pending in constructor")
         import sys
+
         sys.exit(1)
     else:
         print("\nNo memory leak detected")
         import sys
+
         sys.exit(0)
 
 

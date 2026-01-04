@@ -386,7 +386,9 @@ class PromptHandler:
                         backend_config,
                     )
                 else:
-                    raise AttributeError("backend_factory does not have ensure_backend method")
+                    raise AttributeError(
+                        "backend_factory does not have ensure_backend method"
+                    )
                 # The legacy backend typically returns a dict-like response or an
                 # object with `.response`.
                 response = await backend.chat_completions(request.model_dump())

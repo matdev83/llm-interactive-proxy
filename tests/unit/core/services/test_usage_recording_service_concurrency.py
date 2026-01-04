@@ -51,14 +51,18 @@ async def test_concurrent_record_request_turn_numbers() -> None:
         record_ids = await asyncio.gather(*tasks)
 
         # All records should have been created
-        assert len(record_ids) == num_requests, "All requests should produce a record ID"
+        assert (
+            len(record_ids) == num_requests
+        ), "All requests should produce a record ID"
 
         # Retrieve all records
         records = store.get_records()
         session_records = [r for r in records if r.session_id == session_id]
 
         # Verify all records were stored
-        assert len(session_records) == num_requests, f"Expected {num_requests} records, got {len(session_records)}"
+        assert (
+            len(session_records) == num_requests
+        ), f"Expected {num_requests} records, got {len(session_records)}"
 
         # Extract turn numbers
         turn_numbers = {r.turn_number for r in session_records}
@@ -69,7 +73,9 @@ async def test_concurrent_record_request_turn_numbers() -> None:
             f"out of {num_requests}: {sorted(turn_numbers)}"
         )
         assert min(turn_numbers) == 1, "Turn numbers should start at 1"
-        assert max(turn_numbers) == num_requests, f"Turn numbers should go up to {num_requests}"
+        assert (
+            max(turn_numbers) == num_requests
+        ), f"Turn numbers should go up to {num_requests}"
 
 
 @pytest.mark.asyncio
@@ -118,9 +124,9 @@ async def test_concurrent_different_sessions() -> None:
             assert len(session_records) == requests_per_session
 
             turn_numbers = [r.turn_number for r in session_records]
-            assert len(set(turn_numbers)) == requests_per_session, (
-                f"Session {session_id} should have unique turn numbers"
-            )
-            assert sorted(turn_numbers) == list(range(1, requests_per_session + 1)), (
-                f"Session {session_id} should have sequential turn numbers"
-            )
+            assert (
+                len(set(turn_numbers)) == requests_per_session
+            ), f"Session {session_id} should have unique turn numbers"
+            assert sorted(turn_numbers) == list(
+                range(1, requests_per_session + 1)
+            ), f"Session {session_id} should have sequential turn numbers"

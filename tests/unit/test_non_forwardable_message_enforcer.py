@@ -39,11 +39,13 @@ from src.core.services.non_forwardable_message_enforcer import (
 def mock_identity_service() -> MagicMock:
     """Create mock identity service."""
     mock = MagicMock(spec=INonForwardableMessageIdentityService)
+
     # Default behavior: return identity based on message content
     def compute_identity(message: ChatMessage) -> MessageIdentity:
         # Simple identity: hash of role + content
         content = message.content or ""
         return f"identity_{message.role}_{hash(str(content)) % 10000}"
+
     # Set as side_effect so it can be overridden with return_value in tests
     mock.compute_identity.side_effect = compute_identity
     return mock
@@ -214,9 +216,7 @@ class TestNeverForwardScope:
 
         # When all user content is filtered, should raise NoForwardableContentError
         with pytest.raises(NoForwardableContentError):
-            await enforcer.filter_messages(
-                session_id="test_session", messages=messages
-            )
+            await enforcer.filter_messages(session_id="test_session", messages=messages)
 
     async def test_excludes_never_forward_from_injected_segment(
         self,
@@ -298,9 +298,7 @@ class TestClientHistoryOnlyScope:
 
         # When all user content is filtered, should raise NoForwardableContentError
         with pytest.raises(NoForwardableContentError):
-            await enforcer.filter_messages(
-                session_id="test_session", messages=messages
-            )
+            await enforcer.filter_messages(session_id="test_session", messages=messages)
 
     async def test_includes_client_history_only_in_injected_segment(
         self,
@@ -582,9 +580,7 @@ class TestNoForwardableContent:
         mock_registry.is_tagged.side_effect = is_tagged_side_effect
 
         with pytest.raises(NoForwardableContentError):
-            await enforcer.filter_messages(
-                session_id="test_session", messages=messages
-            )
+            await enforcer.filter_messages(session_id="test_session", messages=messages)
 
     async def test_allows_system_messages_when_user_content_filtered(
         self,
@@ -690,7 +686,9 @@ class TestNoForwardableContent:
             cookies={},
             state=None,
             app_state=None,
-            extensions={"proxy_injected_messages_start_index": 1},  # No injected messages
+            extensions={
+                "proxy_injected_messages_start_index": 1
+            },  # No injected messages
         )
 
         # Should raise error - all user-provided content filtered and no injected messages
@@ -720,9 +718,7 @@ class TestIdentityLookupErrors:
         mock_registry.is_tagged.side_effect = Exception("Registry error")
 
         with pytest.raises(NonForwardableEnforcementError):
-            await enforcer.filter_messages(
-                session_id="test_session", messages=messages
-            )
+            await enforcer.filter_messages(session_id="test_session", messages=messages)
 
     async def test_raises_error_on_identity_computation_failure(
         self,
@@ -737,9 +733,7 @@ class TestIdentityLookupErrors:
         mock_identity_service.compute_identity.side_effect = Exception("Identity error")
 
         with pytest.raises(NonForwardableEnforcementError):
-            await enforcer.filter_messages(
-                session_id="test_session", messages=messages
-            )
+            await enforcer.filter_messages(session_id="test_session", messages=messages)
 
 
 @pytest.mark.asyncio
@@ -794,6 +788,4 @@ class TestEdgeCases:
 
         # When all user content is filtered, should raise NoForwardableContentError
         with pytest.raises(NoForwardableContentError):
-            await enforcer.filter_messages(
-                session_id="test_session", messages=messages
-            )
+            await enforcer.filter_messages(session_id="test_session", messages=messages)

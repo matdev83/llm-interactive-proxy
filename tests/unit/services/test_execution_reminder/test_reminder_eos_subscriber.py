@@ -35,9 +35,11 @@ def mock_reminder_handler() -> TestExecutionReminderHandler:
     """Create a mock reminder handler."""
     handler = MagicMock(spec=TestExecutionReminderHandler)
     handler._get_session_state = MagicMock(return_value=None)
+
     # Make _get_session_state async-compatible
     async def async_get_session_state(session_id: str):
         return handler._get_session_state.return_value
+
     handler._get_session_state = async_get_session_state
     return handler
 
@@ -80,9 +82,11 @@ async def test_handle_eos_event_logs_when_session_dirty(
     # Create a dirty state
     dirty_state = TestExecutionSessionState()
     dirty_state.is_dirty = True
+
     # Update the async function to return the dirty state
     async def async_get_session_state(session_id: str):
         return dirty_state
+
     mock_reminder_handler._get_session_state = async_get_session_state
 
     await subscriber._handle_eos_event(event)
@@ -106,9 +110,11 @@ async def test_handle_eos_event_logs_when_session_clean(
     # Create a clean state
     clean_state = TestExecutionSessionState()
     clean_state.is_dirty = False
+
     # Update the async function to return the clean state
     async def async_get_session_state(session_id: str):
         return clean_state
+
     mock_reminder_handler._get_session_state = async_get_session_state
 
     await subscriber._handle_eos_event(event)
@@ -131,6 +137,7 @@ async def test_handle_eos_event_handles_missing_state_gracefully(
     # Update the async function to return None
     async def async_get_session_state(session_id: str):
         return None
+
     mock_reminder_handler._get_session_state = async_get_session_state
 
     # Should not raise exception
@@ -154,6 +161,7 @@ async def test_handle_eos_event_handles_service_failure_gracefully(
     # Update the async function to raise an exception
     async def async_get_session_state(session_id: str):
         raise Exception("Service error")
+
     mock_reminder_handler._get_session_state = async_get_session_state
 
     # Should not raise exception (fail-open behavior)
@@ -182,9 +190,11 @@ async def test_handle_eos_event_logs_reminder_message_when_dirty(
     dirty_state = TestExecutionSessionState()
     dirty_state.is_dirty = True
     dirty_state.modification_count = 5
+
     # Update the async function to return the dirty state
     async def async_get_session_state(session_id: str):
         return dirty_state
+
     mock_reminder_handler._get_session_state = async_get_session_state
 
     import logging
@@ -231,9 +241,11 @@ async def test_handle_eos_event_logs_fallback_message_when_no_reminder_message(
     dirty_state = TestExecutionSessionState()
     dirty_state.is_dirty = True
     dirty_state.modification_count = 3
+
     # Update the async function to return the dirty state
     async def async_get_session_state(session_id: str):
         return dirty_state
+
     mock_reminder_handler._get_session_state = async_get_session_state
 
     import logging

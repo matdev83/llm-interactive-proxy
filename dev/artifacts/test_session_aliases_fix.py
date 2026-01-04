@@ -27,12 +27,16 @@ async def test_session_aliases_fix():
         session_alias_ttl_seconds=1,  # 1 second TTL for testing
         max_session_aliases=100,  # Small limit for testing
     )
-    
+
     # Verify _session_aliases is initialized
-    assert hasattr(reactor, '_session_aliases'), "_session_aliases should be initialized"
-    assert hasattr(reactor, '_session_aliases_last_access'), "_session_aliases_last_access should be initialized"
+    assert hasattr(
+        reactor, "_session_aliases"
+    ), "_session_aliases should be initialized"
+    assert hasattr(
+        reactor, "_session_aliases_last_access"
+    ), "_session_aliases_last_access should be initialized"
     print("[PASS] _session_aliases is properly initialized")
-    
+
     # Test that it works without AttributeError
     context = ToolCallContext(
         session_id="test_session_123",
@@ -44,19 +48,19 @@ async def test_session_aliases_fix():
         calling_agent="test_agent",
         timestamp=datetime.now(timezone.utc),
     )
-    
+
     try:
         await reactor.process_tool_call(context)
         print("[PASS] No AttributeError when processing tool call")
     except AttributeError as e:
         print(f"[FAIL] AttributeError raised: {e}")
         return False
-    
+
     # Verify entry was created
     assert "test_session_123" in reactor._session_aliases
     assert "test_session_123" in reactor._session_aliases_last_access
     print("[PASS] Session alias entry created correctly")
-    
+
     # Test max_session_aliases limit
     print("\nTesting max_session_aliases limit...")
     for i in range(150):  # More than the limit of 100
@@ -71,13 +75,13 @@ async def test_session_aliases_fix():
             timestamp=datetime.now(timezone.utc),
         )
         await reactor.process_tool_call(context)
-    
+
     # Check that size is limited
     size = len(reactor._session_aliases)
     print(f"  After creating 150 sessions, _session_aliases size: {size}")
     assert size <= 100, f"Size should be <= 100, got {size}"
     print(f"[PASS] Max session aliases limit enforced (size: {size})")
-    
+
     # Test TTL cleanup
     print("\nTesting TTL cleanup...")
     # Create an entry
@@ -93,10 +97,12 @@ async def test_session_aliases_fix():
     )
     await reactor.process_tool_call(context)
     assert "old_session" in reactor._session_aliases
-    
+
     # Manually set last_access to be old
-    reactor._session_aliases_last_access["old_session"] = datetime.now(timezone.utc) - timedelta(seconds=2)
-    
+    reactor._session_aliases_last_access["old_session"] = datetime.now(
+        timezone.utc
+    ) - timedelta(seconds=2)
+
     # Process another call to trigger cleanup
     context2 = ToolCallContext(
         session_id="new_session",
@@ -109,12 +115,14 @@ async def test_session_aliases_fix():
         timestamp=datetime.now(timezone.utc),
     )
     await reactor.process_tool_call(context2)
-    
+
     # Old session should be cleaned up
-    assert "old_session" not in reactor._session_aliases, "Old session should be cleaned up"
+    assert (
+        "old_session" not in reactor._session_aliases
+    ), "Old session should be cleaned up"
     assert "new_session" in reactor._session_aliases, "New session should still exist"
     print("[PASS] TTL-based cleanup works correctly")
-    
+
     print("\n[SUCCESS] All tests passed! Memory leak fix is working.")
     return True
 

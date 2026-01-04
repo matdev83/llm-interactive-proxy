@@ -22,25 +22,40 @@ async def test_unbounded_growth():
     """Test that demonstrates unbounded growth of _by_tool_call."""
     manager = ThoughtSignatureManager(max_cache_size=100, ttl_seconds=60)
 
-    print(f"Initial state: _cache={len(manager._cache)}, _by_tool_call={len(manager._by_tool_call)}")
+    print(
+        f"Initial state: _cache={len(manager._cache)}, _by_tool_call={len(manager._by_tool_call)}"
+    )
 
     # Simulate storing signatures for different sessions with the same tool_call_id
     # In real scenarios, a tool_call_id can appear in different sessions
     for i in range(200):
-        tool_calls = [{"id": "tool_1", "extra_content": {"google": {"thought_signature": f"sig_{i}"}}}]
+        tool_calls = [
+            {
+                "id": "tool_1",
+                "extra_content": {"google": {"thought_signature": f"sig_{i}"}},
+            }
+        ]
         manager.store_signatures_from_tool_calls(tool_calls, f"session_{i}")
 
         if i % 50 == 0:
-            print(f"After {i} stores: _cache={len(manager._cache)}, _by_tool_call={len(manager._by_tool_call)}")
+            print(
+                f"After {i} stores: _cache={len(manager._cache)}, _by_tool_call={len(manager._by_tool_call)}"
+            )
 
-    print(f"\nAfter 200 stores: _cache={len(manager._cache)}, _by_tool_call={len(manager._by_tool_call)}")
+    print(
+        f"\nAfter 200 stores: _cache={len(manager._cache)}, _by_tool_call={len(manager._by_tool_call)}"
+    )
     print(f"Expected _cache <= 100, but got {len(manager._cache)}")
-    print(f"Expected _by_tool_call <= 100 (same as cache), but got {len(manager._by_tool_call)}")
+    print(
+        f"Expected _by_tool_call <= 100 (same as cache), but got {len(manager._by_tool_call)}"
+    )
 
     # Verify the leak: _by_tool_call should not exceed max_cache_size
     if len(manager._by_tool_call) > manager._max_cache_size:
         print("\n!!! MEMORY LEAK DETECTED !!!")
-        print(f"_by_tool_call ({len(manager._by_tool_call)}) exceeds max_cache_size ({manager._max_cache_size})")
+        print(
+            f"_by_tool_call ({len(manager._by_tool_call)}) exceeds max_cache_size ({manager._max_cache_size})"
+        )
         return True
 
     return False
@@ -57,13 +72,18 @@ async def test_same_tc_id_multiple_sessions():
     """
     manager = ThoughtSignatureManager(max_cache_size=100, ttl_seconds=60)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: Same tc_id in multiple sessions")
-    print("="*60)
+    print("=" * 60)
 
     # Store tool_1 in 100 different sessions
     for i in range(100):
-        tool_calls = [{"id": f"tool_{i % 10}", "extra_content": {"google": {"thought_signature": f"sig_{i}"}}}]
+        tool_calls = [
+            {
+                "id": f"tool_{i % 10}",
+                "extra_content": {"google": {"thought_signature": f"sig_{i}"}},
+            }
+        ]
         manager.store_signatures_from_tool_calls(tool_calls, f"session_{i}")
 
     print("Stored tool calls for 100 sessions (10 unique tool IDs)")
@@ -76,7 +96,9 @@ async def test_same_tc_id_multiple_sessions():
 
     if len(manager._by_tool_call) > 10:
         print("\n!!! MEMORY LEAK DETECTED !!!")
-        print(f"_by_tool_call ({len(manager._by_tool_call)}) has more entries than expected (10)")
+        print(
+            f"_by_tool_call ({len(manager._by_tool_call)}) has more entries than expected (10)"
+        )
         print("This indicates stale entries that weren't cleaned up")
         return True
 
@@ -89,13 +111,18 @@ async def test_scenario_with_expiration():
     """
     manager = ThoughtSignatureManager(max_cache_size=100, ttl_seconds=1)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: Expired entries causing stale _by_tool_call entries")
-    print("="*60)
+    print("=" * 60)
 
     # Store many tool calls
     for i in range(200):
-        tool_calls = [{"id": f"tool_{i}", "extra_content": {"google": {"thought_signature": f"sig_{i}"}}}]
+        tool_calls = [
+            {
+                "id": f"tool_{i}",
+                "extra_content": {"google": {"thought_signature": f"sig_{i}"}},
+            }
+        ]
         manager.store_signatures_from_tool_calls(tool_calls, f"session_{i}")
 
     print("After storing 200 tool calls:")
@@ -116,7 +143,9 @@ async def test_scenario_with_expiration():
     # After cleaning expired entries, _by_tool_call should also be small
     if len(manager._by_tool_call) > len(manager._cache):
         print("\n!!! MEMORY LEAK DETECTED !!!")
-        print(f"_by_tool_call ({len(manager._by_tool_call)}) is larger than _cache ({len(manager._cache)})")
+        print(
+            f"_by_tool_call ({len(manager._by_tool_call)}) is larger than _cache ({len(manager._cache)})"
+        )
         print("Stale entries remain in _by_tool_call after cache cleanup")
         return True
 
@@ -132,9 +161,9 @@ async def main():
     leak_detected |= await test_scenario_with_expiration()
 
     if leak_detected:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("MEMORY LEAK CONFIRMED!")
-        print("="*60)
+        print("=" * 60)
         sys.exit(1)
     else:
         print("\nNo memory leak detected")

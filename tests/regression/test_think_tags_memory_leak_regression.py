@@ -8,7 +8,6 @@ Fixed: _cleanup_session_state() now properly removes entries from _reasoning_ext
 when sessions are cleaned up.
 """
 
-
 import pytest
 from src.core.ports.streaming_contracts import StreamingContent
 from src.core.ports.streaming_processors import ThinkTagsProcessor

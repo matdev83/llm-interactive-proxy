@@ -30,6 +30,7 @@ from src.core.auth.sso.config import (
 def get_dataclass_fields(cls):
     return {f.name for f in dataclasses.fields(cls)}
 
+
 sso_fields = get_dataclass_fields(SSOConfig)
 provider_fields = get_dataclass_fields(ProviderConfig)
 auth_fields = get_dataclass_fields(AuthorizationConfig)
@@ -40,7 +41,9 @@ for f in sorted(sso_fields):
     print(f"  - {f}")
 
 print("\nSSO schema properties:")
-sso_schema_props = set(schema.get("properties", {}).get("sso", {}).get("properties", {}).keys())
+sso_schema_props = set(
+    schema.get("properties", {}).get("sso", {}).get("properties", {}).keys()
+)
 for p in sorted(sso_schema_props):
     print(f"  - {p}")
 
@@ -57,11 +60,18 @@ if not missing_in_schema and not missing_in_model:
 
 # Check providers schema structure
 print("\nChecking providers schema structure...")
-providers_schema = schema.get("properties", {}).get("sso", {}).get("properties", {}).get("providers", {})
+providers_schema = (
+    schema.get("properties", {})
+    .get("sso", {})
+    .get("properties", {})
+    .get("providers", {})
+)
 print(f"  Type: {providers_schema.get('type')}")
 print(f"  AdditionalProperties: {providers_schema.get('additionalProperties')}")
 if "properties" in providers_schema.get("additionalProperties", {}):
-    provider_schema_props = set(providers_schema["additionalProperties"]["properties"].keys())
+    provider_schema_props = set(
+        providers_schema["additionalProperties"]["properties"].keys()
+    )
     print(f"\n  Provider schema properties: {sorted(provider_schema_props)}")
     print(f"\n  Provider model fields: {sorted(provider_fields)}")
     missing_prov_schema = provider_fields - provider_schema_props
@@ -75,7 +85,12 @@ if "properties" in providers_schema.get("additionalProperties", {}):
 
 # Check authorization schema structure
 print("\nChecking authorization schema structure...")
-auth_schema = schema.get("properties", {}).get("sso", {}).get("properties", {}).get("authorization", {})
+auth_schema = (
+    schema.get("properties", {})
+    .get("sso", {})
+    .get("properties", {})
+    .get("authorization", {})
+)
 if "properties" in auth_schema:
     auth_schema_props = set(auth_schema["properties"].keys())
     print(f"\n  Authorization schema properties: {sorted(auth_schema_props)}")
@@ -83,15 +98,21 @@ if "properties" in auth_schema:
     missing_auth_schema = auth_fields - auth_schema_props
     missing_auth_model = auth_schema_props - auth_fields
     if missing_auth_schema:
-        print(f"\n  Authorization model fields missing from schema: {missing_auth_schema}")
+        print(
+            f"\n  Authorization model fields missing from schema: {missing_auth_schema}"
+        )
     if missing_auth_model:
-        print(f"\n  Authorization schema fields missing from model: {missing_auth_model}")
+        print(
+            f"\n  Authorization schema fields missing from model: {missing_auth_model}"
+        )
     if not missing_auth_schema and not missing_auth_model:
         print("\n  [OK] All authorization fields match!")
 
 # Check captcha schema structure
 print("\nChecking captcha schema structure...")
-captcha_schema = schema.get("properties", {}).get("sso", {}).get("properties", {}).get("captcha", {})
+captcha_schema = (
+    schema.get("properties", {}).get("sso", {}).get("properties", {}).get("captcha", {})
+)
 if "properties" in captcha_schema:
     captcha_schema_props = set(captcha_schema["properties"].keys())
     print(f"\n  Captcha schema properties: {sorted(captcha_schema_props)}")

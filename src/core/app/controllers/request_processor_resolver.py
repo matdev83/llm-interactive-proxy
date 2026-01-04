@@ -48,10 +48,12 @@ def _get_from_global_provider(
 
     try:
         global_provider = get_service_provider()
-    except (ImportError, AttributeError, RuntimeError) as e:  # pragma: no cover - defensive guard
-        logger.debug(
-            "Failed to get global service provider: %s", e, exc_info=True
-        )
+    except (
+        ImportError,
+        AttributeError,
+        RuntimeError,
+    ) as e:  # pragma: no cover - defensive guard
+        logger.debug("Failed to get global service provider: %s", e, exc_info=True)
         return None
 
     if global_provider is None or global_provider is local_provider:
@@ -83,10 +85,12 @@ def _build_from_service_collection(
     # Make the rebuilt provider available for subsequent resolutions
     try:
         set_service_provider(fallback_provider)
-    except (ImportError, AttributeError, RuntimeError) as e:  # pragma: no cover - best-effort update
-        logger.debug(
-            "Failed to update global service provider: %s", e, exc_info=True
-        )
+    except (
+        ImportError,
+        AttributeError,
+        RuntimeError,
+    ) as e:  # pragma: no cover - best-effort update
+        logger.debug("Failed to update global service provider: %s", e, exc_info=True)
 
     request_processor = fallback_provider.get_service(cast(type, IRequestProcessor))
 
@@ -121,10 +125,13 @@ def _register_singleton_instance(
         services.add_instance(cast(type, IRequestProcessor), request_processor)
         if RequestProcessor is not None:
             services.add_instance(RequestProcessor, request_processor)
-    except (ImportError, AttributeError, RuntimeError, ValueError) as e:  # pragma: no cover - defensive guard
-        logger.debug(
-            "Failed to cache IRequestProcessor instance: %s", e, exc_info=True
-        )
+    except (
+        ImportError,
+        AttributeError,
+        RuntimeError,
+        ValueError,
+    ) as e:  # pragma: no cover - defensive guard
+        logger.debug("Failed to cache IRequestProcessor instance: %s", e, exc_info=True)
 
 
 def _cache_on_provider(

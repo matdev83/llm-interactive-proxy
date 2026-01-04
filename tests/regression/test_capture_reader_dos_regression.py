@@ -74,7 +74,9 @@ class TestCaptureReaderDoSRegression:
         # Create file with entries exactly at limit
         # Using a smaller but still meaningful number to test limit behavior efficiently
         capture_file = temp_capture_dir / "at_limit.cbor"
-        num_entries = min(MAX_CAPTURE_ENTRIES, 2000)  # Use 2000 for performance while still testing many entries
+        num_entries = min(
+            MAX_CAPTURE_ENTRIES, 2000
+        )  # Use 2000 for performance while still testing many entries
         self.create_capture_file_with_entries(capture_file, num_entries)
 
         reader = CaptureReader()
@@ -90,12 +92,14 @@ class TestCaptureReaderDoSRegression:
         # Create file with entries over limit (reduced from 15,000 to 11,000 for performance)
         # Further reduced by mocking MAX_CAPTURE_ENTRIES to 100
         capture_file = temp_capture_dir / "oversized.cbor"
-        
+
         # Patch MAX_CAPTURE_ENTRIES to a small number for testing
         with pytest.MonkeyPatch().context() as m:
             mock_limit = 100
-            m.setattr("src.core.simulation.capture_reader.MAX_CAPTURE_ENTRIES", mock_limit)
-            
+            m.setattr(
+                "src.core.simulation.capture_reader.MAX_CAPTURE_ENTRIES", mock_limit
+            )
+
             num_entries = mock_limit + 50
             self.create_capture_file_with_entries(capture_file, num_entries)
 

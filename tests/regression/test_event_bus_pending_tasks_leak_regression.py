@@ -67,7 +67,9 @@ class TestEventBusPendingTasksLeakRegression:
 
         # WeakSet should automatically remove completed tasks when they're GC'd
         # Since we don't keep references, tasks should be cleaned up
-        assert final_total <= initial_pending_count + 75, (  # Adjusted for reduced event count
+        assert (
+            final_total <= initial_pending_count + 75
+        ), (  # Adjusted for reduced event count
             f"Tasks accumulating in WeakSet: {final_total - initial_pending_count} "
             f"tasks still present (expected <= 75). WeakSet cleanup may not be working."
         )

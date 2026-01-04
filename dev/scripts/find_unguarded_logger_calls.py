@@ -14,7 +14,7 @@ def check_file(filepath: str) -> list[tuple[int, str]]:
     unguarded = []
     for i, line in enumerate(lines):
         # Check for logger.debug/info/warning
-        if re.search(r'logger\.(debug|info|warning)\(', line):
+        if re.search(r"logger\.(debug|info|warning)\(", line):
             # Check if it has expensive operations (f-string, .format, json.dumps, model_dump)
             has_expensive = (
                 re.search(r'logger\.(debug|info|warning)\(f["\']', line)
@@ -22,7 +22,7 @@ def check_file(filepath: str) -> list[tuple[int, str]]:
                 or "json.dumps(" in line
                 or "model_dump(" in line
             )
-            
+
             if has_expensive:
                 # Check if previous lines have guard
                 guarded = False

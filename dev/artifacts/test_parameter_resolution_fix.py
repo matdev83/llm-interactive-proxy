@@ -55,7 +55,9 @@ def main():
     # Verify build_report still works
     print("\n" + "=" * 60)
     print("Testing build_report()...")
-    dummy_config = {"test": {"parameter": {"temperature": record.value if record else 0.5}}}
+    dummy_config = {
+        "test": {"parameter": {"temperature": record.value if record else 0.5}}
+    }
     report = resolution.build_report(dummy_config)
     print(f"Report contains {len(report)} parameters")
     for param in report:

@@ -144,7 +144,6 @@ async def test_loop_detection_in_streaming_response():
             )
             await asyncio.sleep(0)
 
-
     # Patch the backend service to return the streaming response
     with (
         patch.object(

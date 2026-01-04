@@ -8,7 +8,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from src.core.app.stages.test_stages import CustomTestStage
@@ -16,6 +15,7 @@ from src.core.app.test_builder import ApplicationTestBuilder
 from src.core.config.app_config import AppConfig
 from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.backend_service_interface import IBackendService
+
 
 @pytest.fixture
 async def mock_backend_service() -> MagicMock:

@@ -230,9 +230,7 @@ class TestReplacementMetrics:
 
         assert avg == 0.0
 
-    def test_get_opt_out_rate_all_time(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_get_opt_out_rate_all_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test calculating opt-out rate over all time."""
         import src.core.services.replacement_metrics as metrics_module
 

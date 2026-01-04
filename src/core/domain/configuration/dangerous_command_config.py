@@ -20,7 +20,6 @@ class DangerousCommandConfig(BaseModel):
     max_command_length: int = 50000
 
 
-
 # PERFORMANCE OPTIMIZATION: Single compiled regex instead of 30+ separate patterns
 # This reduces import time by ~97% and runtime scanning by ~2.7x
 _COMBINED_DANGEROUS_PATTERN = re.compile(

@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
 # Test tool_access_control_examples.yaml
@@ -23,4 +23,3 @@ try:
     print("PASS: Validates successfully!")
 except Exception as e:
     print(f"FAIL: {e}")
-

@@ -60,7 +60,7 @@ class URIParameterValidator:
 
     def validate_and_normalize(
         self, params: dict[str, Any]
-    ) -> URIParameterValidationResult:
+    ) -> tuple[dict[str, JsonValue], list[str]]:
         """
         Validate and normalize URI parameters.
 
@@ -68,32 +68,32 @@ class URIParameterValidator:
             params: Raw URI parameters extracted from model string
 
         Returns:
-            URIParameterValidationResult with normalized_params and validation_errors
+            Tuple of (normalized_params, validation_errors)
             - normalized_params: Dict with validated and type-converted parameters
             - validation_errors: List of error messages for invalid parameters
 
         Examples:
             >>> validator = URIParameterValidator()
-            >>> result = validator.validate_and_normalize({"temperature": "0.5"})
-            >>> result.normalized_params
+            >>> normalized, errors = validator.validate_and_normalize({"temperature": "0.5"})
+            >>> normalized
             {"temperature": 0.5}
-            >>> result.validation_errors
+            >>> errors
             []
 
-            >>> result = validator.validate_and_normalize({"top_p": "0.9", "top_k": "40"})
-            >>> result.normalized_params
+            >>> normalized, errors = validator.validate_and_normalize({"top_p": "0.9", "top_k": "40"})
+            >>> normalized
             {"top_p": 0.9, "top_k": 40}
 
-            >>> result = validator.validate_and_normalize({"temperature": "3.5"})
-            >>> result.normalized_params
+            >>> normalized, errors = validator.validate_and_normalize({"temperature": "3.5"})
+            >>> normalized
             {}
-            >>> result.validation_errors
+            >>> errors
             ["temperature: 3.5 out of valid range (0.0-2.0)"]
 
-            >>> result = validator.validate_and_normalize({"unknown_param": "value"})
-            >>> result.normalized_params
+            >>> normalized, errors = validator.validate_and_normalize({"unknown_param": "value"})
+            >>> normalized
             {}
-            >>> result.validation_errors
+            >>> errors
             []  # Unknown params logged as warning, not error
         """
         normalized_params: dict[str, JsonValue] = {}
@@ -151,9 +151,7 @@ class URIParameterValidator:
                     )
                 validation_errors.append(f"{param_name}: {error_msg}")
 
-        return URIParameterValidationResult(
-            normalized_params=normalized_params, validation_errors=validation_errors
-        )
+        return (normalized_params, validation_errors)
 
     def _validate_float_param(
         self, param_name: str, param_value: Any, rules: dict[str, Any]

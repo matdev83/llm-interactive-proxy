@@ -75,7 +75,7 @@ def create_test_backend_completion_flow(deps: dict[str, Any]) -> BackendCompleti
     )
 
     from src.core.services.connector_invoker import ConnectorInvoker
-    
+
     connector_invoker = ConnectorInvoker()
 
     return BackendCompletionFlow(

@@ -40,9 +40,7 @@ async def test_duplicate_enable_race():
         request = Mock()
         request.messages = []
         await middleware.capture_request(
-            session_id=session_id,
-            request=request,
-            user_id="test-user"
+            session_id=session_id, request=request, user_id="test-user"
         )
 
     # Simulate 10 concurrent requests for same session
@@ -54,7 +52,9 @@ async def test_duplicate_enable_race():
     enabled_count = sum(1 for _ in range(10))  # Check logs
 
     print(f"\nSession {session_id} was processed by {len(tasks)} concurrent requests")
-    print("Check logs above - if you see multiple 'Enabled session' messages, race exists!")
+    print(
+        "Check logs above - if you see multiple 'Enabled session' messages, race exists!"
+    )
 
     return 0
 

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 class DecodedSSE(BaseModel):
     """Result of SSE decoding."""
+
     content: Any
     metadata: dict[str, Any]
     is_done: bool

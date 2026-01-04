@@ -102,12 +102,16 @@ class TestNonForwardableTagLimitExceededError:
 
     def test_inherits_from_llm_proxy_error(self) -> None:
         """Error inherits from LLMProxyError."""
-        error = NonForwardableTagLimitExceededError("Tag limit exceeded", session_id="test_session")
+        error = NonForwardableTagLimitExceededError(
+            "Tag limit exceeded", session_id="test_session"
+        )
         assert isinstance(error, LLMProxyError)
 
     def test_status_code_is_400(self) -> None:
         """Error has status code 400."""
-        error = NonForwardableTagLimitExceededError("Tag limit exceeded", session_id="test_session")
+        error = NonForwardableTagLimitExceededError(
+            "Tag limit exceeded", session_id="test_session"
+        )
         assert error.status_code == 400
 
     def test_error_message(self) -> None:
@@ -139,7 +143,9 @@ class TestNonForwardableTagLimitExceededError:
 
     def test_to_dict_structure(self) -> None:
         """Error serializes to dict correctly."""
-        error = NonForwardableTagLimitExceededError("Tag limit exceeded", session_id="test_session")
+        error = NonForwardableTagLimitExceededError(
+            "Tag limit exceeded", session_id="test_session"
+        )
         error_dict = error.to_dict()
         assert "error" in error_dict
         assert error_dict["error"]["message"] == "Tag limit exceeded"

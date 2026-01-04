@@ -51,7 +51,9 @@ from src.core.config.models.misc import CodebuffConfig
 codebuff_fields = set(CodebuffConfig.model_fields.keys())
 print(f"CodebuffConfig model fields: {sorted(codebuff_fields)}")
 
-codebuff_schema_props = set(schema.get("properties", {}).get("codebuff", {}).get("properties", {}).keys())
+codebuff_schema_props = set(
+    schema.get("properties", {}).get("codebuff", {}).get("properties", {}).keys()
+)
 print(f"Codebuff schema properties: {sorted(codebuff_schema_props)}")
 
 missing_cb_schema = codebuff_fields - codebuff_schema_props

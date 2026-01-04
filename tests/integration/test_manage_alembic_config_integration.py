@@ -29,12 +29,13 @@ def temp_project_root(tmp_path: Path) -> Path:
 # Cache loaded modules to avoid reloading on each test
 _module_cache: dict[str, object] = {}
 
+
 def load_script_module(script_path: Path):
     """Dynamically load the script as a module."""
     cache_key = str(script_path)
     if cache_key in _module_cache:
         return _module_cache[cache_key]
-    
+
     spec = importlib.util.spec_from_file_location("manage_alembic_config", script_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Could not load module from {script_path}")
@@ -62,13 +63,15 @@ def test_alembic_ini_exists_integration(temp_project_root: Path) -> None:
 
     # Mock subprocess.run to avoid actual execution
     with patch("subprocess.run") as mock_run, patch("sys.exit"):
-        mock_run.return_value = MagicMock(returncode=0, stdout="alembic current", stderr="")
-        
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="alembic current", stderr=""
+        )
+
         # Execute the main function
         # We need to pass args via sys.argv or direct function call if available
         # The script calls manage_alembic_config(sys.argv[1:]) in if __name__ == "__main__"
         # We can call the function directly
-        
+
         args = [f"--project-root={temp_project_root}", "current"]
         module.manage_alembic_config(args)
 
@@ -77,9 +80,10 @@ def test_alembic_ini_exists_integration(temp_project_root: Path) -> None:
         call_args = mock_run.call_args[0][0]
         assert "alembic" in call_args
         assert "current" in call_args
-        
-        assert alembic_ini.read_text() == initial_content  # alembic.ini should be unchanged
 
+        assert (
+            alembic_ini.read_text() == initial_content
+        )  # alembic.ini should be unchanged
 
 
 def test_alembic_ini_missing_example_exists_integration(
@@ -102,7 +106,9 @@ def test_alembic_ini_missing_example_exists_integration(
     module = load_script_module(script_path)
 
     with patch("subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(returncode=0, stdout="alembic history", stderr="")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="alembic history", stderr=""
+        )
 
         # Execute the script
         args = [f"--project-root={temp_project_root}", "history"]
@@ -111,7 +117,7 @@ def test_alembic_ini_missing_example_exists_integration(
         # Assertions
         assert alembic_ini.exists()
         assert alembic_ini.read_text() == example_content
-        
+
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
         assert "alembic" in call_args
@@ -142,4 +148,3 @@ def test_alembic_ini_and_example_missing_integration(temp_project_root: Path) ->
 
         # Assertions
         mock_exit.assert_called_with(1)
-

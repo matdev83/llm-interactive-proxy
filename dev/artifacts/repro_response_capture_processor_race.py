@@ -20,9 +20,7 @@ async def test_concurrent_append():
     async def append_content(chunk_id: int):
         for i in range(100):
             content = StreamingContent(
-                content=f"chunk-{chunk_id}-{i}",
-                is_done=False,
-                metadata={}
+                content=f"chunk-{chunk_id}-{i}", is_done=False, metadata={}
             )
             await processor.process(content)
 
@@ -53,8 +51,10 @@ async def test_concurrent_tool_calls():
                 content="",
                 is_done=False,
                 metadata={
-                    "tool_calls": [{"id": f"call-{task_id}-{i}", "function": {"name": "test"}}]
-                }
+                    "tool_calls": [
+                        {"id": f"call-{task_id}-{i}", "function": {"name": "test"}}
+                    ]
+                },
             )
             await processor.process(content)
 

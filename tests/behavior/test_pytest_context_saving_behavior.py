@@ -849,7 +849,9 @@ class TestIntegrationAndPerformanceBehavior:
         # Then
         mock_logger.info.assert_not_called()  # No modification, no log
 
-    @real_time(reason="Measures actual processing time to verify performance remains reasonable (< 5.0s for 1000 commands).")
+    @real_time(
+        reason="Measures actual processing time to verify performance remains reasonable (< 5.0s for 1000 commands)."
+    )
     def test_performance_with_large_command_sets(self):
         """
         Given: Many pytest commands that need processing

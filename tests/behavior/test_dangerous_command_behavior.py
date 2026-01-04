@@ -657,7 +657,9 @@ class TestErrorHandlingAndResilienceBehavior:
                 result.should_swallow is False
             ), f"Empty command {args} was incorrectly blocked"
 
-    @real_time(reason="Measures actual processing time to verify performance remains reasonable (< 1.0s).")
+    @real_time(
+        reason="Measures actual processing time to verify performance remains reasonable (< 1.0s)."
+    )
     def test_large_command_argument_handling(self):
         """
         Given: Very large command arguments

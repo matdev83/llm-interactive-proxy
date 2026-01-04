@@ -102,7 +102,10 @@ class TestProcessedResponseCopyOnWrite:
         # Verify original chunk is unchanged
         assert original_chunk.content == original_content
         # Type-safe access to nested dict structure
-        if isinstance(original_chunk.content, dict) and "choices" in original_chunk.content:
+        if (
+            isinstance(original_chunk.content, dict)
+            and "choices" in original_chunk.content
+        ):
             choices = original_chunk.content["choices"]
             if isinstance(choices, list) and len(choices) > 0:
                 choice = choices[0]
@@ -114,7 +117,10 @@ class TestProcessedResponseCopyOnWrite:
 
         # Verify new chunk has updates
         assert updated_chunk.content == updated_content
-        if isinstance(updated_chunk.content, dict) and "choices" in updated_chunk.content:
+        if (
+            isinstance(updated_chunk.content, dict)
+            and "choices" in updated_chunk.content
+        ):
             choices = updated_chunk.content["choices"]
             if isinstance(choices, list) and len(choices) > 0:
                 choice = choices[0]
@@ -223,15 +229,15 @@ class TestProcessedResponseCopyOnWrite:
         """
         Verify that multiple metadata merges preserve all original chunks.
         """
-        original_chunk = ProcessedResponse(
-            content="test", metadata={"key1": "value1"}
-        )
+        original_chunk = ProcessedResponse(content="test", metadata={"key1": "value1"})
 
         # First merge
         metadata1 = dict(original_chunk.metadata)
         metadata1["key2"] = "value2"
         chunk1 = ProcessedResponse(
-            content=original_chunk.content, metadata=metadata1, usage=original_chunk.usage
+            content=original_chunk.content,
+            metadata=metadata1,
+            usage=original_chunk.usage,
         )
 
         # Second merge
@@ -295,7 +301,9 @@ class TestProcessedResponseCopyOnWrite:
         """
         # Create a large dict payload
         large_dict = {"data": "x" * (1024 * 1024), "nested": {"key": "value"}}
-        original_chunk = ProcessedResponse(content=large_dict, metadata={"meta": "data"})
+        original_chunk = ProcessedResponse(
+            content=large_dict, metadata={"meta": "data"}
+        )
 
         # Store original dict identity
         original_dict_id = id(original_chunk.content)

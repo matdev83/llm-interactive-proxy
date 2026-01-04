@@ -30,7 +30,7 @@ except Exception as e:
     print(f"[FAIL] Backend file validation failed: {e}")
 
 # Load and inspect the schema
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("Schema structure:")
 with schema_path.open() as f:
     schema = yaml.safe_load(f)
@@ -43,4 +43,7 @@ if "properties" in schema:
         if "properties" in details:
             print("  Sub-properties:", list(details["properties"].keys()))
         elif "items" in details and "properties" in details["items"]:
-            print("  Array items have properties:", list(details["items"]["properties"].keys()))
+            print(
+                "  Array items have properties:",
+                list(details["items"]["properties"].keys()),
+            )

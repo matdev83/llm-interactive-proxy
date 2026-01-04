@@ -69,14 +69,16 @@ async def test_request_processor_uses_app_state_command_prefix(monkeypatch) -> N
 
     # Store transform_pipeline reference for accessing command_prefix
     transform_pipeline_ref = [None]
-    
+
     def fake_redaction(*, api_keys):
         # Get command prefix from transform pipeline for testing
         # This will be set after transform_pipeline is created
         if transform_pipeline_ref[0] is not None:
             # Create a dummy session to get command prefix
             dummy_session = Session(session_id="test")
-            command_prefix = transform_pipeline_ref[0]._get_command_prefix(dummy_session)
+            command_prefix = transform_pipeline_ref[0]._get_command_prefix(
+                dummy_session
+            )
         else:
             command_prefix = app_state.get_command_prefix()
         captured_prefix["value"] = command_prefix
@@ -232,12 +234,14 @@ async def test_request_processor_prefers_session_command_prefix(monkeypatch) -> 
 
     # Store transform_pipeline reference for accessing command_prefix
     transform_pipeline_ref = [None]
-    
+
     def fake_redaction(*, api_keys):
         # Get command prefix from transform pipeline for testing
         # This will be set after transform_pipeline is created
         if transform_pipeline_ref[0] is not None:
-            command_prefix = transform_pipeline_ref[0]._get_command_prefix(session_override)
+            command_prefix = transform_pipeline_ref[0]._get_command_prefix(
+                session_override
+            )
         else:
             command_prefix = app_state.get_command_prefix()
         captured_prefix["value"] = command_prefix

@@ -22,19 +22,19 @@ def test_history_truncation():
         content_loop_threshold=6,
         max_history_length=4096,
     )
-    
+
     hasher = ContentHasher()
     analyzer = PatternAnalyzer(config, hasher)
-    
+
     # Create a repeating pattern that will trigger detection
     repeating_chunk = "A" * 80
-    
+
     # Manually add events to history to test truncation
     # We'll add more than 100 events (the truncation limit)
     import time
 
     from src.loop_detection.event import LoopDetectionEvent
-    
+
     for i in range(150):
         event = LoopDetectionEvent(
             pattern=repeating_chunk,
@@ -48,17 +48,19 @@ def test_history_truncation():
         analyzer.history.append(event)
         # Call truncation manually to test it
         analyzer._truncate_event_history_if_needed()
-    
+
     # History should be truncated to 100 events
-    assert len(analyzer.history) == 100, f"Expected 100 events, got {len(analyzer.history)}"
+    assert (
+        len(analyzer.history) == 100
+    ), f"Expected 100 events, got {len(analyzer.history)}"
     print(f"SUCCESS: History correctly truncated to {len(analyzer.history)} events")
-    
+
     # Verify the oldest events were removed (check first event)
     # Since we added 150 events and truncated to 100, the first event should be #51
     # But actually, we're appending and truncating each time, so the first 50 should be removed
     # Let's verify by checking that we have exactly 100 events
     assert len(analyzer.history) <= 100, "History exceeds limit!"
-    
+
     print("Test passed: History truncation is working correctly")
 
 

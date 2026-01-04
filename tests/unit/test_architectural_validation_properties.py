@@ -175,7 +175,8 @@ def get_streaming_modules() -> list[str]:
     connectors_dir = Path("src/connectors")
     if connectors_dir.exists():
         connector_files = [
-            f for f in connectors_dir.glob("*.py")
+            f
+            for f in connectors_dir.glob("*.py")
             if f.name != "__init__.py" and not f.name.startswith("_")
         ]
         # Limit to first 20 files for performance while maintaining coverage
@@ -225,7 +226,7 @@ def test_property_layer_separation() -> None:
 
     # Check each module's dependencies
     violations = []
-    
+
     # Pre-compute module layers to avoid repeated path operations
     module_layers = {}
     for module_path in modules:

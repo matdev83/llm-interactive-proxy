@@ -148,7 +148,8 @@ class AngelPromptLoader:
                         "Failed to read steering template file: %s", e, exc_info=True
                     )
                     logger.warning(
-                        "Using fallback steering template (hardcoded default)", exc_info=True
+                        "Using fallback steering template (hardcoded default)",
+                        exc_info=True,
                     )
                     self._steering_template = FALLBACK_STEERING_TEMPLATE
             else:

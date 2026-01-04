@@ -48,7 +48,9 @@ def simulate_race():
     # Check if all threads got to same executor
     unique_executors = set(results)
     if len(unique_executors) > 1:
-        print(f"RACE CONDITION DETECTED: {len(unique_executors)} different executors created")
+        print(
+            f"RACE CONDITION DETECTED: {len(unique_executors)} different executors created"
+        )
         return True
     elif len(results) == 10:
         print("No race condition detected in this run")

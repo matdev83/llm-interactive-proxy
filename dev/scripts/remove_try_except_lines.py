@@ -1,9 +1,8 @@
 """Script to remove try/except blocks from test_stages.py using line-by-line processing."""
 
-import sys
 
 # Read the file
-with open("src/core/app/stages/test_stages.py", "r", encoding="utf-8") as f:
+with open("src/core/app/stages/test_stages.py", encoding="utf-8") as f:
     lines = f.readlines()
 
 # Process lines to remove try/except wrappers
@@ -18,7 +17,7 @@ in_try_block = False
 # Functions to process
 target_functions = [
     "_override_session_service_for_test_compatibility",
-    "_register_backend_config_provider", 
+    "_register_backend_config_provider",
     "_register_mock_backend_service",
     "_register_mock_backend_factory",
     "_register_backend_service",
@@ -54,7 +53,11 @@ while i < len(lines):
         if in_try_block and stripped.startswith("except ImportError as e:"):
             # Skip this except block
             # Check next line for logging
-            if i + 1 < len(lines) and "logger.isEnabledFor" in lines[i+1] and "logger.warning" in lines[i+2]:
+            if (
+                i + 1 < len(lines)
+                and "logger.isEnabledFor" in lines[i + 1]
+                and "logger.warning" in lines[i + 2]
+            ):
                 i += 3  # Skip except and the two logging lines
             else:
                 i += 1  # Just skip except
@@ -76,7 +79,12 @@ while i < len(lines):
             output_lines.append(line)
 
         # Check if we've exited the function
-        if stripped and not line.startswith(" ") and not line.startswith("\t") and stripped not in target_functions:
+        if (
+            stripped
+            and not line.startswith(" ")
+            and not line.startswith("\t")
+            and stripped not in target_functions
+        ):
             # We've exited the function
             in_target_function = False
             in_try_block = False

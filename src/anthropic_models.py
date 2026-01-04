@@ -238,4 +238,3 @@ class AnthropicErrorResponse(DomainModel):
 
     type: Literal["error"] = "error"
     error: AnthropicError
-

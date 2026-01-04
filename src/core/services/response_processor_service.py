@@ -942,6 +942,19 @@ class ResponseProcessor(IResponseProcessor):
 
         # Sanitize metadata to ensure all values are JSON-serializable
         sanitized = sanitize_dict_for_json(metadata)
+        
+        # FIX: Restore tool_calls if lost during sanitization (e.g. recursion limits or bug)
+        if "tool_calls" in metadata and not sanitized.get("tool_calls"):
+             # Manually sanitize tool_calls list to ensure it survives
+             raw_tools = metadata["tool_calls"]
+             if isinstance(raw_tools, list):
+                 sanitized_tools = []
+                 for tool in raw_tools:
+                     if isinstance(tool, dict) or type(tool) is dict:
+                         # Create new dict to avoid reference issues
+                         sanitized_tools.append(dict(tool))
+                 if sanitized_tools:
+                     sanitized["tool_calls"] = sanitized_tools
         return sanitized
 
     @staticmethod

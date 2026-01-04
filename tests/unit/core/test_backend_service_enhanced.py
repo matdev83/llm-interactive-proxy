@@ -22,11 +22,9 @@ from src.core.common.exceptions import (
 )
 from src.core.domain.backend_type import BackendType
 from src.core.domain.chat import (
-    ChatCompletionChoiceMessage,
     ChatMessage,
     ChatRequest,
 )
-from src.core.domain.validation import BackendModelValidation
 from src.core.domain.request_context import (
     RequestContext,
     RequestCookies,

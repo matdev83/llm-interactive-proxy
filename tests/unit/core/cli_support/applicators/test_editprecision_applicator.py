@@ -208,7 +208,10 @@ class TestEditPrecisionApplicator:
         applicator.apply(empty_args, overrides, resolution)
 
         assert "edit_precision" in overrides
-        assert overrides["edit_precision"].get("exclude_agents_regex") == "^(cursor|opencode)$"
+        assert (
+            overrides["edit_precision"].get("exclude_agents_regex")
+            == "^(cursor|opencode)$"
+        )
         assert resolution.is_set("edit_precision.exclude_agents_regex")
         cli_params = resolution.latest_by_source(ParameterSource.CLI)
         assert "edit_precision.exclude_agents_regex" in cli_params

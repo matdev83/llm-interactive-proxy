@@ -2,9 +2,23 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from src.core.domain.base import ValueObject
+
+
+@dataclass(frozen=True)
+class BackendModelPair:
+    """Represents a parsed backend:model string.
+
+    Attributes:
+        backend: The backend identifier (e.g., 'openai', 'anthropic')
+        model: The model identifier (e.g., 'gpt-4o', 'claude-3-5-sonnet')
+    """
+
+    backend: str
+    model: str
 
 
 class ReplacementConfig(ValueObject):
@@ -48,11 +62,11 @@ class ReplacementConfig(ValueObject):
                     f"replacement_turn_count must be at least 1, got {self.turn_count}"
                 )
 
-    def parse_backend_model(self) -> tuple[str, str]:
+    def parse_backend_model(self) -> BackendModelPair:
         """Parse backend:model string into components.
 
         Returns:
-            Tuple of (backend, model) strings.
+            BackendModelPair containing backend and model strings.
 
         Raises:
             ValueError: If backend_model format is invalid.
@@ -62,4 +76,4 @@ class ReplacementConfig(ValueObject):
                 f"replacement_backend_model must be in format 'backend:model', got {self.backend_model}"
             )
         parts = self.backend_model.split(":", 1)
-        return (parts[0], parts[1])
+        return BackendModelPair(backend=parts[0], model=parts[1])

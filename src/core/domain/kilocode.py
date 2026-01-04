@@ -9,10 +9,11 @@ from src.core.domain.base import ValueObject
 
 class KiloCodeToolResult(ValueObject):
     """Result of a KiloCode tool execution."""
+
     output: str
     exit_code: int
     error: str | None = None
-    
+
     # Tool-specific fields
     file_path: str | None = None
     size: int | None = None
@@ -25,7 +26,7 @@ class KiloCodeToolResult(ValueObject):
     completion_result: str | None = None
     marker_type: str | None = None
     followup_question: str | None = None
-    
+
     def __getitem__(self, key: str) -> Any:
         """Allow dictionary-like access for backward compatibility."""
         return getattr(self, key)

@@ -65,7 +65,9 @@ async def main():
 
     # Create MORE sessions than the limit to trigger eviction
     num_sessions = MAX_SESSION_STATES + 500
-    print(f"Creating {num_sessions} sessions (exceeds limit of {MAX_SESSION_STATES})...")
+    print(
+        f"Creating {num_sessions} sessions (exceeds limit of {MAX_SESSION_STATES})..."
+    )
     print()
 
     for i in range(num_sessions):
@@ -88,7 +90,9 @@ async def main():
         # Progress indicator
         if (i + 1) % 500 == 0:
             current_size = len(service._session_states)
-            print(f"  Processed {i + 1} sessions, current _session_states size: {current_size}")
+            print(
+                f"  Processed {i + 1} sessions, current _session_states size: {current_size}"
+            )
 
     print()
     print(f"After creating {num_sessions} sessions:")
@@ -105,13 +109,19 @@ async def main():
     print("=" * 80)
     if states_ok and disabled_ok:
         print("[OK] FIX VERIFIED:")
-        print(f"  - _session_states is bounded: {final_states_size} <= {MAX_SESSION_STATES}")
-        print(f"  - _disabled_sessions is bounded: {final_disabled_size} <= {MAX_DISABLED_SESSIONS}")
+        print(
+            f"  - _session_states is bounded: {final_states_size} <= {MAX_SESSION_STATES}"
+        )
+        print(
+            f"  - _disabled_sessions is bounded: {final_disabled_size} <= {MAX_DISABLED_SESSIONS}"
+        )
         print("  - Memory leak is fixed!")
     else:
         print("[FAIL] FIX FAILED:")
         if not states_ok:
-            print(f"  - _session_states exceeds limit: {final_states_size} > {MAX_SESSION_STATES}")
+            print(
+                f"  - _session_states exceeds limit: {final_states_size} > {MAX_SESSION_STATES}"
+            )
         if not disabled_ok:
             print(
                 f"  - _disabled_sessions exceeds limit: {final_disabled_size} > {MAX_DISABLED_SESSIONS}"

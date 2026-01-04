@@ -171,10 +171,8 @@ async def test_startup_time_benchmark(minimal_app_config: AppConfig):
     baseline_startup_ms_str = os.environ.get("PERF_BASELINE_STARTUP_MS")
     baseline_startup_ms: float | None = None
     if baseline_startup_ms_str:
-        try:
+        with contextlib.suppress(ValueError):
             baseline_startup_ms = float(baseline_startup_ms_str)
-        except ValueError:
-            pass
 
     # Print results for visibility
     print(
@@ -266,10 +264,8 @@ async def test_validation_duration_benchmark(
     baseline_validation_ms_str = os.environ.get("PERF_BASELINE_VALIDATION_MS")
     baseline_validation_ms: float | None = None
     if baseline_validation_ms_str:
-        try:
+        with contextlib.suppress(ValueError):
             baseline_validation_ms = float(baseline_validation_ms_str)
-        except ValueError:
-            pass
 
     # Print results for visibility
     print(

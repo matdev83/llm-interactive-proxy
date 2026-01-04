@@ -41,7 +41,7 @@ def demo_leak():
     print("=" * 70)
     print("DEMONSTRATING SUBPROCESS LEAK")
     print("=" * 70)
-    
+
     class VulnerableConnector:
         def __init__(self):
             self._process = None
@@ -76,38 +76,42 @@ def demo_leak():
             try:
                 print("[SPAWN] Creating subprocess...")
                 process = subprocess.Popen(
-                    [sys.executable, "-c", "import time; time.sleep(100); print('zombie')"],
+                    [
+                        sys.executable,
+                        "-c",
+                        "import time; time.sleep(100); print('zombie')",
+                    ],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
                 print(f"[SPAWN] Process created with PID {process.pid}")
-                
+
                 # Assignment happens (matching line 279)
                 self._process = process
                 print("[SPAWN] Assigned to self._process")
-                
+
                 # Simulate exception AFTER assignment but BEFORE exception handler
                 # This could be: asyncio.sleep() failing, validation, etc.
                 print("[SPAWN] Simulating exception after assignment...")
                 raise RuntimeError("Simulated exception during startup")
-                
+
             except Exception as e:
                 print(f"[EXCEPT] Caught exception: {e}")
                 print(f"[EXCEPT] process is None: {process is None}")
                 print(f"[EXCEPT] process is self._process: {process is self._process}")
-                
+
                 # THE BUG: This is the exact logic from gemini_cli_acp.py:306
                 if process is not None and process is not self._process:
                     print("[EXCEPT] Calling _cleanup_process(process)")
                     self._cleanup_process(process)
                 else:
                     print("[EXCEPT] NOT calling _cleanup_process - LEAK POSSIBLE!")
-                
+
                 # Then calls _kill_process
                 print("[EXCEPT] Calling _kill_process()")
                 self._kill_process()
-                
+
                 return process
 
         def _spawn_process_fixed(self):
@@ -119,63 +123,69 @@ def demo_leak():
             try:
                 print("[SPAWN] Creating subprocess...")
                 process = subprocess.Popen(
-                    [sys.executable, "-c", "import time; time.sleep(100); print('zombie')"],
+                    [
+                        sys.executable,
+                        "-c",
+                        "import time; time.sleep(100); print('zombie')",
+                    ],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
                 print(f"[SPAWN] Process created with PID {process.pid}")
-                
+
                 # Assignment happens
                 self._process = process
                 self._process_assigned = True
                 print("[SPAWN] Assigned to self._process, flag set to True")
-                
+
                 # Simulate exception AFTER assignment
                 print("[SPAWN] Simulating exception after assignment...")
                 raise RuntimeError("Simulated exception during startup")
-                
+
             except Exception as e:
                 print(f"[EXCEPT] Caught exception: {e}")
                 print(f"[EXCEPT] process is None: {process is None}")
                 print(f"[EXCEPT] _process_assigned: {self._process_assigned}")
-                
+
                 # THE FIX: Check _process_assigned flag
                 if process is not None and not self._process_assigned:
                     print("[EXCEPT] Calling _cleanup_process(process) - unassigned")
                     self._cleanup_process(process)
                 elif not self._process_assigned:
-                    print("[EXCEPT] Process was created but not assigned - leak possible")
-                
+                    print(
+                        "[EXCEPT] Process was created but not assigned - leak possible"
+                    )
+
                 # Call _kill_process for any assigned process
                 print("[EXCEPT] Calling _kill_process()")
                 self._kill_process()
-                
+
                 return process
 
     # Test vulnerable version
     print("\n--- TEST 1: VULNERABLE VERSION ---\n")
     vulnerable = VulnerableConnector()
     leaked_process = vulnerable._spawn_process_vulnerable()
-    
+
     if leaked_process and leaked_process.poll() is None:
         print(f"\n[!!!] LEAK DETECTED: Process {leaked_process.pid} is still running!")
         print("[!!!] This represents a resource leak vulnerability")
     else:
         print("\n[OK] No leak detected in this case")
-    
+
     time.sleep(1)  # Give processes time to settle
-    
-    # Test fixed version  
+
+    # Test fixed version
     print("\n--- TEST 2: FIXED VERSION ---\n")
     vulnerable2 = VulnerableConnector()
     leaked_process2 = vulnerable2._spawn_process_fixed()
-    
+
     if leaked_process2 and leaked_process2.poll() is None:
         print(f"\n[!!!] LEAK DETECTED: Process {leaked_process2.pid} is still running!")
     else:
         print("\n[OK] No leak detected with fixed version")
-    
+
     print("\n" + "=" * 70)
     print("Check Task Manager for zombie python.exe processes")
     print("If vulnerable version leaked, you'll see sleeping processes")

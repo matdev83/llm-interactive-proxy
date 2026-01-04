@@ -4,10 +4,11 @@ Reproduction script for race condition in ApplicationStateService.
 This script simulates concurrent access to _local_state dictionary
 which lacks lock protection.
 """
+
 import asyncio
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 from src.core.services.application_state_service import ApplicationStateService
 

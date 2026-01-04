@@ -52,7 +52,8 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
                     try:
                         tool_call_obj = ToolCall(**tc)
                         validated_tool_calls.append(tool_call_obj)
-                    except (TypeError, ValueError):
+                    except (TypeError, ValueError) as e:
+                        print(f"DEBUG: ToolCall validation failed: {e}. Data: {tc}")  # DEBUG PRINT
                         continue
                 elif isinstance(tc, ToolCall):
                     validated_tool_calls.append(tc)
@@ -100,7 +101,7 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
     usage = response.get("usage") or {}
     normalized_usage = _normalize_usage_metadata(usage, "openai")
 
-    return CanonicalChatResponse(
+    result = CanonicalChatResponse(
         id=response.get("id", "chatcmpl-openai-unk"),
         object=response.get("object", "chat.completion"),
         created=response.get("created", int(time.time())),
@@ -109,6 +110,10 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
         usage=UsageSummary.from_dict(normalized_usage) if normalized_usage else None,
         service_tier=response.get("service_tier"),
     )
+    # DEBUG PRINT
+    if choices and choices[0].message.tool_calls is None and response.get("choices") and response["choices"][0].get("message", {}).get("tool_calls"):
+        print(f"DEBUG: openai_to_domain_response DROPPED tool calls! Input: {response['choices'][0]['message']['tool_calls']}")
+    return result
 
 
 def from_domain_to_openai_response(response: ChatResponse) -> dict[str, Any]:

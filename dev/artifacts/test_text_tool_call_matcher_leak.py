@@ -26,9 +26,7 @@ def test_unbounded_pending_growth():
     # Register many tool calls without matching them
     for i in range(1000):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
         if (i + 1) % 100 == 0:
@@ -56,25 +54,24 @@ def test_partial_match_still_leaks():
     """
     matcher = _TextToolCallMatcher()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: Partial matching still causes growth")
-    print("="*60)
+    print("=" * 60)
 
     # Register 100 tool calls, only match half of them
     for i in range(100):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
         # Match every other tool call
         if i % 2 == 0:
             from connectors._openai_codex_request_translator import TextToolResult
+
             result = TextToolResult(
                 canonical_name=f"tool_{i}",
                 command_text=f"command_{i}",
-                output_text="output"
+                output_text="output",
             )
             matcher.match_textual_result(result)
 
@@ -100,9 +97,9 @@ def main():
     leak_detected |= test_partial_match_still_leaks()
 
     if leak_detected:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("MEMORY LEAK CONFIRMED!")
-        print("="*60)
+        print("=" * 60)
         sys.exit(1)
     else:
         print("\nNo memory leak detected")

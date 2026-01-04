@@ -123,9 +123,11 @@ class TestInitialize:
         """Verify validation is performed."""
         # Setup mocks
         mock_credential_loader.validate_credentials_file_exists.return_value = (
-            True,
-            [],
-            Path("/test/oauth_creds.json"),
+            CredentialFileValidationResult(
+                is_valid=True,
+                errors=[],
+                path=Path("/test/oauth_creds.json"),
+            )
         )
 
         storage_mock = Mock()
@@ -139,7 +141,9 @@ class TestInitialize:
             return True
 
         mock_credential_loader.load_oauth_credentials.side_effect = load_side_effect
-        mock_credential_loader.validate_credentials_structure.return_value = (True, [])
+        mock_credential_loader.validate_credentials_structure.return_value = (
+            CredentialStructureValidationResult(is_valid=True, errors=[])
+        )
 
         # Execute
         await coordinator.initialize(gemini_cli_oauth_path=None)
@@ -158,9 +162,11 @@ class TestInitialize:
         """Verify token refresh is triggered when expired."""
         # Setup mocks
         mock_credential_loader.validate_credentials_file_exists.return_value = (
-            True,
-            [],
-            Path("/test/oauth_creds.json"),
+            CredentialFileValidationResult(
+                is_valid=True,
+                errors=[],
+                path=Path("/test/oauth_creds.json"),
+            )
         )
 
         storage_mock = Mock()
@@ -174,7 +180,9 @@ class TestInitialize:
             return True
 
         mock_credential_loader.load_oauth_credentials.side_effect = load_side_effect
-        mock_credential_loader.validate_credentials_structure.return_value = (True, [])
+        mock_credential_loader.validate_credentials_structure.return_value = (
+            CredentialStructureValidationResult(is_valid=True, errors=[])
+        )
         mock_token_manager.refresh_token_if_needed.return_value = True
 
         # Execute
@@ -194,9 +202,11 @@ class TestInitialize:
         """Verify file watcher is started."""
         # Setup mocks
         mock_credential_loader.validate_credentials_file_exists.return_value = (
-            True,
-            [],
-            Path("/test/oauth_creds.json"),
+            CredentialFileValidationResult(
+                is_valid=True,
+                errors=[],
+                path=Path("/test/oauth_creds.json"),
+            )
         )
 
         storage_mock = Mock()
@@ -210,7 +220,9 @@ class TestInitialize:
             return True
 
         mock_credential_loader.load_oauth_credentials.side_effect = load_side_effect
-        mock_credential_loader.validate_credentials_structure.return_value = (True, [])
+        mock_credential_loader.validate_credentials_structure.return_value = (
+            CredentialStructureValidationResult(is_valid=True, errors=[])
+        )
 
         # Set main loop
         coordinator._file_watcher_state.main_loop = asyncio.get_running_loop()
@@ -228,9 +240,11 @@ class TestInitialize:
         """Verify error handling for missing file."""
         # Setup mocks
         mock_credential_loader.validate_credentials_file_exists.return_value = (
-            False,
-            ["OAuth credentials file not found"],
-            None,
+            CredentialFileValidationResult(
+                is_valid=False,
+                errors=["OAuth credentials file not found"],
+                path=Path("/nonexistent"),
+            )
         )
 
         # Execute and verify exception
@@ -246,9 +260,11 @@ class TestInitialize:
         """Verify validation errors are raised."""
         # Setup mocks
         mock_credential_loader.validate_credentials_file_exists.return_value = (
-            True,
-            [],
-            Path("/test/oauth_creds.json"),
+            CredentialFileValidationResult(
+                is_valid=True,
+                errors=[],
+                path=Path("/test/oauth_creds.json"),
+            )
         )
 
         storage_mock = Mock()
@@ -263,8 +279,9 @@ class TestInitialize:
 
         mock_credential_loader.load_oauth_credentials.side_effect = load_side_effect
         mock_credential_loader.validate_credentials_structure.return_value = (
-            False,
-            ["Missing required field: access_token"],
+            CredentialStructureValidationResult(
+                is_valid=False, errors=["Missing required field: access_token"]
+            )
         )
 
         # Execute and verify exception

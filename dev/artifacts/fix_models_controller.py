@@ -4,13 +4,12 @@ Backend instance created for credential check was never closed,
 causing HTTP client resource leaks.
 """
 
-
 # Read the file
 with open("src/core/app/controllers/models_controller.py", encoding="utf-8") as f:
     content = f.read()
 
 # Find and replace the vulnerable pattern
-old_pattern = '''            # Special case for opencode-zen: verify credentials file existence
+old_pattern = """            # Special case for opencode-zen: verify credentials file existence
             # This backend doesn't require explicit configuration in config file,
             # but relies on the presence of a credentials file.
             if backend_type == "opencode-zen" and not has_credentials:
@@ -22,9 +21,9 @@ old_pattern = '''            # Special case for opencode-zen: verify credentials
                     # without violating encapsulation, but we can try to check if it's functional
                     # However, create_backend doesn't initialize it fully.
 
-                    # Alternatively, we can manually check the known default path'''
+                    # Alternatively, we can manually check the known default path"""
 
-new_pattern = '''            # Special case for opencode-zen: verify credentials file existence
+new_pattern = """            # Special case for opencode-zen: verify credentials file existence
             # This backend doesn't require explicit configuration in config file,
             # but relies on the presence of a credentials file.
             if backend_type == "opencode-zen" and not has_credentials:
@@ -37,7 +36,7 @@ new_pattern = '''            # Special case for opencode-zen: verify credentials
                     # without violating encapsulation, but we can try to check if it's functional
                     # However, create_backend doesn't initialize it fully.
 
-                    # Alternatively, we can manually check the known default path'''
+                    # Alternatively, we can manually check the known default path"""
 
 if old_pattern in content:
     content = content.replace(old_pattern, new_pattern)
@@ -45,11 +44,11 @@ if old_pattern in content:
 
     # Now add the finally block after the exception handler
     # Find the exception handler and add finally block
-    exception_handler = '''                except Exception as e:
+    exception_handler = """                except Exception as e:
                     if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(f"Failed to check opencode-zen credentials: {e}")'''
+                        logger.debug(f"Failed to check opencode-zen credentials: {e}")"""
 
-    finally_block = '''                except Exception as e:
+    finally_block = """                except Exception as e:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(f"Failed to check opencode-zen credentials: {e}")
                 finally:
@@ -68,7 +67,7 @@ if old_pattern in content:
                             except RuntimeError:
                                 pass
                             except Exception:
-                                pass'''
+                                pass"""
 
     if exception_handler in content:
         content = content.replace(exception_handler, finally_block)
@@ -77,7 +76,9 @@ if old_pattern in content:
         print("Exception handler pattern not found")
 
     # Write back
-    with open("src/core/app/controllers/models_controller.py", "w", encoding="utf-8") as f:
+    with open(
+        "src/core/app/controllers/models_controller.py", "w", encoding="utf-8"
+    ) as f:
         f.write(content)
 
     print("File updated successfully")

@@ -137,8 +137,12 @@ async def test_session_isolation_multiple_sessions(
 @given(
     session1_id=session_ids,
     session2_id=session_ids,
-    modifications1=st.integers(min_value=1, max_value=5),  # Reduced from 10 for performance
-    modifications2=st.integers(min_value=1, max_value=5),  # Reduced from 10 for performance
+    modifications1=st.integers(
+        min_value=1, max_value=5
+    ),  # Reduced from 10 for performance
+    modifications2=st.integers(
+        min_value=1, max_value=5
+    ),  # Reduced from 10 for performance
 )
 async def test_session_isolation_modification_counts(
     session1_id: str,

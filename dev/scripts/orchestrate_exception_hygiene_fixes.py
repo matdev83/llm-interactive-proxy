@@ -11,49 +11,53 @@ Usage:
 The orchestrator is READ ONLY - it only spawns subagents, makes no direct file edits.
 """
 
-import sys
 import json
 import subprocess
+import sys
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
 
-def run_linter() -> List[Dict[str, Any]]:
+def run_linter() -> list[dict[str, Any]]:
     """Run the exception hygiene linter and return all findings."""
     print("=" * 80)
     print("RUNNING EXCEPTION HYGIENE LINTER")
     print("=" * 80)
-    
+
     result = subprocess.run(
         ["./.venv/Scripts/python.exe", "dev/scripts/run_exception_hygiene_linter.py"],
         cwd=project_root,
         capture_output=True,
-        text=True
+        text=True,
     )
-    
+
     # Print the output
     print(result.stdout)
     if result.stderr:
         print("STDERR:", result.stderr, file=sys.stderr)
-    
+
     # Read the JSON output
-    findings_file = project_root / "dev" / "artifacts" / "exception_hygiene_findings.json"
+    findings_file = (
+        project_root / "dev" / "artifacts" / "exception_hygiene_findings.json"
+    )
     if not findings_file.exists():
         print(f"ERROR: Findings file not found: {findings_file}")
         return []
-    
-    findings = json.loads(findings_file.read_text(encoding='utf-8'))
+
+    findings = json.loads(findings_file.read_text(encoding="utf-8"))
     return findings
 
 
-def group_findings_into_batches(findings: List[Dict[str, Any]], batch_size: int = 3) -> List[List[Dict[str, Any]]]:
+def group_findings_into_batches(
+    findings: list[dict[str, Any]], batch_size: int = 3
+) -> list[list[dict[str, Any]]]:
     """
     Group findings into batches for processing.
-    
+
     Strategy:
     1. Prioritize EXH004 (critical bugs) first
     2. Then EXH001 (missing exc_info)
@@ -61,38 +65,42 @@ def group_findings_into_batches(findings: List[Dict[str, Any]], batch_size: int 
     4. Group by file to minimize context switching
     """
     # Sort by priority: EXH004 > EXH001 > EXH003, then by file
-    priority_order = {'EXH004': 0, 'EXH001': 1, 'EXH003': 2}
-    findings.sort(key=lambda f: (priority_order.get(f['code'], 999), f['filename'], f['lineno']))
-    
+    priority_order = {"EXH004": 0, "EXH001": 1, "EXH003": 2}
+    findings.sort(
+        key=lambda f: (priority_order.get(f["code"], 999), f["filename"], f["lineno"])
+    )
+
     # Group into batches
     batches = []
     current_batch = []
-    
+
     for finding in findings:
         current_batch.append(finding)
-        
+
         if len(current_batch) >= batch_size:
             batches.append(current_batch)
             current_batch = []
-    
+
     # Add remaining findings
     if current_batch:
         batches.append(current_batch)
-    
+
     return batches
 
 
-def create_fix_task_prompt(batch: List[Dict[str, Any]], iteration: int, total_batches: int) -> str:
+def create_fix_task_prompt(
+    batch: list[dict[str, Any]], iteration: int, total_batches: int
+) -> str:
     """Create a detailed task prompt for the zenglm subagent."""
-    
+
     # Group findings by file for better presentation
     by_file = {}
     for finding in batch:
-        filename = finding['filename']
+        filename = finding["filename"]
         if filename not in by_file:
             by_file[filename] = []
         by_file[filename].append(finding)
-    
+
     # Build the prompt
     prompt = f"""# Exception Hygiene Fix Task - Iteration {iteration}/{total_batches}
 
@@ -108,12 +116,12 @@ You are tasked with fixing {len(batch)} exception hygiene issues detected by our
 ## Issues to Fix
 
 """
-    
+
     for filename, file_findings in by_file.items():
         prompt += f"\n### File: `{filename}`\n\n"
         for finding in file_findings:
             prompt += f"- **Line {finding['lineno']}** - {finding['code']}: {finding['message']}\n"
-    
+
     prompt += """
 
 ## Fix Guidelines
@@ -245,109 +253,109 @@ Affected files:
 
 Good luck! Focus on correctness and minimal changes.
 """
-    
+
     return prompt
 
 
 def main():
     """
     Main orchestration loop.
-    
+
     NOTE: This script generates task prompts but the actual subagent spawning
     must be done by the orchestrator agent (not this Python script).
     """
-    
+
     print("=" * 80)
     print("EXCEPTION HYGIENE FIX ORCHESTRATOR - SETUP")
     print("=" * 80)
     print()
-    
+
     # Configuration
     BATCH_SIZE = 3
-    
-    print(f"Configuration:")
+
+    print("Configuration:")
     print(f"  - Batch size: {BATCH_SIZE} issues per iteration")
     print()
-    
+
     # Run linter to get initial findings
     all_findings = run_linter()
-    
+
     if not all_findings:
         print("\n✅ No exception hygiene issues found! All done.")
         return 0
-    
+
     print(f"\nFound {len(all_findings)} total issues to fix")
-    
+
     # Group into batches
     batches = group_findings_into_batches(all_findings, BATCH_SIZE)
     total_batches = len(batches)
-    
+
     print(f"Created {total_batches} batches of up to {BATCH_SIZE} issues each")
     print()
-    
+
     # Generate all task prompts
     print("Generating task prompts for all batches...")
-    
+
     task_prompts_dir = project_root / "dev" / "artifacts" / "exception_hygiene_tasks"
     task_prompts_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Clear old prompts
     for old_prompt in task_prompts_dir.glob("*.md"):
         old_prompt.unlink()
-    
+
     for iteration, batch in enumerate(batches, start=1):
         task_prompt = create_fix_task_prompt(batch, iteration, total_batches)
         prompt_file = task_prompts_dir / f"task_{iteration:03d}.md"
-        prompt_file.write_text(task_prompt, encoding='utf-8')
-    
+        prompt_file.write_text(task_prompt, encoding="utf-8")
+
     print(f"[OK] Generated {total_batches} task prompts in: {task_prompts_dir}")
     print()
-    
+
     # Save batch metadata for the orchestrator
     metadata = {
-        'total_batches': total_batches,
-        'total_issues': len(all_findings),
-        'batch_size': BATCH_SIZE,
-        'batches': [
+        "total_batches": total_batches,
+        "total_issues": len(all_findings),
+        "batch_size": BATCH_SIZE,
+        "batches": [
             {
-                'iteration': i,
-                'issues': [
+                "iteration": i,
+                "issues": [
                     {
-                        'code': f['code'],
-                        'filename': f['filename'],
-                        'lineno': f['lineno'],
-                        'message': f['message']
+                        "code": f["code"],
+                        "filename": f["filename"],
+                        "lineno": f["lineno"],
+                        "message": f["message"],
                     }
                     for f in batch
                 ],
-                'task_file': str(task_prompts_dir / f"task_{i:03d}.md")
+                "task_file": str(task_prompts_dir / f"task_{i:03d}.md"),
             }
             for i, batch in enumerate(batches, start=1)
-        ]
+        ],
     }
-    
+
     metadata_file = task_prompts_dir / "metadata.json"
-    metadata_file.write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+    metadata_file.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
     print(f"[OK] Metadata saved to: {metadata_file}")
     print()
-    
+
     print("=" * 80)
     print("READY FOR ORCHESTRATION")
     print("=" * 80)
     print()
-    print(f"The orchestrator agent should now:")
+    print("The orchestrator agent should now:")
     print(f"  1. Read metadata from: {metadata_file}")
     print(f"  2. For each batch (1 to {total_batches}):")
-    print(f"     a. Read task prompt from task_NNN.md")
-    print(f"     b. Spawn ONE zenglm subagent with that prompt")
-    print(f"     c. Wait for subagent to complete and create commit")
-    print(f"     d. Verify commit exists")
-    print(f"     e. Continue to next batch")
-    print(f"  3. After all batches, re-run linter to verify all issues are fixed")
+    print("     a. Read task prompt from task_NNN.md")
+    print("     b. Spawn ONE zenglm subagent with that prompt")
+    print("     c. Wait for subagent to complete and create commit")
+    print("     d. Verify commit exists")
+    print("     e. Continue to next batch")
+    print("  3. After all batches, re-run linter to verify all issues are fixed")
     print()
-    
+
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

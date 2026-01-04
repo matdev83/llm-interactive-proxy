@@ -370,14 +370,14 @@ class QwenOAuthConnector(OpenAIConnector):
 
     def _validate_credentials_structure(
         self, credentials: dict[str, Any]
-    ) -> CredentialsFileValidationResult:
+    ) -> tuple[bool, list[str]]:
         """Validate structure and content of OAuth credentials.
 
         Args:
             credentials: The credentials dictionary to validate
 
         Returns:
-            CredentialsFileValidationResult with is_valid and errors fields
+            Tuple of (is_valid, errors) where is_valid is a boolean and errors is a list of error messages
         """
         errors = []
 
@@ -409,13 +409,13 @@ class QwenOAuthConnector(OpenAIConnector):
                         time.ctime(current_time),
                     )
 
-        return CredentialsFileValidationResult(is_valid=len(errors) == 0, errors=errors)
+        return (len(errors) == 0, errors)
 
-    def _validate_credentials_file_exists(self) -> CredentialsFileValidationResult:
+    def _validate_credentials_file_exists(self) -> tuple[bool, list[str]]:
         """Validate that the OAuth credentials file exists and is readable.
 
         Returns:
-            CredentialsFileValidationResult containing validity status and error list.
+            Tuple of (is_valid, errors) where is_valid is a boolean and errors is a list of error messages.
         """
         errors = []
 
@@ -424,43 +424,41 @@ class QwenOAuthConnector(OpenAIConnector):
 
         if not creds_path.exists():
             errors.append(f"OAuth credentials file not found at {creds_path}")
-            return CredentialsFileValidationResult(is_valid=False, errors=errors)
+            return (False, errors)
 
         if not creds_path.is_file():
             errors.append(
                 f"OAuth credentials path exists but is not a file: {creds_path}"
             )
-            return CredentialsFileValidationResult(is_valid=False, errors=errors)
+            return (False, errors)
 
         try:
             with open(creds_path, encoding="utf-8") as f:
                 credentials = json.load(f)
 
             # Validate the loaded credentials
-            validation_result = self._validate_credentials_structure(credentials)
-            is_valid = validation_result.is_valid
-            validation_errors = validation_result.errors
+            is_valid, validation_errors = self._validate_credentials_structure(credentials)
             errors.extend(validation_errors)
 
-            return CredentialsFileValidationResult(is_valid=is_valid, errors=errors)
+            return (is_valid, errors)
 
         except json.JSONDecodeError as e:
             errors.append(f"Invalid JSON in credentials file: {e}")
-            return CredentialsFileValidationResult(is_valid=False, errors=errors)
+            return (False, errors)
         except PermissionError:
             errors.append(f"Permission denied reading credentials file: {creds_path}")
-            return CredentialsFileValidationResult(is_valid=False, errors=errors)
+            return (False, errors)
         except Exception as e:
             errors.append(f"Unexpected error reading credentials file: {e}")
-            return CredentialsFileValidationResult(is_valid=False, errors=errors)
+            return (False, errors)
 
     async def _validate_credentials_file_exists_async(
         self,
-    ) -> CredentialsFileValidationResult:
+    ) -> tuple[bool, list[str]]:
         """Async version of _validate_credentials_file_exists.
 
         Returns:
-            CredentialsFileValidationResult with is_valid and errors fields
+            Tuple of (is_valid, errors) where is_valid is a boolean and errors is a list of error messages
         """
         validation_result = await asyncio.to_thread(
             self._validate_credentials_file_exists
@@ -495,13 +493,13 @@ class QwenOAuthConnector(OpenAIConnector):
             )
 
             # Validate the file first
-            validation_result = await self._validate_credentials_file_exists_async()
+            is_valid, errors = await self._validate_credentials_file_exists_async()
 
-            if not validation_result.is_valid:
+            if not is_valid:
                 logger.warning(
-                    f"Updated credentials file is invalid: {'; '.join(validation_result.errors)}"
+                    f"Updated credentials file is invalid: {'; '.join(errors)}"
                 )
-                self._credential_validation_errors = validation_result.errors
+                self._credential_validation_errors = errors
                 self.is_functional = False
                 return
 
@@ -945,8 +943,8 @@ class QwenOAuthConnector(OpenAIConnector):
                 )
                 logger.error(error_msg)
                 # Try to enrich error details from file validation (best-effort)
-                validation_result = await self._validate_credentials_file_exists_async()
-                self._credential_validation_errors = validation_result.errors or [
+                _, validation_errors = await self._validate_credentials_file_exists_async()
+                self._credential_validation_errors = validation_errors or [
                     error_msg
                 ]
                 self._initialization_failed = True
@@ -957,14 +955,14 @@ class QwenOAuthConnector(OpenAIConnector):
 
             # Step 3: Validate loaded credentials structure
             if self._oauth_credentials:
-                validation_result = self._validate_credentials_structure(
+                is_valid, errors = self._validate_credentials_structure(
                     self._oauth_credentials
                 )
-                if not validation_result.is_valid:
+                if not is_valid:
                     logger.error(
-                        f"Loaded credentials are invalid: {'; '.join(validation_result.errors)}"
+                        f"Loaded credentials are invalid: {'; '.join(errors)}"
                     )
-                    self._credential_validation_errors = validation_result.errors
+                    self._credential_validation_errors = errors
                     self._initialization_failed = True
                     self.is_functional = False
 

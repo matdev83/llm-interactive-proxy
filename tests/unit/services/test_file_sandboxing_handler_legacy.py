@@ -8,7 +8,9 @@ import pytest
 from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
 from src.core.domain.session import Session, SessionState
 from src.core.interfaces.tool_call_reactor_interface import ToolCallContext
-from src.core.services.file_sandboxing_handler import FileSandboxingHandler
+from src.core.services.file_sandboxing_handler import (
+    FileSandboxingHandler,
+)
 from src.core.services.path_validation_service import PathValidationService
 
 
@@ -323,9 +325,9 @@ class TestFileSandboxingHandler:
     def test_get_metrics_initial_state(self, handler):
         """Test metrics are initialized to zero."""
         metrics = handler.get_metrics()
-        assert metrics["blocked_count"] == 0
-        assert metrics["allowed_count"] == 0
-        assert metrics["validation_errors"] == 0
+        assert metrics.blocked_count == 0
+        assert metrics.allowed_count == 0
+        assert metrics.validation_errors == 0
 
     @pytest.mark.asyncio
     async def test_get_metrics_after_blocking(self, handler, temp_dir):
@@ -339,8 +341,8 @@ class TestFileSandboxingHandler:
         await handler.handle(context)
 
         metrics = handler.get_metrics()
-        assert metrics["blocked_count"] == 1
-        assert metrics["allowed_count"] == 0
+        assert metrics.blocked_count == 1
+        assert metrics.allowed_count == 0
 
     @pytest.mark.asyncio
     async def test_get_metrics_after_allowing(self, handler, temp_dir):
@@ -354,8 +356,8 @@ class TestFileSandboxingHandler:
         await handler.handle(context)
 
         metrics = handler.get_metrics()
-        assert metrics["blocked_count"] == 0
-        assert metrics["allowed_count"] == 1
+        assert metrics.blocked_count == 0
+        assert metrics.allowed_count == 1
 
     # Test error handling
 

@@ -30,6 +30,7 @@ from src.core.interfaces.failure_strategy_interface import (
 from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
+from src.core.services.failover_service import FailoverAttempt
 from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
@@ -99,7 +100,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             logger.info(f"Using complex failover policy for model {effective_model}")
 
         try:
-            plan: list[tuple[str, str]] = self._failover_planner.get_failover_plan(
+            plan = self._failover_planner.get_failover_plan(
                 effective_model, backend_type
             )
 
@@ -120,7 +121,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
     async def attempt_failover_plan(
         self,
         request: ChatRequest,
-        plan: list[tuple[str, str]],
+        plan: list[FailoverAttempt],
         stream: bool,
         backend_type: str,
         call_completion_callback: Callable[
@@ -138,7 +139,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         if not plan:
             raise BackendError(message="all backends failed", backend_name=backend_type)
 
-        for backend_attempt, model_attempt in plan:
+        for attempt in plan:
             # Cancellation gate: ensure session is not cancelled before each failover attempt
             if self._cancellation_coordinator is not None and session_key is not None:
                 self._cancellation_coordinator.ensure_not_cancelled(session_key)
@@ -146,12 +147,12 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 attempt_extra_body: dict[str, Any] = (
                     request.extra_body.copy() if request.extra_body else {}
                 )
-                attempt_extra_body["backend_type"] = backend_attempt
+                attempt_extra_body["backend_type"] = attempt.backend
 
                 attempt_request: ChatRequest = request.model_copy(
                     update={
                         "extra_body": attempt_extra_body,
-                        "model": model_attempt,
+                        "model": attempt.model,
                     }
                 )
 
@@ -164,7 +165,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             except (BackendError, RateLimitExceededError) as attempt_error:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        f"Failover attempt failed for {backend_attempt}:{model_attempt}: {attempt_error!s}",
+                        f"Failover attempt failed for {attempt.backend}:{attempt.model}: {attempt_error!s}",
                         exc_info=True,
                     )
                 last_error = attempt_error
@@ -172,7 +173,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             except Exception as attempt_error:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        f"Unexpected error during failover attempt for {backend_attempt}:{model_attempt}: {attempt_error!s}",
+                        f"Unexpected error during failover attempt for {attempt.backend}:{attempt.model}: {attempt_error!s}",
                         exc_info=True,
                     )
                 last_error = attempt_error

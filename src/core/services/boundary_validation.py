@@ -68,6 +68,7 @@ def log_boundary_validation_failure(
     redacted_details_str = serialize_for_logging(details, redact=True)
     try:
         import json
+
         redacted_details = json.loads(redacted_details_str)
     except (TypeError, ValueError):
         # Fallback: use original details if serialization fails

@@ -1,4 +1,5 @@
 """Repro script for race condition in backend_completion_flow._cancellation_tasks."""
+
 import asyncio
 import sys
 from pathlib import Path
@@ -40,7 +41,9 @@ async def create_and_track_tasks_concurrently():
     created_tasks = await asyncio.gather(*tasks)
 
     print("Expected 100 tasks in _cancellation_tasks")
-    print(f"Actual tasks in _cancellation_tasks: {len(orchestrator._cancellation_tasks)}")
+    print(
+        f"Actual tasks in _cancellation_tasks: {len(orchestrator._cancellation_tasks)}"
+    )
 
     # Check for missing tasks
     missing = len(created_tasks) - len(orchestrator._cancellation_tasks)

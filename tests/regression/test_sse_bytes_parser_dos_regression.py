@@ -47,9 +47,7 @@ class TestSSEBytesParserDoSRegression:
         assert result is not None, "Normal payload should be accepted"
 
         # Test payload over limit (should be rejected) - reduced size for performance
-        large_json = self.create_large_json(
-            15
-        )  # 15MB > 10MB limit
+        large_json = self.create_large_json(15)  # 15MB > 10MB limit
         large_payload = f"data: {large_json}".encode()
 
         with pytest.raises(ValueError, match="too large"):

@@ -378,8 +378,11 @@ class TokenManager:
                 # - OSError: process operations may fail during shutdown
                 # - ProcessLookupError: process already terminated
                 # - AttributeError: partial initialization state
+                # - Exception: any other exceptions that might occur during cleanup
                 # Suppress these as they're cleanup-time artifacts
-                with contextlib.suppress(OSError, ProcessLookupError, AttributeError):
+                with contextlib.suppress(
+                    OSError, ProcessLookupError, AttributeError, Exception
+                ):
                     if process.poll() is None:
                         # Process is still running, terminate it
                         process.terminate()

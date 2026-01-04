@@ -430,23 +430,35 @@ async def test_concurrent_session_isolation(
 
     # Execute both requests concurrently
     with patch.object(backend_invoker, "acquire_backend", return_value=mock_backend_a):
-        await backend_service.call_completion(request_a, stream=False, context=context_a)
+        await backend_service.call_completion(
+            request_a, stream=False, context=context_a
+        )
 
     with patch.object(backend_invoker, "acquire_backend", return_value=mock_backend_b):
-        await backend_service.call_completion(request_b, stream=False, context=context_b)
+        await backend_service.call_completion(
+            request_b, stream=False, context=context_b
+        )
 
     # Verify each session filtered its own tagged message
     assert len(backend_received_messages_a) == 1
     assert backend_received_messages_a[0].content == "Other A"
-    assert not any(msg.content == "Session A message" for msg in backend_received_messages_a)
+    assert not any(
+        msg.content == "Session A message" for msg in backend_received_messages_a
+    )
 
     assert len(backend_received_messages_b) == 1
     assert backend_received_messages_b[0].content == "Other B"
-    assert not any(msg.content == "Session B message" for msg in backend_received_messages_b)
+    assert not any(
+        msg.content == "Session B message" for msg in backend_received_messages_b
+    )
 
     # Verify no cross-session leakage
-    assert not any(msg.content == "Session B message" for msg in backend_received_messages_a)
-    assert not any(msg.content == "Session A message" for msg in backend_received_messages_b)
+    assert not any(
+        msg.content == "Session B message" for msg in backend_received_messages_a
+    )
+    assert not any(
+        msg.content == "Session A message" for msg in backend_received_messages_b
+    )
 
 
 @pytest.mark.integration
@@ -475,12 +487,12 @@ async def test_all_entry_points_route_through_enforcement(
     registry: INonForwardableMessageRegistry,
 ):
     """Regression test: Verify all entry points route through enforcement boundary (Req 7.6).
-    
+
     This test ensures that tagged messages are filtered regardless of entry point,
     confirming that no backend calls bypass the enforcement boundary.
     """
     session_id = "test-session-enforcement"
-    
+
     # Tag a message as non-forwardable
     tagged_msg = ChatMessage(role="user", content="!/command")
     tagged_msg_id = identity_service.compute_identity(tagged_msg)
@@ -490,7 +502,7 @@ async def test_all_entry_points_route_through_enforcement(
         scope=NonForwardableTagScope.NEVER_FORWARD,
         reason="test",
     )
-    
+
     # Create request with tagged message
     request = CanonicalChatRequest(
         model="test-model",
@@ -503,34 +515,34 @@ async def test_all_entry_points_route_through_enforcement(
         app_state=None,
         session_id=session_id,
     )
-    
+
     # Track messages received by backend
     backend_received_messages = []
-    
+
     async def mock_chat_completions(*args, **kwargs):
         request_data = kwargs.get("request_data") or args[0]
         backend_received_messages.extend(request_data.messages)
         from src.core.domain.responses import ResponseEnvelope
         from src.core.domain.usage_summary import UsageSummary
-        
+
         return ResponseEnvelope(
             content={"choices": [{"message": {"role": "assistant", "content": "OK"}}]},
             status_code=200,
             usage=UsageSummary(prompt_tokens=10, completion_tokens=5, total_tokens=15),
         )
-    
+
     from src.core.interfaces.backend_completion_collaborators import IBackendInvoker
-    
+
     service_provider = test_app.state.service_provider
     backend_invoker = service_provider.get_required_service(IBackendInvoker)
-    
+
     mock_backend = MagicMock()
     mock_backend.chat_completions = AsyncMock(side_effect=mock_chat_completions)
-    
+
     # Call through BackendService (simulates HTTP/WebSocket entry points)
     with patch.object(backend_invoker, "acquire_backend", return_value=mock_backend):
         await backend_service.call_completion(request, stream=False, context=context)
-    
+
     # Verify tagged message was filtered (enforcement boundary was invoked)
     assert len(backend_received_messages) == 1
     assert backend_received_messages[0].content == "Hello"

@@ -31,6 +31,7 @@ class SanitizationResult:
         content: The sanitized content string.
         had_leak: True if a leak was detected and removed, False otherwise.
     """
+
     content: str
     had_leak: bool
 
@@ -43,6 +44,7 @@ class BytesSanitizationResult:
         data: The sanitized bytes.
         had_leak: True if a leak was detected and removed, False otherwise.
     """
+
     data: bytes
     had_leak: bool
 
@@ -55,6 +57,7 @@ class DictSanitizationResult:
         data: The sanitized dictionary.
         had_leak: True if internal keys were found and removed, False otherwise.
     """
+
     data: dict[str, Any]
     had_leak: bool
 
@@ -252,7 +255,9 @@ class SteeringLeakProtector:
         if not result.had_leak:
             return BytesSanitizationResult(data=data, had_leak=False)
 
-        return BytesSanitizationResult(data=result.content.encode("utf-8"), had_leak=True)
+        return BytesSanitizationResult(
+            data=result.content.encode("utf-8"), had_leak=True
+        )
 
     def sanitize_dict(self, data: dict[str, Any]) -> DictSanitizationResult:
         """Sanitize a dictionary by removing steering-related keys.

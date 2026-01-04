@@ -75,5 +75,6 @@ def main():
     print("The DoS vulnerability has been successfully mitigated!")
     print("=" * 60)
 
+
 if __name__ == "__main__":
     main()

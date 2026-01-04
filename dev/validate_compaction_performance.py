@@ -50,7 +50,9 @@ def create_test_messages(count: int, content_size: int = 1000) -> list[ChatMessa
                 ),
             )
             messages.append(
-                ChatMessage(role="assistant", content="Reading file...", tool_calls=[tool_call])
+                ChatMessage(
+                    role="assistant", content="Reading file...", tool_calls=[tool_call]
+                )
             )
 
             # Tool result message
@@ -102,7 +104,11 @@ async def measure_compaction_time(
     return {
         "mean": statistics.mean(times_ms),
         "median": statistics.median(times_ms),
-        "p95": sorted_times[p95_index] if p95_index < len(sorted_times) else sorted_times[-1],
+        "p95": (
+            sorted_times[p95_index]
+            if p95_index < len(sorted_times)
+            else sorted_times[-1]
+        ),
         "min": min(times_ms),
         "max": max(times_ms),
     }
@@ -156,8 +162,10 @@ async def run_performance_validation() -> dict[str, dict[str, float]]:
 
         # Check against NFR
         if msg_count <= 200:
-            meets_nfr = stats['p95'] <= 10.0
-            print(f"\n  NFR 1 Check (≤10ms p95 for ≤200 messages): {'✓ PASS' if meets_nfr else '✗ FAIL'}")
+            meets_nfr = stats["p95"] <= 10.0
+            print(
+                f"\n  NFR 1 Check (≤10ms p95 for ≤200 messages): {'✓ PASS' if meets_nfr else '✗ FAIL'}"
+            )
         else:
             print("\n  Note: This scenario exceeds the 200-message NFR threshold")
 
@@ -187,10 +195,10 @@ def print_summary_report(results: dict[str, dict[str, float]]):
 
     print("\nNFR 1 Compliance Check:")
     nfr_scenarios = {k: v for k, v in results.items() if "200_messages" in k}
-    all_pass = all(stats['p95'] <= 10.0 for stats in nfr_scenarios.values())
+    all_pass = all(stats["p95"] <= 10.0 for stats in nfr_scenarios.values())
 
     for scenario, stats in nfr_scenarios.items():
-        status = "✓ PASS" if stats['p95'] <= 10.0 else "✗ FAIL"
+        status = "✓ PASS" if stats["p95"] <= 10.0 else "✗ FAIL"
         print(f"  {scenario}: {status} (p95={stats['p95']:.3f}ms)")
 
     print(f"\nOverall NFR 1 Status: {'✓ MET' if all_pass else '✗ NOT MET'}")

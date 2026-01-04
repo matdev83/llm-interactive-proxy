@@ -236,7 +236,5 @@ class MemoryRequeueCommandHandler(ICommandHandler):
                 message="Memory service not available.",
             )
 
-        result = await self._memory_service.requeue_session_summary(
-            session.session_id
-        )
+        result = await self._memory_service.requeue_session_summary(session.session_id)
         return CommandResult(success=result.success, message=result.message)

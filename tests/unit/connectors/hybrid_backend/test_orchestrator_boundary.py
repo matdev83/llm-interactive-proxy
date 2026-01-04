@@ -80,7 +80,9 @@ class TestHybridOrchestratorBoundaryHardening:
         assert exc_info.value.details["received_type"] == "dict"
         assert exc_info.value.details["service"] == "HybridOrchestrator"
 
-    def test_execute_accepts_canonical_chat_request_signature(self, orchestrator, canonical_request):
+    def test_execute_accepts_canonical_chat_request_signature(
+        self, orchestrator, canonical_request
+    ):
         """Test that execute() signature accepts CanonicalChatRequest (type check)."""
         # This test verifies the type signature accepts canonical contracts
         import inspect

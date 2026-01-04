@@ -70,7 +70,9 @@ async def test_lifecycle_registry_multiple_streams():
 
     async def register_for_stream(stream_id: int):
         """Register a signature for a specific stream"""
-        result = await registry.register_detection(f"stream-{stream_id}", f"sig-{stream_id}")
+        result = await registry.register_detection(
+            f"stream-{stream_id}", f"sig-{stream_id}"
+        )
         results.append(result)
 
     # Register for 5 different streams concurrently

@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
 # Test reasoning_aliases.yaml.example against its schema
@@ -20,17 +20,19 @@ app_schema = Path("config/schemas/app_config.schema.yaml")
 print("\nTesting config/reasoning_aliases.yaml.example against app_config schema...")
 try:
     import yaml
+
     with example_path.open() as f:
         example_data = yaml.safe_load(f)
-    
+
     # Create a minimal config with the reasoning_aliases section
     test_config = {"reasoning_aliases": example_data}
-    
+
     import tempfile
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         yaml.dump(test_config, f)
         test_file = Path(f.name)
-    
+
     try:
         validate_yaml_against_schema(test_file, app_schema)
         print("PASS: Validates against app_config schema!")
@@ -38,4 +40,3 @@ try:
         test_file.unlink()
 except Exception as e:
     print(f"FAIL: {e}")
-

@@ -344,6 +344,7 @@ class TestSessionMetricsRepositoryEoS:
     ) -> SessionMetricsTable:
         """Create a sample session metrics entry."""
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             metrics = SessionMetricsTable(

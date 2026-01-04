@@ -127,11 +127,7 @@ class TestToolAccessControlEndToEnd:
         ]
 
         # Filter the tools
-        result = policy_service.filter_tool_definitions(
-
-            tools, "test-model", None
-
-        )
+        result = policy_service.filter_tool_definitions(tools, "test-model", None)
 
         filtered_tools = result.filtered_tools
 
@@ -240,9 +236,7 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Check if delete_file is allowed (should be, due to global policy)
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test-model", None)
 
         # Global policy should win due to higher priority
         assert result.is_allowed is True
@@ -273,23 +267,17 @@ class TestToolAccessControlEndToEnd:
         result = policy_service.is_tool_allowed("read_file", "test-model", None)
         assert result.is_allowed is True
 
-        result = policy_service.is_tool_allowed(
-            "list_directory", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("list_directory", "test-model", None)
         assert result.is_allowed is True
 
         # Test disallowed tools (not in whitelist)
         result = policy_service.is_tool_allowed("write_file", "test-model", None)
         assert result.is_allowed is False
 
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test-model", None)
         assert result.is_allowed is False
 
-        result = policy_service.is_tool_allowed(
-            "execute_command", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("execute_command", "test-model", None)
         assert result.is_allowed is False
 
     # Test 5: Blacklist mode (allow by default, block specific tools)
@@ -320,15 +308,11 @@ class TestToolAccessControlEndToEnd:
         result = policy_service.is_tool_allowed("write_file", "test-model", None)
         assert result.is_allowed is True
 
-        result = policy_service.is_tool_allowed(
-            "list_directory", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("list_directory", "test-model", None)
         assert result.is_allowed is True
 
         # Test blocked tools (in blacklist)
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test-model", None)
         assert result.is_allowed is False
 
         result = policy_service.is_tool_allowed("rm_file", "test-model", None)
@@ -407,9 +391,7 @@ class TestToolAccessControlEndToEnd:
         assert result.metadata.policy_applied == "dev_agent_policy"
 
         # Test agent without specific policy (uses default)
-        result = policy_service.is_tool_allowed(
-            "any_tool", "test-model", "other-agent"
-        )
+        result = policy_service.is_tool_allowed("any_tool", "test-model", "other-agent")
         assert result.is_allowed is True
         assert result.metadata.policy_applied == "default_policy"
 
@@ -459,23 +441,17 @@ class TestToolAccessControlEndToEnd:
         assert policy_service._policies[2].priority == 10
 
         # Test that highest priority matching policy is used
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test-model", None)
         assert result.is_allowed is True  # High priority allows it
         assert result.metadata.policy_applied == "high_priority"
 
         # Test with model that matches medium priority
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test-other", None
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test-other", None)
         assert result.is_allowed is False  # Medium priority blocks it
         assert result.metadata.policy_applied == "medium_priority"
 
         # Test with model that only matches low priority
-        result = policy_service.is_tool_allowed(
-            "any_tool", "other-model", None
-        )
+        result = policy_service.is_tool_allowed("any_tool", "other-model", None)
         assert result.is_allowed is False  # Low priority denies by default
         assert result.metadata.policy_applied == "low_priority"
 
@@ -542,17 +518,9 @@ class TestToolAccessControlEndToEnd:
             {"type": "function", "function": {"name": "dangerous_operation"}},
         ]
 
-        result = policy_service.filter_tool_definitions(
-
-
-            tools, "test-model", None
-
-
-        )
-
+        result = policy_service.filter_tool_definitions(tools, "test-model", None)
 
         filtered_tools = result.filtered_tools
-
 
         metadata = result.metadata
 
@@ -635,24 +603,18 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Scenario 1: Production agent with GPT model (matches production_restrictions)
-        result = policy_service.is_tool_allowed(
-            "read_file", "gpt-4", "prod-agent-1"
-        )
+        result = policy_service.is_tool_allowed("read_file", "gpt-4", "prod-agent-1")
         assert result.is_allowed is True  # In whitelist
         assert result.metadata.policy_applied == "production_restrictions"
 
-        result = policy_service.is_tool_allowed(
-            "write_file", "gpt-4", "prod-agent-1"
-        )
+        result = policy_service.is_tool_allowed("write_file", "gpt-4", "prod-agent-1")
         # The production_restrictions policy should apply (gpt-.* + prod-.*)
         # and deny by default since write_file is not in allowed_patterns
         assert result.metadata.policy_applied == "production_restrictions"
         assert result.is_allowed is False  # Not in whitelist, deny by default
 
         # Scenario 2: Global security blocks rm_ for non-prod agents
-        result = policy_service.is_tool_allowed(
-            "rm_file", "gpt-4", "dev-agent"
-        )
+        result = policy_service.is_tool_allowed("rm_file", "gpt-4", "dev-agent")
         assert result.is_allowed is False
         assert result.metadata.policy_applied == "global_security"
 
@@ -663,17 +625,16 @@ class TestToolAccessControlEndToEnd:
         assert result.is_allowed is False
         assert result.metadata.policy_applied == "claude_restrictions"
 
-        result = policy_service.is_tool_allowed(
-            "read_file", "claude-3", "dev-agent"
-        )
+        result = policy_service.is_tool_allowed("read_file", "claude-3", "dev-agent")
         assert result.is_allowed is True  # Not blocked by Claude policy
 
         # Scenario 4: Default permissive for other models
-        result = policy_service.is_tool_allowed(
-            "any_tool", "other-model", "any-agent"
-        )
+        result = policy_service.is_tool_allowed("any_tool", "other-model", "any-agent")
         assert result.is_allowed is True
-        assert result.metadata.policy_applied in ["global_security", "default_permissive"]
+        assert result.metadata.policy_applied in [
+            "global_security",
+            "default_permissive",
+        ]
 
     # Test 11: Tool choice handling when referenced tool is filtered
     @pytest.mark.asyncio
@@ -703,11 +664,7 @@ class TestToolAccessControlEndToEnd:
         ]
 
         # Filter tools
-        result = policy_service.filter_tool_definitions(
-
-            tools, "test-model", None
-
-        )
+        result = policy_service.filter_tool_definitions(tools, "test-model", None)
 
         filtered_tools = result.filtered_tools
 
@@ -755,11 +712,7 @@ class TestToolAccessControlEndToEnd:
 
         # Measure filtering time
         start_time = time.time()
-        result = policy_service.filter_tool_definitions(
-
-            tools, "test-model", None
-
-        )
+        result = policy_service.filter_tool_definitions(tools, "test-model", None)
 
         filtered_tools = result.filtered_tools
 
@@ -842,18 +795,9 @@ class TestToolAccessControlEndToEnd:
             {"type": "function", "function": {"name": "any_tool_2"}},
         ]
 
-        result = policy_service.filter_tool_definitions(
-
-
-            tools, "test-model", None
-
-
-        )
-
+        result = policy_service.filter_tool_definitions(tools, "test-model", None)
 
         filtered_tools = result.filtered_tools
-
-
 
         # All tools should pass through
         assert len(filtered_tools) == len(tools)
@@ -880,19 +824,13 @@ class TestToolAccessControlEndToEnd:
         policy_service = provider.get_required_service(ToolAccessPolicyService)
 
         # Test various case combinations
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test-model", None)
         assert result.is_allowed is False
 
-        result = policy_service.is_tool_allowed(
-            "DELETE_FILE", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("DELETE_FILE", "test-model", None)
         assert result.is_allowed is False
 
-        result = policy_service.is_tool_allowed(
-            "Delete_File", "test-model", None
-        )
+        result = policy_service.is_tool_allowed("Delete_File", "test-model", None)
         assert result.is_allowed is False
 
     # Test 16: Multiple tool calls in single response

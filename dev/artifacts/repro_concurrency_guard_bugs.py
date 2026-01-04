@@ -145,10 +145,14 @@ async def main():
 
     # Check metrics for race condition warnings
     if production_metrics.race_condition_warnings > 0:
-        print(f"\nRace condition warnings: {production_metrics.race_condition_warnings}")
+        print(
+            f"\nRace condition warnings: {production_metrics.race_condition_warnings}"
+        )
 
     print("\nThe code has logic bugs that make it unreliable for production use.")
-    print("All 10 workers ran despite max_concurrent=3 due to immediate semaphore release.")
+    print(
+        "All 10 workers ran despite max_concurrent=3 due to immediate semaphore release."
+    )
     return True  # Bugs confirmed
 
 

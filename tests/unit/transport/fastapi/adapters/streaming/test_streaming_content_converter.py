@@ -395,10 +395,12 @@ class TestStreamingContentConverter:
 
         context: dict[str, JsonValue | RequestContext | None] = {}
         results = []
+
         # Convert sync iterator to async iterator
         async def async_stream():
             for item in sync_stream():
                 yield item
+
         async for content in converter.convert_stream(async_stream(), context):
             results.append(content)
 

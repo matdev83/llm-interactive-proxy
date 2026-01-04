@@ -56,4 +56,5 @@ class TestFeatureParityRegistryConcurrency:
 
 if __name__ == "__main__":
     import threading
+
     pytest.main([__file__, "-v"])

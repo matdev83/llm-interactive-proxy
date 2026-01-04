@@ -208,8 +208,7 @@ class TestToolCallRepairServiceDoSRegression:
                 "Large payloads should be rejected (accounting for string creation time)."
             )
             assert result is None, (
-                f"Payload {payload_size_mb:.2f}MB should be rejected. "
-                f"Got: {result}"
+                f"Payload {payload_size_mb:.2f}MB should be rejected. " f"Got: {result}"
             )
         else:
             # Small payloads may take longer but should complete

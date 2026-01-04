@@ -35,6 +35,7 @@ async def test_concurrent_subscribe_and_publish():
     async def concurrent_subscriber() -> None:
         """Concurrently subscribe handlers."""
         for _ in range(100):
+
             async def inner_handler(event: TestEvent) -> None:
                 pass
 
@@ -99,6 +100,7 @@ async def test_concurrent_subscribe_and_read_handlers():
     # Add more handlers while iterating (simulating concurrent access)
     async def add_handlers() -> None:
         for _ in range(10):
+
             async def new_handler(event: TestEvent) -> None:
                 pass
 

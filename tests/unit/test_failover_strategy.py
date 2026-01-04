@@ -18,5 +18,6 @@ def test_default_failover_strategy_maps_attempts() -> None:
     strategy = DefaultFailoverStrategy(coordinator)
     plan = strategy.get_failover_plan(model="unused", backend_type="unused")
 
-    assert plan == [("openai", "gpt-4o"), ("openrouter", "meta/llama-3.1")]
+    # Plan is now list of FailoverAttempt objects, not tuples
+    assert plan == attempts
     coordinator.get_failover_attempts.assert_called_once_with("unused", "unused")

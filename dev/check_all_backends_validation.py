@@ -18,16 +18,16 @@ for backend_name, schema_path in backend_schemas.items():
     if not schema_file.exists():
         print(f"[SKIP] Schema not found: {schema_path}")
         continue
-    
+
     # Find all config files for this backend
     backend_dir = Path(f"config/backends/{backend_name}")
     if not backend_dir.exists():
         continue
-    
+
     for config_file in backend_dir.glob("*.yaml"):
         if config_file.name.endswith(".example"):
             continue
-        
+
         try:
             validate_yaml_against_schema(config_file, schema_file)
             results.append((backend_name, config_file.name, "OK"))

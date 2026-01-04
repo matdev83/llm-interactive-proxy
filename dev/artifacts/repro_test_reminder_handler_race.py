@@ -3,6 +3,7 @@
 This script demonstrates the race condition in TestExecutionReminderHandler where
 _concurrent modifications without proper locking can cause inconsistent state.
 """
+
 import asyncio
 
 from src.services.test_execution_reminder.test_execution_reminder_handler import (
@@ -27,9 +28,7 @@ async def test_concurrent_mark_operations():
     async def mark_clean_operations():
         """Concurrent clean marking task."""
         for i in range(50):
-            handler._mark_session_clean(
-                session_id, "pytest", "python", "pytest"
-            )
+            handler._mark_session_clean(session_id, "pytest", "python", "pytest")
 
     # Launch concurrent operations (no lock protection)
     async with asyncio.TaskGroup() as tg:
@@ -39,7 +38,9 @@ async def test_concurrent_mark_operations():
     # Check final state - should be one of the two values, not corrupted
     state = handler._get_session_state(session_id)
     if state:
-        print(f"Final state - is_dirty: {state.is_dirty}, modification_count: {state.modification_count}")
+        print(
+            f"Final state - is_dirty: {state.is_dirty}, modification_count: {state.modification_count}"
+        )
         # The race condition can cause both counters to be incremented incorrectly
         # or state to be in an inconsistent condition
         return True

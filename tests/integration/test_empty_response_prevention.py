@@ -219,6 +219,7 @@ class TestMultiModelRateLimiting:
         # Check cooldown logic
         # Use fixed timestamp for deterministic cooldown check
         fixed_time = 1000.0
+
         def is_in_cooldown(model: str) -> bool:
             state = retry_states.get(model)
             if not state:

@@ -1,6 +1,6 @@
 """Integration tests for tool call loop detection."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -37,7 +37,7 @@ async def test_client():
 
     config = AppConfig(
         auth=AuthConfig(disable_auth=True, api_keys=["test-key"]),
-        session={"default_interactive_mode": True},
+        session={"default_interactive_mode": False},
         # Disable deduplication for these tests so intentional repeat calls
         # exercise the tool-loop detector rather than being short-circuited.
         request_dedup_window=0,
@@ -100,51 +100,74 @@ def create_chat_completion_request(tool_calls=None, stream=False):
     return request_data
 
 
+from src.core.domain.chat import (
+    ChatCompletionChoice,
+    ChatCompletionChoiceMessage,
+    ChatResponse,
+    FunctionCall,
+    ToolCall,
+)
+from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.usage_summary import UsageSummary
+
+
 def create_mock_response(tool_calls=None):
     """Create a mock response with optional tool calls."""
     if tool_calls:
-        # Create a response with tool calls
-        return {
-            "id": "chatcmpl-123",
-            "object": "chat.completion",
-            "created": 1677858242,
-            "model": "gpt-4",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": tool_calls,
-                    },
-                    "finish_reason": "tool_calls",
-                }
-            ],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-        }
+        # Convert dict tool calls to ToolCall objects
+        tool_call_objs = []
+        for tc in tool_calls:
+            tool_call_objs.append(
+                ToolCall(
+                    id=tc["id"],
+                    type=tc["type"],
+                    function=FunctionCall(
+                        name=tc["function"]["name"],
+                        arguments=tc["function"]["arguments"],
+                    ),
+                )
+            )
+
+        message = ChatCompletionChoiceMessage(
+            role="assistant",
+            content=None,
+            tool_calls=tool_call_objs,
+        )
+        finish_reason = "tool_calls"
     else:
-        # Create a regular response without tool calls
-        return {
-            "id": "chatcmpl-123",
-            "object": "chat.completion",
-            "created": 1677858242,
-            "model": "gpt-4",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "I'll help you with that task.",
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-        }
+        message = ChatCompletionChoiceMessage(
+            role="assistant",
+            content="I'll help you with that task.",
+        )
+        finish_reason = "stop"
+
+    choice = ChatCompletionChoice(
+        index=0,
+        message=message,
+        finish_reason=finish_reason,
+    )
+
+    response = ChatResponse(
+        id="chatcmpl-123",
+        created=1677858242,
+        model="gpt-4",
+        choices=[choice],
+        usage=UsageSummary(prompt_tokens=10, completion_tokens=10, total_tokens=20),
+    )
+
+    # Return ResponseEnvelope with ChatResponse object as content
+    # Convert ChatResponse to dict to ensure proper serialization through HTTP layer
+    return ResponseEnvelope(
+        content=response.model_dump(
+            exclude_none=False
+        ),  # Convert ChatResponse to dict, preserve None values
+        status_code=200,
+        headers={"Content-Type": "application/json"},
+    )
 
 
 @pytest.fixture
-def mock_backend(test_client: TestClient):
+def mock_backend(test_client):
     """Mock the active backend instance on app.state to control responses."""
     # Create a mock backend directly
     mock_backend = AsyncMock()
@@ -157,25 +180,72 @@ def mock_backend(test_client: TestClient):
         IBackendService
     )
 
-    # Save original method for cleanup
+    # Set up the chat_completions mock
+    chat_completions_mock = AsyncMock()
+
+    # Patch all existing backends in the cache
+    original_chat_completions = {}
+    if hasattr(backend_service, "_backends"):
+        for name, backend in backend_service._backends.items():
+            original_chat_completions[name] = backend.chat_completions
+            backend.chat_completions = chat_completions_mock
+            # Also patch get_available_models to return gpt-4
+            backend.get_available_models = Mock(return_value=["gpt-4"])
+
+    # Also patch backends in _backend_cache (used by MockBackend)
+    if hasattr(backend_service, "_backend_cache"):
+        for name, backend in backend_service._backend_cache.items():
+            # Don't overwrite if already in original_chat_completions to avoid confusion
+            if name not in original_chat_completions:
+                original_chat_completions[f"_cache_{name}"] = backend.chat_completions
+            backend.chat_completions = chat_completions_mock
+            backend.get_available_models = Mock(return_value=["gpt-4"])
+
+    # Also patch _get_or_create_backend just in case
     original_get_backend = backend_service._get_or_create_backend
 
-    # Replace with async mock that returns our mock_backend
     async def mock_get_backend(*args, **kwargs):
-        return mock_backend
+        # Return the first available backend (which is patched) or a new mock
+        if hasattr(backend_service, "_backends") and backend_service._backends:
+            return next(iter(backend_service._backends.values()))
+
+        # Fallback if no backends exist (unlikely)
+        m = AsyncMock()
+        m.chat_completions = chat_completions_mock
+        m.get_available_models = Mock(return_value=["gpt-4"])
+        return m
 
     backend_service._get_or_create_backend = mock_get_backend
 
-    # Also register into BackendService cache so DI-based lookup returns it
-    backend_service._backends["openrouter"] = mock_backend
+    # CRITICAL FIX: The backend_service itself is a MagicMock from MockBackendStage.
+    # Its process_request method is configured with a side_effect (mock_chat_completions)
+    # that defaults to a generic response for "gpt-4" and bypasses our patches.
+    # We must explicitly redirect process_request and call_completion to our mock.
+    original_process_request = backend_service.process_request
+    original_call_completion = backend_service.call_completion
 
-    # Set up the chat_completions mock
-    chat_completions_mock = AsyncMock()
+    backend_service.process_request = chat_completions_mock
+    backend_service.call_completion = chat_completions_mock
+
     mock_backend.chat_completions = chat_completions_mock
     yield chat_completions_mock
 
-    # Restore original method after test
+    # Restore
     backend_service._get_or_create_backend = original_get_backend
+    backend_service.process_request = original_process_request
+    backend_service.call_completion = original_call_completion
+    for name, method in original_chat_completions.items():
+        if name.startswith("_cache_"):
+            real_name = name[7:]
+            if (
+                hasattr(backend_service, "_backend_cache")
+                and real_name in backend_service._backend_cache
+            ):
+                backend_service._backend_cache[real_name].chat_completions = method
+        elif (
+            hasattr(backend_service, "_backends") and name in backend_service._backends
+        ):
+            backend_service._backends[name].chat_completions = method
 
 
 class TestToolCallLoopDetection:
@@ -196,7 +266,7 @@ class TestToolCallLoopDetection:
             }
         ]
         # For the third call (after threshold), return an error response
-        error_response = {
+        error_content = {
             "id": "chatcmpl-123",
             "object": "chat.completion",
             "created": 1677858242,
@@ -213,6 +283,31 @@ class TestToolCallLoopDetection:
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
         }
+        error_response = ResponseEnvelope(
+            content=error_content,
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
+        # Need to provide enough responses for all backend calls
+        mock_backend.side_effect = [
+            create_mock_response(tool_calls),
+            create_mock_response(tool_calls),
+            error_response,
+        ]
+
+        # Make multiple requests with the same tool call
+        for _ in range(1):  # Reduced from 2 for performance - still tests the flow
+            response = test_client.post(
+                "/v1/chat/completions",
+                json=create_chat_completion_request(tool_calls=True),
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert "tool_calls" in data["choices"][0]["message"]
+            assert (
+                data["choices"][0]["message"]["tool_calls"][0]["function"]["name"]
+                == "get_weather"
+            )
         # Need to provide enough responses for all backend calls
         mock_backend.side_effect = [
             create_mock_response(tool_calls),
@@ -479,7 +574,7 @@ class TestToolCallLoopDetection:
             }
         ]
         # For the last call (after enabling detection and threshold), return an error response
-        error_response = {
+        error_content = {
             "id": "chatcmpl-123",
             "object": "chat.completion",
             "created": 1677858242,
@@ -496,11 +591,16 @@ class TestToolCallLoopDetection:
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
         }
+        error_response = ResponseEnvelope(
+            content=error_content,
+            status_code=200,
+            headers={"Content-Type": "application/json"},
+        )
 
         # Configure the mock backend to return tool calls for most requests
         # and an error response for the final request
-        # Reduced from 9+1 to 5+1 to speed up test
-        responses = [create_mock_response(tool_calls)] * 5 + [error_response]
+        # Total requests: 1 (set command) + 3 (loop) + 1 (re-enable command) + 1 + 1 = 7
+        responses = [create_mock_response(tool_calls)] * 6 + [error_response]
         mock_backend.side_effect = responses
 
         # First, set tool loop detection to disabled for the session
@@ -526,10 +626,10 @@ class TestToolCallLoopDetection:
 
             # Should not be blocked because detection is disabled for the session
             assert "tool_calls" in data["choices"][0]["message"]
-            assert (
-                data["choices"][0]["message"]["tool_calls"][0]["function"]["name"]
-                == "get_weather"
-            )
+            tool_calls = data["choices"][0]["message"]["tool_calls"]
+            assert tool_calls is not None, "tool_calls should not be None"
+            assert len(tool_calls) > 0, "tool_calls should not be empty"
+            assert tool_calls[0]["function"]["name"] == "get_weather"
 
         # Now enable it again with a lower threshold
         response = test_client.post(

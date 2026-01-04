@@ -161,7 +161,6 @@ def test_state_lookup_performance(replacement_service, request_context):
     end_time = time.perf_counter()
     time_last_100 = end_time - start_time
 
-
     # Verify that lookup time is similar regardless of position
     # Allow up to 3x variance due to system noise and caching effects
     ratio = time_last_100 / time_first_100 if time_first_100 > 0 else 1.0
@@ -341,7 +340,6 @@ def test_cleanup_performance(replacement_service, request_context):
     for session_id in session_ids:
         replacement_service.cleanup_session(session_id)
     end_time = time.perf_counter()
-
 
     total_time = end_time - start_time
     avg_time_us = (total_time / num_sessions) * 1_000_000

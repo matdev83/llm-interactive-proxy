@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
 # Check for example YAMLs that should validate against app_config.schema.yaml
@@ -21,7 +21,7 @@ for config_path in example_configs:
     if not p.exists():
         print(f"SKIP (not found): {config_path}")
         continue
-    
+
     try:
         validate_yaml_against_schema(p, app_config_schema)
         print(f"PASS: {config_path}")
@@ -32,4 +32,3 @@ for config_path in example_configs:
 
 if all_pass:
     print("\n=== All example configs validate successfully ===")
-

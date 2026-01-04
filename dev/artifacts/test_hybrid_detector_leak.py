@@ -8,7 +8,9 @@ import os
 import sys
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src'))
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "src")
+)
 
 # Direct imports to avoid circular dependency issues
 from loop_detection.hybrid_detector import HybridLoopDetector
@@ -20,8 +22,17 @@ def test_unbounded_growth():
     # Initialize with minimal config to disable short detector
     # We'll use content that triggers the long detector which has the issue
     detector = HybridLoopDetector(
-        short_detector_config={'content_chunk_size': 1, 'content_loop_threshold': 10000, 'max_history_length': 1},
-        long_detector_config={'min_pattern_length': 5, 'max_pattern_length': 100, 'min_repetitions': 2, 'max_history': 5000},
+        short_detector_config={
+            "content_chunk_size": 1,
+            "content_loop_threshold": 10000,
+            "max_history_length": 1,
+        },
+        long_detector_config={
+            "min_pattern_length": 5,
+            "max_pattern_length": 100,
+            "min_repetitions": 2,
+            "max_history": 5000,
+        },
     )
 
     print("Initial state:")
@@ -49,12 +60,15 @@ def test_unbounded_growth():
     # Check for unbounded growth
     if final_event_count > 500:
         print("\n*** MEMORY LEAK CONFIRMED! ***")
-        print(f"The _loop_events list grew to {final_event_count} entries without truncation.")
+        print(
+            f"The _loop_events list grew to {final_event_count} entries without truncation."
+        )
         print("This causes memory leaks in long-running sessions.")
         return False
     else:
         print("\nEvent count appears bounded (no issues detected in this test)")
         return True
+
 
 if __name__ == "__main__":
     success = test_unbounded_growth()

@@ -351,6 +351,7 @@ class TestDeterministicToolEventCollector:
     ) -> None:
         """Test that file edits are returned sorted by path."""
         from freezegun import freeze_time
+
         with freeze_time("2024-01-01 12:00:00"):
             now = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
             for path in ["z.py", "a.py", "m.py"]:

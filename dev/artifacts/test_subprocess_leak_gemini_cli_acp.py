@@ -6,6 +6,7 @@ The issue is in src/connectors/gemini_cli_acp.py at lines 256-312.
 If an exception occurs during subprocess.Popen() or immediately after, the subprocess
 may leak because the exception handler's logic is flawed.
 """
+
 import subprocess
 
 
@@ -76,7 +77,9 @@ class FakeGeminiCliAcpConnector:
         except Exception as e:
             print(f"[BUGGY] Exception caught: {e}")
             print(f"[BUGGY] process is not None: {process is not None}")
-            print(f"[BUGGY] process is not self._process: {process is not self._process}")
+            print(
+                f"[BUGGY] process is not self._process: {process is not self._process}"
+            )
             print(f"[BUGGY] self._process value: {self._process}")
 
             # This is the buggy logic from gemini_cli_acp.py:302-308
@@ -134,9 +137,11 @@ def check_for_leaks() -> None:
             text=True,
             check=True,
         )
-        lines = result.stdout.strip().split('\n')
+        lines = result.stdout.strip().split("\n")
         python_count = max(0, len(lines) - 1)  # Subtract header
-        print(f"[LEAK CHECK] Found {python_count} python.exe processes (may include this script)")
+        print(
+            f"[LEAK CHECK] Found {python_count} python.exe processes (may include this script)"
+        )
     except Exception as e:
         print(f"[LEAK CHECK] Could not check processes: {e}")
 

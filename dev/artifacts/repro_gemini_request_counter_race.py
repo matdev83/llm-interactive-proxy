@@ -21,11 +21,14 @@ def test_race_condition_in_load_state():
 
         # Pre-populate with some state
         with open(persistence_path, "w") as f:
-            json.dump({
-                "count": 100,
-                "last_reset_date": "2025-01-01",
-                "logged_thresholds": [700, 800, 900]
-            }, f)
+            json.dump(
+                {
+                    "count": 100,
+                    "last_reset_date": "2025-01-01",
+                    "logged_thresholds": [700, 800, 900],
+                },
+                f,
+            )
 
         counter = DailyRequestCounter(persistence_path, limit)
 

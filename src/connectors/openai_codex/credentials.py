@@ -745,7 +745,8 @@ class CredentialManager(ICredentialManager):
                     )
                 except Exception as exc:
                     logger.warning(
-                        "Failed to persist refreshed OAuth credentials: %s", exc,
+                        "Failed to persist refreshed OAuth credentials: %s",
+                        exc,
                         exc_info=True,
                     )
                     return False

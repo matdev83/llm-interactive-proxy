@@ -31,7 +31,9 @@ class AnthropicImageSource(BaseModel):
     """Anthropic image source format."""
 
     type: Literal["base64", "url"]
-    media_type: str | None = Field(None, alias="media_type", description="MIME type for base64 images")
+    media_type: str | None = Field(
+        None, alias="media_type", description="MIME type for base64 images"
+    )
     data: str | None = Field(None, description="Base64 image data")
     url: str | None = Field(None, description="Image URL")
 
@@ -250,7 +252,9 @@ def anthropic_to_openai_request(
 
                 elif btype == "tool_use":
                     _flush_text_accumulator()
-                    tool_calls.append(_convert_tool_use_block(block).model_dump(by_alias=True))
+                    tool_calls.append(
+                        _convert_tool_use_block(block).model_dump(by_alias=True)
+                    )
 
                 elif btype == "thinking":
                     _flush_text_accumulator()
@@ -770,9 +774,7 @@ def _convert_anthropic_image_to_openai(
     elif source_type == "url":
         url = source.get("url", "")
         if url:
-            return OpenAIImageUrlBlock(
-                image_url=OpenAIImageUrl(url=url)
-            )
+            return OpenAIImageUrlBlock(image_url=OpenAIImageUrl(url=url))
 
     return None
 

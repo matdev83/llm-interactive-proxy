@@ -3,6 +3,7 @@
 This script demonstrates the race condition in SessionStateStore where
 _concurrent get/set operations can cause data loss or corruption.
 """
+
 import asyncio
 
 from src.services.steering.session_state_store import SessionStateStore
@@ -75,7 +76,9 @@ async def main():
 
     print("\n" + "=" * 60)
     print("RESULTS:")
-    print(f"  Concurrent get/set test: {'PASS' if result1 else 'FAIL (race condition detected)'}")
+    print(
+        f"  Concurrent get/set test: {'PASS' if result1 else 'FAIL (race condition detected)'}"
+    )
     print(f"  Concurrent prune test: {'PASS' if result2 else 'FAIL'}")
     print("=" * 60)
 

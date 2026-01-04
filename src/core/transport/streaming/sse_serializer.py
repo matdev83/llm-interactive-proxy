@@ -252,7 +252,9 @@ class SSESerializer:
                 delta = self._get_first_delta(content_copy)
                 if delta:
                     delta["tool_calls"] = sanitized_calls
-                    if content_copy.get("choices") and isinstance(content_copy["choices"], list):
+                    if content_copy.get("choices") and isinstance(
+                        content_copy["choices"], list
+                    ):
                         content_copy["choices"][0]["delta"] = delta
                 return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
         return f"data: {json.dumps(content_copy)}\n\ndata: [DONE]\n\n".encode()
@@ -311,7 +313,9 @@ class SSESerializer:
         if is_virtual_tc:
             if delta and "tool_calls" in delta:
                 delta = {k: v for k, v in delta.items() if k != "tool_calls"}
-                if content_copy.get("choices") and isinstance(content_copy["choices"], list):
+                if content_copy.get("choices") and isinstance(
+                    content_copy["choices"], list
+                ):
                     content_copy["choices"][0]["delta"] = delta
         else:
             tool_calls_to_inject = chunk.metadata.tool_calls
@@ -324,7 +328,9 @@ class SSESerializer:
                         tool_calls_dicts.append(tc)
                 if tool_calls_dicts:
                     delta["tool_calls"] = self._sanitize_tool_calls(tool_calls_dicts)
-                    if content_copy.get("choices") and isinstance(content_copy["choices"], list):
+                    if content_copy.get("choices") and isinstance(
+                        content_copy["choices"], list
+                    ):
                         content_copy["choices"][0]["delta"] = delta
         parts = [f"data: {json.dumps(content_copy)}\n\n"]
         if chunk.is_done:

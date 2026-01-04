@@ -13,7 +13,6 @@ from src.anthropic_converters import (
     _convert_anthropic_image_to_openai,
     anthropic_to_openai_request,
     openai_to_anthropic_response,
-    OpenAIImageUrlBlock,
 )
 from src.anthropic_models import (
     AnthropicMessage,

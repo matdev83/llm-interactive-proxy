@@ -18,7 +18,9 @@ def simulate_file_read_error():
     - File being locked or deleted mid-read
     """
     # Create a temporary file
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix='.txt') as f:
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, encoding="utf-8", suffix=".txt"
+    ) as f:
         test_file = f.name
         f.write("Test recovery prompt content\n")
 
@@ -67,7 +69,9 @@ def simulate_file_read_error():
         print("\n=== Testing SAFE code pattern (using 'with' statement) ===")
 
         # Create another test file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, encoding='utf-8', suffix='.txt') as f:
+        with tempfile.NamedTemporaryFile(
+            mode="w", delete=False, encoding="utf-8", suffix=".txt"
+        ) as f:
             test_file2 = f.name
             f.write("Test recovery prompt content\n")
 

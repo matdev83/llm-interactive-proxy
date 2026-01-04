@@ -192,6 +192,7 @@ class TestLoopDetectionE2ESessionIsolation:
             assert not result.is_cancellation
             # Simulate small delay between chunks
             from tests.utils.fake_clock import FakeClockContext
+
             async with FakeClockContext() as clock:
                 sleep_task = asyncio.create_task(asyncio.sleep(0.01))
                 clock.advance(0.01)

@@ -248,7 +248,10 @@ class TestTemporaryServiceProvider:
         provider2 = services2.build_service_provider()
 
         # Use temporary provider context and raise exception
-        with pytest.raises(ValueError, match="Test exception"), provider_lifecycle.temporary_service_provider(provider2):
+        with (
+            pytest.raises(ValueError, match="Test exception"),
+            provider_lifecycle.temporary_service_provider(provider2),
+        ):
             # Inside context, current provider should be provider2
             assert provider_lifecycle.get_current_service_provider() is provider2
             raise ValueError("Test exception")

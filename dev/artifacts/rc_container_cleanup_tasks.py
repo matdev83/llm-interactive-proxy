@@ -26,7 +26,9 @@ class MockServiceCollection:
     def add_cleanup_task(self, task):
         """Simulates line 411 in container.py"""
         self._cleanup_tasks.add(task)
-        print(f"[Thread-{threading.current_thread().ident}] Added task {id(task)} to cleanup set")
+        print(
+            f"[Thread-{threading.current_thread().ident}] Added task {id(task)} to cleanup set"
+        )
 
     async def dispose(self):
         """Simulates line 479 in container.py"""
@@ -38,7 +40,9 @@ class MockServiceCollection:
                 timeout=5.0,
             )
         self._cleanup_tasks.clear()  # Race condition: clear without lock
-        print(f"[Thread-{threading.current_thread().ident}] Cleared cleanup tasks, count={len(self._cleanup_tasks)}")
+        print(
+            f"[Thread-{threading.current_thread().ident}] Cleared cleanup tasks, count={len(self._cleanup_tasks)}"
+        )
 
 
 async def simulate_race_condition():
@@ -55,7 +59,9 @@ async def simulate_race_condition():
         for i in range(10):
             time.sleep(0.01)  # Small delay
             if service._disposed:
-                print(f"[Thread-{threading.current_thread().ident}] ERROR: Adding task after dispose!")
+                print(
+                    f"[Thread-{threading.current_thread().ident}] ERROR: Adding task after dispose!"
+                )
                 errors.append("add_after_dispose")
                 break
             task = asyncio.create_task(slow_cleanup_task())
@@ -83,7 +89,9 @@ async def simulate_race_condition():
         print("\nRACE CONDITION DETECTED: Tasks were added during clear and lost!")
         return True
     else:
-        print(f"\nNo race detected in this run (tasks left: {len(service._cleanup_tasks)})")
+        print(
+            f"\nNo race detected in this run (tasks left: {len(service._cleanup_tasks)})"
+        )
         return False
 
 

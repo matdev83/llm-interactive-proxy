@@ -39,49 +39,51 @@ def demo_vulnerable_code():
     print("=" * 70)
     print("VULNERABLE VERSION: from server_lifecycle_manager.py")
     print("=" * 70)
-    
+
     # Simulate the vulnerable code pattern
     daemon_process = None
     try:
         print("[VULN] Building command...")
-        command = [sys.executable, "-c", "import time; time.sleep(100); print('daemon')"]
-        
+        command = [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(100); print('daemon')",
+        ]
+
         print("[VULN] Creating subprocess...")
         creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0)
         daemon_process = subprocess.Popen(
-            command, 
-            creationflags=creation_flags, 
-            close_fds=True
+            command, creationflags=creation_flags, close_fds=True
         )
         print(f"[VULN] Process created with PID {daemon_process.pid}")
-        
+
         # SIMULATED BUG: Exception occurs between Popen and poll check
         # This could be any unexpected exception
         print("[VULN] Simulating unexpected exception before poll()...")
         raise RuntimeError("Simulated unexpected error during daemon startup")
-        
+
         # This code never executes due to the exception above
         print("[VULN] Checking if process started...")
         if daemon_process.poll() is not None:
             print("[VULN] Process failed to start")
             raise SystemExit(1)
-        
+
         print("[VULN] Sleeping 2 seconds...")
         time.sleep(2)
         print("[VULN] Exiting parent...")
         sys.exit(0)
-        
+
     except Exception as e:
         print(f"[VULN] Exception caught: {e}")
         print(f"[VULN] daemon_process is None: {daemon_process is None}")
-        
+
         # BUG: No cleanup of daemon_process here!
         # The subprocess reference is leaked
         if daemon_process is None:
             print("[VULN] No process to clean up")
         else:
             print(f"[VULN] Process {daemon_process.pid} not cleaned up - LEAK!")
-        
+
         return daemon_process
 
 
@@ -92,39 +94,41 @@ def demo_fixed_code():
     print("\n" + "=" * 70)
     print("FIXED VERSION: with proper exception handling")
     print("=" * 70)
-    
+
     daemon_process = None
     try:
         print("[FIXED] Building command...")
-        command = [sys.executable, "-c", "import time; time.sleep(100); print('daemon')"]
-        
+        command = [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(100); print('daemon')",
+        ]
+
         print("[FIXED] Creating subprocess...")
         creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0)
         daemon_process = subprocess.Popen(
-            command, 
-            creationflags=creation_flags, 
-            close_fds=True
+            command, creationflags=creation_flags, close_fds=True
         )
         print(f"[FIXED] Process created with PID {daemon_process.pid}")
-        
+
         # SIMULATED BUG: Exception occurs between Popen and poll check
         print("[FIXED] Simulating unexpected exception before poll()...")
         raise RuntimeError("Simulated unexpected error during daemon startup")
-        
+
         # This code never executes due to the exception above
         if daemon_process.poll() is not None:
             print("[FIXED] Process failed to start")
             raise SystemExit(1)
-        
+
         print("[FIXED] Sleeping 2 seconds...")
         time.sleep(2)
         print("[FIXED] Exiting parent...")
         sys.exit(0)
-        
+
     except Exception as e:
         print(f"[FIXED] Exception caught: {e}")
         print(f"[FIXED] daemon_process is None: {daemon_process is None}")
-        
+
         # FIX: Always clean up the subprocess
         if daemon_process is not None:
             print(f"[FIXED] Cleaning up process {daemon_process.pid}...")
@@ -142,7 +146,7 @@ def demo_fixed_code():
                 print(f"[FIXED] Error during cleanup: {cleanup_error}")
         else:
             print("[FIXED] No process to clean up")
-        
+
         # Re-raise the exception after cleanup
         raise
 
@@ -156,7 +160,7 @@ def check_running_processes():
             text=True,
             check=True,
         )
-        lines = result.stdout.strip().split('\n')
+        lines = result.stdout.strip().split("\n")
         # Subtract header
         python_count = max(0, len(lines) - 1)
         print(f"\n[LEAK CHECK] Found {python_count} python.exe processes")
@@ -167,15 +171,15 @@ def check_running_processes():
 def main():
     """Run the demonstration."""
     check_running_processes()
-    
+
     print("\n--- TEST 1: VULNERABLE VERSION ---\n")
     try:
         leaked = demo_vulnerable_code()
     except Exception:
         pass
-    
+
     check_running_processes()
-    
+
     print("\n" + "=" * 70)
     print("MANUAL VERIFICATION REQUIRED")
     print("=" * 70)

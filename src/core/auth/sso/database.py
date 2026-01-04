@@ -267,11 +267,7 @@ class TokenRepository:
                             if last_authenticated_at
                             else None
                         ),
-                        (
-                            auth_expires_at.isoformat()
-                            if auth_expires_at
-                            else None
-                        ),
+                        (auth_expires_at.isoformat() if auth_expires_at else None),
                     ),
                 )
                 await db.commit()

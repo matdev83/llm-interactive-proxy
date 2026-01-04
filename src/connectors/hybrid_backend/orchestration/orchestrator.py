@@ -140,7 +140,9 @@ class HybridOrchestrator:
                 details={
                     "received_type": "dict",
                     "expected_type": "CanonicalChatRequest | ChatRequest",
-                    "session_id": correlation_ids["session_id"],  # Include in details for visibility
+                    "session_id": correlation_ids[
+                        "session_id"
+                    ],  # Include in details for visibility
                 },
             )
 

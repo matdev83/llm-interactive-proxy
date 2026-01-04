@@ -77,7 +77,7 @@ async def test_concurrent_credentials_reload():
     # We'll just run them sequentially which is the behavior for sync methods.
     for _i in range(10):
         connector._schedule_credentials_reload()
-    
+
     async with FakeClockContext() as clock:
         clock.advance(0.01)
 
@@ -94,11 +94,11 @@ async def test_single_reload_protection():
 
     connector = GeminiCloudProjectConnector(mock_client, mock_config, mock_translation)
 
-    # Since method is sync, we just call it. 
+    # Since method is sync, we just call it.
     # If it was async we would create tasks.
     # Testing "single reload protection" for a sync method mainly means ensuring state consistency.
     connector._schedule_credentials_reload()
-    
+
     # Try to start another reload
     connector._schedule_credentials_reload()
 
@@ -129,7 +129,7 @@ async def test_flag_cleanup_on_error():
     # Trigger reload (sync)
     with contextlib.suppress(RuntimeError):
         connector._schedule_credentials_reload()
-    
+
     async with FakeClockContext() as clock:
         clock.advance(0.1)
 

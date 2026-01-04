@@ -30,9 +30,7 @@ class TestToolAccessControlCLIOverrides:
         assert metadata.policy_applied == "global_override"
 
         # Global override should block write_file (not in allowed list, default deny)
-        result = policy_service.is_tool_allowed(
-            "write_file", "test:model"
-        )
+        result = policy_service.is_tool_allowed("write_file", "test:model")
         is_allowed = result.is_allowed
         metadata = result.metadata
         assert is_allowed is False
@@ -52,9 +50,7 @@ class TestToolAccessControlCLIOverrides:
         )
 
         # Global override should block delete_file
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test:model"
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test:model")
         is_allowed = result.is_allowed
         metadata = result.metadata
         assert is_allowed is False
@@ -115,9 +111,7 @@ class TestToolAccessControlCLIOverrides:
         )
 
         # CLI override should take precedence and block delete_file
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test:model"
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test:model")
         is_allowed = result.is_allowed
         metadata = result.metadata
         assert is_allowed is False
@@ -198,9 +192,7 @@ class TestToolAccessControlCLIOverrides:
             {"function": {"name": "another_safe_tool"}},
         ]
 
-        result = policy_service.filter_tool_definitions(
-            tools, "test:model"
-        )
+        result = policy_service.filter_tool_definitions(tools, "test:model")
         filtered_tools = result.filtered_tools
         metadata = result.metadata
 
@@ -228,9 +220,7 @@ class TestToolAccessControlCLIOverrides:
 
         # Test with different model names
         for model_name in ["openai:gpt-4", "anthropic:claude-3", "gemini:pro"]:
-            result = policy_service.is_tool_allowed(
-                "delete_file", model_name
-            )
+            result = policy_service.is_tool_allowed("delete_file", model_name)
             is_allowed = result.is_allowed
             metadata = result.metadata
             assert is_allowed is False
@@ -252,16 +242,32 @@ class TestToolAccessControlCLIOverrides:
         )
 
         # Allowed patterns should work
-        assert policy_service.is_tool_allowed("read_file", "test:model").is_allowed is True
-        assert policy_service.is_tool_allowed("list_directory", "test:model").is_allowed is True
-        assert policy_service.is_tool_allowed("get_data", "test:model").is_allowed is True
+        assert (
+            policy_service.is_tool_allowed("read_file", "test:model").is_allowed is True
+        )
+        assert (
+            policy_service.is_tool_allowed("list_directory", "test:model").is_allowed
+            is True
+        )
+        assert (
+            policy_service.is_tool_allowed("get_data", "test:model").is_allowed is True
+        )
 
         # Blocked patterns should be blocked
-        assert policy_service.is_tool_allowed("delete_all", "test:model").is_allowed is False
-        assert policy_service.is_tool_allowed("bulk_delete", "test:model").is_allowed is False
+        assert (
+            policy_service.is_tool_allowed("delete_all", "test:model").is_allowed
+            is False
+        )
+        assert (
+            policy_service.is_tool_allowed("bulk_delete", "test:model").is_allowed
+            is False
+        )
 
         # Not matching any pattern with default deny
-        assert policy_service.is_tool_allowed("write_file", "test:model").is_allowed is False
+        assert (
+            policy_service.is_tool_allowed("write_file", "test:model").is_allowed
+            is False
+        )
 
     def test_no_cli_override_uses_config_policies(self):
         """Test that without CLI overrides, configuration policies are used."""
@@ -283,9 +289,7 @@ class TestToolAccessControlCLIOverrides:
         policy_service = ToolAccessPolicyService(reactor_config, global_overrides=None)
 
         # Should use config policy
-        result = policy_service.is_tool_allowed(
-            "delete_file", "test:model"
-        )
+        result = policy_service.is_tool_allowed("delete_file", "test:model")
         is_allowed = result.is_allowed
         metadata = result.metadata
         assert is_allowed is False

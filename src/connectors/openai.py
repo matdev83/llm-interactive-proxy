@@ -872,6 +872,7 @@ class OpenAIConnector(LLMBackend):
             raise HTTPException(status_code=response.status_code, detail=err)
 
         response_json = response.json()
+        print(f"DEBUG: OpenAI response_json: {response_json}")  # DEBUG PRINT
         # Debug log raw response for non-streaming requests to help diagnose
         # translation issues (e.g., Claude Code via Anthropic frontend)
         if logger.isEnabledFor(logging.DEBUG):

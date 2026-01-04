@@ -224,7 +224,9 @@ async def test_hybrid_streaming_exposes_reasoning_before_execution() -> None:
     ):
         response = await connector.chat_completions(
             domain_request,
-            processed_messages=[ChatMessage(**msg) for msg in request_payload["messages"]],
+            processed_messages=[
+                ChatMessage(**msg) for msg in request_payload["messages"]
+            ],
             effective_model=request_payload["model"],
         )
 
@@ -303,7 +305,9 @@ async def test_hybrid_non_streaming_merges_reasoning_into_response() -> None:
     ):
         response = await connector.chat_completions(
             domain_request,
-            processed_messages=[ChatMessage(**msg) for msg in request_payload["messages"]],
+            processed_messages=[
+                ChatMessage(**msg) for msg in request_payload["messages"]
+            ],
             effective_model=request_payload["model"],
         )
 

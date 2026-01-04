@@ -37,8 +37,14 @@ class TestNonForwardableTagScope:
         assert NonForwardableTagScope.NEVER_FORWARD in NonForwardableTagScope
         assert NonForwardableTagScope.CLIENT_HISTORY_ONLY in NonForwardableTagScope
         # Check that values exist
-        assert NonForwardableTagScope("never_forward") == NonForwardableTagScope.NEVER_FORWARD
-        assert NonForwardableTagScope("client_history_only") == NonForwardableTagScope.CLIENT_HISTORY_ONLY
+        assert (
+            NonForwardableTagScope("never_forward")
+            == NonForwardableTagScope.NEVER_FORWARD
+        )
+        assert (
+            NonForwardableTagScope("client_history_only")
+            == NonForwardableTagScope.CLIENT_HISTORY_ONLY
+        )
 
 
 class TestMessageIdentity:
@@ -53,7 +59,9 @@ class TestMessageIdentity:
     def test_message_identity_format(self) -> None:
         """MessageIdentity should be lowercase hex string."""
         # Valid SHA-256 hex digest
-        valid_identity: MessageIdentity = "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+        valid_identity: MessageIdentity = (
+            "a1b2c3d4e5f6789012345678901234567890abcdef1234567890abcdef123456"
+        )
         assert len(valid_identity) == 64
         assert all(c in "0123456789abcdef" for c in valid_identity)
 

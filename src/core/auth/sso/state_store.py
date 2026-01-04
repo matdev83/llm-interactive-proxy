@@ -28,7 +28,9 @@ class StateStore:
         async with self._lock:
             self._store[key] = value
 
-    async def pop(self, key: str, default: str | dict[str, Any] | None = None) -> str | dict[str, Any] | None:
+    async def pop(
+        self, key: str, default: str | dict[str, Any] | None = None
+    ) -> str | dict[str, Any] | None:
         """Pop value by key."""
         async with self._lock:
             return self._store.pop(key, default)

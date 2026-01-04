@@ -36,9 +36,7 @@ def test_get_loop_detection_command_unknown_name_parametrized() -> None:
 def test_get_loop_detection_commands_returns_copy_parametrized() -> None:
     """Mutating a retrieved mapping does not affect the registry state."""
 
-    expected_commands = {
-        name: getattr(registry_module, name) for name in COMMAND_NAMES
-    }
+    expected_commands = {name: getattr(registry_module, name) for name in COMMAND_NAMES}
     commands = registry_module.get_loop_detection_commands()
 
     # Baseline sanity check for returned mapping contents.

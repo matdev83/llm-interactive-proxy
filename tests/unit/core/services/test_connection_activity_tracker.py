@@ -334,9 +334,7 @@ class TestConnectionActivityTracker:
         # All connections should be cleaned up
         assert self.tracker.get_connection_count() == 0
 
-    def test_cleanup_stale_connections(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_cleanup_stale_connections(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Test cleanup of stale connections."""
         current_time = {"value": 1000.0}
 

@@ -21,12 +21,7 @@ def _is_json_serializable(
         return True
 
     if isinstance(value, list | tuple):
-        if _seen is None:
-            _seen = set()
-        obj_id = id(value)
-        if obj_id in _seen:
-            return False
-        _seen.add(obj_id)
+        # _seen checks removed to prevent false positives with Pydantic dicts/lists re-using memory
         try:
             return all(
                 _is_json_serializable(
@@ -38,15 +33,15 @@ def _is_json_serializable(
                 for item in value
             )
         finally:
-            _seen.remove(obj_id)
+            pass
 
     if isinstance(value, dict):
-        if _seen is None:
-            _seen = set()
-        obj_id = id(value)
-        if obj_id in _seen:
-            return False
-        _seen.add(obj_id)
+        # if _seen is None:
+        #     _seen = set()
+        # obj_id = id(value)
+        # if obj_id in _seen:
+        #     return False
+        # _seen.add(obj_id)
         try:
             for key, item in value.items():
                 if key is not None and not isinstance(key, str | int | float | bool):
@@ -59,7 +54,8 @@ def _is_json_serializable(
                 ):
                     return False
         finally:
-            _seen.remove(obj_id)
+            # _seen.remove(obj_id)
+            pass
         return True
 
     return False
@@ -77,14 +73,13 @@ def _sanitize_dict_for_json(
     if _depth > max_depth:
         return {}
 
-    if _seen is None:
-        _seen = set()
-
-    obj_id = id(data)
-    if obj_id in _seen:
-        return {}
-
-    _seen.add(obj_id)
+    # _seen checks removed
+    # if _seen is None:
+    #     _seen = set()
+    # obj_id = id(data)
+    # if obj_id in _seen:
+    #     return {}
+    # _seen.add(obj_id)
     try:
         sanitized: dict[str, Any] = {}
         sanitized_value: Any = None
@@ -124,7 +119,8 @@ def _sanitize_dict_for_json(
 
         return sanitized
     finally:
-        _seen.remove(obj_id)
+        # _seen.remove(obj_id)
+        pass
 
 
 def _sanitize_list_for_json(
@@ -139,26 +135,14 @@ def _sanitize_list_for_json(
     if _depth > max_depth:
         return []
 
-    if _seen is None:
-        _seen = set()
-
-    obj_id = id(data)
-    if obj_id in _seen:
-        return []
-
-    _seen.add(obj_id)
+    # Simplified implementation without _seen tracking to fix tool_calls loss
     try:
         sanitized: list[Any] = []
         for item in data:
-            if _is_json_serializable(
-                item,
-                max_depth=max_depth,
-                _depth=_depth + 1,
-                _seen=_seen,
-            ):
-                sanitized.append(item)
-                continue
-
+            if item is None or isinstance(item, str | int | float | bool):
+                 sanitized.append(item)
+                 continue
+                 
             if isinstance(item, dict):
                 sanitized.append(
                     _sanitize_dict_for_json(
@@ -168,7 +152,9 @@ def _sanitize_list_for_json(
                         _seen=_seen,
                     )
                 )
-            elif isinstance(item, list | tuple):
+                continue
+                
+            if isinstance(item, list | tuple):
                 sanitized.append(
                     _sanitize_list_for_json(
                         item if isinstance(item, list) else list(item),
@@ -177,14 +163,21 @@ def _sanitize_list_for_json(
                         _seen=_seen,
                     )
                 )
-            elif isinstance(item, str | int | float | bool) or item is None:
+                continue
+                
+            # Try basic serialization check as fallback
+            if _is_json_serializable(
+                item,
+                max_depth=max_depth,
+                _depth=_depth + 1,
+                _seen=_seen,
+            ):
                 sanitized.append(item)
-            else:
                 continue
 
         return sanitized
-    finally:
-        _seen.remove(obj_id)
+    except Exception:
+        return []
 
 
 def is_json_serializable(value: Any, *, max_depth: int = _MAX_SANITIZE_DEPTH) -> bool:

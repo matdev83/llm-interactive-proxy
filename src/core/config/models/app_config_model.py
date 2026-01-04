@@ -126,8 +126,10 @@ class AppConfigModel(DomainModel, IConfig):
         except (AttributeError, KeyError, TypeError) as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Failed to get configuration value for key '%s': %s", key, e,
-                    exc_info=True
+                    "Failed to get configuration value for key '%s': %s",
+                    key,
+                    e,
+                    exc_info=True,
                 )
             return default
 

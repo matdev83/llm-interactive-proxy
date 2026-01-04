@@ -94,6 +94,7 @@ async def demonstrate_race_condition():
 
     return len(flush_tasks) > 1
 
+
 async def simulate_remote_attack():
     """
     Simulate how a remote actor could trigger this resource leak
@@ -118,9 +119,7 @@ async def simulate_remote_attack():
         async def make_request(i):
             context = MagicMock(spec=RequestContext)
             await service.capture_inbound_request(
-                context=context,
-                session_id=f"session-{i}",
-                request_payload={"test": i}
+                context=context, session_id=f"session-{i}", request_payload={"test": i}
             )
 
         print("Sending 100 concurrent requests...")
@@ -145,6 +144,7 @@ async def simulate_remote_attack():
         await service.shutdown()
 
     return len(flush_tasks) > 1
+
 
 async def main():
     print("Resource Leak Reproduction for cbor_wire_capture_service.py")
@@ -179,6 +179,7 @@ async def main():
         print("No resource leak detected (may need faster hardware or")
         print("more concurrent operations to trigger the race condition).")
         sys.exit(0)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

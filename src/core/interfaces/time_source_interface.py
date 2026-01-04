@@ -67,4 +67,3 @@ class ITimeSource(abc.ABC):
             seconds: Duration to sleep in seconds
         """
         ...
-

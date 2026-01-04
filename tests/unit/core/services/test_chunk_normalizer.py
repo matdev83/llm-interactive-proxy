@@ -46,7 +46,10 @@ class TestNormalizeToProcessedChunkContent:
         assert result == content
         assert isinstance(result, dict)
         # Verify all values are JsonValue-compatible
-        assert all(isinstance(v, str | int | float | bool | type(None)) for v in result.values())
+        assert all(
+            isinstance(v, str | int | float | bool | type(None))
+            for v in result.values()
+        )
 
     def test_normalize_dict_with_nested_json_safe(self) -> None:
         """Test that nested JSON-safe dicts are preserved."""
@@ -61,6 +64,7 @@ class TestNormalizeToProcessedChunkContent:
 
     def test_normalize_dict_with_non_json_serializable_values(self) -> None:
         """Test that dicts with non-JSON-serializable values are sanitized."""
+
         # Create a dict with a callable (not JSON-serializable)
         def some_function() -> None:
             pass
@@ -76,6 +80,7 @@ class TestNormalizeToProcessedChunkContent:
 
     def test_normalize_dict_with_complex_object(self) -> None:
         """Test that dicts with complex objects are sanitized."""
+
         class ComplexObject:
             def __init__(self) -> None:
                 self.value = "test"
@@ -121,6 +126,7 @@ class TestNormalizeToProcessedChunkContent:
 
     def test_normalize_complex_object_to_str(self) -> None:
         """Test that complex objects are converted to string."""
+
         class CustomObject:
             def __init__(self) -> None:
                 self.value = "test"
@@ -137,7 +143,7 @@ class TestNormalizeToProcessedChunkContent:
         """Test that dict normalization preserves shallow copy semantics (no deep copy)."""
         original = {"key": "value", "nested": {"inner": "value"}}
         result = normalize_to_processed_chunk_content(original)
-        
+
         # Should be a new dict (shallow copy)
         assert result is not original
         # But nested dict should be the same object (shallow copy)
@@ -213,7 +219,7 @@ class TestNormalizeToProcessedChunkContent:
         """Test that dicts with circular references are handled gracefully."""
         content: dict[str, Any] = {"key": "value"}
         content["self"] = content  # Create circular reference
-        
+
         # Should not raise an error, but should handle gracefully
         result = normalize_to_processed_chunk_content(content)
         # The circular reference should be sanitized out

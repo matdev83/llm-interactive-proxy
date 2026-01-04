@@ -123,10 +123,13 @@ def test_zai_coding_plan_backend_integration(
     # Assert the response is successful and contains the translated content
     if response.status_code != 200:
         import sys
+
         print(f"Response status: {response.status_code}", file=sys.stderr)
         print(f"Response body: {response.text}", file=sys.stderr)
         print(f"Response headers: {dict(response.headers)}", file=sys.stderr)
-    assert response.status_code == 200, f"Expected 200, got {response.status_code}. Response: {response.text}"
+    assert (
+        response.status_code == 200
+    ), f"Expected 200, got {response.status_code}. Response: {response.text}"
     data = response.json()
 
     # The content should contain the actual message

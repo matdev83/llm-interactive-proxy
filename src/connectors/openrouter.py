@@ -76,10 +76,7 @@ class OpenRouterBackend(OpenAIConnector):
             return True
 
         for header_name, value in headers.items():
-            if (
-                header_name.lower() == "authorization"
-                and api_key in value
-            ):
+            if header_name.lower() == "authorization" and api_key in value:
                 return True
 
         return False
@@ -403,13 +400,9 @@ class OpenRouterBackend(OpenAIConnector):
         # Callables (headers_provider) are handled via instance attributes, not options.
         options = request.options or {}
         key_name_val = options.get("key_name")
-        key_name: str | None = (
-            key_name_val if isinstance(key_name_val, str) else None
-        )
+        key_name: str | None = key_name_val if isinstance(key_name_val, str) else None
         api_key_val = options.get("api_key")
-        api_key: str | None = (
-            api_key_val if isinstance(api_key_val, str) else None
-        )
+        api_key: str | None = api_key_val if isinstance(api_key_val, str) else None
         api_base_url_val = options.get("openrouter_api_base_url")
         api_base_url: str | None = (
             api_base_url_val if isinstance(api_base_url_val, str) else None
@@ -428,7 +421,9 @@ class OpenRouterBackend(OpenAIConnector):
 
         # After fallback, api_base_url is guaranteed to be str (not None)
         # Type narrowing: self.api_base_url is str, so api_base_url is now str
-        assert api_base_url is not None, "api_base_url should be set from options or instance"
+        assert (
+            api_base_url is not None
+        ), "api_base_url should be set from options or instance"
 
         original_headers_provider = self.headers_provider
         original_key_name = self.key_name

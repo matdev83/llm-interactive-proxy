@@ -118,7 +118,7 @@ def _validate_spec_state(specs_root: Path) -> list[str]:
     errors: list[str] = []
     allowlist_path = specs_root / ARCHIVE_ALLOWLIST_FILENAME
     allowlist = _load_archive_allowlist(allowlist_path)
-    
+
     for spec_dir in sorted(specs_root.iterdir()):
         if not spec_dir.is_dir() or spec_dir.name == "archive":
             continue
@@ -235,7 +235,7 @@ def _find_completed_unarchived_specs(specs_root: Path) -> list[str]:
     errors: list[str] = []
     allowlist_path = specs_root / ARCHIVE_ALLOWLIST_FILENAME
     allowlist = _load_archive_allowlist(allowlist_path)
-    
+
     for spec_dir in sorted(specs_root.iterdir()):
         if not spec_dir.is_dir() or spec_dir.name == "archive":
             continue

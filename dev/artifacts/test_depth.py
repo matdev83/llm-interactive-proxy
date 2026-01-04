@@ -2,10 +2,11 @@ import json
 
 payload = '{"message": "hello", "choices": [{"delta": {"content": "world"}}]}'
 
+
 def get_depth(obj, current_depth=0):
     if current_depth > 100:
         return current_depth
-    
+
     if isinstance(obj, dict):
         max_child_depth = current_depth
         for value in obj.values():
@@ -20,6 +21,7 @@ def get_depth(obj, current_depth=0):
         return max_child_depth
     else:
         return current_depth
+
 
 parsed = json.loads(payload)
 depth = get_depth(parsed)

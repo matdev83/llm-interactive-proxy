@@ -85,9 +85,7 @@ def demo_tool_translations() -> None:
 
     for droid_tool, droid_args in demo_cases:
         try:
-            res = translator.translate_tool_call(
-                droid_tool, droid_args
-            )
+            res = translator.translate_tool_call(droid_tool, droid_args)
             codex_tool, codex_args = res.codex_tool_name, res.codex_arguments
             print_translation(droid_tool, droid_args, codex_tool, codex_args)
 

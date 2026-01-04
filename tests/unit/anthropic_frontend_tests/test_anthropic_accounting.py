@@ -153,6 +153,7 @@ class TestAnthropicFrontendAccounting:
     def test_billing_info_calls_extract_usage(self, mock_extract_usage) -> None:
         """Test that billing info extraction calls extract_anthropic_usage."""
         from src.anthropic_converters import AnthropicUsageSummary
+
         mock_extract_usage.return_value = AnthropicUsageSummary(
             input_tokens=50,
             output_tokens=30,

@@ -231,7 +231,11 @@ def apply_config_part2(
                         origin="MODEL_ALIASES",
                     )
         except (json.JSONDecodeError, KeyError, TypeError) as exc:
-            logger.warning("Invalid MODEL_ALIASES environment variable format: %s", exc, exc_info=True)
+            logger.warning(
+                "Invalid MODEL_ALIASES environment variable format: %s",
+                exc,
+                exc_info=True,
+            )
             config["model_aliases"] = []
     else:
         config["model_aliases"] = []

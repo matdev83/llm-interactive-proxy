@@ -229,7 +229,7 @@ class TestInMemoryRateLimiter:
         await rate_limiter.set_limit(key, limit=50, time_window=60)
         assert rate_limiter._limits[key].limit == 50
         assert rate_limiter._limits[key].time_window == 60
-    
+
         # Overwrite with new limits
         await rate_limiter.set_limit(key, limit=200, time_window=300)
         assert rate_limiter._limits[key].limit == 200

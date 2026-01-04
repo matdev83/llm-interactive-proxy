@@ -151,7 +151,14 @@ async def build_test_app_async(config: AppConfig | None = None) -> FastAPI:
                 config = cfg
             else:  # type: ignore[unreachable]
                 config = create_test_config()  # type: ignore[unreachable]
-        except (OSError, FileNotFoundError, ValueError, KeyError, AttributeError, ValidationError):
+        except (
+            OSError,
+            FileNotFoundError,
+            ValueError,
+            KeyError,
+            AttributeError,
+            ValidationError,
+        ):
             logger.warning(
                 "Failed to load config from environment, using test config",
                 exc_info=True,
@@ -217,7 +224,14 @@ def build_test_app(config: AppConfig | None = None) -> FastAPI:
                 config = cfg
             else:  # type: ignore[unreachable]
                 config = create_test_config()  # type: ignore[unreachable]
-        except (OSError, FileNotFoundError, ValueError, KeyError, AttributeError, ValidationError):
+        except (
+            OSError,
+            FileNotFoundError,
+            ValueError,
+            KeyError,
+            AttributeError,
+            ValidationError,
+        ):
             logger.warning(
                 "Failed to load config from environment, using test config",
                 exc_info=True,

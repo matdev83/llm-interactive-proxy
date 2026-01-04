@@ -188,7 +188,9 @@ def create_wire_capture_entry(
                 payload_str = json.dumps(payload, ensure_ascii=False)
                 byte_count = len(payload_str.encode("utf-8"))
         except (TypeError, ValueError, UnicodeEncodeError) as e:
-            logger.debug("Failed to calculate byte count for payload: %s", e, exc_info=True)
+            logger.debug(
+                "Failed to calculate byte count for payload: %s", e, exc_info=True
+            )
             byte_count = -1
 
     # Create timestamp

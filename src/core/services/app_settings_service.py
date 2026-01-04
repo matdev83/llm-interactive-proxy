@@ -187,7 +187,9 @@ class AppSettings(IAppSettings):
                     raise
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Error getting all settings from app_state: %s", e, exc_info=True
+                        "Error getting all settings from app_state: %s",
+                        e,
+                        exc_info=True,
                     )
 
         return all_settings

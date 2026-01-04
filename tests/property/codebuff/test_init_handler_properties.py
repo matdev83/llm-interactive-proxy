@@ -20,7 +20,9 @@ from tests.utils.hypothesis_config import property_test_settings
 @st.composite
 def file_context_strategy(draw):
     """Generate a file context dictionary."""
-    num_files = draw(st.integers(min_value=0, max_value=3))  # Reduced from 5 for performance
+    num_files = draw(
+        st.integers(min_value=0, max_value=3)
+    )  # Reduced from 5 for performance
     file_context = {}
     for _ in range(num_files):
         # Use printable ASCII to avoid Unicode encoding issues in parallel test execution

@@ -62,7 +62,9 @@ class BackendStage(InitializationStage):
 
         # Resolve IBackendValidator from the validation provider installed by ApplicationBuilder
         provider = get_current_service_provider()
-        validator: IBackendValidator = provider.get_required_service(cast(type, IBackendValidator))
+        validator: IBackendValidator = provider.get_required_service(
+            cast(type, IBackendValidator)
+        )
 
         # Delegate validation to the backend validation service
         return bool(await validator.validate_all(config))

@@ -49,7 +49,9 @@ class TestDosHybridDetectorRegression:
             result, tuple | LongPatternMatch
         ), "Processing should complete successfully without errors"
 
-    @real_time(reason="Measures actual processing time for edge cases to detect DoS vulnerabilities.")
+    @real_time(
+        reason="Measures actual processing time for edge cases to detect DoS vulnerabilities."
+    )
     def test_edge_cases_processing_time(self) -> None:
         """Test edge cases that could trigger the vulnerability."""
         import time

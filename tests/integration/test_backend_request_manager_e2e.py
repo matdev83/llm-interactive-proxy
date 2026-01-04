@@ -127,7 +127,9 @@ class MockResponseProcessor:
                     if isinstance(context, dict):
                         original_request = context.get("original_request")
                     elif isinstance(context, RequestContext):
-                        original_request = context.original_request or context.domain_request
+                        original_request = (
+                            context.original_request or context.domain_request
+                        )
 
                 raise EmptyResponseRetryError(
                     recovery_prompt="Please provide a meaningful response.",

@@ -10,8 +10,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.core.config.yaml_validation import validate_yaml_against_schema
 
 # Check reasoning_aliases.yaml.example
-config_path = Path('config/reasoning_aliases.yaml.example')
-schema_path = Path('config/schemas/reasoning_aliases.schema.yaml')
+config_path = Path("config/reasoning_aliases.yaml.example")
+schema_path = Path("config/schemas/reasoning_aliases.schema.yaml")
 
 print("=== Checking reasoning_aliases.yaml.example ===\n")
 
@@ -24,7 +24,7 @@ with schema_path.open() as f:
     schema = yaml.safe_load(f)
 
 # Get schema properties
-schema_props = set(schema.get('properties', {}).keys())
+schema_props = set(schema.get("properties", {}).keys())
 
 # Get config keys
 config_keys = set(config.keys())

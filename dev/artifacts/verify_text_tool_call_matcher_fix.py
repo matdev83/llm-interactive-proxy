@@ -23,9 +23,7 @@ def test_unbounded_growth_fixed():
     # Register many tool calls without matching them
     for i in range(1000):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
         if (i + 1) % 200 == 0:
@@ -38,7 +36,9 @@ def test_unbounded_growth_fixed():
     # Verify fix: _pending should be capped at max
     if len(matcher._pending) > matcher._max_pending:
         print("\n!!! MEMORY LEAK STILL EXISTS !!!")
-        print(f"_pending ({len(matcher._pending)}) exceeds max ({matcher._max_pending})")
+        print(
+            f"_pending ({len(matcher._pending)}) exceeds max ({matcher._max_pending})"
+        )
         return False
     else:
         print(f"\n✓ Fix verified: _pending is capped at {matcher._max_pending}")
@@ -49,16 +49,14 @@ def test_matching_still_works():
     """Test that matching still works after the fix."""
     matcher = _TextToolCallMatcher(max_pending=100)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Test: Matching functionality still works")
-    print("="*60)
+    print("=" * 60)
 
     # Register some tool calls
     for i in range(50):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
     print(f"Registered 50 tool calls, _pending={len(matcher._pending)}")
@@ -68,9 +66,7 @@ def test_matching_still_works():
 
     # Match first one - should find by name
     result1 = TextToolResult(
-        canonical_name="tool_0",
-        command_text="command_0",
-        output_text="output1"
+        canonical_name="tool_0", command_text="command_0", output_text="output1"
     )
     matched1 = matcher.match_textual_result(result1)
     print(f"Match attempt 1: {'✓ matched' if matched1 else '✗ not matched'}")
@@ -78,9 +74,7 @@ def test_matching_still_works():
 
     # Match second one - should find by name
     result2 = TextToolResult(
-        canonical_name="tool_1",
-        command_text="command_1",
-        output_text="output2"
+        canonical_name="tool_1", command_text="command_1", output_text="output2"
     )
     matched2 = matcher.match_textual_result(result2)
     print(f"Match attempt 2: {'✓ matched' if matched2 else '✗ not matched'}")
@@ -90,7 +84,7 @@ def test_matching_still_works():
     result3 = TextToolResult(
         canonical_name="different_tool",  # Different name
         command_text="command_2",
-        output_text="output3"
+        output_text="output3",
     )
     matched3 = matcher.match_textual_result(result3)
     print(f"Match attempt 3 (mismatch): {'✓ matched' if matched3 else '✗ not matched'}")
@@ -113,14 +107,14 @@ def main():
     success &= test_matching_still_works()
 
     if success:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("ALL TESTS PASSED - FIX VERIFIED!")
-        print("="*60)
+        print("=" * 60)
         sys.exit(0)
     else:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("SOME TESTS FAILED")
-        print("="*60)
+        print("=" * 60)
         sys.exit(1)
 
 

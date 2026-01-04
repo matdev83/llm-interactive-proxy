@@ -72,5 +72,6 @@ async def simple_race_test():
 
         await service.shutdown()
 
+
 if __name__ == "__main__":
     asyncio.run(simple_race_test())

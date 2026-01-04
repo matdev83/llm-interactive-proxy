@@ -17,9 +17,7 @@ def test_scan_for_pytest_detects_input_string(
     result = service.scan_for_pytest("bash", arguments)
 
     assert result is not None
-    detected, command = result
-    assert detected is True
-    assert command == "pytest -q"
+    assert result.command == "pytest -q"
 
 
 def test_scan_for_pytest_handles_mixed_case_tool_name(
@@ -32,6 +30,4 @@ def test_scan_for_pytest_handles_mixed_case_tool_name(
     result = service.scan_for_pytest("Bash", arguments)
 
     assert result is not None
-    detected, command = result
-    assert detected is True
-    assert command == "pytest --maxfail=1"
+    assert result.command == "pytest --maxfail=1"

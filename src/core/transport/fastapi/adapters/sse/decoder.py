@@ -69,16 +69,22 @@ class SSEDecoder:
 
         # Nothing but a done marker
         if not data_lines:
-            return DecodedSSE(content="", metadata={"finish_reason": "stop"}, is_done=True)
+            return DecodedSSE(
+                content="", metadata={"finish_reason": "stop"}, is_done=True
+            )
 
         data_body = "\n".join(data_lines).strip()
         if data_body in ("[DONE]", '["DONE"]'):
-            return DecodedSSE(content="", metadata={"finish_reason": "stop"}, is_done=True)
+            return DecodedSSE(
+                content="", metadata={"finish_reason": "stop"}, is_done=True
+            )
 
         # Security: Check data body size
         if len(data_body) > self.MAX_PAYLOAD_SIZE:
             return DecodedSSE(
-                content=data_body, metadata={"error": "data_too_large"}, is_done=forced_done
+                content=data_body,
+                metadata={"error": "data_too_large"},
+                is_done=forced_done,
             )
 
         metadata_hint: dict[str, Any] = {}

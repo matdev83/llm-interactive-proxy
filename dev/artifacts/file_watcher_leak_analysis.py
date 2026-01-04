@@ -14,15 +14,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # Direct code analysis without imports to avoid path issues
 
+
 def analyze_memory_leak():
     """Analyze the FileWatcher code for memory leaks."""
-    
+
     print("MEMORY LEAK ANALYSIS: FileWatcher.schedule_credentials_reload")
     print("=" * 60)
-    
+
     # Issue 1: Race condition in task assignment
     print("ISSUE 1: Race condition in _assign_task function")
-    print("""
+    print(
+        """
 In line 170-174 of file_watcher.py:
     def _assign_task(task: asyncio.Future[None]) -> None:
         task.add_done_callback(_clear)  # ✅ Good - callback registered
@@ -43,11 +45,13 @@ PROBLEM: In lines 186-196 (schedule_task function):
 ISSUE: If task creation fails after _assign_task is called via call_soon_threadsafe,
 the reload_scheduling_in_progress flag gets reset but the task might not be properly
 cleaned up if the callback wasn't registered.
-""")
-    
+"""
+    )
+
     # Issue 2: Exception handling in schedule_task
     print("\nISSUE 2: Exception handling may leak tasks")
-    print("""
+    print(
+        """
 In lines 195-203:
         try:
             loop.call_soon_threadsafe(schedule_task)
@@ -62,19 +66,22 @@ In lines 195-203:
 ISSUE: The schedule_task function might have already been queued or executed.
 If call_soon_threadsafe fails but schedule_task was already queued/running,
 tasks might be created but never properly tracked or cleaned up.
-""")
-    
+"""
+    )
+
     # Issue 3: No explicit task cleanup on errors
     print("\nISSUE 3: Missing explicit task cleanup")
-    print("""
+    print(
+        """
 PROBLEM: When exceptions occur during task creation or scheduling,
 there's no explicit cleanup of any tasks that might have been created
 in previous successful calls.
 
 The code relies entirely on done callbacks for cleanup, but if the callback
 registration fails or the task is abandoned, it won't be cleaned up.
-""")
-    
+"""
+    )
+
     print("\n" + "=" * 60)
     print("MEMORY LEAK CONFIRMED: FileWatcher has potential task leaks")
     print("\nThe memory leak occurs when:")
@@ -82,18 +89,19 @@ registration fails or the task is abandoned, it won't be cleaned up.
     print("2. Exceptions occur during task creation/scheduling")
     print("3. Tasks are created but callbacks fail to register")
     print("4. Race conditions between task creation and cleanup")
-    
+
     return True
 
 
 def propose_fix():
     """Propose fix for the memory leak."""
-    
+
     print("\n" + "=" * 60)
     print("PROPOSED FIX")
     print("=" * 60)
-    
-    print("""
+
+    print(
+        """
 FIX 1: Improve task tracking and cleanup
 
 Replace lines 186-196 with:
@@ -142,7 +150,8 @@ Add a method to FileWatcherState:
                 self.reload_scheduling_in_progress = False
 
 This can be called periodically or before creating new tasks.
-""")
+"""
+    )
 
     return True
 
@@ -150,10 +159,10 @@ This can be called periodically or before creating new tasks.
 def main():
     """Main analysis function."""
     print("FileWatcher Memory Leak Analysis")
-    
+
     # Analyze the code
     leak_confirmed = analyze_memory_leak()
-    
+
     if leak_confirmed:
         propose_fix()
         return 0

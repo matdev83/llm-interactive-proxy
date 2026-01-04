@@ -101,7 +101,9 @@ def test_race_condition():
     print(f"Race condition rate: {race_count / total_calls:.2%}")
 
     if race_count > 0:
-        print("\n RACE CONDITION REPRODUCED: Multiple threads saw stale functional state")
+        print(
+            "\n RACE CONDITION REPRODUCED: Multiple threads saw stale functional state"
+        )
         print("This demonstrates the TOCTOU race in _validate_runtime_credentials")
         return True
     else:

@@ -53,6 +53,7 @@ class MockLegacyBackend(LLMBackend):
     def __init__(self) -> None:
         # LLMBackend requires config, but we can pass None/Mock for testing
         from unittest.mock import MagicMock
+
         mock_config = MagicMock()
         super().__init__(config=mock_config)
         self.chat_completions_called = False
@@ -251,7 +252,10 @@ class TestCanonicalRequestBuilding:
         assert connector_request.effective_model == effective_model
         assert connector_request.identity == sample_identity
         assert connector_request.cancellation_token == sample_session_key
-        assert connector_request.cancellation_coordinator == sample_cancellation_coordinator
+        assert (
+            connector_request.cancellation_coordinator
+            == sample_cancellation_coordinator
+        )
         assert connector_request.context == projected_context
         assert connector_request.options == sample_options
 
@@ -319,11 +323,16 @@ class TestCanonicalBackendDispatch:
         assert backend.chat_completions_called
         assert backend.received_request is not None
         assert backend.received_request.request == domain_request
-        assert backend.received_request.processed_messages == list(sample_canonical_request.messages)
+        assert backend.received_request.processed_messages == list(
+            sample_canonical_request.messages
+        )
         assert backend.received_request.effective_model == "gpt-4"
         assert backend.received_request.identity == sample_identity
         assert backend.received_request.cancellation_token == sample_session_key
-        assert backend.received_request.cancellation_coordinator == sample_cancellation_coordinator
+        assert (
+            backend.received_request.cancellation_coordinator
+            == sample_cancellation_coordinator
+        )
         assert backend.received_request.context is not None
         assert backend.received_request.context.request_id == "req-123"
         assert backend.received_request.options == sample_options
@@ -388,7 +397,9 @@ class TestLegacyBackendDispatch:
 
         assert backend.chat_completions_called
         assert backend.received_kwargs["request_data"] == domain_request
-        assert backend.received_kwargs["processed_messages"] == list(sample_canonical_request.messages)
+        assert backend.received_kwargs["processed_messages"] == list(
+            sample_canonical_request.messages
+        )
         assert backend.received_kwargs["effective_model"] == "gpt-4"
         assert backend.received_kwargs["option1"] == "value1"
         assert backend.received_kwargs["option2"] == 42
@@ -478,8 +489,7 @@ class TestLegacyPathLogging:
 
         # Verify legacy path was logged
         assert any(
-            "Using legacy connector API" in record.message
-            for record in caplog.records
+            "Using legacy connector API" in record.message for record in caplog.records
         )
 
     @pytest.mark.asyncio
@@ -509,8 +519,7 @@ class TestLegacyPathLogging:
 
         # Verify legacy path was NOT logged
         assert not any(
-            "Using legacy connector API" in record.message
-            for record in caplog.records
+            "Using legacy connector API" in record.message for record in caplog.records
         )
 
 
@@ -557,7 +566,9 @@ class TestErrorPropagation:
         backend = MockLegacyBackend()
         domain_request = sample_canonical_request
 
-        async def error_chat_completions(*args: Any, **kwargs: Any) -> ResponseEnvelope | StreamingResponseEnvelope:
+        async def error_chat_completions(
+            *args: Any, **kwargs: Any
+        ) -> ResponseEnvelope | StreamingResponseEnvelope:
             raise ValueError("Test error")
 
         backend.chat_completions = error_chat_completions  # type: ignore[method-assign]
@@ -629,7 +640,9 @@ class TestStreamingResponse:
             headers={},
         )
 
-        async def streaming_chat_completions(*args: Any, **kwargs: Any) -> StreamingResponseEnvelope:
+        async def streaming_chat_completions(
+            *args: Any, **kwargs: Any
+        ) -> StreamingResponseEnvelope:
             return streaming_response
 
         backend.chat_completions = streaming_chat_completions  # type: ignore[method-assign]
@@ -681,23 +694,32 @@ class TestConnectorSeamCompatibility:
         # Verify canonical connector received typed contract
         assert backend.received_request is not None
         assert isinstance(backend.received_request, ConnectorChatCompletionsRequest)
-        
+
         # Verify all required fields are present and typed correctly
         assert isinstance(backend.received_request.request, CanonicalChatRequest)
         assert isinstance(backend.received_request.processed_messages, list)
-        assert all(isinstance(msg, ChatMessage) for msg in backend.received_request.processed_messages)
+        assert all(
+            isinstance(msg, ChatMessage)
+            for msg in backend.received_request.processed_messages
+        )
         assert isinstance(backend.received_request.effective_model, str)
         assert backend.received_request.identity == sample_identity
         assert backend.received_request.cancellation_token == sample_session_key
-        assert backend.received_request.cancellation_coordinator == sample_cancellation_coordinator
+        assert (
+            backend.received_request.cancellation_coordinator
+            == sample_cancellation_coordinator
+        )
         assert isinstance(backend.received_request.context, ConnectorRequestContext)
         assert isinstance(backend.received_request.options, dict)
-        
+
         # Verify context fields are properly projected
         assert backend.received_request.context.request_id == "req-123"
         assert backend.received_request.context.session_id == "session-456"
         assert backend.received_request.context.client_host == "192.168.1.1"
-        assert backend.received_request.context.extensions == {"key1": "value1", "key2": 42}
+        assert backend.received_request.context.extensions == {
+            "key1": "value1",
+            "key2": 42,
+        }
 
     @pytest.mark.asyncio
     async def test_connector_context_extensions_json_safe(
@@ -710,7 +732,7 @@ class TestConnectorSeamCompatibility:
         import json
 
         backend = MockCanonicalBackend()
-        
+
         # Create context with JSON-safe extensions
         context_with_extensions = RequestContext(
             headers={},
@@ -748,17 +770,18 @@ class TestConnectorSeamCompatibility:
         received_context = backend.received_request.context
         assert isinstance(received_context, ConnectorRequestContext)
         assert isinstance(received_context.extensions, dict)
-        
+
         # Verify extensions can be serialized to JSON
         try:
             json.dumps(received_context.extensions)
         except (TypeError, ValueError) as e:
             pytest.fail(f"Context extensions are not JSON-serializable: {e}")
-        
+
         # Verify all extension values are JSON-safe types
         for key, value in received_context.extensions.items():
-            assert isinstance(value, str | int | float | bool | type(None) | list | dict), \
-                f"Extension '{key}' contains non-JSON-safe type: {type(value)}"
+            assert isinstance(
+                value, str | int | float | bool | type(None) | list | dict
+            ), f"Extension '{key}' contains non-JSON-safe type: {type(value)}"
 
     @pytest.mark.asyncio
     async def test_legacy_connector_receives_typed_domain_models(
@@ -787,7 +810,10 @@ class TestConnectorSeamCompatibility:
         assert not isinstance(backend.received_kwargs["request_data"], dict)
         # Verify processed_messages are typed
         assert isinstance(backend.received_kwargs["processed_messages"], list)
-        assert all(isinstance(msg, ChatMessage) for msg in backend.received_kwargs["processed_messages"])
+        assert all(
+            isinstance(msg, ChatMessage)
+            for msg in backend.received_kwargs["processed_messages"]
+        )
 
     @pytest.mark.asyncio
     async def test_options_remain_json_safe_no_callables(
@@ -801,7 +827,7 @@ class TestConnectorSeamCompatibility:
         from pydantic.types import JsonValue
 
         backend = MockCanonicalBackend()
-        
+
         # Options with JSON-safe values only
         json_safe_options: dict[str, JsonValue] = {
             "string_option": "value",
@@ -829,11 +855,13 @@ class TestConnectorSeamCompatibility:
         assert backend.received_request is not None
         received_options = backend.received_request.options
         assert isinstance(received_options, dict)
-        
+
         # Verify no callables in options
         for key, value in received_options.items():
-            assert not callable(value), f"Option '{key}' contains callable: {type(value)}"
-        
+            assert not callable(
+                value
+            ), f"Option '{key}' contains callable: {type(value)}"
+
         # Verify options can be serialized to JSON
         try:
             json.dumps(received_options)
@@ -1327,6 +1355,7 @@ class TestConnectorSeamCompatibility:
 
         def create_status_code_backend(status_code: int) -> type[MockCanonicalBackend]:
             """Create a backend class for a specific status code."""
+
             class StatusCodeBackend(MockCanonicalBackend):
                 async def chat_completions(
                     self,
@@ -1337,6 +1366,7 @@ class TestConnectorSeamCompatibility:
                         backend_name="test-backend",
                         status_code=status_code,
                     )
+
             return StatusCodeBackend
 
         for status_code in status_codes:
@@ -1370,8 +1400,11 @@ class TestConnectorSeamCompatibility:
         # Test various status codes
         status_codes = [400, 401, 403, 404, 429, 500, 502, 503]
 
-        def create_status_code_legacy_backend(status_code: int) -> type[MockLegacyBackend]:
+        def create_status_code_legacy_backend(
+            status_code: int,
+        ) -> type[MockLegacyBackend]:
             """Create a legacy backend class for a specific status code."""
+
             class StatusCodeLegacyBackend(MockLegacyBackend):
                 async def chat_completions(
                     self,
@@ -1388,6 +1421,7 @@ class TestConnectorSeamCompatibility:
                         backend_name="test-backend",
                         status_code=status_code,
                     )
+
             return StatusCodeLegacyBackend
 
         for status_code in status_codes:
@@ -1519,9 +1553,9 @@ class TestConnectorSeamCompatibility:
         # Note: The invoker accepts options as dict[str, JsonValue] and passes them through.
         # Type checking at call site should prevent callables, but we test runtime detection.
         # The invoker doesn't filter options - it's the caller's responsibility to ensure JSON-safety.
-        
+
         backend = MockCanonicalBackend()
-        
+
         # Create options with a callable (this should not happen in practice due to type checking)
         def some_function() -> None:
             pass
@@ -1543,14 +1577,14 @@ class TestConnectorSeamCompatibility:
             context=None,
             options=options_with_callable,  # type: ignore[arg-type]
         )
-        
+
         # Verify options are passed through
         assert backend.received_request is not None
         received_options = backend.received_request.options
         assert isinstance(received_options, dict)
         assert "valid_option" in received_options
         assert "callable_option" in received_options
-        
+
         # Verify that non-JSON-serializable values are detected when attempting serialization
         # This documents that callables cannot be serialized, reinforcing JSON-safety requirement
         with pytest.raises(TypeError, match="not JSON serializable"):
@@ -1566,14 +1600,14 @@ class TestConnectorSeamCompatibility:
         import json
 
         backend = MockCanonicalBackend()
-        
+
         # Create options with a complex object that's not JSON-serializable
         class ComplexObject:
             def __init__(self) -> None:
                 self.data = "test"
 
         complex_obj = ComplexObject()
-        
+
         options_with_complex: dict[str, Any] = {
             "valid_option": "value",
             "complex_option": complex_obj,  # Not JSON-serializable
@@ -1591,14 +1625,14 @@ class TestConnectorSeamCompatibility:
             context=None,
             options=options_with_complex,  # type: ignore[arg-type]
         )
-        
+
         # Verify options are passed through
         assert backend.received_request is not None
         received_options = backend.received_request.options
         assert isinstance(received_options, dict)
         assert "valid_option" in received_options
         assert "complex_option" in received_options
-        
+
         # Verify that non-JSON-serializable values are detected when attempting serialization
         # This documents that complex objects cannot be serialized, reinforcing JSON-safety requirement
         with pytest.raises(TypeError, match="not JSON serializable"):
@@ -1616,7 +1650,7 @@ class TestConnectorSeamCompatibility:
         from pydantic.types import JsonValue
 
         backend = MockCanonicalBackend()
-        
+
         # Options with various JSON-safe types
         json_safe_options: dict[str, JsonValue] = {
             "string": "value",
@@ -1653,15 +1687,15 @@ class TestConnectorSeamCompatibility:
         assert backend.received_request is not None
         received_options = backend.received_request.options
         assert isinstance(received_options, dict)
-        
+
         # Serialize to JSON
         json_str = json.dumps(received_options)
         assert isinstance(json_str, str)
-        
+
         # Deserialize back
         deserialized = json.loads(json_str)
         assert deserialized == received_options
-        
+
         # Verify roundtrip preserves all values
         assert deserialized["string"] == "value"
         assert deserialized["int"] == 42
@@ -1698,12 +1732,18 @@ class TestConnectorSeamCompatibility:
         assert backend.received_kwargs["request_data"] is not None
         assert isinstance(backend.received_kwargs["request_data"], CanonicalChatRequest)
         assert not isinstance(backend.received_kwargs["request_data"], dict)
-        
+
         # Verify processed_messages are typed ChatMessage objects, not dicts
         assert isinstance(backend.received_kwargs["processed_messages"], list)
-        assert all(isinstance(msg, ChatMessage) for msg in backend.received_kwargs["processed_messages"])
-        assert not any(isinstance(msg, dict) for msg in backend.received_kwargs["processed_messages"])
-        
+        assert all(
+            isinstance(msg, ChatMessage)
+            for msg in backend.received_kwargs["processed_messages"]
+        )
+        assert not any(
+            isinstance(msg, dict)
+            for msg in backend.received_kwargs["processed_messages"]
+        )
+
         # Verify effective_model is a string, not a dict
         assert isinstance(backend.received_kwargs["effective_model"], str)
         assert not isinstance(backend.received_kwargs["effective_model"], dict)
@@ -1716,7 +1756,7 @@ class TestConnectorSeamCompatibility:
     ) -> None:
         """Test that options are correctly expanded into kwargs for legacy connectors."""
         backend = MockLegacyBackend()
-        
+
         from pydantic.types import JsonValue
 
         options: dict[str, JsonValue] = {
@@ -1745,9 +1785,11 @@ class TestConnectorSeamCompatibility:
         assert backend.received_kwargs["top_p"] == 0.9
         assert backend.received_kwargs["presence_penalty"] == 0.1
         assert backend.received_kwargs["frequency_penalty"] == 0.2
-        
+
         # Verify options are not passed as a nested dict
-        assert "options" not in backend.received_kwargs or not isinstance(backend.received_kwargs.get("options"), dict)
+        assert "options" not in backend.received_kwargs or not isinstance(
+            backend.received_kwargs.get("options"), dict
+        )
 
     @pytest.mark.asyncio
     async def test_legacy_connector_context_not_guaranteed(
@@ -1774,7 +1816,7 @@ class TestConnectorSeamCompatibility:
         # Verify context is not in kwargs (legacy connectors don't receive context)
         # Per design: connector context is guaranteed only on canonical connector API
         assert "context" not in backend.received_kwargs
-        
+
         # Verify other required parameters are present
         assert "request_data" in backend.received_kwargs
         assert "processed_messages" in backend.received_kwargs

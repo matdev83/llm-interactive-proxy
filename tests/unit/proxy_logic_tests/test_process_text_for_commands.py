@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import pytest
 from src.core.domain.chat import ChatMessage
 from src.core.domain.session import Session
+from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 
 

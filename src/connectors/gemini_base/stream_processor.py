@@ -24,7 +24,6 @@ from src.core.domain.streaming.contracts import (
 logger = logging.getLogger(__name__)
 
 
-
 def build_error_chunk(
     message: str,
     code: int = 500,
@@ -47,16 +46,13 @@ def build_error_chunk(
         object="chat.completion.chunk",
         created=int(time.time()),
         model=model,
-        choices=[
-            OpenAIErrorChoice(index=0, delta={}, finish_reason="error")
-        ],
+        choices=[OpenAIErrorChoice(index=0, delta={}, finish_reason="error")],
         error=OpenAIError(
             message=message,
             type=error_type,
             code=code,
         ),
     )
-
 
 
 def build_auth_error_chunk(model: str = "unknown") -> OpenAIErrorChunk:
@@ -133,7 +129,6 @@ def build_rate_limit_chunk(
         model=model,
         error_type=error_type,
     )
-
 
 
 def build_rate_limit_backend_error(
@@ -446,7 +441,6 @@ def extract_429_error_details(
         error_type=error_type,
         error_code=error_code,
     )
-
 
 
 __all__ = [

@@ -53,7 +53,9 @@ class TestStreamingNoBuffering:
             await asyncio.sleep(delay)
 
     @pytest.mark.asyncio
-    @real_time(reason="This test measures actual time-to-first-byte performance and requires real system time to validate streaming latency")
+    @real_time(
+        reason="This test measures actual time-to-first-byte performance and requires real system time to validate streaming latency"
+    )
     async def test_streaming_yields_chunks_immediately(self):
         """
         Requirement 5.4: Chunks should be yielded immediately without buffering.
@@ -111,7 +113,9 @@ class TestStreamingNoBuffering:
             ), "Chunks arrived out of order or buffered"
 
     @pytest.mark.asyncio
-    @real_time(reason="This test measures actual conversion performance and requires real system time to validate conversion latency")
+    @real_time(
+        reason="This test measures actual conversion performance and requires real system time to validate conversion latency"
+    )
     async def test_streaming_content_to_typed_chunk_no_buffering(self):
         """
         Requirement 5.4: StreamingContent.to_typed_chunk() should not require buffering.
@@ -141,7 +145,9 @@ class TestStreamingNoBuffering:
         assert typed_chunk.payload.text == "test content"
 
     @pytest.mark.asyncio
-    @real_time(reason="This test measures actual streaming throughput and requires real system time to validate performance characteristics")
+    @real_time(
+        reason="This test measures actual streaming throughput and requires real system time to validate performance characteristics"
+    )
     async def test_streaming_throughput_not_degraded(self):
         """
         Requirement 5.4: Streaming throughput should not be degraded by contract conversions.
@@ -199,6 +205,7 @@ class TestStreamingPerformanceRegression:
         through the response processor pipeline doesn't introduce buffering that
         delays time-to-first-byte.
         """
+
         # Create a stream that yields raw chunks (dict format) immediately
         async def create_raw_stream() -> AsyncIterator[dict[str, Any]]:
             for i in range(10):
@@ -265,6 +272,7 @@ class TestStreamingPerformanceRegression:
         """
         # Create a large payload (1MB+ dict)
         from pydantic.types import JsonValue
+
         large_dict: dict[str, JsonValue] = {
             "data": "x" * (1024 * 1024),
             "nested": {"key": "value"},
@@ -374,6 +382,7 @@ class TestCopyOnWriteBehavior:
         rather than mutating the original.
         """
         from pydantic.types import JsonValue
+
         original_metadata: dict[str, JsonValue] = {"key1": "value1", "key2": "value2"}
         chunk = ProcessedResponse(content="test", metadata=original_metadata)
 
@@ -403,6 +412,7 @@ class TestCopyOnWriteBehavior:
         When content is updated, a new ProcessedResponse should be created.
         """
         from pydantic.types import JsonValue
+
         original_content: dict[str, JsonValue] = {
             "choices": [{"delta": {"content": "original"}}]
         }
@@ -431,7 +441,10 @@ class TestCopyOnWriteBehavior:
 
         # Verify new chunk has updated content
         assert updated_chunk.content == updated_content
-        if isinstance(updated_chunk.content, dict) and "choices" in updated_chunk.content:
+        if (
+            isinstance(updated_chunk.content, dict)
+            and "choices" in updated_chunk.content
+        ):
             choices = updated_chunk.content["choices"]
             if isinstance(choices, list) and len(choices) > 0:
                 choice = choices[0]
@@ -481,6 +494,7 @@ class TestCopyOnWriteBehavior:
         When metadata is merged, the original dict content should remain unchanged.
         """
         from pydantic.types import JsonValue
+
         original_dict: dict[str, JsonValue] = {
             "key": "value",
             "nested": {"inner": "data"},
@@ -515,7 +529,9 @@ class TestRealResponseProcessorCopyOnWrite:
     """Integration tests using real ResponseProcessor to verify copy-on-write behavior."""
 
     @pytest.mark.asyncio
-    async def test_response_processor_preserves_copy_on_write_with_real_normalizer(self):
+    async def test_response_processor_preserves_copy_on_write_with_real_normalizer(
+        self,
+    ):
         """
         NFR1.3: Verify ResponseProcessor preserves copy-on-write when processing chunks.
 
@@ -587,7 +603,10 @@ class TestRealResponseProcessorCopyOnWrite:
             assert isinstance(processed_chunk, ProcessedResponse)
             assert processed_chunk.metadata.get("session_id") == "test-session"
             # Verify content was processed correctly
-            assert "chunk" in str(processed_chunk.content) or processed_chunk.content == f"chunk-{i}"
+            assert (
+                "chunk" in str(processed_chunk.content)
+                or processed_chunk.content == f"chunk-{i}"
+            )
 
     @pytest.mark.asyncio
     async def test_response_processor_large_payload_no_deep_copy_real_pipeline(self):
@@ -652,7 +671,7 @@ class TestRealResponseProcessorCopyOnWrite:
         assert len(processed_chunks) == 1
         processed_chunk = processed_chunks[0]
         assert isinstance(processed_chunk, ProcessedResponse)
-        
+
         # Verify large dict content is preserved (may be normalized, but should not be deep-copied unnecessarily)
         # The content may be extracted/transformed, but the original dict should not be mutated
         assert large_dict == {"data": "x" * (1024 * 1024), "nested": {"key": "value"}}

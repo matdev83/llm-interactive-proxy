@@ -20,6 +20,7 @@ from src.core.interfaces.failover_interface import (
 )
 from src.core.interfaces.failover_planner_interface import IFailoverPlanner
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
+from src.core.services.failover_service import FailoverAttempt
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +61,30 @@ class FailoverPlanner(IFailoverPlanner):
         self._failover_strategy = failover_strategy
         self._resilience = resilience_coordinator
 
+    def _normalize_plan(
+        self, plan: list[FailoverAttempt] | list[tuple[str, str]]
+    ) -> list[FailoverAttempt]:
+        """Normalize plan to list of FailoverAttempt objects.
+
+        Args:
+            plan: Either a list of FailoverAttempt objects or tuples (backend, model)
+
+        Returns:
+            List of FailoverAttempt objects
+        """
+        if not plan:
+            return []
+
+        # Check if first item is already a FailoverAttempt
+        if isinstance(plan[0], FailoverAttempt):
+            return plan  # type: ignore[return-value]
+
+        # Convert tuples to FailoverAttempt objects
+        return [FailoverAttempt(backend=backend, model=model) for backend, model in plan]  # type: ignore[misc]
+
     def get_failover_plan(
         self, model: str, backend: str | None = None
-    ) -> list[tuple[str, str]]:
+    ) -> list[FailoverAttempt]:
         """Select and filter failover plan for a request.
 
         This method:
@@ -76,7 +98,7 @@ class FailoverPlanner(IFailoverPlanner):
             backend: The original backend name (if known)
 
         Returns:
-            Ordered list of (backend_name, model_name) tuples to attempt
+            Ordered list of failover attempts to try
         """
         # Check if failover strategy is enabled
         use_strategy: bool = False
@@ -98,8 +120,11 @@ class FailoverPlanner(IFailoverPlanner):
                 plan = self._failover_strategy.get_failover_plan(
                     model, backend_for_strategy
                 )
-                return self.filter_unhealthy_backends(plan)
+                # Convert tuples to FailoverAttempt objects if needed (for backward compatibility)
+                normalized_plan = self._normalize_plan(plan)
+                return self.filter_unhealthy_backends(normalized_plan)
             except (BackendError, RateLimitExceededError) as e:
+                # Log debug info if strategy fails
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Failover strategy failed: {e}", exc_info=True)
                 # Fall back to coordinator attempts on error
@@ -110,12 +135,12 @@ class FailoverPlanner(IFailoverPlanner):
         attempts = self._failover_coordinator.get_failover_attempts(
             model, backend_for_coordinator
         )
-        plan = [(a.backend, a.model) for a in attempts]
-        return self.filter_unhealthy_backends(plan)
+        # Coordinator returns FailoverAttempt objects, no need to convert to tuples
+        return self.filter_unhealthy_backends(attempts)
 
     def filter_unhealthy_backends(
-        self, plan: list[tuple[str, str]]
-    ) -> list[tuple[str, str]]:
+        self, plan: list[FailoverAttempt]
+    ) -> list[FailoverAttempt]:
         """Filter out backends with unhealthy API endpoints.
 
         Filtering logic:
@@ -125,7 +150,7 @@ class FailoverPlanner(IFailoverPlanner):
         4. Fallback to original plan if all backends are filtered
 
         Args:
-            plan: List of (backend, model) tuples
+            plan: List of FailoverAttempt objects
 
         Returns:
             Filtered list excluding unhealthy backends (if circuit breaker enabled)
@@ -138,11 +163,13 @@ class FailoverPlanner(IFailoverPlanner):
         ):
             return plan
 
-        filtered: list[tuple[str, str]] = []
+        filtered: list[FailoverAttempt] = []
         disabled_backends = self._backend_lifecycle_manager.get_disabled_backends()
         active_backends = self._backend_lifecycle_manager.get_active_backends()
 
-        for backend_name, model_name in plan:
+        for attempt in plan:
+            backend_name = attempt.backend
+
             # Check permanently disabled registry first
             if backend_name in disabled_backends:
                 if logger.isEnabledFor(logging.INFO):
@@ -163,11 +190,11 @@ class FailoverPlanner(IFailoverPlanner):
 
             if backend is None:
                 # Backend not yet created, include it (health unknown)
-                filtered.append((backend_name, model_name))
+                filtered.append(attempt)
                 continue
 
             if backend.is_backend_functional():
-                filtered.append((backend_name, model_name))
+                filtered.append(attempt)
             else:
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(

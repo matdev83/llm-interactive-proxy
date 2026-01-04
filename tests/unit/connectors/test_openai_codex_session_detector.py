@@ -541,7 +541,9 @@ class TestSessionDetectorPerformance:
     """Test detection performance."""
 
     @pytest.mark.asyncio
-    @real_time(reason="Measures actual detection performance to ensure it completes within acceptable time limits.")
+    @real_time(
+        reason="Measures actual detection performance to ensure it completes within acceptable time limits."
+    )
     async def test_detection_completes_quickly(self):
         """Test that detection completes within 5ms target."""
         detector = SessionDetector()
@@ -561,7 +563,9 @@ class TestSessionDetectorPerformance:
         assert elapsed_ms < 5.0
 
     @pytest.mark.asyncio
-    @real_time(reason="Measures actual detection performance to compare cached vs uncached performance.")
+    @real_time(
+        reason="Measures actual detection performance to compare cached vs uncached performance."
+    )
     async def test_cached_detection_is_faster(self):
         """Test that cached detection is faster than initial detection."""
         detector = SessionDetector()

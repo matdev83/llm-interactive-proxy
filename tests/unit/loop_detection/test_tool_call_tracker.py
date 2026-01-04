@@ -326,7 +326,9 @@ class TestToolCallTrackerFunctionality:
         assert tracker.consecutive_repeats[full_sig] == config.max_repeats - 1
 
     @pytest.mark.asyncio
-    async def test_track_tool_call_repeated_at_threshold_break_mode(self, config) -> None:
+    async def test_track_tool_call_repeated_at_threshold_break_mode(
+        self, config
+    ) -> None:
         """Test tracking repeated calls at the threshold with break mode."""
         config.mode = ToolLoopMode.BREAK
         tracker = ToolCallTracker(config)
@@ -345,7 +347,9 @@ class TestToolCallTrackerFunctionality:
         assert result.repeat_count == config.max_repeats
 
     @pytest.mark.asyncio
-    async def test_track_tool_call_repeated_at_threshold_chance_mode(self, config) -> None:
+    async def test_track_tool_call_repeated_at_threshold_chance_mode(
+        self, config
+    ) -> None:
         """Test tracking repeated calls at the threshold with chance_then_break mode."""
         config.mode = ToolLoopMode.CHANCE_THEN_BREAK
         tracker = ToolCallTracker(config)

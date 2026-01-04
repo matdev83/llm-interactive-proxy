@@ -15,6 +15,7 @@ print(f"Validating {example_path} when merged into full app config...")
 
 with example_path.open() as f:
     import yaml
+
     sso_config = yaml.safe_load(f)
 
 # Create a minimal valid app config with the sso section from example
@@ -33,15 +34,18 @@ with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
 
 try:
     validate_yaml_against_schema(temp_path, schema_path)
-    print("[OK] Validation passed! sso_auth.example.yaml is compatible with app_config schema.")
+    print(
+        "[OK] Validation passed! sso_auth.example.yaml is compatible with app_config schema."
+    )
 except Exception as e:
     print("[FAIL] Validation failed:")
     # Try to extract error details from ConfigurationError
     from src.core.common.exceptions import ConfigurationError
-    if isinstance(e, ConfigurationError) and hasattr(e, 'details'):
-        details = getattr(e, 'details', {})
-        if 'errors' in details:
-            for error in details['errors']:
+
+    if isinstance(e, ConfigurationError) and hasattr(e, "details"):
+        details = getattr(e, "details", {})
+        if "errors" in details:
+            for error in details["errors"]:
                 print(f"       {error}")
         else:
             print(f"       {e}")

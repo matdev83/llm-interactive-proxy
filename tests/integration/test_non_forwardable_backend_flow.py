@@ -368,7 +368,7 @@ async def test_capacity_exceeded_fails_closed(
     from src.core.config.models.non_forwardable_config import (
         NonForwardableTaggingConfig,
     )
-    
+
     config = create_test_config()
     # Use model_copy to create a new config with modified non_forwardable_tagging
     config = config.model_copy(
@@ -380,18 +380,19 @@ async def test_capacity_exceeded_fails_closed(
     )
     app = build_test_app(config)
     service_provider = app.state.service_provider
-    
+
     # Get services from the new app
     identity_svc = service_provider.get_service(INonForwardableMessageIdentityService)
     registry_svc = service_provider.get_service(INonForwardableMessageRegistry)
-    
+
     session_id = "test-session-capacity"
-    
+
     # Create a session for the command service to work with
     from src.core.interfaces.session_service_interface import ISessionService
+
     session_service = service_provider.get_required_service(ISessionService)
     await session_service.create_session(session_id)
-    
+
     # Fill up to limit (1 tag)
     msg1 = ChatMessage(role="user", content="!/command1")
     msg1_id = identity_svc.compute_identity(msg1)
@@ -401,11 +402,11 @@ async def test_capacity_exceeded_fails_closed(
         scope=NonForwardableTagScope.NEVER_FORWARD,
         reason="test",
     )
-    
+
     # Try to tag another message (should exceed capacity)
     msg2 = ChatMessage(role="user", content="!/command2")
     msg2_id = identity_svc.compute_identity(msg2)
-    
+
     # Verify registry enforces limit directly
     with pytest.raises(NonForwardableTagLimitExceededError) as exc_info:
         await registry_svc.tag_identities(
@@ -414,7 +415,7 @@ async def test_capacity_exceeded_fails_closed(
             scope=NonForwardableTagScope.NEVER_FORWARD,
             reason="test",
         )
-    
+
     # Verify error details
     error = exc_info.value
     assert error.session_id == session_id

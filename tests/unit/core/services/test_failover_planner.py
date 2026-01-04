@@ -111,7 +111,10 @@ class TestFailoverStrategyPath:
 
         # Verify strategy was called
         strategy.get_failover_plan.assert_called_once_with("gpt-4", "openai")
-        assert result == [("anthropic", "claude-3-5-sonnet")]
+        # Result should be normalized to FailoverAttempt objects
+        assert len(result) == 1
+        assert result[0].backend == "anthropic"
+        assert result[0].model == "claude-3-5-sonnet"
 
     def test_falls_back_to_coordinator_when_strategy_fails(
         self,

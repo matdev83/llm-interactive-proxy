@@ -5,7 +5,6 @@ stale entries when the same tool_call_id is used across different sessions
 and cache eviction occurs.
 """
 
-
 from src.connectors.gemini_base.thought_signature_manager import ThoughtSignatureManager
 
 

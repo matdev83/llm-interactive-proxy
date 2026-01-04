@@ -1,4 +1,5 @@
 """Repro script for race condition in ServiceCollection._cleanup_tasks."""
+
 import asyncio
 import sys
 from pathlib import Path

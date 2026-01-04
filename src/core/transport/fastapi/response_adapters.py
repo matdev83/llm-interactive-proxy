@@ -341,9 +341,13 @@ def _normalize_response_envelope(
         other_usage: UsageSummary | None = None
         other_metadata: dict[str, JsonValue] | None = None
         if hasattr(domain_response, "usage"):
-            other_usage = _normalize_usage_to_summary(getattr(domain_response, "usage", None))
+            other_usage = _normalize_usage_to_summary(
+                getattr(domain_response, "usage", None)
+            )
         if hasattr(domain_response, "metadata"):
-            other_metadata = _normalize_metadata_to_json_safe(getattr(domain_response, "metadata", None))
+            other_metadata = _normalize_metadata_to_json_safe(
+                getattr(domain_response, "metadata", None)
+            )
         if hasattr(domain_response, "model_dump"):
             content_dict = domain_response.model_dump()  # type: ignore[attr-defined]
             return ResponseEnvelope(
@@ -488,7 +492,9 @@ def to_fastapi_response(
 
     # Apply content converter if provided (legacy support)
     if content_converter:
-        converted_content = _apply_content_converter(envelope.content, content_converter)
+        converted_content = _apply_content_converter(
+            envelope.content, content_converter
+        )
         envelope = ResponseEnvelope(
             content=converted_content,
             headers=envelope.headers,

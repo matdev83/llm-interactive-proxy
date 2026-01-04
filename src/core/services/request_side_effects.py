@@ -112,13 +112,19 @@ class RequestSideEffects(IRequestSideEffects):
             except (AttributeError, TypeError, ValueError, RuntimeError, KeyError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Context injection failed for session %s: %s", session_id, e, exc_info=True
+                        "Context injection failed for session %s: %s",
+                        session_id,
+                        e,
+                        exc_info=True,
                     )
             except Exception as e:
                 # Fallback for any other unexpected exceptions (preserve fail-open behavior)
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Unexpected error during context injection for session %s: %s", session_id, e, exc_info=True
+                        "Unexpected error during context injection for session %s: %s",
+                        session_id,
+                        e,
+                        exc_info=True,
                     )
 
         # Capture user request interactions (before processing)
@@ -133,13 +139,19 @@ class RequestSideEffects(IRequestSideEffects):
             except (AttributeError, TypeError, ValueError, RuntimeError, KeyError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Memory capture failed for session %s: %s", session_id, e, exc_info=True
+                        "Memory capture failed for session %s: %s",
+                        session_id,
+                        e,
+                        exc_info=True,
                     )
             except Exception as e:
                 # Fallback for any other unexpected exceptions (preserve fail-open behavior)
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Unexpected error during memory capture for session %s: %s", session_id, e, exc_info=True
+                        "Unexpected error during memory capture for session %s: %s",
+                        session_id,
+                        e,
+                        exc_info=True,
                     )
 
         return request

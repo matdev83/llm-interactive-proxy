@@ -104,7 +104,9 @@ class TestContextInjector:
         )
 
     @pytest.fixture
-    async def repository(self, config: MemoryConfiguration) -> AsyncGenerator[MemoryRepository, None]:
+    async def repository(
+        self, config: MemoryConfiguration
+    ) -> AsyncGenerator[MemoryRepository, None]:
         """Create repository instance."""
         repo = MemoryRepository(config)
         yield repo

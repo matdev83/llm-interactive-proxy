@@ -14,7 +14,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 
-
 class MalformedSSEMock:
     """Mock httpx response that sends malformed SSE data without separators."""
 
@@ -110,17 +109,25 @@ async def main():
     print(f"  After 10000 chunks: {buffer_sizes[9999]} bytes")
     print(f"  After 50000 chunks: {buffer_sizes[-1]} bytes")
 
-    print(f"\nTotal buffer size: {buffer_sizes[-1]} bytes ({buffer_sizes[-1] / 1024 / 1024:.2f} MB)")
+    print(
+        f"\nTotal buffer size: {buffer_sizes[-1]} bytes ({buffer_sizes[-1] / 1024 / 1024:.2f} MB)"
+    )
     print(f"Average buffer size per chunk: {buffer_sizes[-1] / 50000:.2f} bytes")
 
     # Check if buffer is growing unbounded
     if buffer_sizes[-1] > 16 * 1024:  # 16KB threshold
         print("\n[!] POTENTIAL MEMORY LEAK DETECTED!")
-        print(f"   Buffer grew to {buffer_sizes[-1] / 1024 / 1024:.2f} MB without any truncation.")
+        print(
+            f"   Buffer grew to {buffer_sizes[-1] / 1024 / 1024:.2f} MB without any truncation."
+        )
         print("   This could lead to unbounded memory growth with malicious input.")
-        print("\n   The issue is in src/connectors/openai.py stream_completion() method:")
+        print(
+            "\n   The issue is in src/connectors/openai.py stream_completion() method:"
+        )
         print("   - Lines 1275-1303: SSE buffer lacks size limit")
-        print("   - The _handle_streaming_response method HAS protection (line 826, MAX_SSE_BUFFER_SIZE)")
+        print(
+            "   - The _handle_streaming_response method HAS protection (line 826, MAX_SSE_BUFFER_SIZE)"
+        )
         print("   - But stream_completion() does NOT have this protection")
         return 1
     else:

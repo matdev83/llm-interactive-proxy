@@ -4,6 +4,7 @@ This test verifies that async lock is NOT held when calling
 asyncio.to_thread, which prevents event loop blocking and potential
 deadlocks on hot path (wire capture during concurrent requests).
 """
+
 import asyncio
 import os
 import tempfile
@@ -44,7 +45,9 @@ def mock_config(temp_capture_file):
 
 
 @pytest.mark.asyncio
-async def test_wire_capture_no_deadlock_on_concurrent_writes(mock_config, temp_capture_file):
+async def test_wire_capture_no_deadlock_on_concurrent_writes(
+    mock_config, temp_capture_file
+):
     """Test that concurrent writes to WireCapture don't cause deadlocks.
 
     This is a regression test for deadlock hazard where async lock was held
@@ -105,9 +108,10 @@ async def test_wire_capture_no_deadlock_on_concurrent_writes(mock_config, temp_c
     await capture.shutdown()
 
 
-
 @pytest.mark.asyncio
-async def test_structured_wire_capture_no_deadlock_on_concurrent_writes(mock_config, temp_capture_file):
+async def test_structured_wire_capture_no_deadlock_on_concurrent_writes(
+    mock_config, temp_capture_file
+):
     """Test that concurrent writes to StructuredWireCapture don't cause deadlocks.
 
     This is a regression test for deadlock hazard where async lock was held
@@ -168,7 +172,6 @@ async def test_structured_wire_capture_no_deadlock_on_concurrent_writes(mock_con
     await capture.shutdown()
 
 
-
 def test_wire_capture_no_event_loop_blocking():
     """Test that WireCapture doesn't block event loop during file I/O.
 
@@ -224,4 +227,3 @@ def test_wire_capture_no_event_loop_blocking():
         # Verify file exists and has content
         assert os.path.exists(temp_path)
         assert os.path.getsize(temp_path) > 0
-

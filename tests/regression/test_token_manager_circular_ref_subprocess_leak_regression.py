@@ -102,9 +102,17 @@ async def test_cleanup_explicitly_prevents_leak_with_circular_ref() -> None:
 
     # Launch subprocess
     if sys.platform == "win32":
-        cmd = ["python", "-c", "import time; time.sleep(0.05)"]  # Reduced from 0.1 for performance
+        cmd = [
+            "python",
+            "-c",
+            "import time; time.sleep(0.05)",
+        ]  # Reduced from 0.1 for performance
     else:
-        cmd = ["python3", "-c", "import time; time.sleep(0.05)"]  # Reduced from 0.1 for performance
+        cmd = [
+            "python3",
+            "-c",
+            "import time; time.sleep(0.05)",
+        ]  # Reduced from 0.1 for performance
 
     try:
         process = subprocess.Popen(
@@ -157,9 +165,17 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
 
         # Launch subprocess
         if sys.platform == "win32":
-            cmd = ["python", "-c", "import time; time.sleep(0.1)"]  # Reduced from 0.15 for performance
+            cmd = [
+                "python",
+                "-c",
+                "import time; time.sleep(0.1)",
+            ]  # Reduced from 0.15 for performance
         else:
-            cmd = ["python3", "-c", "import time; time.sleep(0.1)"]  # Reduced from 0.15 for performance
+            cmd = [
+                "python3",
+                "-c",
+                "import time; time.sleep(0.1)",
+            ]  # Reduced from 0.15 for performance
 
         try:
             process = subprocess.Popen(
@@ -183,7 +199,9 @@ async def test_remote_actor_scenario_multiple_instances() -> None:
 
     # Wait a bit
     async with FakeClockContext() as clock:
-        sleep_task = asyncio.create_task(asyncio.sleep(0.02))  # Reduced from 0.03 for performance
+        sleep_task = asyncio.create_task(
+            asyncio.sleep(0.02)
+        )  # Reduced from 0.03 for performance
         clock.advance(0.02)
         await sleep_task
 

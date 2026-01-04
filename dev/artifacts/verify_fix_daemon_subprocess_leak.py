@@ -17,40 +17,42 @@ def demo_fixed_code():
     print("=" * 70)
     print("FIXED VERSION: from server_lifecycle_manager.py (after fix)")
     print("=" * 70)
-    
+
     daemon_process = None
     try:
         print("[FIXED] Building command...")
-        command = [sys.executable, "-c", "import time; time.sleep(100); print('daemon')"]
-        
+        command = [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(100); print('daemon')",
+        ]
+
         print("[FIXED] Creating subprocess...")
         creation_flags = getattr(subprocess, "DETACHED_PROCESS", 0)
         daemon_process = subprocess.Popen(
-            command, 
-            creationflags=creation_flags, 
-            close_fds=True
+            command, creationflags=creation_flags, close_fds=True
         )
         print(f"[FIXED] Process created with PID {daemon_process.pid}")
-        
+
         # SIMULATED BUG: Exception occurs between Popen and poll check
         print("[FIXED] Simulating unexpected exception before poll()...")
         raise RuntimeError("Simulated unexpected error during daemon startup")
-        
+
         # This code never executes due to exception above
         if daemon_process.poll() is not None:
             print("[FIXED] Process failed to start")
             raise SystemExit(1)
-        
+
         print("[FIXED] Sleeping 2 seconds...")
         time.sleep(2)
         print("[FIXED] Exiting parent...")
         sys.exit(0)
         return True
-        
+
     except Exception as e:
         print(f"[FIXED] Exception caught: {e}")
         print(f"[FIXED] daemon_process is None: {daemon_process is None}")
-        
+
         # FIX: Always clean up subprocess on any exception
         if daemon_process is not None and daemon_process.poll() is None:
             print(f"[FIXED] Cleaning up process {daemon_process.pid}...")
@@ -67,7 +69,7 @@ def demo_fixed_code():
                 print(f"[FIXED] Error during cleanup: {cleanup_error}")
         else:
             print("[FIXED] No process to clean up or already terminated")
-        
+
         raise
 
 
@@ -80,7 +82,7 @@ def check_running_processes():
             text=True,
             check=True,
         )
-        lines = result.stdout.strip().split('\n')
+        lines = result.stdout.strip().split("\n")
         # Subtract header
         python_count = max(0, len(lines) - 1)
         print(f"\n[LEAK CHECK] Found {python_count} python.exe processes")
@@ -92,16 +94,16 @@ def main():
     """Run verification."""
     print("Checking initial process count...")
     check_running_processes()
-    
+
     print("\n--- TEST: FIXED VERSION ---\n")
     try:
         demo_fixed_code()
     except Exception:
         pass
-    
+
     print("\nChecking process count after test...")
     check_running_processes()
-    
+
     print("\n" + "=" * 70)
     print("VERIFICATION")
     print("=" * 70)

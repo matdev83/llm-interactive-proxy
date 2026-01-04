@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from src.core.services.failover_service import FailoverAttempt
+
 
 class IFailoverPlanner(ABC):
     """Interface for selecting and filtering failover plans.
@@ -16,7 +18,7 @@ class IFailoverPlanner(ABC):
     @abstractmethod
     def get_failover_plan(
         self, model: str, backend: str | None = None
-    ) -> list[tuple[str, str]]:
+    ) -> list[FailoverAttempt]:
         """Select and filter failover plan for a request.
 
         This method:
@@ -30,13 +32,13 @@ class IFailoverPlanner(ABC):
             backend: The original backend name (if known)
 
         Returns:
-            Ordered list of (backend_name, model_name) tuples to attempt
+            Ordered list of failover attempts to try
         """
 
     @abstractmethod
     def filter_unhealthy_backends(
-        self, plan: list[tuple[str, str]]
-    ) -> list[tuple[str, str]]:
+        self, plan: list[FailoverAttempt]
+    ) -> list[FailoverAttempt]:
         """Filter out backends with unhealthy API endpoints.
 
         Filtering logic:
@@ -46,7 +48,7 @@ class IFailoverPlanner(ABC):
         4. Fallback to original plan if all backends are filtered
 
         Args:
-            plan: List of (backend, model) tuples
+            plan: List of failover attempts
 
         Returns:
             Filtered list excluding unhealthy backends (if circuit breaker enabled)

@@ -172,7 +172,9 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
             # Unexpected exceptions - log with full context for debugging
             if self._logger.isEnabledFor(logging.DEBUG):
                 self._logger.debug(
-                    "Unexpected error logging edit-precision overrides: %s", e, exc_info=True
+                    "Unexpected error logging edit-precision overrides: %s",
+                    e,
+                    exc_info=True,
                 )
 
         return request.model_copy(

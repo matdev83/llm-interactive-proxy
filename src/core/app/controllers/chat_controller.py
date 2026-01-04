@@ -607,7 +607,6 @@ class ChatController:
                     if metadata:
                         tool_calls = metadata.get("tool_calls")  # type: ignore[arg-type]
                         if tool_calls:
-                            import json as _json
                             import time as _time
                             import uuid as _uuid
 
@@ -624,11 +623,33 @@ class ChatController:
                                     text_content = potential_text
 
                             # Use Pydantic models instead of manual dict construction
+                            # Explicitly convert tool_calls to ToolCall objects to handle class mismatch
+                            tool_call_objects = []
+                            if tool_calls and isinstance(tool_calls, list):
+                                for tc in tool_calls:
+                                    try:
+                                        if isinstance(tc, dict):
+                                            tool_call_objects.append(ToolCall(**tc))
+                                        elif isinstance(tc, ToolCall):
+                                            tool_call_objects.append(tc)
+                                        elif hasattr(tc, "model_dump"):
+                                            # Handle class mismatch by converting to dict first
+                                            tool_call_objects.append(
+                                                ToolCall(**tc.model_dump())
+                                            )
+                                    except Exception as e:
+                                        if logger.isEnabledFor(logging.DEBUG):
+                                            logger.debug(
+                                                f"ToolCall construction failed for item: {e}"
+                                            )
+
                             # Create the message using Pydantic model
                             message = ChatCompletionChoiceMessage(
                                 role="assistant",
                                 content=text_content,
-                                tool_calls=cast("list[ToolCall] | None", tool_calls),
+                                tool_calls=(
+                                    tool_call_objects if tool_call_objects else None
+                                ),
                             )
 
                             # Create the choice using Pydantic model

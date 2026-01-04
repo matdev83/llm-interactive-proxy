@@ -10,9 +10,11 @@ import subprocess
 # Get original content to find exact line strings
 result = subprocess.run(
     ["git", "show", "HEAD:src/core/app/stages/test_stages.py"],
-    capture_output=True, text=True, check=True
+    capture_output=True,
+    text=True,
+    check=True,
 )
-original_lines = result.stdout.split('\n')
+original_lines = result.stdout.split("\n")
 
 # Lines to remove (0-indexed)
 lines_to_remove = set()
@@ -26,11 +28,11 @@ lines_to_remove.update(range(939, 942))  # 940-942
 lines_to_remove.update(range(966, 969))  # 967-969
 
 # Read current file
-with open("src/core/app/stages/test_stages.py", "r", encoding="utf-8") as f:
+with open("src/core/app/stages/test_stages.py", encoding="utf-8") as f:
     content = f.read()
 
 # Split by newline but preserve structure
-lines = content.split('\n')
+lines = content.split("\n")
 
 # Filter out lines to remove
 output = []
@@ -39,7 +41,9 @@ for i, line in enumerate(lines):
         output.append(line)
 
 # Write back
-with open("src/core/app/stages/test_stages.py", "w", encoding="utf-8", newline='\n') as f:
-    f.write('\n'.join(output))
+with open(
+    "src/core/app/stages/test_stages.py", "w", encoding="utf-8", newline="\n"
+) as f:
+    f.write("\n".join(output))
 
 print("Surgically removed suppressions")

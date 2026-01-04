@@ -68,7 +68,7 @@ class TestProviderVisibilityProperties:
                 st.text(
                     min_size=1,
                     max_size=10,
-                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+                    alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
                 ),
                 provider_config_strategy(
                     enabled=True, has_credentials=True, has_endpoints=True
@@ -110,7 +110,7 @@ class TestProviderVisibilityProperties:
                 st.text(
                     min_size=1,
                     max_size=10,
-                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+                    alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
                 ),
                 provider_config_strategy(
                     enabled=None, has_credentials=False, has_endpoints=True
@@ -150,7 +150,7 @@ class TestProviderVisibilityProperties:
                 st.text(
                     min_size=1,
                     max_size=10,
-                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+                    alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
                 ),
                 provider_config_strategy(
                     enabled=False, has_credentials=True, has_endpoints=True
@@ -198,7 +198,7 @@ class TestStartupValidationProperties:
                 st.text(
                     min_size=1,
                     max_size=10,
-                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+                    alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
                 ),
                 st.one_of(
                     provider_config_strategy(
@@ -304,7 +304,7 @@ class TestDisabledProviderAccessProperties:
         st.text(
             min_size=1,
             max_size=10,
-                alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
+            alphabet=st.characters(whitelist_categories=("Ll", "Lu")),
         ),
     )
     def test_property_31_direct_access_to_disabled_provider(self, provider_name):

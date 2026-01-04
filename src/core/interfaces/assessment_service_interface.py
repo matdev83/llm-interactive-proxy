@@ -232,7 +232,9 @@ class IAssessmentBackendService(ABC):
     """
 
     @abstractmethod
-    async def perform_assessment(self, request: AssessmentRequest) -> LLMAssessmentResponse:
+    async def perform_assessment(
+        self, request: AssessmentRequest
+    ) -> LLMAssessmentResponse:
         """
         Perform assessment using the configured backend.
 

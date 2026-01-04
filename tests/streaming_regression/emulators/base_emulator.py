@@ -78,7 +78,7 @@ class StreamingEmulatorBase(LLMBackend):
                 if i > 0:
                     delay = self.chunk_delay if self.chunk_delay > 0 else 0.02
                     await asyncio.sleep(delay)
-                
+
                 # Record timestamp right before yielding to track when chunk is actually produced
                 # This ensures timestamps reflect when chunks are yielded, accounting for delays
                 # We record AFTER any sleep so the timestamp reflects the actual production time

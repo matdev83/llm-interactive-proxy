@@ -67,7 +67,8 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
     )
 
     reasoning_backend = OpenAIStreamingEmulator(
-        chunks=reasoning_chunks, chunk_delay=0.02  # Increased to 20ms to avoid threshold race condition (< 10ms = buffered)
+        chunks=reasoning_chunks,
+        chunk_delay=0.02,  # Increased to 20ms to avoid threshold race condition (< 10ms = buffered)
     )
 
     # Execution backend (won't be called in this test)
@@ -131,11 +132,15 @@ async def test_hybrid_reasoning_phase_streaming() -> None:
             # For now, we'll skip this assertion if timing is too tight
             if stats.get("chunks_sent", 0) > 1:
                 # Only fail if we have multiple chunks but they all arrived at once
-                assert stats.get("max_delay", 0) >= 0.01 or stats.get("chunks_sent", 0) == 1, \
-                    f"Backend detected buffering in reasoning phase: max_delay={stats.get('max_delay', 0)}, chunks_sent={stats.get('chunks_sent', 0)}"
+                assert (
+                    stats.get("max_delay", 0) >= 0.01
+                    or stats.get("chunks_sent", 0) == 1
+                ), f"Backend detected buffering in reasoning phase: max_delay={stats.get('max_delay', 0)}, chunks_sent={stats.get('chunks_sent', 0)}"
         else:
             # Chunks were sent incrementally
-            assert not stats["all_at_once"], "Backend detected buffering in reasoning phase"
+            assert not stats[
+                "all_at_once"
+            ], "Backend detected buffering in reasoning phase"
 
 
 @pytest.mark.asyncio
@@ -214,7 +219,8 @@ async def test_hybrid_combined_streaming() -> None:
         reasoning_text, "Initial thoughts"
     )
     reasoning_backend = OpenAIStreamingEmulator(
-        chunks=reasoning_chunks, chunk_delay=0.020  # Well above 10ms threshold for buffering detection
+        chunks=reasoning_chunks,
+        chunk_delay=0.020,  # Well above 10ms threshold for buffering detection
     )
 
     execution_text = "Final comprehensive answer based on reasoning"
@@ -222,7 +228,8 @@ async def test_hybrid_combined_streaming() -> None:
         execution_text, chunk_size=10
     )
     execution_backend = OpenAIStreamingEmulator(
-        chunks=execution_chunks, chunk_delay=0.020  # Well above 10ms threshold for buffering detection
+        chunks=execution_chunks,
+        chunk_delay=0.020,  # Well above 10ms threshold for buffering detection
     )
 
     app = build_test_app()

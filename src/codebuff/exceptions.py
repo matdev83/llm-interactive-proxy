@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from src.codebuff.schemas import ServerMessage
 
 
-
 class CodebuffError(LLMProxyError):
     """Base exception for all Codebuff-related errors."""
 
@@ -195,4 +194,3 @@ def format_error_response(
             remainingBalance=0.0,
         ),
     )
-

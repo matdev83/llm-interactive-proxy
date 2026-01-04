@@ -32,4 +32,6 @@ for config_path_str in example_configs:
     except Exception as e:
         print(f"[FAIL] {config_path.name}: {str(e)[:200]}")
 
-print("\nNote: sso_auth.example.yaml is not tested here as it uses --sso-config CLI flag.")
+print(
+    "\nNote: sso_auth.example.yaml is not tested here as it uses --sso-config CLI flag."
+)

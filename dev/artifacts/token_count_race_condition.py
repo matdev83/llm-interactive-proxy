@@ -9,6 +9,7 @@ lazy initialization where multiple threads can simultaneously:
 While the final state is correct, multiple threads perform redundant
 expensive initialization.
 """
+
 import asyncio
 import threading
 import time
@@ -23,6 +24,7 @@ initialization_times = []
 def reset_token_count_cache():
     """Reset the cached tiktoken encoding for testing."""
     import src.core.utils.token_count as tc
+
     tc._tiktoken_encoding = None
 
 
@@ -40,7 +42,9 @@ def count_tokens_worker(text: str, worker_id: int) -> tuple[int, float]:
     with initialization_lock:
         initialization_count += 1
         initialization_times.append(elapsed)
-        print(f"Worker {worker_id}: count_tokens returned {result}, took {elapsed:.4f}s")
+        print(
+            f"Worker {worker_id}: count_tokens returned {result}, took {elapsed:.4f}s"
+        )
 
     return result, elapsed
 

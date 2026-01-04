@@ -297,9 +297,7 @@ class TestBackendServiceHypothesis:
             return_value=mock_backend,
         ):
             # Act
-            result = await service.validate_backend_and_model(
-                backend_type, model_name
-            )
+            result = await service.validate_backend_and_model(backend_type, model_name)
 
             # Assert
             assert result.is_valid is True

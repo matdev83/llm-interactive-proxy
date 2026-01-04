@@ -65,9 +65,9 @@ class _TextToolCallMatcher:
 
 def test_fix_works():
     """Verify fix caps _pending list."""
-    print("="*60)
+    print("=" * 60)
     print("Testing memory leak fix for _TextToolCallMatcher")
-    print("="*60)
+    print("=" * 60)
 
     matcher = _TextToolCallMatcher(max_pending=100)
 
@@ -75,9 +75,7 @@ def test_fix_works():
     print("\nRegistering 1000 tool calls...")
     for i in range(1000):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
     print(f"_pending size: {len(matcher._pending)}")
@@ -87,24 +85,24 @@ def test_fix_works():
         print(f"\n[OK] _pending is capped at {len(matcher._pending)}")
         return True
     else:
-        print(f"\n[FAIL] _pending ({len(matcher._pending)}) exceeds max ({matcher._max_pending})")
+        print(
+            f"\n[FAIL] _pending ({len(matcher._pending)}) exceeds max ({matcher._max_pending})"
+        )
         return False
 
 
 def test_matching_still_works():
     """Verify matching still works after fix."""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Testing matching functionality still works")
-    print("="*60)
+    print("=" * 60)
 
     matcher = _TextToolCallMatcher(max_pending=100)
 
     # Register some tool calls
     for i in range(50):
         matcher.register(
-            call_id=f"call_{i}",
-            name=f"tool_{i}",
-            command_text=f"command_{i}"
+            call_id=f"call_{i}", name=f"tool_{i}", command_text=f"command_{i}"
         )
 
     print(f"Registered 50 tool calls, _pending={len(matcher._pending)}")
@@ -115,7 +113,7 @@ def test_matching_still_works():
         result = TextToolResult(
             canonical_name=f"tool_{i}",
             command_text=f"command_{i}",
-            output_text=f"output_{i}"
+            output_text=f"output_{i}",
         )
         if matcher.match_textual_result(result):
             matched_count += 1
@@ -137,12 +135,12 @@ if __name__ == "__main__":
     success &= test_matching_still_works()
 
     if success:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("ALL TESTS PASSED - FIX VERIFIED!")
-        print("="*60)
+        print("=" * 60)
         exit(0)
     else:
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("SOME TESTS FAILED")
-        print("="*60)
+        print("=" * 60)
         exit(1)

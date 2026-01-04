@@ -16,7 +16,7 @@ edit_precision_schema = app_schema.get("properties", {}).get("edit_precision", {
 print("Schema definition for edit_precision:")
 print(yaml.dump(edit_precision_schema, default_flow_style=False))
 
-print("\n" + "="*60)
+print("\n" + "=" * 60)
 print("EditPrecisionConfig model fields:")
 for field_name, field_info in EditPrecisionConfig.model_fields.items():
     print(f"  {field_name}: {field_info.annotation} (default: {field_info.default})")

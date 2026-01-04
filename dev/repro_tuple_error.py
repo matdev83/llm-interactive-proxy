@@ -1,4 +1,3 @@
-
 import os
 import sys
 
@@ -12,7 +11,7 @@ try:
     result = parse_model_with_params("openai:gpt-4")
     print(f"parse_model_with_params returned type: {type(result)}")
     print(f"parse_model_with_params returned: {result}")
-    
+
     # Try unpacking
     try:
         a, b, c = result
@@ -28,4 +27,5 @@ try:
 except Exception as e:
     print(f"Caught exception: {e}")
     import traceback
+
     traceback.print_exc()

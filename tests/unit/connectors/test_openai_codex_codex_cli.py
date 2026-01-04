@@ -126,6 +126,12 @@ async def test_build_codex_payload_structure(connector: OpenAICodexConnector) ->
         messages=[ChatMessage(role="user", content="Hello Codex!")],
         model="gpt-5.1-codex",
         stream=True,
+        extra_body={
+            "codex_capabilities": {
+                "include_environment_context": True,
+                "tool_schema_mode": "codex_default",
+            }
+        },
     )
 
     payload, conversation_id = connector._build_codex_payload(
@@ -244,6 +250,7 @@ async def test_codex_default_mode_merges_client_system_prompt(
             ChatMessage(role="user", content="hello"),
         ],
         model="gpt-5.1-codex",
+        extra_body={"codex_capabilities": {"include_environment_context": True}},
     )
 
     payload, _ = connector._build_codex_payload(
@@ -976,7 +983,13 @@ def test_resolve_capabilities_defaults(connector: OpenAICodexConnector) -> None:
 
     capabilities = connector._resolve_capabilities(chat_request)
 
-    assert capabilities == CodexClientCapabilities()
+    # Defaults from settings.py
+    expected = CodexClientCapabilities(
+        tool_schema_mode="custom_only",
+        bypass_tool_call_reactor=True,
+        include_environment_context=False,
+    )
+    assert capabilities == expected
 
 
 def test_resolve_capabilities_from_extra_body(
@@ -1130,6 +1143,7 @@ async def test_build_codex_input_items_function_call_and_output(
         ChatRequest(
             messages=[user_message, assistant_message, tool_message],
             model="gpt-5.1-codex",
+            extra_body={"codex_capabilities": {"include_environment_context": True}},
         ),
         [user_message, assistant_message, tool_message],
         "gpt-5.1-codex",

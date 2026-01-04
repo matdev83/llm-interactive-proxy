@@ -14,15 +14,10 @@ from typing import Any, cast
 
 from pydantic.types import JsonValue
 
-from src.core.domain.chat import ToolCall
 from src.core.domain.usage_summary import UsageSummary
 from src.core.interfaces.response_processor_interface import (
     ProcessedChunkContent,
     ProcessedResponse,
-)
-from src.core.ports.streaming_contracts import StreamingContent
-from src.core.services.streaming.chunk_normalizer import (
-    normalize_to_processed_chunk_content,
 )
 from src.core.ports.streaming_contracts import StreamingContent
 from src.core.services.streaming.chunk_normalizer import (
@@ -347,24 +342,35 @@ def _extract_metadata(response: Any) -> dict[str, Any]:
     return {}
 
 
-def _extract_tool_calls(response: Any) -> list[ToolCall] | None:
-    """Extract tool_calls from various response formats and convert to ToolCall objects."""
+def _extract_tool_calls(response: Any) -> list[dict[str, Any]] | None:
+    """Extract tool_calls from various response formats as JSON-serializable dicts.
+
+    Returns dicts rather than ToolCall objects to ensure metadata stays JSON-serializable
+    when passed through _filter_json_serializable_metadata and other sanitization functions.
+    """
+
+    def _to_dict(item: Any) -> dict[str, Any]:
+        """Convert a tool call item to a dict."""
+        if isinstance(item, dict):
+            return item
+        if hasattr(item, "model_dump"):
+            result = item.model_dump()
+            if isinstance(result, dict):
+                return result
+        return dict(item)  # type: ignore[arg-type]
+
     if isinstance(response, ProcessedResponse):
         metadata = response.metadata or {}
         tool_calls = metadata.get("tool_calls")
-        if isinstance(tool_calls, list) and all(
-            isinstance(item, dict) for item in tool_calls
-        ):
-            # Convert dict tool_calls to ToolCall objects
-            return [ToolCall.model_validate(item) for item in tool_calls]
+        if isinstance(tool_calls, list) and tool_calls:
+            # Return as dicts to ensure JSON serializability
+            return [_to_dict(item) for item in tool_calls]
 
     if isinstance(response, StreamingContent):
         tool_calls = response.metadata.get("tool_calls")
-        if isinstance(tool_calls, list) and all(
-            isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
-        ):
-            # Convert dict tool_calls to ToolCall objects
-            return [ToolCall.model_validate(item) for item in tool_calls]
+        if isinstance(tool_calls, list) and tool_calls:
+            # Return as dicts to ensure JSON serializability
+            return [_to_dict(item) for item in tool_calls]
 
     if isinstance(response, dict):
         # Check in choices[0].message.tool_calls (OpenAI format)
@@ -375,17 +381,13 @@ def _extract_tool_calls(response: Any) -> list[ToolCall] | None:
                 message = choice.get("message")
                 if isinstance(message, dict):
                     tool_calls = message.get("tool_calls")
-                    if isinstance(tool_calls, list) and all(
-                        isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
-                    ):
-                        # Convert dict tool_calls to ToolCall objects
-                        return [ToolCall.model_validate(item) for item in tool_calls]
+                    if isinstance(tool_calls, list) and tool_calls:
+                        # Return as dicts to ensure JSON serializability
+                        return [_to_dict(item) for item in tool_calls]
         # Check direct tool_calls field
         tool_calls = response.get("tool_calls")
-        if isinstance(tool_calls, list) and all(
-            isinstance(item, dict) for item in tool_calls  # type: ignore[reportUnknownVariableType]
-        ):
-            # Convert dict tool_calls to ToolCall objects
-            return [ToolCall.model_validate(item) for item in tool_calls]
+        if isinstance(tool_calls, list) and tool_calls:
+            # Return as dicts to ensure JSON serializability
+            return [_to_dict(item) for item in tool_calls]
 
     return None

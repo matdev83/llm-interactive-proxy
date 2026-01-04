@@ -70,6 +70,7 @@ class TestExtractCorrelationIds:
 
     def test_extract_from_object_without_ids(self):
         """Test extraction from object without correlation IDs."""
+
         class MockContext:
             pass
 

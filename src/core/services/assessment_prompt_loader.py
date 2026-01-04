@@ -126,7 +126,8 @@ class AssessmentPromptLoader:
                             "Failed to read system prompt file: %s", e, exc_info=True
                         )
                     logger.warning(
-                        "Using fallback system prompt (hardcoded default)", exc_info=True
+                        "Using fallback system prompt (hardcoded default)",
+                        exc_info=True,
                     )
                     self._system_prompt = FALLBACK_SYSTEM_PROMPT
             else:
@@ -216,7 +217,8 @@ class AssessmentPromptLoader:
                             "Failed to read response schema file: %s", e, exc_info=True
                         )
                     logger.warning(
-                        "Using fallback response schema (hardcoded default)", exc_info=True
+                        "Using fallback response schema (hardcoded default)",
+                        exc_info=True,
                     )
                     self._response_schema = FALLBACK_RESPONSE_SCHEMA
             else:

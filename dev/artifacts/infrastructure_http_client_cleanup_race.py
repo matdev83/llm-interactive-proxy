@@ -8,6 +8,7 @@ the returned task is not tracked or awaited. This can lead to:
 2. Resource leaks if the loop closes before cleanup completes
 3. No way to ensure cleanup completes before stage failure is propagated
 """
+
 import asyncio
 import logging
 from unittest.mock import AsyncMock, patch
@@ -82,11 +83,11 @@ async def test_with_actual_infrastructure_stage():
     stage = InfrastructureStage()
 
     # Patch httpx.AsyncClient to always fail
-    with patch('httpx.AsyncClient') as mock_httpx:
+    with patch("httpx.AsyncClient") as mock_httpx:
         # Make constructor fail
         mock_httpx.side_effect = Exception("Simulated HTTP client creation failure")
 
-        services = type('ServiceCollection', (), {})()
+        services = type("ServiceCollection", (), {})()
         config = AppConfig.from_env({})
 
         try:
@@ -105,6 +106,7 @@ async def test_loop_closure_scenario():
 
     class SlowClient:
         """Mock client with slow cleanup."""
+
         def __init__(self):
             self.is_closed = False
             self.cleanup_started = False

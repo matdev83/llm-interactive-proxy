@@ -98,7 +98,9 @@ class TestSAMLMetadataCacheMemoryLeakRegression:
 
         with respx.mock:
             # Mock HTTP responses
-            for i in range(num_urls + 3):  # More than cache size (reduced from +5 for performance)
+            for i in range(
+                num_urls + 3
+            ):  # More than cache size (reduced from +5 for performance)
                 metadata_url = f"https://example.com/metadata/{i}"
                 entity_id = f"https://idp{i}.example.com/metadata"
                 sso_url = f"https://idp{i}.example.com/sso"

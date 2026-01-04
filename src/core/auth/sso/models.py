@@ -126,4 +126,3 @@ class SAMLMetadata:
     sso_redirect_url: str | None
     signing_cert: str | None
     entity_id: str | None
-

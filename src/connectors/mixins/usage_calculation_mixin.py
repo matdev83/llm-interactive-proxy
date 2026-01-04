@@ -214,4 +214,3 @@ class UsageCalculationMixin:
                 completion if completion != base.completion_tokens else None
             ),
         )
-

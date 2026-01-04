@@ -96,7 +96,9 @@ def sync_race_test():
                 tool_calls = [
                     {"id": f"tc_{worker_id}_{i}", "signature": f"sig_{worker_id}_{i}"}
                 ]
-                manager.store_signatures_from_tool_calls(tool_calls, f"session_{worker_id}")
+                manager.store_signatures_from_tool_calls(
+                    tool_calls, f"session_{worker_id}"
+                )
 
                 # Concurrent access
                 tool_calls_to_inject = [{"id": f"tc_{worker_id}_{i}"}]
@@ -135,7 +137,9 @@ async def async_race_test():
                 tool_calls = [
                     {"id": f"tc_{worker_id}_{i}", "signature": f"sig_{worker_id}_{i}"}
                 ]
-                manager.store_signatures_from_tool_calls(tool_calls, f"session_{worker_id}")
+                manager.store_signatures_from_tool_calls(
+                    tool_calls, f"session_{worker_id}"
+                )
 
                 # Small delay to increase race window
                 await asyncio.sleep(0.0001)

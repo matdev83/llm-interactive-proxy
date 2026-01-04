@@ -52,7 +52,8 @@ def create_test_service(
     ),
 )
 @property_test_settings(
-    suppress_health_check=[HealthCheck.filter_too_much], max_examples=10  # Reduced from 20 for performance
+    suppress_health_check=[HealthCheck.filter_too_much],
+    max_examples=10,  # Reduced from 20 for performance
 )
 def test_property_11_turn_counter_initialization(
     turn_count: int,
@@ -114,9 +115,7 @@ def test_property_11_turn_counter_initialization(
 )
 @property_test_settings(
     max_examples=15,  # Reduced from 20 for performance
-    suppress_health_check=[
-        HealthCheck.filter_too_much
-    ],
+    suppress_health_check=[HealthCheck.filter_too_much],
 )
 async def test_property_21_activation_logging(
     turn_count: int,

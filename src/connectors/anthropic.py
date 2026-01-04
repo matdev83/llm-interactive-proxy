@@ -1160,7 +1160,10 @@ class AnthropicBackend(LLMBackend):
                 # Note: This method doesn't receive context (appears unused).
                 # If called, cancellation logs cannot be correlated with request/session.
                 logger.warning(
-                    "Failed to cancel Anthropic message %s: %s", message_id, e, exc_info=True
+                    "Failed to cancel Anthropic message %s: %s",
+                    message_id,
+                    e,
+                    exc_info=True,
                 )
 
     # StreamProducer protocol implementation
@@ -1258,7 +1261,8 @@ class AnthropicBackend(LLMBackend):
             except (UnicodeDecodeError, httpx.ReadError) as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to read Anthropic error response body: %s", e,
+                        "Failed to read Anthropic error response body: %s",
+                        e,
                         exc_info=True,
                     )
                 body_text = ""

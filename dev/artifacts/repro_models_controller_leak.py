@@ -76,7 +76,7 @@ async def simulate_backend_leak():
 
     # Try to show what resources might be leaked
     for i, backend in enumerate(leaked_backends):
-        if hasattr(backend, 'http_client'):
+        if hasattr(backend, "http_client"):
             print(f"  Backend #{i+1} has HTTP client: {backend.http_client}")
 
     print("\n=== Impact ===")
@@ -111,13 +111,13 @@ async def simulate_backend_leak():
     # Cleanup for demo purposes
     print("=== Cleaning up demo ===")
     for i, backend in enumerate(leaked_backends):
-        if hasattr(backend, 'close'):
+        if hasattr(backend, "close"):
             try:
                 backend.close()
                 print(f"Closed backend #{i+1}")
             except:
                 pass
-        elif hasattr(backend, 'aclose'):
+        elif hasattr(backend, "aclose"):
             try:
                 await backend.aclose()
                 print(f"Closed (async) backend #{i+1}")

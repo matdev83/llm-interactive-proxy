@@ -115,10 +115,12 @@ async def test_sensitive_headers_are_redacted_in_logs(mocker, caplog):
 
     # 7. Enable logging capture for INFO level
     import logging
+
     caplog.set_level(logging.INFO)
 
     # 8. Call the method that triggers header logging
     import contextlib
+
     with contextlib.suppress(Exception):
         # We expect this to fail due to mocking, we just care about log output
         await backend._handle_non_streaming_response(
@@ -129,7 +131,9 @@ async def test_sensitive_headers_are_redacted_in_logs(mocker, caplog):
         )
 
     # 9. Verify that sensitive headers are redacted in logs
-    info_logs = [record.message for record in caplog.records if record.levelno == logging.INFO]
+    info_logs = [
+        record.message for record in caplog.records if record.levelno == logging.INFO
+    ]
     header_logs = [log for log in info_logs if "Headers" in log]
 
     # At least one header log should exist
@@ -137,7 +141,9 @@ async def test_sensitive_headers_are_redacted_in_logs(mocker, caplog):
 
     # Verify the API key is NOT logged in plain text
     for log in header_logs:
-        assert "NOT-A-REAL-KEY-just-for-testing" not in log, \
-            f"Full API key should not appear in logs. Found in: {log}"
-        assert "***" in log or "[REDACTED]" in log, \
-            f"Expected redaction marker in header log: {log}"
+        assert (
+            "NOT-A-REAL-KEY-just-for-testing" not in log
+        ), f"Full API key should not appear in logs. Found in: {log}"
+        assert (
+            "***" in log or "[REDACTED]" in log
+        ), f"Expected redaction marker in header log: {log}"

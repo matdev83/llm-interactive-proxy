@@ -98,9 +98,7 @@ def find_unguarded_calls_in_file(file_path: Path) -> list[LoggerCall]:
     return unguarded
 
 
-def guard_logger_call(
-    content: str, call: LoggerCall, level_map: dict[str, str]
-) -> str:
+def guard_logger_call(content: str, call: LoggerCall, level_map: dict[str, str]) -> str:
     """Add guard to a logger call.
 
     Args:
@@ -161,4 +159,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

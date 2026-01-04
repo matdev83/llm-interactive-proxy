@@ -9,6 +9,7 @@ from typing import Any
 @dataclass
 class FailoverRouteConfig:
     """Mock config for testing."""
+
     policy: str = "k"
     elements: list[str] = field(default_factory=list)
 
@@ -79,10 +80,12 @@ class FailoverService:
 
 def simulate_concurrent_operations():
     """Simulate concurrent access to failover service."""
-    service = FailoverService({
-        "openai": {"policy": "k", "elements": ["gpt-4", "gpt-3.5"]},
-        "anthropic": {"policy": "k", "elements": ["claude-3", "claude-2"]},
-    })
+    service = FailoverService(
+        {
+            "openai": {"policy": "k", "elements": ["gpt-4", "gpt-3.5"]},
+            "anthropic": {"policy": "k", "elements": ["claude-3", "claude-2"]},
+        }
+    )
 
     errors = []
     results = {"get_count": 0, "add_count": 0, "remove_count": 0, "clear_count": 0}
@@ -106,7 +109,7 @@ def simulate_concurrent_operations():
                 # Add route
                 service.add_failover_route(
                     f"backend_{thread_id}_{i}",
-                    FailoverRouteConfig(policy="k", elements=["model-1"])
+                    FailoverRouteConfig(policy="k", elements=["model-1"]),
                 )
                 results["add_count"] += 1
 
@@ -117,7 +120,9 @@ def simulate_concurrent_operations():
                 # Get all routes
                 all_routes = service.get_all_failover_routes()
                 if not isinstance(all_routes, dict):
-                    errors.append(f"Writer {thread_id}: Expected dict but got {type(all_routes)}")
+                    errors.append(
+                        f"Writer {thread_id}: Expected dict but got {type(all_routes)}"
+                    )
         except Exception as e:
             errors.append(f"Writer {thread_id}: {type(e).__name__}: {e}")
 
@@ -173,7 +178,9 @@ def main():
         print("Concurrent modifications to failover_routes caused errors.")
         return True
     else:
-        print("\nNo errors detected (race condition may still exist - run with more iterations)")
+        print(
+            "\nNo errors detected (race condition may still exist - run with more iterations)"
+        )
         return False
 
 

@@ -23,6 +23,7 @@ class MockTelemetry:
     def record(self, value):
         self.data.append(value)
 
+
 # Global mutable state (simulating _telemetry_instance)
 _global_telemetry_instance: MockTelemetry | None = None
 

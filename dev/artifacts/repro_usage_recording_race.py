@@ -1,4 +1,5 @@
 """Repro script for race condition in UsageRecordingService._turn_counters."""
+
 import asyncio
 import sys
 import tempfile

@@ -174,6 +174,9 @@ class ResponseParser(IResponseParser):
                 details={"type": type(raw_response).__name__},
             )
 
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("ResponseParser metadata: %s", metadata)
+
         return {"content": content, "usage": usage, "metadata": metadata}
 
     def extract_content(self, parsed_response: dict[str, Any]) -> str:

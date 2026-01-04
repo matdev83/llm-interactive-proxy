@@ -798,8 +798,8 @@ class OpenAICodexConnector(OpenAIConnector):
                 if hasattr(tool, "model_dump")
                 else dict(tool)
             )
-                for tool in tools
-            ]
+            for tool in tools
+        ]
 
         return []
 

@@ -145,12 +145,15 @@ def create_inventory(repo_root: Path, output_path: Path) -> None:
     # Create summary statistics
     summary = {
         "total_violations": len(findings),
-        "by_rule": {rule: len(findings_list) for rule, findings_list in by_rule.items()},
+        "by_rule": {
+            rule: len(findings_list) for rule, findings_list in by_rule.items()
+        },
         "by_file": {
             file: len(findings_list) for file, findings_list in by_file.items()
         },
         "by_classification": {
-            classification: len(entries) for classification, entries in classified.items()
+            classification: len(entries)
+            for classification, entries in classified.items()
         },
     }
 
@@ -177,8 +180,12 @@ def create_inventory(repo_root: Path, output_path: Path) -> None:
     print(f"\nInventory created: {output_path}")
     print(f"  Total violations: {summary['total_violations']}")
     print(f"  Safe to replace: {summary['by_classification']['safe-to-replace']}")
-    print(f"  Legitimate exceptions: {summary['by_classification']['legitimate-exception']}")
-    print(f"  Needs investigation: {summary['by_classification']['needs-investigation']}")
+    print(
+        f"  Legitimate exceptions: {summary['by_classification']['legitimate-exception']}"
+    )
+    print(
+        f"  Needs investigation: {summary['by_classification']['needs-investigation']}"
+    )
     print("\nBy rule:")
     for rule, count in summary["by_rule"].items():
         print(f"  {rule}: {count}")
@@ -187,4 +194,3 @@ def create_inventory(repo_root: Path, output_path: Path) -> None:
 if __name__ == "__main__":
     output_path = repo_root / "dev" / "artifacts" / "time_usage_inventory.json"
     create_inventory(repo_root, output_path)
-

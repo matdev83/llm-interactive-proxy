@@ -1,4 +1,5 @@
 """Test script to demonstrate async generator resource leak scenario."""
+
 import asyncio
 from collections.abc import AsyncGenerator, AsyncIterator
 
@@ -16,7 +17,9 @@ class ResourceHolder:
             print("[LEAK CHECK] Resource cleaned up properly")
 
 
-async def generate_upstream_data(resource: ResourceHolder) -> AsyncGenerator[bytes, None]:
+async def generate_upstream_data(
+    resource: ResourceHolder,
+) -> AsyncGenerator[bytes, None]:
     """Simulates an upstream data source (e.g., HTTP response)."""
     try:
         for i in range(100):
@@ -38,7 +41,9 @@ async def byte_wrapper(iterator: AsyncIterator[bytes]) -> AsyncGenerator[bytes, 
         print("[WRAPPER] byte_wrapper cleanup called")
 
 
-async def stream_converter(chunk_generator: AsyncGenerator[bytes, None]) -> AsyncGenerator[str, None]:
+async def stream_converter(
+    chunk_generator: AsyncGenerator[bytes, None]
+) -> AsyncGenerator[str, None]:
     """Simulates the openai_stream_to_anthropic_stream converter."""
     try:
         async for chunk_bytes in chunk_generator:

@@ -92,6 +92,7 @@ class _FakeBackendService:
     def compute_identity(self, message: ChatMessage) -> str:
         """Mock implementation of compute_identity for INonForwardableMessageIdentityService."""
         import hashlib
+
         content = str(message.content) if message.content else ""
         return hashlib.sha256(content.encode()).hexdigest()
 
@@ -121,6 +122,7 @@ class _FakeBackendService:
     async def check_for_loops(self, content: str) -> Any:
         """Mock implementation of check_for_loops for ILoopDetector."""
         from src.core.interfaces.loop_detector_interface import LoopDetectionResult
+
         return LoopDetectionResult(has_loop=False)
 
     async def tag_identities(
@@ -167,7 +169,11 @@ def _make_response_processor(config: AppConfig) -> ResponseProcessor:
 
 def _make_context(config: AppConfig) -> RequestContext:
     extensions = {}
-    if config.session and hasattr(config.session, "angel_model") and config.session.angel_model:
+    if (
+        config.session
+        and hasattr(config.session, "angel_model")
+        and config.session.angel_model
+    ):
         extensions["angel_model"] = config.session.angel_model
     if config.session and hasattr(config.session, "angel_frequency"):
         extensions["angel_frequency"] = config.session.angel_frequency

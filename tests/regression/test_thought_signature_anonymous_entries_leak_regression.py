@@ -7,7 +7,6 @@ Fixed: ThoughtSignatureManager.clear_all_anonymous() method was added to
 clean up anonymous entries that were never cleaned up before.
 """
 
-
 import pytest
 from src.connectors.gemini_base.thought_signature_manager import ThoughtSignatureManager
 

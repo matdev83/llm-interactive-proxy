@@ -39,6 +39,7 @@ from src.core.interfaces.failover_interface import (
     IFailoverStrategy,
 )
 from src.core.interfaces.failover_planner_interface import IFailoverPlanner
+from src.core.services.failover_service import FailoverAttempt
 from src.core.interfaces.failure_strategy_interface import (
     FailureDecision,
     IFailureHandlingStrategy,
@@ -172,7 +173,7 @@ class BackendService(IBackendService):
         )
 
         self._failover_coordinator = failover_coordinator
-        self._failover_planner = failover_planner
+        self._failover_planner: IFailoverPlanner = failover_planner
         self._backend_completion_flow = backend_completion_flow
 
         # Backend config service (already resolved in DI)
@@ -243,8 +244,8 @@ class BackendService(IBackendService):
 
     def _get_failover_plan(
         self, model: str, backend_type: str
-    ) -> list[tuple[str, str]]:
-        """Return an ordered plan of (backend, model) attempts.
+    ) -> list[FailoverAttempt]:
+        """Return an ordered plan of failover attempts.
 
         This is a thin wrapper method that delegates to the injected
         IFailoverPlanner. Preserved for backward compatibility
@@ -256,8 +257,8 @@ class BackendService(IBackendService):
         )
 
     def _filter_unhealthy_backends(
-        self, plan: list[tuple[str, str]]
-    ) -> list[tuple[str, str]]:
+        self, plan: list[FailoverAttempt]
+    ) -> list[FailoverAttempt]:
         """Filter out backends with unhealthy API endpoints.
 
         This is a thin wrapper method that delegates to the internal
@@ -265,7 +266,7 @@ class BackendService(IBackendService):
         compatibility with existing tests that call this method directly.
 
         Args:
-            plan: List of (backend, model) tuples
+            plan: List of failover attempts
 
         Returns:
             Filtered list excluding unhealthy backends (if circuit breaker enabled)
@@ -468,7 +469,7 @@ class BackendService(IBackendService):
                 failover_routes_data=effective_failover_routes,
             )
 
-            plan: list[tuple[str, str]] = self._get_failover_plan(
+            plan: list[FailoverAttempt] = self._get_failover_plan(
                 effective_model, backend_type
             )
 
@@ -489,7 +490,7 @@ class BackendService(IBackendService):
     async def _attempt_failover_plan(
         self,
         request: ChatRequest,
-        plan: list[tuple[str, str]],
+        plan: list[FailoverAttempt],
         stream: bool,
         backend_type: str,
         context: RequestContext | None = None,
@@ -498,7 +499,7 @@ class BackendService(IBackendService):
 
         Args:
             request: The original request
-            plan: List of (backend, model) tuples to attempt
+            plan: List of FailoverAttempt objects to attempt
             stream: Whether the request is a streaming request
             backend_type: The original backend type
 
@@ -522,7 +523,7 @@ class BackendService(IBackendService):
         if not plan:
             raise BackendError(message="all backends failed", backend_name=backend_type)
 
-        for backend_attempt, model_attempt in plan:
+        for attempt in plan:
             # Cancellation gate: ensure session is not cancelled before each failover attempt
             if self._cancellation_coordinator and context:
                 from src.core.transport.session_key_resolver import (
@@ -537,12 +538,12 @@ class BackendService(IBackendService):
                 attempt_extra_body: dict[str, Any] = (
                     request.extra_body.copy() if request.extra_body else {}
                 )
-                attempt_extra_body["backend_type"] = backend_attempt
+                attempt_extra_body["backend_type"] = attempt.backend
 
                 attempt_request: ChatRequest = request.model_copy(
                     update={
                         "extra_body": attempt_extra_body,
-                        "model": model_attempt,
+                        "model": attempt.model,
                     }
                 )
 
@@ -556,8 +557,8 @@ class BackendService(IBackendService):
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Failover attempt failed for %s:%s: %s",
-                        backend_attempt,
-                        model_attempt,
+                        attempt.backend,
+                        attempt.model,
                         attempt_error,
                         exc_info=True,
                     )
@@ -566,7 +567,7 @@ class BackendService(IBackendService):
             except Exception as attempt_error:
                 if logger.isEnabledFor(logging.ERROR):
                     logger.error(
-                        f"Unexpected error during failover attempt for {backend_attempt}:{model_attempt}: {attempt_error!s}",
+                        f"Unexpected error during failover attempt for {attempt.backend}:{attempt.model}: {attempt_error!s}",
                         exc_info=True,
                     )
                 last_error = attempt_error

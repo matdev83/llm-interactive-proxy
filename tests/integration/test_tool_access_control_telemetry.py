@@ -146,9 +146,7 @@ class TestToolAccessControlTelemetry:
         ]
 
         # Filter the tools
-        result = policy_service.filter_tool_definitions(
-            tools, "test-model", None
-        )
+        result = policy_service.filter_tool_definitions(tools, "test-model", None)
         filtered_tools = result.filtered_tools
         metadata = result.metadata
 

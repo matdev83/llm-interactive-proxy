@@ -90,7 +90,9 @@ class TestSessionRepositoryFingerprintLeakRegression:
         with freeze_time("2024-01-01 12:00:00Z") as frozen_time:
             frozen_time.tick(0.1)  # Small delay using fake time
             fixed_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-            repo._last_accessed["test_session"] = fixed_time.timestamp() - 2  # 2 seconds ago
+            repo._last_accessed["test_session"] = (
+                fixed_time.timestamp() - 2
+            )  # 2 seconds ago
 
         # Also set session's last_active_at if it exists (cleanup_expired checks this first)
         session = repo._sessions.get("test_session")

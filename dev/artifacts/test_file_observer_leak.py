@@ -7,6 +7,7 @@ causing a resource leak when backends are restarted.
 Run from project root:
   ./.venv/Scripts/python.exe dev/artifacts/test_file_observer_leak.py
 """
+
 import asyncio
 import json
 import sys
@@ -15,13 +16,13 @@ import time
 from pathlib import Path
 
 # Add current directory to path for imports
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 
 async def main():
-    print("="*70)
+    print("=" * 70)
     print("Testing for file observer resource leak in QwenOAuthConnector")
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
     # Import after setting path
     import httpx
@@ -46,7 +47,7 @@ async def main():
         test_creds = {
             "access_token": "test_token",
             "refresh_token": "test_refresh",
-            "expiry_date": int((time.time() + 3600) * 1000)
+            "expiry_date": int((time.time() + 3600) * 1000),
         }
         with open(connector._credentials_path, "w") as f:
             json.dump(test_creds, f)
@@ -74,12 +75,16 @@ async def main():
         # Verify bug
         if connector._file_observer is not None:
             if connector._file_observer.is_alive():
-                print("\n" + "!"*70)
-                print("BUG CONFIRMED: File observer thread is still running after shutdown()!")
+                print("\n" + "!" * 70)
+                print(
+                    "BUG CONFIRMED: File observer thread is still running after shutdown()!"
+                )
                 print(f"  - Observer: {connector._file_observer}")
-                print(f"  - Thread count increased by: {after_shutdown_thread_count - initial_thread_count}")
+                print(
+                    f"  - Thread count increased by: {after_shutdown_thread_count - initial_thread_count}"
+                )
                 print("  - This means shutdown() is missing _stop_file_watching() call")
-                print("!"*70)
+                print("!" * 70)
             else:
                 print("File observer stopped (but still not cleaned up)")
         else:

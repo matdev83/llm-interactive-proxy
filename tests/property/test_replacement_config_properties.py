@@ -128,6 +128,6 @@ def test_parse_backend_model(backend: str, model: str) -> None:
         turn_count=1,
     )
 
-    parsed_backend, parsed_model = config.parse_backend_model()
-    assert parsed_backend == backend
-    assert parsed_model == model
+    parsed = config.parse_backend_model()
+    assert parsed.backend == backend
+    assert parsed.model == model

@@ -651,7 +651,11 @@ class TestModelIntegration:
                 created=int(time.time()),
                 model="gpt-4",
                 choices=[choice],
-                usage={"prompt_tokens": 25, "completion_tokens": 10, "total_tokens": 35},
+                usage={
+                    "prompt_tokens": 25,
+                    "completion_tokens": 10,
+                    "total_tokens": 35,
+                },
             )
 
             # Verify the complete cycle

@@ -6,6 +6,7 @@ import threading
 # Simulate actual angel_service.py code structure
 class MockAngelPromptLoader:
     """Mock prompt loader for testing."""
+
     def __init__(self):
         self.load_count = 0
 
@@ -103,7 +104,9 @@ def main():
 
     if unsafe_count > 1:
         print("RACE CONDITION CONFIRMED!")
-        print(f"Multiple initializations ({unsafe_count}) occurred due to lack of lock protection.")
+        print(
+            f"Multiple initializations ({unsafe_count}) occurred due to lack of lock protection."
+        )
         print()
 
         # Test safe version to show fix works

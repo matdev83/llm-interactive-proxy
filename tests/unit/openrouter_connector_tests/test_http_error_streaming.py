@@ -131,26 +131,28 @@ async def test_chat_completions_http_error_streaming(
             key_name="test_key",
             api_key="FAKE_KEY",
         )
-        
+
         # The error is caught and handled by error_mapping service
         # The test verifies that HTTP 500 errors are handled gracefully
         # The error is logged (visible in test output), and the stream should
         # either contain an error chunk or terminate gracefully
-        
-        assert hasattr(response, "content") and response.content, "Response should have content"
+
+        assert (
+            hasattr(response, "content") and response.content
+        ), "Response should have content"
         chunks = []
-        
+
         try:
             async for chunk in response.content:
                 chunks.append(chunk)
         except Exception:
             # Exception during consumption is acceptable - error was handled
             pass
-        
+
         # Check chunks for error indicators
         has_error = False
         error_message_found = False
-        
+
         for chunk in chunks:
             # Check metadata for error
             if hasattr(chunk, "metadata") and chunk.metadata:
@@ -159,7 +161,11 @@ async def test_chat_completions_http_error_streaming(
                     error_info = chunk.metadata.get("error")
                     if isinstance(error_info, dict):
                         error_msg = str(error_info.get("message", ""))
-                        assert error_info.get("code") == 500 or "500" in error_msg or "OpenRouter internal server error" in error_msg
+                        assert (
+                            error_info.get("code") == 500
+                            or "500" in error_msg
+                            or "OpenRouter internal server error" in error_msg
+                        )
                         error_message_found = True
                         break
                 if chunk.metadata.get("finish_reason") == "error":
@@ -173,15 +179,26 @@ async def test_chat_completions_http_error_streaming(
                     error_info = content.get("error")
                     if isinstance(error_info, dict):
                         error_msg = str(error_info.get("message", ""))
-                        assert error_info.get("code") == 500 or "500" in error_msg or "OpenRouter internal server error" in error_msg
+                        assert (
+                            error_info.get("code") == 500
+                            or "500" in error_msg
+                            or "OpenRouter internal server error" in error_msg
+                        )
                         error_message_found = True
                         break
             elif isinstance(content, bytes):
                 # Parse SSE-formatted content
                 content_str = content.decode("utf-8", errors="ignore")
-                if '"finish_reason": "error"' in content_str or '"error":' in content_str:
+                if (
+                    '"finish_reason": "error"' in content_str
+                    or '"error":' in content_str
+                ):
                     has_error = True
-                    if "OpenRouter internal server error" in content_str or '"code": 500' in content_str or '"status_code": 500' in content_str:
+                    if (
+                        "OpenRouter internal server error" in content_str
+                        or '"code": 500' in content_str
+                        or '"status_code": 500' in content_str
+                    ):
                         error_message_found = True
                         break
             elif isinstance(content, str) and (
@@ -195,7 +212,7 @@ async def test_chat_completions_http_error_streaming(
                 ):
                     error_message_found = True
                     break
-        
+
         # Verify error was properly handled and contains expected message
         assert has_error, (
             f"Error should be indicated in stream. "
@@ -203,6 +220,9 @@ async def test_chat_completions_http_error_streaming(
             f"First chunk content type: {type(chunks[0].content).__name__ if chunks else 'N/A'}, "
             f"content preview: {str(chunks[0].content)[:200] if chunks else 'N/A'}"
         )
-        assert error_message_found or "OpenRouter internal server error" in str(chunks[0].content) if chunks else False, (
-            "Error message should mention 'OpenRouter internal server error' or contain status code 500"
-        )
+        assert (
+            error_message_found
+            or "OpenRouter internal server error" in str(chunks[0].content)
+            if chunks
+            else False
+        ), "Error message should mention 'OpenRouter internal server error' or contain status code 500"

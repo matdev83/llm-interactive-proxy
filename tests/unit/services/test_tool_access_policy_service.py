@@ -670,9 +670,7 @@ class TestToolAccessPolicyService:
         service = ToolAccessPolicyService(config)
 
         # Production agent should use restrictive policy
-        result = service.is_tool_allowed(
-            "write_file", "gpt-4", "production-agent"
-        )
+        result = service.is_tool_allowed("write_file", "gpt-4", "production-agent")
         is_allowed = result.is_allowed
         assert is_allowed is False
 

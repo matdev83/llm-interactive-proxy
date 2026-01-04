@@ -22,7 +22,6 @@ from src.core.domain.chat import (
 )
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
-from src.core.domain.validation import BackendModelValidation
 from src.core.domain.configuration import (
     LoopDetectionConfig,
     ReasoningConfig,
@@ -37,6 +36,7 @@ from src.core.domain.session import (
     SessionState,
     SessionStateAdapter,
 )
+from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
@@ -237,9 +237,7 @@ class MockBackendService(IBackendService, IBackendProcessor):
         self, backend: str, model: str
     ) -> BackendModelValidation:
         if backend not in self.validations:
-            return BackendModelValidation.invalid(
-                f"Backend {backend} not supported"
-            )
+            return BackendModelValidation.invalid(f"Backend {backend} not supported")
         if model not in self.validations[backend]:
             return BackendModelValidation.invalid(
                 f"Model {model} not supported on backend {backend}"

@@ -9,7 +9,6 @@ Tests coverage for:
 Requirements: 1.2, 1.3, 1.4, 1.9, 1.10, 7.3, 10.1, 12.1
 """
 
-
 import pytest
 from src.core.domain.non_forwardable import (
     MessageIdentity,
@@ -35,9 +34,7 @@ class TestINonForwardableMessageIdentityService:
         # Check method signature via abstract method
         import inspect
 
-        sig = inspect.signature(
-            INonForwardableMessageIdentityService.compute_identity
-        )
+        sig = inspect.signature(INonForwardableMessageIdentityService.compute_identity)
         params = list(sig.parameters.keys())
         assert "message" in params
         # Return annotation is MessageIdentity (which is a type alias for str)

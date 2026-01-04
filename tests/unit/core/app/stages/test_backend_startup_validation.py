@@ -126,7 +126,9 @@ class TestBackendStageDelegation:
     ):
         """Test that validate() propagates exceptions raised by validator.validate_all()."""
         mock_validator = AsyncMock(spec=IBackendValidator)
-        mock_validator.validate_all = AsyncMock(side_effect=RuntimeError("Validation failed"))
+        mock_validator.validate_all = AsyncMock(
+            side_effect=RuntimeError("Validation failed")
+        )
 
         mock_provider = Mock(spec=IServiceProvider)
         mock_provider.get_required_service = Mock(return_value=mock_validator)

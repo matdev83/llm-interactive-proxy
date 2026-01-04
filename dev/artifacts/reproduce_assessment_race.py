@@ -4,10 +4,11 @@ Reproduction script for race condition in Assessment domain models.
 This script simulates concurrent access to SessionAssessmentState which
 modifies mutable fields without lock protection.
 """
+
 import asyncio
 import sys
 
-sys.path.insert(0, '.')
+sys.path.insert(0, ".")
 
 from src.core.domain.assessment import (
     AssessmentResult,

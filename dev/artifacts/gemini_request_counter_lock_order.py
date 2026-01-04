@@ -9,6 +9,7 @@ This means:
 2. Race conditions in _load_state() and _reset_if_needed() called before lock exists
 3. Concurrent increments during initialization are unprotected
 """
+
 import json
 import tempfile
 from pathlib import Path
@@ -36,7 +37,11 @@ def test_lock_creation_order_issue():
             self._reset_if_needed()
 
             # Lock is created LAST
-            self._lock = type('MockLock', (), {'__enter__': lambda s: None, '__exit__': lambda s, *a: None})()
+            self._lock = type(
+                "MockLock",
+                (),
+                {"__enter__": lambda s: None, "__exit__": lambda s, *a: None},
+            )()
 
         def _load_state(self) -> None:
             # Reads/writes shared state without lock protection
@@ -45,7 +50,9 @@ def test_lock_creation_order_issue():
                     data = json.load(f)
                     # ISSUE: No lock protection here
                     self.count = data.get("count", 0)
-                    self.last_reset_date = data.get("last_reset_date", self.last_reset_date)
+                    self.last_reset_date = data.get(
+                        "last_reset_date", self.last_reset_date
+                    )
 
         def _reset_if_needed(self) -> None:
             # Writes to shared state without lock protection
@@ -68,8 +75,10 @@ def test_concurrent_initialization_and_increment():
     print("\n=== Test: Concurrent Initialization and Increment ===")
 
     # Create a temporary file for persistence
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-        f.write('{"count": 100, "last_reset_date": "2025-01-01", "logged_thresholds": []}')
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write(
+            '{"count": 100, "last_reset_date": "2025-01-01", "logged_thresholds": []}'
+        )
         temp_path = Path(f.name)
 
     try:
@@ -83,10 +92,12 @@ def test_concurrent_initialization_and_increment():
 
                 # Simulate slow initialization
                 import time
+
                 time.sleep(0.01)
 
                 # Create lock after state initialization
                 from threading import Lock
+
                 self._lock = Lock()
                 self._lock_created = True
 
@@ -110,6 +121,7 @@ def test_concurrent_initialization_and_increment():
 
         def try_increment():
             import time
+
             time.sleep(0.005)  # Try to increment during initialization
             try:
                 counter.increment() if counter else None
@@ -140,11 +152,12 @@ def test_increment_during_load_state():
     """Test increment during _load_state operation."""
     print("\n=== Test: Increment During _load_state ===")
 
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
         f.write('{"count": 50}')
         temp_path = Path(f.name)
 
     try:
+
         class VulnerableCounter:
             def __init__(self, persistence_path: Path) -> None:
                 self.persistence_path = persistence_path
@@ -156,6 +169,7 @@ def test_increment_during_load_state():
 
                 # Create lock after loading
                 from threading import Lock
+
                 self._lock = Lock()
 
             def _load_state(self) -> None:
@@ -183,6 +197,7 @@ def test_increment_during_load_state():
 
         def try_increments():
             import time
+
             time.sleep(0.005)
             for i in range(5):
                 try:

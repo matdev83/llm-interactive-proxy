@@ -3,6 +3,7 @@
 This script demonstrates that the race condition has been fixed
 by using asyncio.Lock instead of threading.Lock for async operations.
 """
+
 import asyncio
 
 from src.services.test_execution_reminder.test_execution_reminder_handler import (
@@ -27,9 +28,7 @@ async def test_concurrent_mark_operations():
     async def mark_clean_operations():
         """Concurrent clean marking task."""
         for i in range(50):
-            await handler._mark_session_clean(
-                session_id, "pytest", "python", "pytest"
-            )
+            await handler._mark_session_clean(session_id, "pytest", "python", "pytest")
 
     # Launch concurrent operations (with async lock protection)
     async with asyncio.TaskGroup() as tg:
@@ -39,7 +38,9 @@ async def test_concurrent_mark_operations():
     # Check final state - should be one of two values, not corrupted
     state = await handler._get_session_state(session_id)
     if state:
-        print(f"Final state - is_dirty: {state.is_dirty}, modification_count: {state.modification_count}")
+        print(
+            f"Final state - is_dirty: {state.is_dirty}, modification_count: {state.modification_count}"
+        )
         # With async lock, the state should be consistent
         # Both counters may be incremented but state should be valid
         return True

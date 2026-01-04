@@ -28,13 +28,13 @@ from src.core.domain.configuration.backend_config import BackendConfiguration
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.validation import BackendModelValidation
 from src.core.domain.session import (
     Session,
     SessionInteraction,
     SessionState,
     SessionStateAdapter,
 )
+from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.command_processor_interface import ICommandProcessor
@@ -156,9 +156,7 @@ class MockBackendService(IBackendService, IBackendProcessor):
         self, backend: str, model: str
     ) -> BackendModelValidation:
         if backend not in self.validations:
-            return BackendModelValidation.invalid(
-                f"Backend {backend} not supported"
-            )
+            return BackendModelValidation.invalid(f"Backend {backend} not supported")
 
         if model not in self.validations[backend]:
             return BackendModelValidation.invalid(

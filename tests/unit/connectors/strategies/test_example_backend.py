@@ -147,7 +147,9 @@ class TestOCPCompliance:
         unknown connector types fall back gracefully without errors.
         """
         # Use a connector type that definitely doesn't have a registered strategy
-        strategy = initialization_strategy_registry.get_strategy("unknown_connector_xyz")
+        strategy = initialization_strategy_registry.get_strategy(
+            "unknown_connector_xyz"
+        )
 
         # Should return default strategy
         assert strategy is not None

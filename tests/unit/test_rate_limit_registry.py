@@ -33,6 +33,7 @@ class TestRateLimitRegistry:
     async def test_set_and_get_single_entry(self, registry: RateLimitRegistry) -> None:
         """Test setting and getting a single entry."""
         from tests.utils.fake_clock import FakeClock
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             backend, model, key = "openai", "gpt-4", "user1"
 
@@ -51,6 +52,7 @@ class TestRateLimitRegistry:
     async def test_set_with_none_model(self, registry: RateLimitRegistry) -> None:
         """Test setting with None model."""
         from tests.utils.fake_clock import FakeClock
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             backend, key = "anthropic", "user2"
 
@@ -98,9 +100,12 @@ class TestRateLimitRegistry:
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_earliest_with_single_entry(self, registry: RateLimitRegistry) -> None:
+    async def test_earliest_with_single_entry(
+        self, registry: RateLimitRegistry
+    ) -> None:
         """Test earliest with a single entry."""
         from tests.utils.fake_clock import FakeClock
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             registry.set("backend1", "model1", "key1", 30.0)
 
@@ -109,9 +114,12 @@ class TestRateLimitRegistry:
             assert result == clock.now() + 30.0
 
     @pytest.mark.asyncio
-    async def test_earliest_with_multiple_entries(self, registry: RateLimitRegistry) -> None:
+    async def test_earliest_with_multiple_entries(
+        self, registry: RateLimitRegistry
+    ) -> None:
         """Test earliest with multiple entries."""
         from tests.utils.fake_clock import FakeClock
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set different delays
             registry.set("backend1", "model1", "key1", 60.0)  # Later
@@ -151,6 +159,7 @@ class TestRateLimitRegistry:
     ) -> None:
         """Test earliest with filtered combinations."""
         from tests.utils.fake_clock import FakeClock
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             # Set entries for different backends
             registry.set("backend1", "model1", "key1", 30.0)
@@ -169,6 +178,7 @@ class TestRateLimitRegistry:
     ) -> None:
         """Test earliest with empty combinations list."""
         from tests.utils.fake_clock import FakeClock
+
         async with FakeClockContext(FakeClock(initial_time=1000.0)) as clock:
             registry.set("backend1", "model1", "key1", 30.0)
 

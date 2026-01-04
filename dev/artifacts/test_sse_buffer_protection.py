@@ -67,19 +67,24 @@ def test_sse_buffer_protection_prevents_unbounded_growth():
         chunk_count += 1
 
     # Verify that buffer never exceeds the limit
-    assert max_buffer_observed <= MAX_SSE_BUFFER_SIZE + len(chunk_text), (
-        f"Buffer exceeded limit: {max_buffer_observed} > {MAX_SSE_BUFFER_SIZE}"
-    )
+    assert max_buffer_observed <= MAX_SSE_BUFFER_SIZE + len(
+        chunk_text
+    ), f"Buffer exceeded limit: {max_buffer_observed} > {MAX_SSE_BUFFER_SIZE}"
 
 
 @pytest.mark.asyncio
 async def test_max_sse_buffer_size_constant():
     """Test that MAX_SSE_BUFFER_SIZE is defined and has reasonable value."""
     # The constant should be defined
-    assert hasattr(OpenAIConnector, "__annotations__") or "MAX_SSE_BUFFER_SIZE" in globals()
+    assert (
+        hasattr(OpenAIConnector, "__annotations__")
+        or "MAX_SSE_BUFFER_SIZE" in globals()
+    )
 
     # Should be a reasonable size for SSE buffer (16KB as per implementation)
-    assert MAX_SSE_BUFFER_SIZE == 16384, f"MAX_SSE_BUFFER_SIZE should be 16384, got {MAX_SSE_BUFFER_SIZE}"
+    assert (
+        MAX_SSE_BUFFER_SIZE == 16384
+    ), f"MAX_SSE_BUFFER_SIZE should be 16384, got {MAX_SSE_BUFFER_SIZE}"
 
 
 def test_sse_buffer_truncation_preserves_valid_data():

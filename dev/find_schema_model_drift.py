@@ -41,24 +41,26 @@ def check_pydantic_model(model_class, schema_path, schema_section):
     schema_file = Path(schema_path)
     if not schema_file.exists():
         return None, None
-    
+
     if str(schema_file) in already_fixed_schemas:
         return None, None
-    
+
     with schema_file.open() as f:
         schema = yaml.safe_load(f)
-    
+
     schema_section_obj = schema.get("properties", {}).get(schema_section, {})
     schema_props = schema_section_obj.get("properties", {})
     if not schema_props:
         schema_props = schema_section_obj
-    
+
     model_fields = set(model_class.model_fields.keys())
-    schema_fields = set(schema_props.keys()) if isinstance(schema_props, dict) else set()
-    
+    schema_fields = (
+        set(schema_props.keys()) if isinstance(schema_props, dict) else set()
+    )
+
     missing_in_schema = model_fields - schema_fields
     extra_in_schema = schema_fields - model_fields
-    
+
     return missing_in_schema, extra_in_schema
 
 
@@ -67,84 +69,120 @@ def check_dataclass_model(dataclass_class, schema_path, schema_section):
     schema_file = Path(schema_path)
     if not schema_file.exists():
         return None, None
-    
+
     if str(schema_file) in already_fixed_schemas:
         return None, None
-    
+
     with schema_file.open() as f:
         schema = yaml.safe_load(f)
-    
+
     schema_section_obj = schema.get("properties", {}).get(schema_section, {})
     schema_props = schema_section_obj.get("properties", {})
     if not schema_props:
         schema_props = schema_section_obj
-    
+
     dataclass_fields = {f.name for f in fields(dataclass_class)}
-    schema_fields = set(schema_props.keys()) if isinstance(schema_props, dict) else set()
-    
+    schema_fields = (
+        set(schema_props.keys()) if isinstance(schema_props, dict) else set()
+    )
+
     # Skip internal fields
-    internal_fields = {f for f in dataclass_fields if f.startswith('_')}
+    internal_fields = {f for f in dataclass_fields if f.startswith("_")}
     dataclass_fields -= internal_fields
-    
+
     missing_in_schema = dataclass_fields - schema_fields
     extra_in_schema = schema_fields - dataclass_fields
-    
+
     return missing_in_schema, extra_in_schema
 
 
 def main():
     issues = []
-    
+
     # Check all Pydantic models in app_config.schema.yaml
     checks = [
-        (UsageTrackingConfig, "config/schemas/app_config.schema.yaml", "usage_tracking"),
+        (
+            UsageTrackingConfig,
+            "config/schemas/app_config.schema.yaml",
+            "usage_tracking",
+        ),
         (RoutingConfig, "config/schemas/app_config.schema.yaml", "routing"),
         (AuthConfig, "config/schemas/app_config.schema.yaml", "auth"),
         (CodebuffConfig, "config/schemas/app_config.schema.yaml", "codebuff"),
-        (EmptyResponseConfig, "config/schemas/app_config.schema.yaml", "empty_response"),
+        (
+            EmptyResponseConfig,
+            "config/schemas/app_config.schema.yaml",
+            "empty_response",
+        ),
         (EndOfSessionConfig, "config/schemas/app_config.schema.yaml", "end_of_session"),
         (HealthCheckConfig, "config/schemas/app_config.schema.yaml", "health_check"),
         (MemoryConfiguration, "config/schemas/app_config.schema.yaml", "memory"),
         (DatabaseConfig, "config/schemas/app_config.schema.yaml", "database"),
     ]
-    
+
     for model, schema_path, section in checks:
         missing, extra = check_pydantic_model(model, schema_path, section)
         if missing or extra:
-            issues.append((model.__name__, schema_path, section, "pydantic", missing, extra))
-    
+            issues.append(
+                (model.__name__, schema_path, section, "pydantic", missing, extra)
+            )
+
     # Check dataclass models in app_config.schema.yaml
     dataclass_checks = [
         (CompactionConfig, "config/schemas/app_config.schema.yaml", "compaction"),
         (AssessmentConfig, "config/schemas/app_config.schema.yaml", "assessment"),
     ]
-    
+
     for model, schema_path, section in dataclass_checks:
         missing, extra = check_dataclass_model(model, schema_path, section)
         if missing or extra:
-            issues.append((model.__name__, schema_path, section, "dataclass", missing, extra))
-    
+            issues.append(
+                (model.__name__, schema_path, section, "dataclass", missing, extra)
+            )
+
     # Check health_check standalone schema
     if Path("config/schemas/health_check.yaml").exists():
         with Path("config/schemas/health_check.yaml").open() as f:
             health_schema = yaml.safe_load(f)
-        
-        ping_props = health_schema.get("properties", {}).get("ping", {}).get("properties", {})
-        http_props = health_schema.get("properties", {}).get("http", {}).get("properties", {})
-        
+
+        ping_props = (
+            health_schema.get("properties", {}).get("ping", {}).get("properties", {})
+        )
+        http_props = (
+            health_schema.get("properties", {}).get("http", {}).get("properties", {})
+        )
+
         ping_fields = set(PingCheckConfig.model_fields.keys())
         http_fields = set(HttpCheckConfig.model_fields.keys())
-        
+
         ping_missing = ping_fields - set(ping_props.keys())
         ping_extra = set(ping_props.keys()) - ping_fields
         http_missing = http_fields - set(http_props.keys())
         http_extra = set(http_props.keys()) - http_fields
-        
+
         if ping_missing or ping_extra:
-            issues.append(("PingCheckConfig", "config/schemas/health_check.yaml", "ping", "pydantic", ping_missing, ping_extra))
+            issues.append(
+                (
+                    "PingCheckConfig",
+                    "config/schemas/health_check.yaml",
+                    "ping",
+                    "pydantic",
+                    ping_missing,
+                    ping_extra,
+                )
+            )
         if http_missing or http_extra:
-            issues.append(("HttpCheckConfig", "config/schemas/health_check.yaml", "http", "pydantic", http_missing, http_extra))
-    
+            issues.append(
+                (
+                    "HttpCheckConfig",
+                    "config/schemas/health_check.yaml",
+                    "http",
+                    "pydantic",
+                    http_missing,
+                    http_extra,
+                )
+            )
+
     # Print results
     if issues:
         print(f"Found {len(issues)} drift issues:\n")
@@ -157,7 +195,7 @@ def main():
             print()
     else:
         print("No drift issues found in non-fixed schemas.")
-    
+
     return 1 if issues else 0
 
 

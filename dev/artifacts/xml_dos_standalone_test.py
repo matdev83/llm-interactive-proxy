@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 
 class AuthenticationError(Exception):
     """Mock AuthenticationError for testing."""
+
     def __init__(self, message, details=None, original_error=None):
         super().__init__(message)
         self.details = details or {}
@@ -23,7 +24,7 @@ def safe_xml_parse(xml_data):
     # Convert bytes to string if needed
     if isinstance(xml_data, bytes):
         try:
-            xml_str = xml_data.decode('utf-8')
+            xml_str = xml_data.decode("utf-8")
         except UnicodeDecodeError as e:
             raise AuthenticationError(
                 f"XML data contains invalid UTF-8: {e!s}",
@@ -32,7 +33,7 @@ def safe_xml_parse(xml_data):
             ) from e
     else:
         xml_str = xml_data
-    
+
     # Check size limits
     MAX_XML_SIZE = 10 * 1024 * 1024  # 10MB
     if len(xml_str) > MAX_XML_SIZE:
@@ -44,21 +45,21 @@ def safe_xml_parse(xml_data):
                 "max_size": MAX_XML_SIZE,
             },
         )
-    
+
     # Check for XML bomb patterns
-    if '<!DOCTYPE' in xml_str and ('<!ENTITY' in xml_str):
+    if "<!DOCTYPE" in xml_str and ("<!ENTITY" in xml_str):
         entity_pattern = r'<!ENTITY\s+\w+\s+"&\w+;'
         if re.search(entity_pattern, xml_str, re.IGNORECASE):
             raise AuthenticationError(
                 "XML contains potentially malicious entity expansion",
                 details={"error": "xml_entity_expansion"},
             )
-    
+
     # Limit nesting depth
     max_depth = 100
     open_tags = 0
     for char in xml_str:
-        if char == '<':
+        if char == "<":
             open_tags += 1
             if open_tags > max_depth:
                 raise AuthenticationError(
@@ -69,25 +70,25 @@ def safe_xml_parse(xml_data):
                         "max_depth": max_depth,
                     },
                 )
-    
+
     # Parse with safety measures
     try:
         original_limit = sys.getrecursionlimit()
         sys.setrecursionlimit(min(max_depth * 2, original_limit))
-        
+
         try:
             # Create safe parser
             try:
                 parser = ET.XMLParser(resolve_entities=False)
             except TypeError:
                 parser = ET.XMLParser()
-            
+
             root = ET.fromstring(xml_str, parser)
             return root
-            
+
         finally:
             sys.setrecursionlimit(original_limit)
-            
+
     except ET.ParseError as e:
         raise AuthenticationError(
             f"XML parsing failed: {e!s}",
@@ -138,7 +139,7 @@ def test_xml_bomb_protection():
     """Test protection against XML bomb attacks."""
     print("Testing XML Bomb Protection...")
     xml_bomb = create_xml_bomb()
-    
+
     try:
         root = safe_xml_parse(xml_bomb)
         print("   [FAIL] XML bomb was NOT blocked!")
@@ -152,7 +153,7 @@ def test_safe_xml_parsing():
     """Test that legitimate XML still works."""
     print("\nTesting Safe XML Parsing...")
     safe_xml = create_safe_xml()
-    
+
     try:
         root = safe_xml_parse(safe_xml)
         print("   [PASS] Legitimate XML parsed successfully")
@@ -166,19 +167,19 @@ def test_safe_xml_parsing():
 if __name__ == "__main__":
     print("XML DoS Protection Test (Standalone)")
     print("=" * 50)
-    
+
     tests_passed = 0
     total_tests = 2
-    
+
     if test_xml_bomb_protection():
         tests_passed += 1
-    
+
     if test_safe_xml_parsing():
         tests_passed += 1
-    
+
     print("\n" + "=" * 50)
     print(f"SUMMARY: {tests_passed}/{total_tests} tests passed")
-    
+
     if tests_passed == total_tests:
         print("[SUCCESS] XML DoS vulnerability has been fixed!")
         exit(0)

@@ -465,6 +465,7 @@ class TestBufferManagementBehavior:
 
             # Give a moment for async processing
             from tests.utils.fake_clock import FakeClockContext
+
             async with FakeClockContext() as clock:
                 sleep_task = asyncio.create_task(asyncio.sleep(0.1))
                 clock.advance(0.1)
@@ -1114,7 +1115,9 @@ class TestPerformanceOptimizationBehavior:
                 # Restore original cache size in case of test failure
                 service._cache_max_size = original_cache_max_size
 
-    @real_time(reason="Measures actual capture time to verify performance remains reasonable (< 1.0s for 50 captures).")
+    @real_time(
+        reason="Measures actual capture time to verify performance remains reasonable (< 1.0s for 50 captures)."
+    )
     @pytest.mark.asyncio
     async def test_async_background_flush_performance(self):
         """

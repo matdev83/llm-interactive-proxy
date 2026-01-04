@@ -231,13 +231,19 @@ class AntigravityAuthMixin:
         except sqlite3.Error as exc:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Unable to read Antigravity state database at %s: %s", db_path, exc, exc_info=True
+                    "Unable to read Antigravity state database at %s: %s",
+                    db_path,
+                    exc,
+                    exc_info=True,
                 )
             return None
         except Exception as exc:  # pragma: no cover - defensive guardrail
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Unexpected error reading Antigravity state db %s: %s", db_path, exc, exc_info=True
+                    "Unexpected error reading Antigravity state db %s: %s",
+                    db_path,
+                    exc,
+                    exc_info=True,
                 )
             return None
 
