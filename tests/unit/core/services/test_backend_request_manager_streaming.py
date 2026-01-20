@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pydantic.types import JsonValue
 from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -13,6 +15,12 @@ from src.core.interfaces.response_processor_interface import ProcessedResponse
 from tests.helpers.backend_request_manager_fixtures import (
     create_backend_request_manager,
 )
+
+JsonDict = dict[str, JsonValue]
+
+
+def _meta(data: dict[str, Any]) -> JsonDict:
+    return cast(JsonDict, data)
 
 
 def _make_context() -> RequestContext:
@@ -43,7 +51,7 @@ async def test_streaming_retry_replays_full_replacement_stream() -> None:
     )
 
     original_request = ChatRequest(
-        model="gemini",
+        model="openai",
         messages=[ChatMessage(role="user", content="hi")],
         stream=True,
     )
@@ -54,23 +62,25 @@ async def test_streaming_retry_replays_full_replacement_stream() -> None:
             [
                 ProcessedResponse(
                     content="dangerous tool response",
-                    metadata={
-                        "tool_call_swallowed": True,
-                        "steering_message": "Do not execute that command.",
-                        "swallowed_original_content": "rm -rf /",
-                        "swallowed_tool_calls": [
-                            {"function": {"name": "shell", "arguments": "{}"}}
-                        ],
-                    },
+                    metadata=_meta(
+                        {
+                            "tool_call_swallowed": True,
+                            "steering_message": "Do not execute that command.",
+                            "swallowed_original_content": "rm -rf /",
+                            "swallowed_tool_calls": [
+                                {"function": {"name": "shell", "arguments": "{}"}}
+                            ],
+                        }
+                    ),
                 )
             ]
         ),
     )
 
     async def retry_stream() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(content="safe replacement 1", metadata={})
+        yield ProcessedResponse(content="safe replacement 1", metadata=_meta({}))
         yield ProcessedResponse(
-            content="safe replacement 2", metadata={"is_done": True}
+            content="safe replacement 2", metadata=_meta({"is_done": True})
         )
 
     # Retry response
@@ -124,18 +134,18 @@ async def test_empty_stream_is_retried_before_forwarding() -> None:
     )
 
     original_request = ChatRequest(
-        model="gemini",
+        model="openai",
         messages=[ChatMessage(role="user", content="hi")],
         stream=True,
     )
 
     async def empty_stream():
-        yield ProcessedResponse(content={"usage": {"prompt_tokens": 1}}, metadata={})
-        yield ProcessedResponse(content="", metadata={"is_done": True})
+        if False:
+            yield ProcessedResponse(content="", metadata=_meta({}))
 
     async def retry_stream():
-        yield ProcessedResponse(content="meaningful output", metadata={})
-        yield ProcessedResponse(content="", metadata={"is_done": True})
+        yield ProcessedResponse(content="meaningful output", metadata=_meta({}))
+        yield ProcessedResponse(content="", metadata=_meta({"is_done": True}))
 
     # First call returns empty stream, second call (retry) returns meaningful content
     backend_processor.process_backend_request.side_effect = [
@@ -174,18 +184,18 @@ async def test_empty_stream_retry_respects_max_limit() -> None:
     )
 
     original_request = ChatRequest(
-        model="gemini",
+        model="openai",
         messages=[ChatMessage(role="user", content="hi")],
         stream=True,
     )
 
     async def empty_stream() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(content={"usage": {"prompt_tokens": 1}}, metadata={})
-        yield ProcessedResponse(content="", metadata={"is_done": True})
+        if False:
+            yield ProcessedResponse(content="", metadata=_meta({}))
 
     async def retry_empty_stream() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(content="", metadata={})
-        yield ProcessedResponse(content="", metadata={"is_done": True})
+        if False:
+            yield ProcessedResponse(content="", metadata=_meta({}))
 
     # First call returns empty stream, retry also returns empty (hits limit)
     backend_processor.process_backend_request.side_effect = [
@@ -237,10 +247,12 @@ async def test_streaming_retry_skipped_when_retry_marker_present() -> None:
     async def original_stream():
         yield ProcessedResponse(
             content="proxy replacement",
-            metadata={
-                "tool_call_swallowed": True,
-                "steering_message": "Already handled.",
-            },
+            metadata=_meta(
+                {
+                    "tool_call_swallowed": True,
+                    "steering_message": "Already handled.",
+                }
+            ),
         )
 
     stream_envelope = StreamingResponseEnvelope(content=original_stream())
@@ -269,19 +281,21 @@ async def test_full_suite_swallow_replays_history_and_hides_steering() -> None:
     """Full-suite steering should replay the request with history and hide steering output."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "please target specific tests",
-        "swallowed_original_content": "original llm response",
-        "swallowed_tool_calls": [
-            {"function": {"name": "execute_command", "arguments": "pytest"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "please target specific tests",
+            "swallowed_original_content": "original llm response",
+            "swallowed_tool_calls": [
+                {"function": {"name": "execute_command", "arguments": "pytest"}}
+            ],
+        }
+    )
     steering_processed = ProcessedResponse(
         content="steering-text", metadata=steering_metadata
     )
     corrected_processed = ProcessedResponse(
-        content="corrected output", metadata={"clean": True}
+        content="corrected output", metadata=_meta({"clean": True})
     )
     response_processor.process_response = AsyncMock(
         side_effect=[steering_processed, corrected_processed]
@@ -309,7 +323,7 @@ async def test_full_suite_swallow_replays_history_and_hides_steering() -> None:
     backend_processor.process_backend_request.side_effect = [
         ResponseEnvelope(
             content="raw tool call",
-            metadata=steering_metadata.copy(),
+            metadata=_meta(dict(steering_metadata)),
         ),
         ResponseEnvelope(content="second response"),
     ]
@@ -347,14 +361,16 @@ async def test_full_suite_swallow_retry_failure_does_not_leak_steering() -> None
     """If steering replay fails, do not forward steering text to the client."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "avoid full suite",
-        "swallowed_original_content": "raw llm response",
-        "swallowed_tool_calls": [
-            {"function": {"name": "execute_command", "arguments": "pytest"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "avoid full suite",
+            "swallowed_original_content": "raw llm response",
+            "swallowed_tool_calls": [
+                {"function": {"name": "execute_command", "arguments": "pytest"}}
+            ],
+        }
+    )
     steering_processed = ProcessedResponse(
         content="steering-text", metadata=steering_metadata
     )
@@ -366,14 +382,16 @@ async def test_full_suite_swallow_retry_failure_does_not_leak_steering() -> None
     # The recursive call will process the fallback response again
     fallback_processed = ProcessedResponse(
         content="[Proxy Notice]\nA tool call was blocked by proxy policy and the proxy attempted to recover, but the backend retry failed. Please retry your request.",
-        metadata={
-            # Coordinator includes tool_call_swallowed in fallback metadata (from original response metadata)
-            "tool_call_swallowed": True,
-            "tool_call_reactor_retry_failed": True,
-            "steering_retry_occurred": True,
-            "dangerous_command_retry_count": 1,
-            "tool_call_reactor_retry_count": 1,
-        },
+        metadata=_meta(
+            {
+                # Coordinator includes tool_call_swallowed in fallback metadata (from original response metadata)
+                "tool_call_swallowed": True,
+                "tool_call_reactor_retry_failed": True,
+                "steering_retry_occurred": True,
+                "dangerous_command_retry_count": 1,
+                "tool_call_reactor_retry_count": 1,
+            }
+        ),
     )
     # Handler processes initial response (detects tool_call_swallowed), then recursively processes fallback response
     # The recursive call will process the fallback response again, but won't retry because request doesn't have _tool_call_reactor_retry
@@ -404,7 +422,7 @@ async def test_full_suite_swallow_retry_failure_does_not_leak_steering() -> None
     backend_processor.process_backend_request.side_effect = [
         ResponseEnvelope(
             content="raw tool call",
-            metadata=steering_metadata.copy(),
+            metadata=_meta(dict(steering_metadata)),
         ),
         RuntimeError("backend failure"),
     ]
@@ -453,21 +471,23 @@ async def test_streaming_full_suite_swallow_replays_history_and_hides_steering()
         stream=True,
     )
 
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "please target specific tests",
-        "swallowed_original_content": "stream steering content",
-        "swallowed_tool_calls": [
-            {"function": {"name": "execute_command", "arguments": "pytest"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "please target specific tests",
+            "swallowed_original_content": "stream steering content",
+            "swallowed_tool_calls": [
+                {"function": {"name": "execute_command", "arguments": "pytest"}}
+            ],
+        }
+    )
 
     async def initial_stream() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content="steering chunk", metadata=steering_metadata)
 
     async def retry_stream() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(content="fixed 1", metadata={})
-        yield ProcessedResponse(content="fixed 2", metadata={"is_done": True})
+        yield ProcessedResponse(content="fixed 1", metadata=_meta({}))
+        yield ProcessedResponse(content="fixed 2", metadata=_meta({"is_done": True}))
 
     backend_processor.process_backend_request.side_effect = [
         StreamingResponseEnvelope(content=initial_stream()),
@@ -523,14 +543,16 @@ async def test_streaming_full_suite_swallow_retry_failure_does_not_leak_steering
         stream=True,
     )
 
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "avoid full suite",
-        "swallowed_original_content": "stream steering content",
-        "swallowed_tool_calls": [
-            {"function": {"name": "execute_command", "arguments": "pytest"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "avoid full suite",
+            "swallowed_original_content": "stream steering content",
+            "swallowed_tool_calls": [
+                {"function": {"name": "execute_command", "arguments": "pytest"}}
+            ],
+        }
+    )
 
     async def initial_stream() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content="steering chunk", metadata=steering_metadata)
@@ -564,18 +586,25 @@ async def test_dangerous_command_swallow_replays_history_and_hides_steering() ->
     """Dangerous command steering should replay history and hide steering output."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "dangerous command blocked",
-        "swallowed_original_content": "raw dangerous output",
-        "swallowed_tool_calls": [
-            {"function": {"name": "execute_command", "arguments": "git reset --hard"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "dangerous command blocked",
+            "swallowed_original_content": "raw dangerous output",
+            "swallowed_tool_calls": [
+                {
+                    "function": {
+                        "name": "execute_command",
+                        "arguments": "git reset --hard",
+                    }
+                }
+            ],
+        }
+    )
     steering_processed = ProcessedResponse(
         content="steering-text", metadata=steering_metadata
     )
-    corrected_processed = ProcessedResponse(content="safe reply", metadata={})
+    corrected_processed = ProcessedResponse(content="safe reply", metadata=_meta({}))
     response_processor.process_response = AsyncMock(
         side_effect=[steering_processed, corrected_processed]
     )
@@ -600,7 +629,7 @@ async def test_dangerous_command_swallow_replays_history_and_hides_steering() ->
     backend_processor.process_backend_request.side_effect = [
         ResponseEnvelope(
             content="raw tool call",
-            metadata=steering_metadata.copy(),
+            metadata=_meta(dict(steering_metadata)),
         ),
         ResponseEnvelope(content="second response"),
     ]
@@ -628,18 +657,22 @@ async def test_tool_access_block_non_streaming_replays_and_hides_steering() -> N
     """Tool access control steering should replay history and hide steering for non-stream."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "tool not allowed",
-        "swallowed_original_content": "blocked content",
-        "swallowed_tool_calls": [
-            {"function": {"name": "deploy_service", "arguments": "{}"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "tool not allowed",
+            "swallowed_original_content": "blocked content",
+            "swallowed_tool_calls": [
+                {"function": {"name": "deploy_service", "arguments": "{}"}}
+            ],
+        }
+    )
     steering_processed = ProcessedResponse(
         content="steering-text", metadata=steering_metadata
     )
-    corrected_processed = ProcessedResponse(content="allowed output", metadata={})
+    corrected_processed = ProcessedResponse(
+        content="allowed output", metadata=_meta({})
+    )
     response_processor.process_response = AsyncMock(
         side_effect=[steering_processed, corrected_processed]
     )
@@ -661,7 +694,7 @@ async def test_tool_access_block_non_streaming_replays_and_hides_steering() -> N
     backend_processor.process_backend_request.side_effect = [
         ResponseEnvelope(
             content="raw tool call",
-            metadata=steering_metadata.copy(),
+            metadata=_meta(dict(steering_metadata)),
         ),
         ResponseEnvelope(content="second response"),
     ]
@@ -694,20 +727,22 @@ async def test_tool_access_block_streaming_replays_and_hides_steering() -> None:
         response_processor=response_processor,
     )
 
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "tool not allowed",
-        "swallowed_original_content": "blocked stream content",
-        "swallowed_tool_calls": [
-            {"function": {"name": "deploy_service", "arguments": "{}"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "tool not allowed",
+            "swallowed_original_content": "blocked stream content",
+            "swallowed_tool_calls": [
+                {"function": {"name": "deploy_service", "arguments": "{}"}}
+            ],
+        }
+    )
 
     async def initial_stream() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content="steering chunk", metadata=steering_metadata)
 
     async def retry_stream() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(content="allowed later", metadata={})
+        yield ProcessedResponse(content="allowed later", metadata=_meta({}))
 
     backend_processor.process_backend_request.side_effect = [
         StreamingResponseEnvelope(content=initial_stream()),
@@ -751,14 +786,16 @@ async def test_config_steering_streaming_retry_failure_does_not_leak() -> None:
         response_processor=response_processor,
     )
 
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "use patch_file",
-        "swallowed_original_content": "apply_diff steering",
-        "swallowed_tool_calls": [
-            {"function": {"name": "apply_diff", "arguments": "{}"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "use patch_file",
+            "swallowed_original_content": "apply_diff steering",
+            "swallowed_tool_calls": [
+                {"function": {"name": "apply_diff", "arguments": "{}"}}
+            ],
+        }
+    )
 
     async def initial_stream() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content="steering chunk", metadata=steering_metadata)
@@ -797,18 +834,20 @@ async def test_config_steering_non_streaming_replays_and_hides_steering() -> Non
     """Config steering (apply_diff) should replay history and hide steering output."""
     backend_processor = AsyncMock()
     response_processor = MagicMock()
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "use patch_file",
-        "swallowed_original_content": "apply_diff steering",
-        "swallowed_tool_calls": [
-            {"function": {"name": "apply_diff", "arguments": "{}"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "use patch_file",
+            "swallowed_original_content": "apply_diff steering",
+            "swallowed_tool_calls": [
+                {"function": {"name": "apply_diff", "arguments": "{}"}}
+            ],
+        }
+    )
     steering_processed = ProcessedResponse(
         content="steering-text", metadata=steering_metadata
     )
-    corrected_processed = ProcessedResponse(content="patched", metadata={})
+    corrected_processed = ProcessedResponse(content="patched", metadata=_meta({}))
     response_processor.process_response = AsyncMock(
         side_effect=[steering_processed, corrected_processed]
     )
@@ -830,14 +869,18 @@ async def test_config_steering_non_streaming_replays_and_hides_steering() -> Non
     backend_processor.process_backend_request.side_effect = [
         ResponseEnvelope(
             content="raw tool call",
-            metadata={
-                "tool_call_swallowed": True,
-                "steering_message": steering_metadata.get("steering_message"),
-                "swallowed_original_content": steering_metadata.get(
-                    "swallowed_original_content"
-                ),
-                "swallowed_tool_calls": steering_metadata.get("swallowed_tool_calls"),
-            },
+            metadata=_meta(
+                {
+                    "tool_call_swallowed": True,
+                    "steering_message": steering_metadata.get("steering_message"),
+                    "swallowed_original_content": steering_metadata.get(
+                        "swallowed_original_content"
+                    ),
+                    "swallowed_tool_calls": steering_metadata.get(
+                        "swallowed_tool_calls"
+                    ),
+                }
+            ),
         ),
         ResponseEnvelope(content="second response"),
     ]
@@ -869,14 +912,16 @@ async def test_file_sandboxing_streaming_retry_failure_does_not_leak() -> None:
         response_processor=response_processor,
     )
 
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "File operation blocked",
-        "swallowed_original_content": "file sandbox steer",
-        "swallowed_tool_calls": [
-            {"function": {"name": "write_file", "arguments": "{}"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "File operation blocked",
+            "swallowed_original_content": "file sandbox steer",
+            "swallowed_tool_calls": [
+                {"function": {"name": "write_file", "arguments": "{}"}}
+            ],
+        }
+    )
 
     async def initial_stream() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content="steering chunk", metadata=steering_metadata)
@@ -923,20 +968,27 @@ async def test_dangerous_command_streaming_replays_and_hides_steering() -> None:
         response_processor=response_processor,
     )
 
-    steering_metadata = {
-        "tool_call_swallowed": True,
-        "steering_message": "dangerous command blocked",
-        "swallowed_original_content": "steering content",
-        "swallowed_tool_calls": [
-            {"function": {"name": "execute_command", "arguments": "git reset --hard"}}
-        ],
-    }
+    steering_metadata = _meta(
+        {
+            "tool_call_swallowed": True,
+            "steering_message": "dangerous command blocked",
+            "swallowed_original_content": "steering content",
+            "swallowed_tool_calls": [
+                {
+                    "function": {
+                        "name": "execute_command",
+                        "arguments": "git reset --hard",
+                    }
+                }
+            ],
+        }
+    )
 
     async def initial_stream() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content="steering chunk", metadata=steering_metadata)
 
     async def retry_stream() -> AsyncIterator[ProcessedResponse]:
-        yield ProcessedResponse(content="safer command", metadata={})
+        yield ProcessedResponse(content="safer command", metadata=_meta({}))
 
     backend_processor.process_backend_request.side_effect = [
         StreamingResponseEnvelope(content=initial_stream()),

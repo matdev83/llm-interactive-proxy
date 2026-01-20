@@ -9,6 +9,8 @@ import threading
 from collections.abc import Callable
 from typing import Any, TypeVar, cast
 
+import httpx
+
 from src.core.common.exceptions import ServiceResolutionError
 from src.core.di.diagnostics import (
     enrich_factory_error,
@@ -481,35 +483,59 @@ class ServiceCollection(IServiceCollection):
     ) -> IServiceCollection:
         """Register an existing instance as a singleton.
 
-        If replacing an existing instance, the old instance is closed if it's
-        an httpx.AsyncClient to prevent resource leaks.
+        If replacing an existing httpx.AsyncClient instance, schedule cleanup of the
+        previous client to prevent leaks. Cleanup tasks are tracked and awaited
+        during dispose().
         """
-        # Check if we're replacing an existing instance that needs cleanup
-        old_descriptor = self._descriptors.get(service_type)
-        if old_descriptor is not None and old_descriptor.instance is not None:
-            old_instance = old_descriptor.instance
-            # Close httpx.AsyncClient instances to prevent leaks
-            if hasattr(old_instance, "aclose") and callable(old_instance.aclose):
-                import httpx
-
-                if isinstance(old_instance, httpx.AsyncClient):
-                    with contextlib.suppress(RuntimeError, AttributeError):
-                        # No event loop - client will be closed by finalizer
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            # Schedule async close task and track it to prevent resource leaks
-                            cleanup_task = asyncio.create_task(old_instance.aclose())
-                            self._cleanup_tasks.add(cleanup_task)
-                        else:
-                            # Run synchronously if no event loop
-                            loop.run_until_complete(old_instance.aclose())
-
+        existing_descriptor = self._descriptors.get(service_type)
+        if existing_descriptor and existing_descriptor.instance is not None:
+            previous_instance = existing_descriptor.instance
+            if previous_instance is not instance:
+                self._schedule_instance_cleanup(previous_instance)
         self._descriptors[service_type] = ServiceDescriptor(
             service_type=service_type,
             lifetime=ServiceLifetime.SINGLETON,
             instance=instance,
         )
         return self
+
+    def _schedule_instance_cleanup(self, instance: Any) -> None:
+        if isinstance(instance, httpx.AsyncClient):
+            self._schedule_http_client_cleanup(instance)
+
+    def _schedule_http_client_cleanup(self, client: httpx.AsyncClient) -> None:
+        if client.is_closed:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is None or not loop.is_running():
+            try:
+                asyncio.run(client.aclose())
+            except RuntimeError:
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.run_until_complete(client.aclose())
+                except (RuntimeError, OSError, asyncio.CancelledError) as err:
+                    if self._logger.isEnabledFor(logging.WARNING):
+                        self._logger.warning(
+                            "Failed to close HTTP client during cleanup: %s",
+                            err,
+                            exc_info=True,
+                        )
+            return
+
+        cleanup_task = loop.create_task(client.aclose())
+        self._cleanup_tasks.add(cleanup_task)
+
+        def _finalize(task: asyncio.Task[None]) -> None:
+            self._cleanup_tasks.discard(task)
+            with contextlib.suppress(asyncio.CancelledError):
+                task.exception()
+
+        cleanup_task.add_done_callback(_finalize)
 
     def build_service_provider(
         self, run_post_build_hooks: bool = True

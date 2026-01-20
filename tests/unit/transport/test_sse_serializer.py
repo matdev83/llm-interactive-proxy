@@ -9,9 +9,11 @@ and tool-call sanitization.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from src.core.domain.streaming.stop_chunk_with_usage import StopChunkWithUsage
 from src.core.domain.streaming.streaming_content import StreamingContent
+from src.core.domain.usage_summary import UsageSummary
 from src.core.transport.streaming.sse_serializer import SSESerializer
 
 
@@ -106,6 +108,27 @@ class TestSSESerializerErrorChunks:
         # Should contain error information
         assert "error" in result_str
         assert "Error occurred" in result_str
+
+    def test_error_chunk_with_string_metadata(self) -> None:
+        """String error metadata should serialize into error message."""
+        serializer = SSESerializer()
+        chunk = StreamingContent(
+            content="",
+            metadata={
+                "finish_reason": "error",
+                "error": "payload_too_large",
+            },
+            is_done=True,
+        )
+
+        result = serializer.serialize(chunk)
+        result_str = result.decode("utf-8")
+        lines = result_str.strip().split("\n\n")
+        json_line = lines[0][6:]
+        payload = json.loads(json_line)
+
+        assert payload["choices"][0]["finish_reason"] == "error"
+        assert payload["error"]["message"] == "payload_too_large"
 
 
 class TestSSESerializerCancellationChunks:
@@ -289,7 +312,7 @@ class TestSSESerializerStopChunkWithUsage:
     def test_stop_chunk_with_usage_serializes_correctly(self) -> None:
         """StopChunkWithUsage should serialize with usage at top level."""
         serializer = SSESerializer()
-        chunk_data = {
+        chunk_data: dict[str, Any] = {
             "id": "chatcmpl-test123",
             "choices": [{"delta": {"content": "4"}, "finish_reason": "stop"}],
             "usage": {
@@ -304,7 +327,7 @@ class TestSSESerializerStopChunkWithUsage:
             content=stop_chunk,
             metadata={"finish_reason": "stop"},
             is_done=True,
-            usage=chunk_data["usage"],
+            usage=UsageSummary.from_dict(chunk_data["usage"]),
         )
 
         result = serializer.serialize(chunk)

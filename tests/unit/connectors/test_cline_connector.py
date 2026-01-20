@@ -441,12 +441,12 @@ async def test_validate_cline_agent_valid_x_title(
             },
         )
 
-    connector = ClineConnector(http_client, config, translation_service)
-    await connector.initialize(secrets_path=secrets_path)
+        connector = ClineConnector(http_client, config, translation_service)
+        await connector.initialize(secrets_path=secrets_path)
 
-    # Valid X-Title with Cline
-    headers = {"X-Title": "Cline - AI Assistant"}
-    connector._validate_cline_agent(headers)  # Should not raise
+        # Valid X-Title with Cline
+        headers = {"X-Title": "Cline - AI Assistant"}
+        connector._validate_cline_agent(headers)  # Should not raise
 
 
 @pytest.mark.asyncio

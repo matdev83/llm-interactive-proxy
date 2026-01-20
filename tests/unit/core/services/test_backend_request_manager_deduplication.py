@@ -8,13 +8,17 @@ import pytest
 from src.core.common.exceptions import DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.interfaces.request_deduplication_interface import (
     IRequestDeduplicationService,
 )
-from src.core.interfaces.response_processor_interface import IResponseProcessor
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,
+    ProcessedResponse,
+)
 from src.core.services.backend_request_manager_service import BackendRequestManager
 
 from tests.helpers.backend_request_manager_fixtures import (
@@ -128,3 +132,42 @@ class TestBackendRequestManagerDeduplication:
 
         # Backend should not be called on duplicate
         mock_backend_processor.process_backend_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_streaming_dedup_bypassed_for_streaming_request(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Verify streaming dedup is bypassed for streaming requests."""
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={"user-agent": "generic-client/1.0"},
+            cookies={},
+            state=MagicMock(),
+            app_state=MagicMock(),
+            agent="generic-client/1.0",
+        )
+
+        async def _empty_stream():
+            if False:  # pragma: no cover - type hint placeholder
+                yield ProcessedResponse()
+            return
+
+        mock_backend_processor.process_backend_request = AsyncMock(
+            return_value=StreamingResponseEnvelope(content=_empty_stream())
+        )
+        mock_dedup_service.check_and_register.return_value = (True, "hash123")
+
+        await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+
+        mock_dedup_service.check_and_register.assert_not_called()
+        mock_backend_processor.process_backend_request.assert_awaited_once()

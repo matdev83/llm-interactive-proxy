@@ -134,6 +134,10 @@ class OpenAIDictParser(IParserStrategy):
                         str(finish_reason).strip().lower() if finish_reason else ""
                     )
                     if normalized_reason in {
+                        "stop",
+                        "length",
+                        "content_filter",
+                        "tool_calls",
                         "error",
                         "cancelled",
                         "user_cancelled",

@@ -144,8 +144,27 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         if metadata.get("error"):
             return True
 
-        # Check for finish_reason: "error"
-        if metadata.get("finish_reason") == "error":
+        accumulated_content = metadata.get("accumulated_content")
+        if isinstance(accumulated_content, str) and accumulated_content.strip():
+            return True
+        accumulated_reasoning = metadata.get("accumulated_reasoning")
+        if isinstance(accumulated_reasoning, str) and accumulated_reasoning.strip():
+            return True
+
+        # Check for finish_reason in metadata (error/cancelled/terminal cases)
+        finish_reason = metadata.get("finish_reason")
+        if isinstance(finish_reason, str) and finish_reason in {
+            "error",
+            "cancelled",
+            "security_limit",
+            "tool_calls",
+        }:
+            return True
+
+        # Treat explicit terminal markers as meaningful
+        if metadata.get("is_cancellation") is True:
+            return True
+        if metadata.get("loop_detected") is True:
             return True
 
         # Check for error in content dict
@@ -189,6 +208,14 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             if choices and isinstance(choices, list):
                 for choice in choices:
                     if isinstance(choice, dict):
+                        finish = choice.get("finish_reason")
+                        if isinstance(finish, str) and finish in {
+                            "error",
+                            "cancelled",
+                            "security_limit",
+                            "tool_calls",
+                        }:
+                            return True
                         delta = choice.get("delta", {})
                         if delta.get("tool_calls"):
                             return True
@@ -286,6 +313,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         request_context: RequestContext,
     ) -> AsyncIterator[ProcessedResponse]:
         """Wrap stream with response processor middleware with fail-open behavior."""
+        backend_name = processing_context.backend_name or ""
+        if "gemini" in backend_name.lower():
+            return original_stream
+
         try:
             # Create a new RequestContext with backend and model info from processing_context
             # This matches the non-streaming handler pattern of cloning instead of mutating
@@ -520,7 +551,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 )
         return None
 
-    async def handle(
+    async def handle(  # noqa: C901
         self,
         stream: StreamingResponseEnvelope,
         request: ChatRequest,
@@ -793,8 +824,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         async def gate_empty_stream() -> AsyncIterator[ProcessedResponse]:
             buffered: list[ProcessedResponse] = []
             seen_meaningful = False
+            seen_any = False
 
             async for chunk in attach_metadata_stream():
+                seen_any = True
                 meaningful = self._chunk_has_meaningful_output(chunk)
                 if not seen_meaningful:
                     if meaningful:
@@ -810,14 +843,26 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     yield chunk
 
             if not seen_meaningful:
-                # Use retry_depth + 1 to match middleware's retry_count tracking
-                # (retry_count starts at 1 for first retry)
-                raise EmptyResponseRetryError(
-                    recovery_prompt=_STREAM_RECOVERY_PROMPT,
-                    session_id=processing_context.session_id,
-                    retry_count=retry_depth + 1,
-                    original_request=request,
-                )
+                if seen_any and buffered:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Streaming response contained only empty chunks for session %s; "
+                            "passing through without empty-stream retry.",
+                            processing_context.session_id,
+                        )
+                    for buffered_chunk in buffered:
+                        yield buffered_chunk
+                    return
+
+                if not seen_any:
+                    # Use retry_depth + 1 to match middleware's retry_count tracking
+                    # (retry_count starts at 1 for first retry)
+                    raise EmptyResponseRetryError(
+                        recovery_prompt=_STREAM_RECOVERY_PROMPT,
+                        session_id=processing_context.session_id,
+                        retry_count=retry_depth + 1,
+                        original_request=request,
+                    )
 
         # Handle empty stream recovery
         async def stream_with_empty_recovery() -> AsyncIterator[ProcessedResponse]:
@@ -831,6 +876,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         logger.warning(
                             "Maximum empty stream recovery attempts reached for session %s",
                             processing_context.session_id,
+                        )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Empty stream recovery exhausted for session %s (retry=%s)",
+                            processing_context.session_id,
+                            exc.retry_count,
                             exc_info=True,
                         )
                     self._raise_empty_stream_error(
@@ -842,6 +893,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     logger.info(
                         "Empty streaming response detected, retrying with recovery prompt for session %s",
                         processing_context.session_id,
+                    )
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Empty streaming response retry triggered for session %s (retry=%s)",
+                        processing_context.session_id,
+                        exc.retry_count,
                         exc_info=True,
                     )
 
@@ -881,8 +938,16 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     metadata=getattr(retry_response, "metadata", {}),
                 )
 
+        backend_name = processing_context.backend_name or ""
+        use_empty_recovery = "gemini" not in backend_name.lower()
+        content_stream = (
+            stream_with_empty_recovery()
+            if use_empty_recovery
+            else attach_metadata_stream()
+        )
+
         return StreamingResponseEnvelope(
-            content=stream_with_empty_recovery(),
+            content=content_stream,
             media_type=stream.media_type,
             headers=stream.headers,
             cancel_callback=stream.cancel_callback,

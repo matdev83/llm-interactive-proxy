@@ -117,6 +117,61 @@ class FunctionDefinition(DomainModel):
     strict: bool | None = None  # OpenAI strict mode for function parameters
 
 
+def _coerce_properties_list(items: list[Any]) -> dict[str, Any] | None:
+    mapped: dict[str, Any] = {}
+    for item in items:
+        if isinstance(item, dict):
+            key = item.get("key") or item.get("name")
+            if "value" in item:
+                value = item.get("value")
+            else:
+                value = item.get("schema")
+        elif isinstance(item, list | tuple) and len(item) == 2:
+            key, value = item
+        else:
+            return None
+        if not isinstance(key, str) or not key:
+            return None
+        mapped[key] = value
+    return mapped
+
+
+def _normalize_schema_properties(schema: Any) -> Any:
+    if isinstance(schema, dict):
+        normalized: dict[str, Any] = {}
+        for key, value in schema.items():
+            if key == "properties" and isinstance(value, list):
+                coerced = _coerce_properties_list(value)
+                if coerced is not None:
+                    normalized[key] = {
+                        prop_key: _normalize_schema_properties(prop_val)
+                        for prop_key, prop_val in coerced.items()
+                    }
+                else:
+                    normalized[key] = {}
+                continue
+            normalized[key] = _normalize_schema_properties(value)
+        return normalized
+    if isinstance(schema, list):
+        return [_normalize_schema_properties(item) for item in schema]
+    return schema
+
+
+def _normalize_tool_schema(tool: dict[str, Any]) -> dict[str, Any]:
+    tool_copy = dict(tool)
+    function = tool_copy.get("function")
+    if isinstance(function, dict):
+        params = function.get("parameters")
+        if isinstance(params, dict):
+            function_copy = dict(function)
+            function_copy["parameters"] = _normalize_schema_properties(params)
+            tool_copy["function"] = function_copy
+        return tool_copy
+    if isinstance(tool_copy.get("parameters"), dict):
+        tool_copy["parameters"] = _normalize_schema_properties(tool_copy["parameters"])
+    return tool_copy
+
+
 class ToolDefinition(DomainModel):
     """Represents a tool definition in a chat completion request."""
 
@@ -302,14 +357,14 @@ class ChatRequest(ValueObject):
         result: list[dict[str, Any]] = []
         for item in v:
             if isinstance(item, ToolDefinition):
-                result.append(item.model_dump())
+                result.append(_normalize_tool_schema(item.model_dump()))
             elif isinstance(item, dict):
-                result.append(item)
+                result.append(_normalize_tool_schema(item))
             else:
                 # Attempt to coerce
                 try:
                     td = ToolDefinition(**item)
-                    result.append(td.model_dump())
+                    result.append(_normalize_tool_schema(td.model_dump()))
                 except Exception as e:
                     from src.core.common.exceptions import ToolCallParsingError
 

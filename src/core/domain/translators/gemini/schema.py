@@ -24,6 +24,7 @@ def sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
         "$defs",
         "definitions",
         "$ref",
+        "ref",  # OpenCode uses 'ref' without the $ prefix
         "exclusiveMinimum",
         "exclusiveMaximum",
         "additionalProperties",
@@ -58,6 +59,19 @@ def sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
         "contentEncoding",
     }
 
+    def _coerce_properties_list(items: list[Any]) -> dict[str, Any] | None:
+        mapped: dict[str, Any] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                return None
+            key = item.get("key")
+            if not isinstance(key, str) or not key:
+                return None
+            if "value" not in item:
+                return None
+            mapped[key] = _clean(item.get("value"), parent_key=None)
+        return mapped
+
     def _clean(obj: Any, *, parent_key: str | None = None) -> Any:
         if isinstance(obj, dict):
             if parent_key == "properties":
@@ -68,17 +82,9 @@ def sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
             type_value = obj.get("type")
             if isinstance(type_value, list):
                 non_null_types = [t for t in type_value if t != "null"]
-                has_null = "null" in type_value
+                cleaned["type"] = non_null_types[0] if non_null_types else "string"
 
-                if non_null_types:
-                    cleaned["type"] = non_null_types[0]
-                else:
-                    cleaned["type"] = "string"
-
-                if has_null:
-                    cleaned["nullable"] = True
-
-            for key in ["anyOf", "oneOf"]:
+            for key in ["anyOf", "oneOf", "allOf"]:
                 if key in obj and isinstance(obj[key], list) and obj[key]:
                     first_option = _clean(obj[key][0], parent_key=key)
                     if isinstance(first_option, dict):
@@ -100,9 +106,20 @@ def sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
                     continue
 
                 cleaned[k] = _clean(v, parent_key=k)
+
+            if "type" not in cleaned and isinstance(cleaned.get("properties"), dict):
+                cleaned["type"] = "object"
+
+            if cleaned.get("type") == "array" and "items" not in cleaned:
+                cleaned["items"] = {}
             return cleaned
 
         if isinstance(obj, list):
+            if parent_key == "properties":
+                coerced = _coerce_properties_list(obj)
+                if coerced is not None:
+                    return coerced
+                return {}
             return [_clean(x, parent_key=parent_key) for x in obj]
         return obj
 

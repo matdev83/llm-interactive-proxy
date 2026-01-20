@@ -9,6 +9,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterable
@@ -29,6 +30,10 @@ from src.connectors.gemini_base.policies import (
     IAuthRefreshPolicy,
     IRetryPolicy,
 )
+from src.connectors.gemini_base.retry_delay_parser import (
+    extract_retry_delay_from_response,
+    parse_retry_from_message,
+)
 from src.connectors.gemini_base.stream_processor import (
     build_error_chunk,
     build_rate_limit_backend_error,
@@ -39,6 +44,9 @@ from src.connectors.gemini_base.stream_processor import (
 from src.connectors.gemini_base.token_estimator import (
     TiktokenEstimator,
     get_default_token_estimator,
+)
+from src.connectors.gemini_base.tool_sanitizer import (
+    normalize_code_assist_request_tools,
 )
 from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import BackendError
@@ -279,6 +287,8 @@ class StreamingExecutor:
     """
 
     MAX_ERROR_JSON_SIZE = 32 * 1024  # 32KB limit for error JSON detection
+    MAX_RATE_LIMIT_RETRY_SECONDS = 60.0
+    STREAMING_KEEPALIVE_INTERVAL_SECONDS = 8.0
 
     def __init__(
         self,
@@ -403,6 +413,7 @@ class StreamingExecutor:
                     prepared.code_assist_request.pop("toolConfig", None)
 
                 request_body = prepared.build_request_body()
+                normalize_code_assist_request_tools(request_body)
 
                 if logger.isEnabledFor(TRACE_LEVEL):
                     tools_snapshot = request_body.get("request", {}).get("tools")
@@ -509,6 +520,14 @@ class StreamingExecutor:
             ) -> Iterable[ProcessedResponse]:
                 nonlocal done, generated_text_parts, error_json_buffer_parts
 
+                # #region agent log
+                _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+                import json as _json_debug
+                if decoded_line and decoded_line.strip():
+                    with open(_log_path, "a", encoding="utf-8") as _f:
+                        _f.write(_json_debug.dumps({"location": "streaming_executor.py:_process_decoded_line", "message": "Processing line from Gemini", "data": {"line_preview": decoded_line[:500] if decoded_line else "None", "line_len": len(decoded_line) if decoded_line else 0}, "timestamp": __import__("time").time(), "hypothesisId": "G"}) + "\n")
+                # #endregion
+
                 if not decoded_line:
                     return
 
@@ -567,6 +586,12 @@ class StreamingExecutor:
 
                     if domain_chunk and domain_chunk.get("choices"):
                         if processor.should_skip_chunk(domain_chunk):
+                            # #region agent log
+                            _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+                            import json as _json_debug
+                            with open(_log_path, "a", encoding="utf-8") as _f:
+                                _f.write(_json_debug.dumps({"location": "streaming_executor.py:_process_decoded_line:skip", "message": "Skipping chunk", "data": {"chunk_preview": str(domain_chunk)[:500]}, "timestamp": __import__("time").time(), "hypothesisId": "G"}) + "\n")
+                            # #endregion
                             return
 
                         choice = domain_chunk["choices"][0]
@@ -671,23 +696,95 @@ class StreamingExecutor:
                     ):
                         thought_signature_callback(raw_tool_calls, prepared.session_id)
 
+                    # #region agent log
+                    _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+                    import json as _json_debug
+                    _tc = domain_chunk.get("choices", [{}])[0].get("delta", {}).get("tool_calls")
+                    _content = domain_chunk.get("choices", [{}])[0].get("delta", {}).get("content")
+                    with open(_log_path, "a", encoding="utf-8") as _f:
+                        _f.write(_json_debug.dumps({"location": "streaming_executor.py:_process_decoded_line:yield", "message": "Yielding domain chunk", "data": {"has_tool_calls": bool(_tc), "tool_calls_preview": str(_tc)[:300] if _tc else None, "content_preview": str(_content)[:200] if _content else None, "finish_reason": domain_chunk.get("choices", [{}])[0].get("finish_reason")}, "timestamp": __import__("time").time(), "hypothesisId": "G"}) + "\n")
+                    # #endregion
                     yield ProcessedResponse(content=domain_chunk, metadata=metadata)
                     return
 
                 # Skip non-data lines
                 return
 
-            # Process chunks
+            # Process chunks (with keepalive emission while upstream is idle)
+            keepalive_interval = self.STREAMING_KEEPALIVE_INTERVAL_SECONDS
+            keepalive_id = f"chatcmpl-keepalive-{uuid.uuid4().hex}"
+            keepalive_created = int(time.time())
+
+            def _build_keepalive() -> ProcessedResponse:
+                # #region agent log
+                _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+                import json as _json_debug
+                with open(_log_path, "a", encoding="utf-8") as _f:
+                    _f.write(_json_debug.dumps({"location": "streaming_executor.py:_build_keepalive", "message": "Building keepalive chunk", "data": {"model": prepared.effective_model, "session_id": prepared.session_id}, "timestamp": __import__("time").time(), "hypothesisId": "H"}) + "\n")
+                # #endregion
+                return ProcessedResponse(
+                    content="",
+                    metadata={
+                        "_keepalive": True,
+                        "id": keepalive_id,
+                        "model": prepared.effective_model,
+                        "created": keepalive_created,
+                        "session_id": prepared.session_id,
+                        "stream_id": prepared.session_id,
+                    },
+                )
+
+            loop = asyncio.get_running_loop()
+            queue: asyncio.Queue[object] = asyncio.Queue()
+            sentinel = object()
+
+            def _safe_put(item: object) -> None:
+                if loop.is_closed():
+                    return
+                try:
+                    loop.call_soon_threadsafe(queue.put_nowait, item)
+                except RuntimeError:
+                    # Loop may be closing; drop the item silently.
+                    return
+
+            def _reader() -> None:
+                try:
+                    for chunk in response.iter_content(
+                        chunk_size=4096, decode_unicode=False
+                    ):
+                        _safe_put(chunk)
+                except Exception as exc:
+                    _safe_put(exc)
+                finally:
+                    _safe_put(sentinel)
+
+            threading.Thread(target=_reader, daemon=True).start()
+
             try:
-                for chunk in response.iter_content(
-                    chunk_size=4096, decode_unicode=False
-                ):
+                while True:
                     if done:
                         break
 
                     try:
+                        item = await asyncio.wait_for(
+                            queue.get(), timeout=keepalive_interval
+                        )
+                    except asyncio.TimeoutError:
+                        yield _build_keepalive()
+                        continue
+
+                    if item is sentinel:
+                        break
+
+                    if isinstance(item, Exception):
+                        raise item
+
+                    raw_chunk = item
+                    try:
                         chunk_str = (
-                            chunk if isinstance(chunk, bytes) else str(chunk).encode()
+                            raw_chunk
+                            if isinstance(raw_chunk, bytes)
+                            else str(raw_chunk).encode()
                         ).decode("utf-8")
                     except (UnicodeDecodeError, AttributeError):
                         continue
@@ -1009,23 +1106,39 @@ class StreamingExecutor:
                 headers_dict = {}
             detail_payload.setdefault("headers", headers_dict)
 
+        retry_hint_seconds: float | None = None
+
         if isinstance(error_detail, dict):
             detail_error = error_detail.get("error") or {}
             status_val = str(detail_error.get("status", "")).upper()
             message_val = detail_error.get("message")
             if isinstance(message_val, str) and message_val.strip():
                 error_message = message_val
+            if response.status_code == 429:
+                retry_hint = detail_payload.get("retry_after")
+                if isinstance(retry_hint, int | float):
+                    retry_hint_seconds = float(retry_hint)
+                if retry_hint_seconds is None:
+                    parsed_retry = extract_retry_delay_from_response(error_detail)
+                    if parsed_retry is not None:
+                        retry_hint_seconds = parsed_retry
+                        detail_payload["retry_after"] = parsed_retry
             if response.status_code == 429 and status_val == "RESOURCE_EXHAUSTED":
                 # Gemini often reports rate limiting as RESOURCE_EXHAUSTED.
                 # Distinguish between:
                 # - retryable rate limit windows (Retry-After / retry_after present) -> allow internal retry
                 # - non-retryable quota exhaustion (no retry hint) -> return 503 immediately
-                retry_hint = detail_payload.get("retry_after")
-                code = (
-                    "rate_limit_exceeded"
-                    if isinstance(retry_hint, int | float) and float(retry_hint) >= 0
-                    else "quota_exceeded"
+                if retry_hint_seconds is None and error_message:
+                    parsed_retry = parse_retry_from_message(error_message)
+                    if parsed_retry is not None:
+                        retry_hint_seconds = parsed_retry
+                        detail_payload["retry_after"] = parsed_retry
+
+                retryable = (
+                    retry_hint_seconds is not None
+                    and retry_hint_seconds <= self.MAX_RATE_LIMIT_RETRY_SECONDS
                 )
+                code = "rate_limit_exceeded" if retryable else "quota_exceeded"
             elif response.status_code == 429:
                 code = "rate_limit_exceeded"
             elif response.status_code == 401:

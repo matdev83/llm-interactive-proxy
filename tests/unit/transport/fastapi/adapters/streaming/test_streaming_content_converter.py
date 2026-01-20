@@ -227,6 +227,47 @@ class TestStreamingContentConverter:
         assert results[0].is_done is True
 
     @pytest.mark.asyncio
+    async def test_error_metadata_marks_done(self) -> None:
+        """Error metadata should mark finish_reason=error and done."""
+        converter = StreamingContentConverter()
+
+        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content={"choices": [{"delta": {}}]},
+                metadata={"error": "payload_too_large"},
+            )
+
+        context: dict[str, JsonValue | RequestContext | None] = {}
+        results = []
+        async for content in converter.convert_stream(raw_stream(), context):
+            results.append(content)
+
+        assert len(results) == 1
+        assert results[0].metadata.get("finish_reason") == "error"
+        assert results[0].is_done is True
+
+    @pytest.mark.asyncio
+    async def test_error_metadata_is_dict_on_exception(self) -> None:
+        """Ensure error metadata is a dict when conversion fails."""
+        converter = StreamingContentConverter()
+
+        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(content="ok", metadata={})
+            raise RuntimeError("boom")
+
+        context: dict[str, JsonValue | RequestContext | None] = {}
+        results = []
+        async for content in converter.convert_stream(raw_stream(), context):
+            results.append(content)
+
+        assert results
+        error_chunk = results[-1]
+        assert error_chunk.is_done is True
+        error_meta = error_chunk.metadata.get("error")
+        assert isinstance(error_meta, dict)
+        assert "boom" in str(error_meta.get("message"))
+
+    @pytest.mark.asyncio
     async def test_event_loop_yielding(self) -> None:
         """Test event loop yielding with asyncio.sleep(0)."""
         converter = StreamingContentConverter()

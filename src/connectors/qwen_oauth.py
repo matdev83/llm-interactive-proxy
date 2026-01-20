@@ -437,7 +437,9 @@ class QwenOAuthConnector(OpenAIConnector):
                 credentials = json.load(f)
 
             # Validate the loaded credentials
-            is_valid, validation_errors = self._validate_credentials_structure(credentials)
+            is_valid, validation_errors = self._validate_credentials_structure(
+                credentials
+            )
             errors.extend(validation_errors)
 
             return (is_valid, errors)
@@ -699,10 +701,18 @@ class QwenOAuthConnector(OpenAIConnector):
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            logger.error(
-                f"HTTP error during API token refresh: {e.response.status_code}",
-                exc_info=True,
-            )
+            status_code = e.response.status_code
+            if status_code in (401, 403):
+                logger.error(
+                    "HTTP error during API token refresh: %s",
+                    status_code,
+                )
+            else:
+                logger.error(
+                    "HTTP error during API token refresh: %s",
+                    status_code,
+                    exc_info=True,
+                )
             return False
 
         # Parse JSON body
@@ -943,10 +953,10 @@ class QwenOAuthConnector(OpenAIConnector):
                 )
                 logger.error(error_msg)
                 # Try to enrich error details from file validation (best-effort)
-                _, validation_errors = await self._validate_credentials_file_exists_async()
-                self._credential_validation_errors = validation_errors or [
-                    error_msg
-                ]
+                _, validation_errors = (
+                    await self._validate_credentials_file_exists_async()
+                )
+                self._credential_validation_errors = validation_errors or [error_msg]
                 self._initialization_failed = True
                 self.is_functional = False
                 return
@@ -959,9 +969,7 @@ class QwenOAuthConnector(OpenAIConnector):
                     self._oauth_credentials
                 )
                 if not is_valid:
-                    logger.error(
-                        f"Loaded credentials are invalid: {'; '.join(errors)}"
-                    )
+                    logger.error(f"Loaded credentials are invalid: {'; '.join(errors)}")
                     self._credential_validation_errors = errors
                     self._initialization_failed = True
                     self.is_functional = False

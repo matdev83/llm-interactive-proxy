@@ -431,6 +431,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             self._credential_validation_errors = errors
         self._initialization_failed = True
         self.is_functional = False
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Gemini Cloud Project initialization failed: {'; '.join(errors)}")
 
     def _degrade(self, errors: list[str]) -> None:
         """Degrade backend functionality due to credential issues."""
@@ -1010,8 +1012,8 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         # Ensure we have a project ID
         if not self.gcp_project_id:
             self._fail_init(["GCP Project ID is required for cloud-project backend"])
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error("GCP Project ID is required for cloud-project backend")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("GCP Project ID is required for cloud-project backend")
             return
 
         # Set the API base URL for Google Code Assist API

@@ -200,6 +200,12 @@ class SessionManager(ISessionManager):
             session_id, fp_bundle.primary.fingerprint
         )
         await self._session_repository.update_fingerprint_bundle(session_id, fp_bundle)
+        # #region agent log
+        _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+        import json as _json_debug
+        with open(_log_path, "a", encoding="utf-8") as _f:
+            _f.write(_json_debug.dumps({"location": "session_manager_service.py:update_fingerprint_bundle", "message": "Fingerprint NOW stored in repository", "data": {"session_id": session_id, "fingerprint": fp_bundle.primary.fingerprint[:16], "msg_count": fp_bundle.message_count}, "timestamp": __import__("time").time(), "hypothesisId": "A"}) + "\n")
+        # #endregion
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(

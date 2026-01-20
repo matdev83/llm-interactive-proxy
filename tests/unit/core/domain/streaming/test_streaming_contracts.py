@@ -253,6 +253,18 @@ class TestStreamingContentToTypedChunk:
         assert chunk.metadata.error.code == "ERR001"
         assert chunk.metadata.error.status_code == 503
 
+    def test_metadata_with_error_int_code_conversion(self):
+        """Metadata with int code should coerce to string."""
+        error_dict = {"type": "error", "message": "Test error", "code": 400}
+        sc = StreamingContent(
+            content="test",
+            metadata={"error": error_dict},
+            is_done=False,
+        )
+        chunk = sc.to_typed_chunk()
+        assert chunk.metadata.error is not None
+        assert chunk.metadata.error.code == "400"
+
     def test_usage_dict_conversion(self):
         """Usage dict should convert to StreamingUsage."""
         usage_dict = {

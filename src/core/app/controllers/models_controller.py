@@ -18,7 +18,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 # Import HTTP status constants
 from src.core.common.exceptions import (
+    AuthenticationError,
     BackendError,
+    ConfigurationError,
     InitializationError,
     ServiceResolutionError,
     ServiceUnavailableError,
@@ -391,6 +393,14 @@ async def _list_models_impl(
                 ) and inspect.iscoroutinefunction(backend_instance.initialize):
                     try:
                         await backend_instance.initialize()
+                    except (ConfigurationError, AuthenticationError) as known_exc:
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Skipping backend %s during model discovery: %s",
+                                backend_type,
+                                known_exc,
+                            )
+                        continue
                     except Exception as init_exc:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(

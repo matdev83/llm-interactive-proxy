@@ -187,6 +187,12 @@ class CodeAssistOrchestrator:
         """Filter out stop chunks without usage; executor will emit a final usage stop."""
         async for processed in iterator:
             content = getattr(processed, "content", None)
+            metadata = (
+                dict(processed.metadata)
+                if hasattr(processed, "metadata")
+                and isinstance(processed.metadata, dict)
+                else {}
+            )
             if isinstance(content, dict):
                 choices = content.get("choices", [])
                 if choices and isinstance(choices[0], dict):
@@ -194,7 +200,28 @@ class CodeAssistOrchestrator:
                         choices[0].get("delta", {}) or {}
                     ).get("finish_reason")
                     if finish in ("stop", "stop_sequence") and "usage" not in content:
-                        continue
+                        delta = choices[0].get("delta", {}) or {}
+                        message = choices[0].get("message", {}) or {}
+                        has_content = bool(
+                            delta.get("content") or message.get("content")
+                        )
+                        has_tools = bool(
+                            delta.get("tool_calls") or message.get("tool_calls")
+                        )
+                        has_reasoning = bool(
+                            delta.get("reasoning_content")
+                            or delta.get("reasoning")
+                            or message.get("reasoning_content")
+                            or message.get("reasoning")
+                        )
+                        has_accumulated = bool(
+                            metadata.get("accumulated_content")
+                            or metadata.get("accumulated_reasoning")
+                        )
+                        if not (
+                            has_content or has_tools or has_reasoning or has_accumulated
+                        ):
+                            continue
             yield processed
 
 

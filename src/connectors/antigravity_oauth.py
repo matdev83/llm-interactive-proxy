@@ -184,9 +184,6 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
         kwargs.setdefault("gemini_api_base_url", ANTIGRAVITY_SANDBOX_ENDPOINT)
 
-        # Store reference to original client before replacing
-        original_client = getattr(self, "client", None)
-
         # Create a custom client with Antigravity-specific User-Agent
         # This ensures all requests use the correct User-Agent regardless of settings
         custom_client = httpx.AsyncClient(
@@ -219,18 +216,6 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                         )
                 self._owns_custom_client = False
             self._fail_init([f"Initialization failed: {exc}"])
-        finally:
-            # Close original client if we replaced it and it's different
-            if original_client is not None and original_client is not custom_client:
-                try:
-                    if not original_client.is_closed:
-                        await original_client.aclose()
-                except Exception:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Failed to close original client during initialization cleanup",
-                            exc_info=True,
-                        )
 
     async def chat_completions(  # type: ignore[override]
         self,

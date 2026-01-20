@@ -145,12 +145,12 @@ class GeminiCodeAssistMixin:
             "generationConfig": gemini_request.get("generationConfig", {}),
         }
 
-        # Add other fields if present
-        if "tools" in gemini_request:
+        # Add other fields if present and not empty
+        if gemini_request.get("tools"):
             code_assist_request["tools"] = gemini_request["tools"]
-        if "toolConfig" in gemini_request:
+        if gemini_request.get("toolConfig"):
             code_assist_request["toolConfig"] = gemini_request["toolConfig"]
-        if "safetySettings" in gemini_request:
+        if gemini_request.get("safetySettings"):
             code_assist_request["safetySettings"] = gemini_request["safetySettings"]
 
         return code_assist_request

@@ -194,7 +194,9 @@ class OpenRouterBackend(OpenAIConnector):
         """Fetch available models and cache them for later use."""
         api_key = kwargs.get("api_key")
         if not api_key:
-            raise ValueError("api_key is required for OpenRouterBackend")
+            raise ConfigurationError(
+                message="api_key is required for OpenRouterBackend"
+            )
 
         # Accept and set optional init kwargs for headers provider and base URL
         openrouter_headers_provider = cast(

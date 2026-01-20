@@ -1,0 +1,26 @@
+# Local development configuration
+
+# Server settings
+host: "127.0.0.1"
+port: 8000
+public_url: http://127.0.0.1:8000
+
+# Authentication
+auth:
+  disable_auth: true
+  api_keys: []
+
+# Logging
+logging:
+  level: "DEBUG"
+  request_logging: true
+  response_logging: true
+  log_file: "var/proxy-debug.log"
+  cbor_capture_dir: "var/wire_captures_cbor"
+  cbor_capture_session_id: "client-debug"
+
+backends:
+  default_backend: "gemini-oauth-plan"
+  
+  gemini-oauth-plan:
+    timeout: 120

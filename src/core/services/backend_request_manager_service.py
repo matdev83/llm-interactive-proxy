@@ -7,6 +7,7 @@ This module provides the implementation of the backend request manager interface
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from src.core.common.exceptions import BackendError, DuplicateRequestError
@@ -189,6 +190,31 @@ class BackendRequestManager(IBackendRequestManager):
             structured_output=structured_output,
         )
 
+    def _should_bypass_dedup(
+        self, request: ChatRequest, context: RequestContext
+    ) -> bool:
+        """Determine whether request deduplication should be bypassed.
+
+        Streaming clients often retry aggressively and do not handle dedup 429s
+        gracefully. To prevent retry loops while remaining universal, bypass
+        deduplication for all streaming requests or when explicitly requested
+        via headers.
+        """
+        if getattr(request, "stream", False):
+            return True
+
+        headers = getattr(context, "headers", {})
+        if isinstance(headers, Mapping):
+            dedup_override = headers.get("x-llmproxy-no-dedup")
+            if isinstance(dedup_override, str) and dedup_override.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }:
+                return True
+
+        return False
+
     async def prepare_backend_request(
         self, request_data: ChatRequest, command_result: ProcessedResult
     ) -> ChatRequest | None:
@@ -231,19 +257,38 @@ class BackendRequestManager(IBackendRequestManager):
 
         # Deduplication check FIRST (before any processing)
         if self._dedup_service:
-            is_duplicate, content_hash = await self._dedup_service.check_and_register(
-                backend_request, session_id
-            )
-            if is_duplicate:
-                # Use debug level to avoid log spam during tight retry loops
+            if self._should_bypass_dedup(backend_request, context):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Duplicate request swallowed: hash=%s session=%s model=%s",
-                        content_hash[:8],
+                        "Request deduplication bypassed for streaming request "
+                        "session=%s model=%s",
                         session_id,
                         backend_request.model,
                     )
-                raise DuplicateRequestError(content_hash, session_id)
+                # #region agent log
+                _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+                import json as _json_debug
+                import hashlib as _hashlib_debug
+                _content_hash = _hashlib_debug.md5(str(backend_request.messages).encode()).hexdigest()[:12]
+                with open(_log_path, "a", encoding="utf-8") as _f:
+                    _f.write(_json_debug.dumps({"location": "backend_request_manager_service.py:process_backend_request", "message": "Dedup BYPASSED for streaming", "data": {"session_id": session_id, "content_hash": _content_hash, "stream": getattr(backend_request, "stream", False)}, "timestamp": __import__("time").time(), "hypothesisId": "B"}) + "\n")
+                # #endregion
+            else:
+                is_duplicate, content_hash = (
+                    await self._dedup_service.check_and_register(
+                        backend_request, session_id
+                    )
+                )
+                if is_duplicate:
+                    # Use debug level to avoid log spam during tight retry loops
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Duplicate request swallowed: hash=%s session=%s model=%s",
+                            content_hash[:8],
+                            session_id,
+                            backend_request.model,
+                        )
+                    raise DuplicateRequestError(content_hash, session_id)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(

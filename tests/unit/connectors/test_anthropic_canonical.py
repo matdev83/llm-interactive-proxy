@@ -251,8 +251,6 @@ class TestAnthropicCanonicalAPI:
         self, anthropic_backend, canonical_request
     ):
         """Test that ConnectorRequestContext is used for logging correlation."""
-        import src.connectors.anthropic as anthropic_module
-
         # Create a new request with stream=False (CanonicalChatRequest is frozen)
         non_streaming_request = CanonicalChatRequest(
             model="claude-3-haiku-20240307",
@@ -271,9 +269,13 @@ class TestAnthropicCanonicalAPI:
         canonical_request.request = non_streaming_request
 
         # Capture log messages
-        # Use patch.object to ensure we patch the correct logger instance in the module
+        # Patch the logger in the function's globals to avoid module reload drift.
+        mock_logger = MagicMock()
         with (
-            patch.object(anthropic_module, "logger") as mock_logger,
+            patch.dict(
+                anthropic_backend.chat_completions.__globals__,
+                {"logger": mock_logger},
+            ),
             patch.object(
                 anthropic_backend,
                 "_handle_non_streaming_response",

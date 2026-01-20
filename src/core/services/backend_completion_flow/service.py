@@ -565,6 +565,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                         # Convert back to ProcessedResponse stream for adapters
                         async def _to_processed_with_capture() -> Any:
+                            import json as _json_mod
+
                             from src.core.interfaces.response_processor_interface import (
                                 ProcessedResponse,
                             )
@@ -574,8 +576,47 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                 normalized_content = (
                                     normalize_to_processed_chunk_content(b)
                                 )
+
+                                # Extract metadata from SSE bytes to preserve model info
+                                # This is needed because wire capture serializes to bytes
+                                # and we need to reconstruct metadata for downstream processors
+                                extracted_metadata: dict[str, Any] = {}
+                                if session_id:
+                                    extracted_metadata["session_id"] = session_id
+                                    extracted_metadata["stream_id"] = session_id
+
+                                # Try to parse SSE data and extract metadata
+                                if isinstance(b, bytes):
+                                    try:
+                                        text = b.decode("utf-8", errors="replace")
+                                        # Check if this is an empty keepalive chunk
+                                        stripped = text.strip()
+                                        if stripped == "data:" or stripped == "data: ":
+                                            extracted_metadata["_keepalive"] = True
+                                            extracted_metadata["model"] = effective_model
+                                        elif stripped.startswith("data: "):
+                                            json_part = stripped[6:].strip()
+                                            if json_part and json_part != "[DONE]":
+                                                try:
+                                                    parsed = _json_mod.loads(json_part)
+                                                    if isinstance(parsed, dict):
+                                                        for key in (
+                                                            "id",
+                                                            "model",
+                                                            "created",
+                                                        ):
+                                                            if key in parsed:
+                                                                extracted_metadata[key] = (
+                                                                    parsed[key]
+                                                                )
+                                                except _json_mod.JSONDecodeError:
+                                                    pass
+                                    except (UnicodeDecodeError, AttributeError):
+                                        pass
+
                                 yield ProcessedResponse(
-                                    content=normalized_content, metadata={}
+                                    content=normalized_content,
+                                    metadata=extracted_metadata,
                                 )
 
                         result.content = _to_processed_with_capture()  # type: ignore[assignment]

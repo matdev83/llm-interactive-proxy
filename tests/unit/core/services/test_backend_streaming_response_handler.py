@@ -18,6 +18,7 @@ Requirements: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.3, 7.2, 8.1
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -38,6 +39,7 @@ from src.core.interfaces.backend_request_manager_components import (
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.interfaces.response_processor_interface import (
     IResponseProcessor,
+    ProcessedChunkContent,
     ProcessedResponse,
 )
 from src.loop_detection.event import LoopDetectionEvent
@@ -138,6 +140,7 @@ def processing_context(base_request: ChatRequest) -> ResponseProcessingContext:
         model_name="gpt-4",
         client_os="Windows",
         original_request=base_request,
+        structured_output=None,
     )
 
 
@@ -292,10 +295,8 @@ class TestEmptyStreamRecovery:
     ) -> None:
         """Handler should retry empty streams with recovery prompt."""
         # Arrange
-        # Empty chunks (no meaningful content - will be detected by gate_empty_stream)
-        empty_chunks = [
-            ProcessedResponse(content="", metadata={}),
-        ]
+        # Empty stream (no chunks) triggers recovery retry
+        empty_chunks: list[ProcessedResponse] = []
         empty_stream = async_chunk_iterator(empty_chunks)
         stream_envelope = StreamingResponseEnvelope(content=empty_stream)
 
@@ -351,6 +352,77 @@ class TestEmptyStreamRecovery:
         assert result_chunks[0].content == "Retry response"
 
     @pytest.mark.asyncio
+    async def test_terminal_chunk_skips_empty_stream_retry(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_angel_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Handler should not retry when stream ends with a terminal chunk."""
+        terminal_content = cast(
+            ProcessedChunkContent,
+            {
+                "id": "loop-detector-123",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "loop-detector",
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": ""},
+                        "finish_reason": "cancelled",
+                    }
+                ],
+            },
+        )
+        terminal_chunk = ProcessedResponse(
+            content=terminal_content,
+            metadata={"is_cancellation": True, "is_done": True},
+        )
+        input_stream = async_chunk_iterator([terminal_chunk])
+        stream_envelope = StreamingResponseEnvelope(content=input_stream)
+
+        processed_stream = async_chunk_iterator([terminal_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        # Mock loop detector and Angel verifier
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context):
+            async for chunk in stream:
+                yield chunk
+
+        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        # Act
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        # Assert
+        assert result is not None
+        assert result.content is not None
+        result_chunks = []
+        async for chunk in result.content:
+            result_chunks.append(chunk)
+
+        assert len(result_chunks) == 1
+        assert result_chunks[0].metadata.get("is_cancellation") is True
+        mock_backend_processor.process_backend_request.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_raises_backend_error_when_empty_stream_retry_limit_exceeded(
         self,
         handler: IStreamingBackendResponseHandler,
@@ -364,8 +436,8 @@ class TestEmptyStreamRecovery:
     ) -> None:
         """Handler should raise BackendError when empty stream retry limit exceeded."""
         # Arrange
-        # Empty chunks (no meaningful content)
-        empty_chunks = [ProcessedResponse(content="", metadata={})]
+        # Empty stream (no chunks) should trigger retry exhaustion
+        empty_chunks: list[ProcessedResponse] = []
         empty_stream = async_chunk_iterator(empty_chunks)
         stream_envelope = StreamingResponseEnvelope(content=empty_stream)
 
@@ -405,6 +477,7 @@ class TestEmptyStreamRecovery:
         )
 
         with pytest.raises(BackendError) as exc_info:
+            assert result.content is not None
             async for _ in result.content:
                 pass
 
@@ -481,6 +554,7 @@ class TestToolCallRetryHandling:
 
         # Assert
         assert result is not None
+        assert result.content is not None
 
         # Must consume stream to trigger tool-call retry logic
         # which is embedded in the async generator
@@ -706,6 +780,7 @@ class TestLoopDetectionCancellation:
 
         # Assert
         assert result is not None
+        assert result.content is not None
         # Consume stream to trigger loop detection
         async for _ in result.content:
             pass

@@ -227,8 +227,8 @@ class TestProviderParsingBoundary:
         # Should parse OpenAI format
         assert result.usage == {"prompt_tokens": 10, "completion_tokens": 5}
         assert result.metadata["finish_reason"] == "stop"
-        # "stop" finish_reason doesn't set is_done=True (only error/cancelled do)
-        assert result.is_done is False
+        # "stop" finish_reason should mark the chunk as terminal
+        assert result.is_done is True
 
     def test_unknown_dict_shape_treated_as_opaque(self) -> None:
         """Unknown dict shapes should be treated as opaque."""

@@ -144,3 +144,78 @@ class TestGeminiSchemaSanitization:
         assert cleaned["properties"]["pattern"]["type"] == "string"
         assert "minLength" not in cleaned["properties"]["pattern"]
         assert cleaned["required"] == ["pattern", "path"]
+
+    def test_sanitize_converts_properties_map_list(self):
+        """Convert key/value property lists into a properties dict."""
+        schema = {
+            "type": "object",
+            "properties": [
+                {"key": "path", "value": {"type": "string"}},
+                {
+                    "key": "options",
+                    "value": {
+                        "type": "object",
+                        "properties": [
+                            {"key": "recursive", "value": {"type": "boolean"}},
+                            {"key": "depth", "value": {"type": "integer"}},
+                        ],
+                        "required": ["recursive", "depth"],
+                    },
+                },
+            ],
+            "required": ["path", "options"],
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        assert isinstance(cleaned.get("properties"), dict)
+        assert cleaned["properties"]["path"]["type"] == "string"
+        assert cleaned["properties"]["options"]["type"] == "object"
+        assert (
+            cleaned["properties"]["options"]["properties"]["recursive"]["type"]
+            == "boolean"
+        )
+        assert cleaned["required"] == ["path", "options"]
+
+    def test_sanitize_drops_invalid_properties_list(self):
+        """Fallback to empty properties when list cannot be coerced."""
+        schema = {
+            "type": "object",
+            "properties": [{"value": {"type": "string"}}],
+            "required": ["path"],
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        assert cleaned["properties"] == {}
+
+    def test_sanitize_coerces_type_list_to_single(self):
+        """Union types should be coerced to a single Gemini-compatible type."""
+        schema = {
+            "type": "object",
+            "properties": {"value": {"type": ["string", "null"]}},
+        }
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        value_schema = cleaned["properties"]["value"]
+        assert value_schema["type"] == "string"
+        assert "nullable" not in value_schema
+
+    def test_sanitize_adds_items_for_array_without_items(self):
+        """Arrays should include items even if missing in input."""
+        schema = {"type": "object", "properties": {"values": {"type": "array"}}}
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        values_schema = cleaned["properties"]["values"]
+        assert values_schema["type"] == "array"
+        assert values_schema["items"] == {}
+
+    def test_sanitize_sets_object_type_when_missing(self):
+        """Object schemas should have type=object when properties exist."""
+        schema = {"properties": {"value": {"type": "string"}}}
+
+        cleaned = Translation._sanitize_gemini_parameters(schema)
+
+        assert cleaned["type"] == "object"

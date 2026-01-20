@@ -137,8 +137,8 @@ class AnthropicOAuthBackend(AnthropicBackend):
         self._initialization_failed = True
         self.is_functional = False
         self._credential_validation_errors = errors
-        if logger.isEnabledFor(logging.ERROR):
-            logger.error(f"Anthropic OAuth initialization failed: {'; '.join(errors)}")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"Anthropic OAuth initialization failed: {'; '.join(errors)}")
 
     def _degrade(self, errors: list[str]) -> None:
         """Mark backend as degraded due to runtime validation failures."""

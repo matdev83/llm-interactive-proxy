@@ -128,3 +128,32 @@ class TestAntigravityOAuthClientLeakRegression:
         finally:
             if not shared_client.is_closed:
                 await shared_client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_initialize_does_not_close_shared_client(self) -> None:
+        """Ensure initialize keeps the shared client open."""
+        app_config = AppConfig(backends=BackendSettings(default_backend=""))
+        translation_service = TranslationService()
+
+        shared_client = httpx.AsyncClient(
+            http2=False,
+            timeout=httpx.Timeout(connect=10.0, read=60.0, write=60.0, pool=60.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            trust_env=False,
+        )
+
+        connector = AntigravityOAuthConnector(
+            client=shared_client,
+            config=app_config,
+            translation_service=translation_service,
+        )
+
+        try:
+            with contextlib.suppress(Exception):
+                await connector.initialize()
+            assert not shared_client.is_closed
+        finally:
+            with contextlib.suppress(Exception):
+                await connector.shutdown()
+            if not shared_client.is_closed:
+                await shared_client.aclose()

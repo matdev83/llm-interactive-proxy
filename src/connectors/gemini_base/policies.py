@@ -85,7 +85,8 @@ class RateLimitRetryPolicy(IRetryPolicy):
         delay_value = None
         if self._retry_delay_extractor is not None:
             delay = self._retry_delay_extractor(error)
-            if delay is not None and delay > 0:
+            if delay is not None and delay >= 0:
+                # Treat 0s as a valid immediate retry window.
                 delay_value = delay
 
         if delay_value is None:

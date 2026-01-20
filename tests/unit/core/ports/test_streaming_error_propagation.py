@@ -79,7 +79,7 @@ class TestStreamingContentErrorChunks:
         assert "error" in payload
         assert payload["error"]["message"] == "Quota exhausted"
         assert payload["error"]["type"] == "quota_exceeded"
-        assert payload["error"]["code"] == 503
+        assert payload["error"]["code"] == "503"
         assert payload["choices"][0]["finish_reason"] == "error"
 
     def test_streaming_content_preserves_error_metadata(self) -> None:

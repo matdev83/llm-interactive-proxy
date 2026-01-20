@@ -348,13 +348,25 @@ class StreamingContentConverter:
             if metadata.get("is_done") is True:
                 return True
             finish_reason = metadata.get("finish_reason")
-            if finish_reason in ("stop", "length", "content_filter", "tool_calls"):
+            if finish_reason in (
+                "stop",
+                "length",
+                "content_filter",
+                "tool_calls",
+                "error",
+            ):
                 return True
 
         # Check content for finish_reason
         if isinstance(content, dict):
             finish_reason = content.get("finish_reason")
-            if finish_reason in ("stop", "length", "content_filter", "tool_calls"):
+            if finish_reason in (
+                "stop",
+                "length",
+                "content_filter",
+                "tool_calls",
+                "error",
+            ):
                 return True
 
             # Check choices array
@@ -368,6 +380,7 @@ class StreamingContentConverter:
                         "length",
                         "content_filter",
                         "tool_calls",
+                        "error",
                     ):
                         return True
 
@@ -436,13 +449,52 @@ class StreamingContentConverter:
         Yields:
             StreamingContent chunks
         """
+        chunk_count = 0
         try:
-            chunk_count = 0
             accumulated_text_parts: list[str] = []
             best_usage: dict[str, Any] | None = None
 
             async for chunk in source:
                 chunk_count += 1
+                # #region agent log
+                if chunk_count <= 5:
+                    _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+                    import json as _json_debug
+
+                    _chunk_content = (
+                        str(chunk.content)[:500] if chunk.content else "None"
+                    )
+                    _chunk_metadata = (
+                        dict(chunk.metadata)
+                        if hasattr(chunk, "metadata") and chunk.metadata
+                        else {}
+                    )
+                    _is_keepalive = bool(_chunk_metadata.get("_keepalive"))
+                    _has_model = "model" in _chunk_metadata
+                    _content_type = type(chunk.content).__name__
+                    with open(_log_path, "a", encoding="utf-8") as _f:
+                        _f.write(
+                            _json_debug.dumps(
+                                {
+                                    "location": "content_converter.py:_convert_to_streaming_content",
+                                    "message": f"Processing chunk #{chunk_count}",
+                                    "data": {
+                                        "content_type": _content_type,
+                                        "content_preview": _chunk_content,
+                                        "is_keepalive": _is_keepalive,
+                                        "has_model_in_metadata": _has_model,
+                                        "model": _chunk_metadata.get("model"),
+                                        "metadata_keys": list(_chunk_metadata.keys())[
+                                            :10
+                                        ],
+                                    },
+                                    "timestamp": __import__("time").time(),
+                                    "hypothesisId": "H",
+                                }
+                            )
+                            + "\n"
+                        )
+                # #endregion
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL, "[STREAMING] Processing chunk #%s", chunk_count
@@ -474,6 +526,10 @@ class StreamingContentConverter:
                 # Merge metadata from payload
                 metadata = self._merge_metadata_from_payload(decoded_payload, metadata)
 
+                # If an error is present, ensure finish_reason marks it as terminal
+                if "error" in metadata and "finish_reason" not in metadata:
+                    metadata["finish_reason"] = "error"
+
                 # Add outbound_tokens from envelope if missing
                 # envelope_metadata is always dict[str, JsonValue] at this boundary
                 if (
@@ -489,6 +545,35 @@ class StreamingContentConverter:
                 stream_key = self._resolve_stream_key(metadata)
                 self._sanitize_multiline_tool_blocks(stream_key, decoded_payload)
 
+                # #region agent log
+                if chunk_count <= 5:
+                    _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+                    import json as _json_debug
+
+                    _has_model_after_merge = "model" in metadata
+                    with open(_log_path, "a", encoding="utf-8") as _f:
+                        _f.write(
+                            _json_debug.dumps(
+                                {
+                                    "location": "content_converter.py:before_inject_reasoning",
+                                    "message": f"Metadata after SSE decode for chunk #{chunk_count}",
+                                    "data": {
+                                        "has_model": _has_model_after_merge,
+                                        "model": metadata.get("model"),
+                                        "decoded_payload_type": type(
+                                            decoded_payload
+                                        ).__name__,
+                                        "decoded_payload_preview": str(decoded_payload)[
+                                            :300
+                                        ],
+                                    },
+                                    "timestamp": __import__("time").time(),
+                                    "hypothesisId": "H",
+                                }
+                            )
+                            + "\n"
+                        )
+                # #endregion
                 # Inject reasoning metadata
                 injector = self._get_reasoning_injector()
                 enriched = injector.inject_reasoning(
@@ -723,6 +808,26 @@ class StreamingContentConverter:
             # Client disconnected - this is expected, don't log as error
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("[STREAMING] Client disconnected during stream")
+            # #region agent log
+            _log_path = (
+                r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+            )
+            import json as _json_debug
+
+            with open(_log_path, "a", encoding="utf-8") as _f:
+                _f.write(
+                    _json_debug.dumps(
+                        {
+                            "location": "content_converter.py:convert_stream:GeneratorExit",
+                            "message": "Client disconnected",
+                            "data": {"chunks_yielded": chunk_count},
+                            "timestamp": __import__("time").time(),
+                            "hypothesisId": "A,C,D,E",
+                        }
+                    )
+                    + "\n"
+                )
+            # #endregion
             raise
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
@@ -731,9 +836,28 @@ class StreamingContentConverter:
                     e,
                     exc_info=True,
                 )
+            error_payload: dict[str, JsonValue] = {
+                "message": str(e),
+                "type": "api_error",
+            }
+            try:
+                from src.core.common.exceptions import LLMProxyError
+
+                if isinstance(e, LLMProxyError):
+                    error_dict = e.to_dict().get("error")
+                    if isinstance(error_dict, dict):
+                        error_payload = error_dict
+                        if (
+                            isinstance(e.status_code, int)
+                            and "status_code" not in error_payload
+                        ):
+                            error_payload["status_code"] = e.status_code
+            except Exception:
+                # Keep fallback error payload on conversion failures.
+                pass
             yield StreamingContent(
                 content="",
-                metadata={"error": str(e), "finish_reason": "error"},
+                metadata={"error": error_payload, "finish_reason": "error"},
                 is_done=True,
             )
 

@@ -43,43 +43,6 @@ class InfrastructureStage(InitializationStage):
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
         self._http_client: httpx.AsyncClient | None = None
 
-    def __del__(self) -> None:
-        """Defensive cleanup of HTTP client.
-
-        This ensures httpx.AsyncClient is closed even if:
-        - The stage is destroyed before proper shutdown
-        - An exception prevents execute() from completing
-        - The application crashes
-
-        This is a last-resort cleanup and should not be relied upon
-        for normal resource management (use shutdown/cleanup methods).
-        """
-        if self._http_client is not None and hasattr(self._http_client, "is_closed"):
-            try:
-                if not self._http_client.is_closed:
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            task = loop.create_task(self._http_client.aclose())
-                            self._cleanup_tasks.add(task)
-                        else:
-                            loop.run_until_complete(self._http_client.aclose())
-                    except (RuntimeError, AttributeError):
-                        # Event loop not available or attribute missing (cleanup context)
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "HTTP client cleanup skipped in destructor (event loop unavailable)",
-                                exc_info=True,
-                            )
-            except Exception as e:
-                # Log cleanup errors for debugging, but don't raise in destructor
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Exception during InfrastructureStage cleanup: %s",
-                        e,
-                        exc_info=True,
-                    )
-
     @property
     def name(self) -> str:
         return "infrastructure"

@@ -6,12 +6,79 @@ This module provides functionality for converting various tool formats
 """
 
 import logging
+import re
 from typing import Any
 
 from src.connectors.gemini_base.models import GeminiFunctionDeclaration
 from src.core.domain.translation import Translation
 
+
+def _coerce_properties_list(items: list[Any]) -> dict[str, Any] | None:
+    mapped: dict[str, Any] = {}
+    for item in items:
+        if isinstance(item, dict):
+            key = item.get("key") or item.get("name")
+            if "value" in item:
+                value = item.get("value")
+            else:
+                value = item.get("schema")
+        elif isinstance(item, list | tuple) and len(item) == 2:
+            key, value = item
+        else:
+            return None
+        if not isinstance(key, str) or not key:
+            return None
+        mapped[key] = value
+    return mapped
+
+
+def _normalize_schema_properties(schema: Any) -> Any:
+    if isinstance(schema, dict):
+        normalized: dict[str, Any] = {}
+        for key, value in schema.items():
+            if key == "properties" and isinstance(value, list):
+                coerced = _coerce_properties_list(value)
+                if coerced is not None:
+                    normalized[key] = {
+                        prop_key: _normalize_schema_properties(prop_val)
+                        for prop_key, prop_val in coerced.items()
+                    }
+                else:
+                    normalized[key] = {}
+                continue
+            normalized[key] = _normalize_schema_properties(value)
+        return normalized
+    if isinstance(schema, list):
+        return [_normalize_schema_properties(item) for item in schema]
+    return schema
+
+
+def _sanitize_parameters(params: Any) -> dict[str, Any]:
+    if not isinstance(params, dict):
+        return {}
+    normalized = _normalize_schema_properties(params)
+    if not isinstance(normalized, dict):
+        return {}
+    result = Translation._sanitize_gemini_parameters(normalized)
+    # #region agent log
+    _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
+    import json as _json_debug
+    # Check if this schema has $defs or $ref related fields
+    _has_defs = "$defs" in str(params) or "definitions" in str(params) or "$ref" in str(params)
+    if _has_defs:
+        with open(_log_path, "a", encoding="utf-8") as _f:
+            _f.write(_json_debug.dumps({"location": "tool_sanitizer.py:_sanitize_parameters", "message": "Schema with refs/defs detected", "data": {"input_preview": str(params)[:1500], "output_preview": str(result)[:1500]}, "timestamp": __import__("time").time(), "hypothesisId": "F"}) + "\n")
+    # #endregion
+    return result
+
+
 logger = logging.getLogger(__name__)
+
+_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$")
+
+
+def _is_valid_function_name(name: str) -> bool:
+    return bool(_FUNCTION_NAME_RE.match(name))
 
 
 def extract_function_declarations(
@@ -90,11 +157,12 @@ def extract_function_declarations(
         if not name:
             continue
 
-        sanitized_params = (
-            Translation._sanitize_gemini_parameters(params)
-            if isinstance(params, dict)
-            else {}
-        )
+        if not _is_valid_function_name(name):
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Skipping invalid function name for Gemini: %s", name)
+            continue
+
+        sanitized_params = _sanitize_parameters(params)
         declarations.append(
             GeminiFunctionDeclaration(
                 name=name,
@@ -185,13 +253,18 @@ def sanitize_code_assist_tools(
 
     if function_declarations:
         # PERFORMANCE: Avoid model_dump() if already dict
+        # Code Assist uses a list of tool blocks with function_declarations.
+        normalized_declarations: list[dict[str, Any]] = []
+        for fd in function_declarations:
+            if isinstance(fd, dict):
+                fd_dict = dict(fd)
+            else:
+                fd_dict = fd.model_dump()
+            fd_dict["parameters"] = _sanitize_parameters(fd_dict.get("parameters", {}))
+            normalized_declarations.append(fd_dict)
+
         code_assist_request["tools"] = [
-            {
-                "function_declarations": [
-                    fd if isinstance(fd, dict) else fd.model_dump()
-                    for fd in function_declarations
-                ]
-            }
+            {"function_declarations": normalized_declarations}
         ]
 
         # Filter allowedFunctionNames to declared functions
@@ -205,9 +278,45 @@ def sanitize_code_assist_tools(
                 declared_names.add(name)
         filter_allowed_function_names(code_assist_request, declared_names)
     else:
+        if logger.isEnabledFor(logging.DEBUG) and (
+            "tools" in code_assist_request or "toolConfig" in code_assist_request
+        ):
+            logger.debug("Removing empty tools/toolConfig from Code Assist request")
         code_assist_request.pop("tools", None)
         # If no tools, drop toolConfig entirely to avoid invalid references
         code_assist_request.pop("toolConfig", None)
+
+
+def normalize_code_assist_request_tools(request_body: dict[str, Any]) -> None:
+    """Normalize tools in Code Assist request bodies before sending."""
+    request_section = request_body.get("request")
+    if not isinstance(request_section, dict):
+        return
+
+    tools = request_section.get("tools")
+    if not isinstance(tools, list):
+        return
+
+    for entry in tools:
+        if not isinstance(entry, dict):
+            continue
+        declarations = entry.get("function_declarations")
+        if not isinstance(declarations, list):
+            continue
+        for fd in declarations:
+            if not isinstance(fd, dict):
+                continue
+            params = fd.get("parameters", {})
+            if (
+                isinstance(params, dict)
+                and isinstance(params.get("properties"), list)
+                and logger.isEnabledFor(logging.DEBUG)
+            ):
+                logger.debug(
+                    "Normalizing list-based tool properties for %s",
+                    fd.get("name", "unknown"),
+                )
+            fd["parameters"] = _sanitize_parameters(params)
 
 
 __all__ = [
@@ -215,4 +324,5 @@ __all__ = [
     "filter_allowed_function_names",
     "salvage_existing_function_declarations",
     "sanitize_code_assist_tools",
+    "normalize_code_assist_request_tools",
 ]

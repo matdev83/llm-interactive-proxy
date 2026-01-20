@@ -1,3 +1,6 @@
+from src.connectors.gemini_base.tool_sanitizer import (
+    normalize_code_assist_request_tools,
+)
 from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
@@ -47,7 +50,9 @@ def test_sanitize_code_assist_tools_strips_custom_and_rebuilds_functions() -> No
         "properties": {"id": {"type": "string"}},
     }
 
-    fcc = code_assist_request.get("toolConfig", {}).get("functionCallingConfig", {})
+    tool_config = code_assist_request.get("toolConfig", {})
+    assert isinstance(tool_config, dict)
+    fcc = tool_config.get("functionCallingConfig", {})
     assert fcc.get("allowedFunctionNames") == ["do_thing"]
 
 
@@ -115,6 +120,93 @@ def test_sanitize_code_assist_tools_handles_direct_name_format() -> None:
     }
 
 
+def test_sanitize_code_assist_tools_converts_properties_list() -> None:
+    """Map-style properties lists should be converted to properties dicts."""
+    canonical = CanonicalChatRequest(
+        model="antigravity-oauth",
+        messages=[ChatMessage(role="user", content="hi")],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "tool_test",
+                    "description": "Test tool",
+                    "parameters": {
+                        "type": "object",
+                        "properties": [
+                            {"key": "path", "value": {"type": "string"}},
+                            {
+                                "key": "options",
+                                "value": {
+                                    "type": "object",
+                                    "properties": [
+                                        {
+                                            "key": "recursive",
+                                            "value": {"type": "boolean"},
+                                        }
+                                    ],
+                                },
+                            },
+                        ],
+                        "required": ["path"],
+                    },
+                },
+            }
+        ],
+    )
+
+    code_assist_request: dict = {}
+
+    GeminiOAuthBaseConnector._sanitize_code_assist_tools(canonical, code_assist_request)
+
+    tools = code_assist_request.get("tools")
+    assert isinstance(tools, list) and len(tools) == 1
+    declarations = tools[0].get("function_declarations")
+    assert isinstance(declarations, list) and len(declarations) == 1
+
+    func = declarations[0]
+    assert func["parameters"]["properties"]["path"]["type"] == "string"
+    assert (
+        func["parameters"]["properties"]["options"]["properties"]["recursive"]["type"]
+        == "boolean"
+    )
+
+
+def test_normalize_code_assist_request_tools() -> None:
+    request_body = {
+        "request": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "name": "tool_test",
+                            "parameters": {
+                                "type": "object",
+                                "properties": [
+                                    {"key": "path", "value": {"type": "string"}},
+                                ],
+                                "required": ["path"],
+                            },
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+
+    normalize_code_assist_request_tools(request_body)
+
+    request_section = request_body.get("request", {})
+    assert isinstance(request_section, dict)
+    tools = request_section.get("tools")
+    assert isinstance(tools, list)
+    declarations = tools[0].get("function_declarations")
+    assert isinstance(declarations, list)
+    params = declarations[0].get("parameters")
+    assert isinstance(params, dict)
+    assert params["properties"]["path"]["type"] == "string"
+
+
 def test_sanitize_code_assist_tools_handles_anthropic_input_schema_format() -> None:
     """Tools with input_schema (Anthropic format) should be converted.
 
@@ -153,6 +245,31 @@ def test_sanitize_code_assist_tools_handles_anthropic_input_schema_format() -> N
     assert func["description"] == "Execute a shell command"
     assert func["parameters"]["type"] == "object"
     assert "command" in func["parameters"]["properties"]
+
+
+def test_sanitize_code_assist_tools_drops_invalid_function_names() -> None:
+    canonical = CanonicalChatRequest(
+        model="antigravity-oauth",
+        messages=[ChatMessage(role="user", content="hi")],
+        tools=[
+            {
+                "function": {
+                    "name": "1invalid-name",
+                    "description": "Invalid function name",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                    },
+                }
+            }
+        ],
+    )
+
+    code_assist_request: dict = {}
+
+    GeminiOAuthBaseConnector._sanitize_code_assist_tools(canonical, code_assist_request)
+
+    assert "tools" not in code_assist_request
 
 
 def test_sanitize_code_assist_tools_handles_mixed_formats() -> None:

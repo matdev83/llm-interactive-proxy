@@ -202,17 +202,21 @@ class SSESerializer:
                                 new_choice[container_key] = new_container
                                 choice_modified = True
                         elif isinstance(tc_list, list) and tc_list:
-                            sanitized_calls: list[dict[str, Any]] = [
-                                {
+                            sanitized_calls: list[dict[str, Any]] = []
+                            for idx, tc in enumerate(tc_list):
+                                if not isinstance(tc, dict):
+                                    continue
+                                sanitized_tc = {
                                     k: v
                                     for k, v in tc.items()
                                     if isinstance(k, str)
                                     and not k.startswith("_")
                                     and k != "extra_content"
                                 }
-                                for tc in tc_list
-                                if isinstance(tc, dict)
-                            ]
+                                # Ensure index is present (required by OpenAI streaming spec)
+                                if "index" not in sanitized_tc:
+                                    sanitized_tc["index"] = idx
+                                sanitized_calls.append(sanitized_tc)
                             new_container = dict(container)
                             new_container["tool_calls"] = sanitized_calls
                             new_choice[container_key] = new_container
@@ -231,7 +235,7 @@ class SSESerializer:
         tool_calls = chunk.metadata.tool_calls
         if tool_calls:
             sanitized_calls = []
-            for tc in tool_calls:
+            for idx, tc in enumerate(tool_calls):
                 if hasattr(tc, "model_dump"):
                     tc_dict = tc.model_dump(exclude_none=True)
                 elif isinstance(tc, dict):
@@ -245,6 +249,9 @@ class SSESerializer:
                     and not k.startswith("_")
                     and k != "extra_content"
                 }
+                # Ensure index is present (required by OpenAI streaming spec)
+                if "index" not in sanitized_dict:
+                    sanitized_dict["index"] = idx
                 if sanitized_dict:
                     sanitized_calls.append(sanitized_dict)
 
@@ -262,16 +269,21 @@ class SSESerializer:
     def _sanitize_tool_calls(
         self, tool_calls: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Sanitize tool_calls by removing internal markers."""
-        return [
-            {
+        """Sanitize tool_calls by removing internal markers and ensuring index is present."""
+        result = []
+        for idx, tc in enumerate(tool_calls):
+            if not isinstance(tc, dict):
+                continue
+            sanitized = {
                 k: v
                 for k, v in tc.items()
                 if isinstance(k, str) and not k.startswith("_") and k != "extra_content"
             }
-            for tc in tool_calls
-            if isinstance(tc, dict)  # type: ignore[misc]
-        ]
+            # Ensure index is present (required by OpenAI streaming spec)
+            if "index" not in sanitized:
+                sanitized["index"] = idx
+            result.append(sanitized)
+        return result
 
     def _sanitize_chunk_tool_calls_in_place(self, content_copy: dict[str, Any]) -> None:
         """Sanitize tool_calls in choices[].delta/message in place."""
@@ -350,7 +362,7 @@ class SSESerializer:
         tool_calls = chunk.metadata.tool_calls
         if tool_calls and not is_virtual:
             sanitized_calls = []
-            for tc in tool_calls:
+            for idx, tc in enumerate(tool_calls):
                 if hasattr(tc, "model_dump"):
                     tc_dict = tc.model_dump(exclude_none=True)
                 elif isinstance(tc, dict):
@@ -362,6 +374,9 @@ class SSESerializer:
                     for k, v in tc_dict.items()
                     if not k.startswith("_") and k != "extra_content"
                 }
+                # Ensure index is present (required by OpenAI streaming spec)
+                if "index" not in sanitized_dict:
+                    sanitized_dict["index"] = idx
                 if sanitized_dict:
                     sanitized_calls.append(sanitized_dict)
             if sanitized_calls:

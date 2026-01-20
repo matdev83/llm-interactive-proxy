@@ -21,6 +21,7 @@ def _sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
         "$defs",
         "definitions",
         "$ref",
+        "ref",  # OpenCode uses 'ref' without the $ prefix
         "exclusiveMinimum",
         "exclusiveMaximum",
         "additionalProperties",
@@ -55,8 +56,27 @@ def _sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
         "contentEncoding",
     }
 
+    def _coerce_properties_list(items: list[Any]) -> dict[str, Any] | None:
+        mapped: dict[str, Any] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                return None
+            key = item.get("key")
+            if not isinstance(key, str) or not key:
+                return None
+            if "value" not in item:
+                return None
+            mapped[key] = _clean(item.get("value"), parent_key=None)
+        return mapped
+
     def _clean(obj: Any, *, parent_key: str | None = None) -> Any:
         if isinstance(obj, dict):
+            type_value = obj.get("type")
+            selected_type: str | None = None
+            if isinstance(type_value, list):
+                non_null_types = [t for t in type_value if t != "null"]
+                selected_type = non_null_types[0] if non_null_types else "string"
+
             if "anyOf" in obj and isinstance(obj["anyOf"], list) and obj["anyOf"]:
                 chosen = obj["anyOf"][0]
                 merged: dict[str, Any] = (
@@ -86,8 +106,12 @@ def _sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
                 }
 
             cleaned: dict[str, Any] = {}
+            if selected_type:
+                cleaned["type"] = selected_type
             for key, value in obj.items():
                 if key in blacklist:
+                    continue
+                if key == "type" and isinstance(value, list):
                     continue
                 if key == "items" and isinstance(value, list):
                     cleaned["items"] = {}
@@ -110,9 +134,20 @@ def _sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
                     else:
                         cleaned.pop("required", None)
 
+            if "type" not in cleaned and isinstance(cleaned.get("properties"), dict):
+                cleaned["type"] = "object"
+
+            if cleaned.get("type") == "array" and "items" not in cleaned:
+                cleaned["items"] = {}
+
             return cleaned
 
         if isinstance(obj, list):
+            if parent_key == "properties":
+                coerced = _coerce_properties_list(obj)
+                if coerced is not None:
+                    return coerced
+                return {}
             return [_clean(item, parent_key=parent_key) for item in obj]
 
         return obj

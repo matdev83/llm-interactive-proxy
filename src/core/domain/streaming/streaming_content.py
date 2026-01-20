@@ -380,16 +380,28 @@ class StreamingContent:
         if "error" in metadata_dict:
             error_dict = metadata_dict.pop("error")
             if isinstance(error_dict, dict):
-                # Extract valid fields for StreamingErrorInfo (including status_code)
-                valid_fields = {
-                    "type": error_dict.get("type", ""),
-                    "message": error_dict.get("message", ""),
-                    "code": error_dict.get("code"),
-                    "retryable": error_dict.get("retryable"),
-                    "status_code": error_dict.get("status_code"),
-                }
+                raw_message = (
+                    error_dict.get("message")
+                    or error_dict.get("error")
+                    or error_dict.get("details")
+                )
+                message = (
+                    str(raw_message)
+                    if raw_message not in (None, "")
+                    else (str(error_dict) if error_dict else "Unknown error")
+                )
+                error_type = error_dict.get("type") or "api_error"
+                code_value = error_dict.get("code")
+                if code_value is not None and not isinstance(code_value, str):
+                    code_value = str(code_value)
                 try:
-                    error = StreamingErrorInfo(**valid_fields)
+                    error = StreamingErrorInfo(
+                        type=error_type,
+                        message=message,
+                        code=code_value,
+                        retryable=error_dict.get("retryable"),
+                        status_code=error_dict.get("status_code"),
+                    )
                 except (pydantic.ValidationError, TypeError, ValueError):
                     logger.warning(
                         f"Failed to convert error dict to StreamingErrorInfo: {error_dict}",
@@ -397,6 +409,9 @@ class StreamingContent:
                     )
                     # Preserve original error dict in metadata if conversion fails
                     metadata_dict["error"] = error_dict
+            elif error_dict is not None:
+                # Preserve string/opaque errors as message text for client visibility.
+                error = StreamingErrorInfo(type="api_error", message=str(error_dict))
 
         # Convert usage (from attribute or metadata)
         usage: StreamingUsage | None = None

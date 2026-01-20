@@ -389,7 +389,7 @@ class TestAntigravityOAuthConnector:
         quota_error = {
             "error": {
                 "code": 429,
-                "message": "You have exhausted your capacity on this model. Your quota will reset after 1s.",
+                "message": "Quota exceeded for quota metric 'Gemini 2.5 Pro Requests'.",
                 "status": "RESOURCE_EXHAUSTED",
             }
         }
