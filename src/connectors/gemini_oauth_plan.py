@@ -21,6 +21,7 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.gemini_base.credential_providers import FileCredentialProvider
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
 from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
@@ -102,26 +103,16 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
 
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: DomainModel | InternalDTO | dict[str, Any],
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: IAppIdentityConfig | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
-        openrouter_api_base_url: str | None = None,
-        openrouter_headers_provider: Callable[[Any, str], dict[str, str]] | None = None,
-        key_name: str | None = None,
-        api_key: str | None = None,
-        project: str | None = None,
-        agent: str | None = None,
-        gemini_api_base_url: str | None = None,
-        **kwargs: Any,
+        request: ConnectorChatCompletionsRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         # Structural enforcement: check cancellation immediately if coordinator and token provided
-        if cancellation_coordinator is not None and cancellation_token is not None:
-            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
+        if (
+            request.cancellation_coordinator is not None
+            and request.cancellation_token is not None
+        ):
+            request.cancellation_coordinator.ensure_not_cancelled(
+                request.cancellation_token
+            )
         """Handle chat completions with debugging flag validation.
 
         Raises:
@@ -132,6 +123,7 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
                 "Rejected request: Gemini OAuth Plan backend requires debugging override flag. "
                 "To enable, use the --enable-gemini-oauth-plan-backend-debugging-override flag."
             )
+            # Use 403 Forbidden for clearer semantic meaning
             raise HTTPException(
                 status_code=403,
                 detail=(
@@ -140,19 +132,17 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
                 ),
             )
 
+        # Unpack canonical request to match legacy connector signature
+        # Unpack canonical request to match legacy connector signature
         return await super().chat_completions(
-            request_data,
-            processed_messages,
-            effective_model,
-            identity=identity,
-            openrouter_api_base_url=openrouter_api_base_url,
-            openrouter_headers_provider=openrouter_headers_provider,
-            key_name=key_name,
-            api_key=api_key,
-            project=project,
-            agent=agent,
-            gemini_api_base_url=gemini_api_base_url,
-            **kwargs,
+            request_data=request.request,
+            processed_messages=list(request.processed_messages),
+            effective_model=request.effective_model,
+            identity=request.identity,
+            cancellation_token=request.cancellation_token,
+            cancellation_coordinator=request.cancellation_coordinator,
+            # Pass any extra options (provider-specific) as kwargs
+            **request.options,  # type: ignore[arg-type]
         )
 
     async def _discover_project_id(self, auth_session: Any = None) -> str:

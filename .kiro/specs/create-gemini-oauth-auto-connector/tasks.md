@@ -125,7 +125,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ### Task 5: Implement TokenRefreshService
 
-- [ ] 5.1 Write unit tests for TokenRefreshService FIRST (TDD Red)
+- [x] 5.1 Write unit tests for TokenRefreshService FIRST (TDD Red)
   - Create `tests/unit/connectors/gemini_oauth_auto/test_token_refresh.py`
   - Test `refresh_if_needed()` returns unchanged if not expired
   - Test `refresh_if_needed()` refreshes when within buffer
@@ -136,7 +136,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Mock `httpx.AsyncClient` responses
   - _Requirements: 3_
 
-- [ ] 5.2 Implement TokenRefreshService (TDD Green)
+- [x] 5.2 Implement TokenRefreshService (TDD Green)
   - Create `src/connectors/gemini_oauth_auto/token_refresh.py`
   - Implement `TokenRefreshService(ITokenRefresh)`
   - Constructor accepts `storage: ITokenStorage`, `http_client: httpx.AsyncClient`
@@ -147,7 +147,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Clear `needs_reauth` on successful refresh
   - _Requirements: 3_
 
-- [ ] 5.3 Verify tests pass (TDD Refactor)
+- [x] 5.3 Verify tests pass (TDD Refactor)
   - Run unit tests: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/gemini_oauth_auto/test_token_refresh.py -v`
   - Fix any failures
   - Run QA checks on `token_refresh.py`
@@ -155,7 +155,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ### Task 6: Implement AccountSelectorService
 
-- [ ] 6.1 Write unit tests for AccountSelectorService FIRST (TDD Red)
+- [x] 6.1 Write unit tests for AccountSelectorService FIRST (TDD Red)
   - Create `tests/unit/connectors/gemini_oauth_auto/test_account_selector.py`
   - Test `get_next_account()` returns valid account
   - Test `get_next_account()` skips `needs_reauth` accounts
@@ -166,7 +166,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Test empty accounts returns None
   - _Requirements: 4_
 
-- [ ] 6.2 Implement AccountSelectorService (TDD Green)
+- [x] 6.2 Implement AccountSelectorService (TDD Green)
   - Create `src/connectors/gemini_oauth_auto/account_selector.py`
   - Implement `AccountSelectorService(IAccountSelector)`
   - Constructor accepts `storage: ITokenStorage`, `refresh_service: ITokenRefresh`
@@ -176,7 +176,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Track current account separately from rotation
   - _Requirements: 4_
 
-- [ ] 6.3 Verify tests pass (TDD Refactor)
+- [x] 6.3 Verify tests pass (TDD Refactor)
   - Run unit tests: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/gemini_oauth_auto/test_account_selector.py -v`
   - Fix any failures
   - Run QA checks on `account_selector.py`

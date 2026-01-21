@@ -422,6 +422,9 @@ def _validate_request_parameters(request: CanonicalChatRequest) -> None:
             if message.role == "assistant":
                 # allow empty assistant messages; filtered later
                 continue
+            if message.role == "tool":
+                # allow empty tool messages; handled by translator
+                continue
             if not has_text and not has_tool_calls:
                 raise ValueError(f"Content is required for {message.role} messages")
 
