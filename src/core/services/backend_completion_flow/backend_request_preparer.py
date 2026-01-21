@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from pydantic.types import JsonValue
 
@@ -25,6 +25,9 @@ from src.core.interfaces.uri_parameter_applicator_interface import (
     IURIParameterApplicator,
 )
 
+if TYPE_CHECKING:
+    from src.core.services.auxiliary_request_router import AuxiliaryRequestRouter
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +41,7 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         reasoning_config_applicator: IReasoningConfigApplicator,
         uri_parameter_applicator: IURIParameterApplicator,
         config: IConfig,
+        auxiliary_router: AuxiliaryRequestRouter | None = None,
     ):
         """Initialize the request preparer."""
         self._backend_model_resolver = backend_model_resolver
@@ -45,12 +49,44 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         self._reasoning_config_applicator = reasoning_config_applicator
         self._uri_parameter_applicator = uri_parameter_applicator
         self._config = config
+        self._auxiliary_router = auxiliary_router
 
     async def prepare_request(
         self, request: CanonicalChatRequest, context: RequestContext | None
     ) -> BackendTarget:
-        """Resolve backend type, effective model, and URI parameters."""
-        return await self._backend_model_resolver.resolve_target(request, context)
+        """Resolve backend type, effective model, and URI parameters.
+
+        If auxiliary request routing is enabled and this request is detected
+        as an auxiliary request (title/summary generation), the target will
+        be overridden to use the configured auxiliary backend.
+        """
+        # First, resolve the default target
+        target = await self._backend_model_resolver.resolve_target(request, context)
+
+        # Check if this is an auxiliary request that should be routed differently
+        if self._auxiliary_router and self._auxiliary_router.enabled:
+            if self._auxiliary_router.should_route_to_auxiliary(request):
+                auxiliary_backend = self._auxiliary_router.get_auxiliary_backend()
+                auxiliary_model = self._auxiliary_router.get_auxiliary_model()
+
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Routing auxiliary request to backend '%s' (model: %s) "
+                        "instead of '%s' (model: %s)",
+                        auxiliary_backend,
+                        auxiliary_model or "default",
+                        target.backend,
+                        target.model,
+                    )
+
+                # Create a new target with the auxiliary backend/model
+                target = BackendTarget(
+                    backend=auxiliary_backend,
+                    model=auxiliary_model or target.model,
+                    uri_params=target.uri_params,
+                )
+
+        return target
 
     def synchronize_request_with_target(
         self, request: CanonicalChatRequest, target: BackendTarget

@@ -22,6 +22,7 @@ Domain Applicators:
 - EditPrecisionApplicator: edit precision tuning
 - IdentityApplicator: client identity override
 - RoutingApplicator: routing policies
+- AuxiliaryRoutingApplicator: auxiliary request routing (title/summary generation)
 - CompactionApplicator: context compaction
 - SandboxingApplicator: file access sandboxing
 - EndOfSessionApplicator: end-of-session detection and event emission
@@ -34,6 +35,9 @@ Requirements satisfied:
 
 from src.core.cli_support.applicators.assessment_applicator import AssessmentApplicator
 from src.core.cli_support.applicators.auth_applicator import AuthApplicator
+from src.core.cli_support.applicators.auxiliary_routing_applicator import (
+    AuxiliaryRoutingApplicator,
+)
 from src.core.cli_support.applicators.backend_applicator import BackendApplicator
 from src.core.cli_support.applicators.compaction_applicator import CompactionApplicator
 from src.core.cli_support.applicators.editprecision_applicator import (
@@ -57,6 +61,7 @@ from src.core.cli_support.applicators.session_applicator import SessionApplicato
 __all__ = [
     "AssessmentApplicator",
     "AuthApplicator",
+    "AuxiliaryRoutingApplicator",
     "BackendApplicator",
     "CompactionApplicator",
     "EditPrecisionApplicator",

@@ -1,0 +1,22 @@
+{
+    "feature_name": "create-gemini-oauth-auto-connector",
+    "created_at": "2026-01-20T23:26:37+01:00",
+    "updated_at": "2026-01-21T00:12:51+01:00",
+    "language": "en",
+    "phase": "implementation-ready",
+    "approvals": {
+        "requirements": {
+            "generated": true,
+            "approved": true
+        },
+        "design": {
+            "generated": true,
+            "approved": true
+        },
+        "tasks": {
+            "generated": true,
+            "approved": true
+        }
+    },
+    "ready_for_implementation": true
+}

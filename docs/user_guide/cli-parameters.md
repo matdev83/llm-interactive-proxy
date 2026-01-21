@@ -300,6 +300,17 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | `--disable-routing-with-backend-names` | `DISABLE_ROUTING_WITH_BACKEND_NAMES=true` | Disable routing using backend names (e.g. `openai:gpt-4`). Implies disabling IDs. |
 | `--disable-routing-with-only-model-names` | `DISABLE_ROUTING_WITH_ONLY_MODEL_NAMES=true` | Disable routing using only model names (e.g. `gpt-4`). |
 
+### Auxiliary Request Routing
+
+Routes auxiliary requests (title/summary generation) to alternative backends to reduce rate limiting pressure on the primary backend.
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--enable-auxiliary-routing` | `AUXILIARY_ROUTING_ENABLED=true` | Enable routing of auxiliary requests (title/summary generation) to an alternative backend. |
+| `--auxiliary-routing-backend BACKEND` | `AUXILIARY_ROUTING_BACKEND` | Backend to use for auxiliary requests (e.g., `openrouter`, `gemini-flash`). |
+| `--auxiliary-routing-model MODEL` | `AUXILIARY_ROUTING_MODEL` | Model to use on the auxiliary backend (optional, uses backend default if not set). |
+| `--auxiliary-routing-max-messages N` | `AUXILIARY_ROUTING_MAX_MESSAGES` | Maximum message count for a request to be considered auxiliary (default: 3). |
+
 ### Pytest Integration
 
 | CLI Argument | Environment Variable | Description |

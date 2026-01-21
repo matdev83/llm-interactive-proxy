@@ -24,3 +24,15 @@ backends:
   
   gemini-oauth-plan:
     timeout: 120
+
+# Auxiliary request routing - route title/summary requests to a different backend
+# to avoid rate limiting on the primary backend.
+# Uncomment and configure to enable:
+# auxiliary_routing:
+#   enabled: true
+#   backend: "openrouter"  # Backend to use for auxiliary requests
+#   model: "google/gemini-flash-1.5"  # Optional: specific model to use
+#   detection_patterns:  # Regex patterns to detect auxiliary requests
+#     - "The following is the text to summarize"
+#     - "Generate a (?:short |brief )?(?:title|summary)"
+#   max_message_count: 3  # Max messages for a request to be considered auxiliary

@@ -171,11 +171,15 @@ class IntelligentSessionResolver(ISessionResolver):
             f"Created new session {session_id} for client {client_key} (no matching history)"
         )
         await self._session_repository.update_client_session(session_id, client_key)
+        # FIX: Store fingerprint IMMEDIATELY to prevent race condition with parallel requests
+        # Before this fix, parallel requests would find the session but with null fingerprint,
+        # causing them to create duplicate sessions instead of reusing the existing one.
+        await self._session_repository.update_fingerprint(session_id, conversation_fp)
         # #region agent log
         _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
         import json as _json_debug
         with open(_log_path, "a", encoding="utf-8") as _f:
-            _f.write(_json_debug.dumps({"location": "intelligent_session_resolver.py:create_new_session", "message": "Created new session WITHOUT storing fingerprint", "data": {"session_id": session_id, "client_key": client_key[:16], "fingerprint": conversation_fp[:16], "msg_count": len(messages)}, "timestamp": __import__("time").time(), "hypothesisId": "A"}) + "\n")
+            _f.write(_json_debug.dumps({"location": "intelligent_session_resolver.py:create_new_session", "message": "Created new session WITH fingerprint stored immediately", "data": {"session_id": session_id, "client_key": client_key[:16], "fingerprint": conversation_fp[:16], "msg_count": len(messages)}, "timestamp": __import__("time").time(), "hypothesisId": "A-FIX"}) + "\n")
         # #endregion
 
         return session_id

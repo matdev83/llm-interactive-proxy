@@ -290,6 +290,7 @@ class ConfigurationApplicator:
         from src.core.cli_support.applicators import (
             AssessmentApplicator,
             AuthApplicator,
+            AuxiliaryRoutingApplicator,
             BackendApplicator,
             CompactionApplicator,
             EditPrecisionApplicator,
@@ -318,6 +319,7 @@ class ConfigurationApplicator:
             EditPrecisionApplicator(),
             IdentityApplicator(),
             RoutingApplicator(),
+            AuxiliaryRoutingApplicator(),
             CompactionApplicator(),
             SandboxingApplicator(),
             EndOfSessionApplicator(),

@@ -1,0 +1,198 @@
+"""
+Pydantic models for Gemini OAuth Auto-Connector.
+
+Provides data models for OAuth credential storage and account management.
+"""
+
+import re
+import time
+from datetime import datetime, timezone
+from typing import Any, Literal
+
+from pydantic import BaseModel, Field, field_validator
+
+from src.connectors.gemini_oauth_auto.constants import (
+    ACCOUNT_ID_MAX_LENGTH,
+    ACCOUNT_ID_PATTERN,
+)
+
+# Compiled pattern for validation
+_ACCOUNT_ID_REGEX = re.compile(ACCOUNT_ID_PATTERN)
+
+
+class StoredAccount(BaseModel):
+    """OAuth credentials for a stored Google account.
+
+    Follows Google OAuth2 Credentials format with extended fields for
+    account management and tracking.
+
+    Attributes:
+        account_id: User-specified or auto-generated identifier
+        email: Google account email (from userinfo endpoint)
+        access_token: Current OAuth access token
+        refresh_token: Long-lived refresh token
+        token_type: Token type (typically "Bearer")
+        scope: Space-separated list of granted scopes
+        expiry_date: Token expiry timestamp in milliseconds since epoch
+        created_at: ISO 8601 timestamp of initial registration
+        updated_at: ISO 8601 timestamp of last token update
+        last_used: ISO 8601 timestamp of last API request (or None)
+        needs_reauth: If True, refresh_token is invalid; requires re-authorization
+    """
+
+    account_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=ACCOUNT_ID_MAX_LENGTH,
+        description="Unique identifier for this account",
+    )
+    email: str = Field(..., description="Google account email")
+    access_token: str = Field(..., description="OAuth access token")
+    refresh_token: str = Field(..., description="OAuth refresh token")
+    token_type: str = Field(default="Bearer", description="Token type")
+    scope: str = Field(..., description="Space-separated OAuth scopes")
+    expiry_date: int = Field(
+        ..., description="Token expiry in milliseconds since epoch"
+    )
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        description="ISO 8601 creation timestamp",
+    )
+    updated_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        description="ISO 8601 last update timestamp",
+    )
+    last_used: str | None = Field(
+        default=None, description="ISO 8601 last used timestamp"
+    )
+    needs_reauth: bool = Field(
+        default=False,
+        description="If True, account requires re-authorization",
+    )
+
+    @field_validator("account_id")
+    @classmethod
+    def validate_account_id(cls, v: str) -> str:
+        """Validate account_id matches allowed pattern."""
+        if not _ACCOUNT_ID_REGEX.match(v):
+            raise ValueError(
+                f"account_id must match pattern: alphanumeric, hyphens, underscores; "
+                f"max {ACCOUNT_ID_MAX_LENGTH} chars; got: {v!r}"
+            )
+        return v
+
+    def is_expired(self, buffer_ms: int = 0) -> bool:
+        """Check if access token is expired or will expire within buffer.
+
+        Args:
+            buffer_ms: Milliseconds before actual expiry to consider expired.
+                       Default 0 means check actual expiry only.
+                       Use 300_000 (5 minutes) for proactive refresh.
+
+        Returns:
+            True if token is expired or will expire within buffer.
+        """
+        current_time_ms = int(time.time() * 1000)
+        return current_time_ms >= (self.expiry_date - buffer_ms)
+
+    def to_credentials_dict(self) -> dict[str, Any]:
+        """Convert to dictionary format for API authentication.
+
+        Returns format compatible with Google OAuth2 credentials:
+        {
+            "access_token": "...",
+            "refresh_token": "...",
+            "token_type": "Bearer",
+            "expiry_date": 1737417600000
+        }
+        """
+        return {
+            "access_token": self.access_token,
+            "refresh_token": self.refresh_token,
+            "token_type": self.token_type,
+            "expiry_date": self.expiry_date,
+        }
+
+    @property
+    def status(self) -> Literal["valid", "expired", "needs_reauth"]:
+        """Get account status for display.
+
+        Returns:
+            - "needs_reauth": Account requires re-authorization
+            - "expired": Token is expired (may be refreshable)
+            - "valid": Token is valid
+        """
+        if self.needs_reauth:
+            return "needs_reauth"
+        if self.is_expired():
+            return "expired"
+        return "valid"
+
+    def with_updated_tokens(
+        self,
+        access_token: str,
+        expiry_date: int,
+        *,
+        refresh_token: str | None = None,
+    ) -> "StoredAccount":
+        """Create new instance with updated tokens.
+
+        Args:
+            access_token: New access token
+            expiry_date: New expiry timestamp in milliseconds
+            refresh_token: New refresh token (optional, keeps existing if None)
+
+        Returns:
+            New StoredAccount instance with updated tokens and timestamps.
+        """
+        return self.model_copy(
+            update={
+                "access_token": access_token,
+                "expiry_date": expiry_date,
+                "refresh_token": refresh_token or self.refresh_token,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "needs_reauth": False,  # Clear flag on successful refresh
+            }
+        )
+
+    def mark_used(self) -> "StoredAccount":
+        """Create new instance with updated last_used timestamp.
+
+        Returns:
+            New StoredAccount instance with current time as last_used.
+        """
+        return self.model_copy(
+            update={"last_used": datetime.now(timezone.utc).isoformat()}
+        )
+
+
+class AccountSummary(BaseModel):
+    """Summary information for account listing.
+
+    Used for display in the management script's `list` command.
+    Contains a subset of StoredAccount fields suitable for tabular display.
+    """
+
+    account_id: str
+    email: str
+    status: Literal["valid", "expired", "needs_reauth"]
+    expiry_date: int
+    last_used: str | None
+
+    @classmethod
+    def from_stored_account(cls, account: StoredAccount) -> "AccountSummary":
+        """Create summary from full StoredAccount.
+
+        Args:
+            account: Full account credentials
+
+        Returns:
+            AccountSummary with display-relevant fields.
+        """
+        return cls(
+            account_id=account.account_id,
+            email=account.email,
+            status=account.status,
+            expiry_date=account.expiry_date,
+            last_used=account.last_used,
+        )

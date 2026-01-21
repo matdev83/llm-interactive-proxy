@@ -65,6 +65,7 @@ class ArgumentParserBuilder:
         self._add_session_testing_arguments(parser)
         self._add_tool_access_arguments(parser)
         self._add_routing_arguments(parser)
+        self._add_auxiliary_routing_arguments(parser)
         self._add_llm_assessment_arguments(parser)
         self._add_identity_arguments(parser)
         self._add_memory_arguments(parser)
@@ -887,6 +888,38 @@ class ArgumentParserBuilder:
             dest="disable_routing_with_only_model_names",
             default=None,
             help="Disable automatic resolution of backend instances from model name only (e.g., gpt-4)",
+        )
+
+    def _add_auxiliary_routing_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add auxiliary request routing arguments."""
+        aux_routing_group = parser.add_argument_group(
+            "Auxiliary Request Routing",
+            "Options for routing auxiliary requests (title/summary generation) to alternative backends",
+        )
+        aux_routing_group.add_argument(
+            "--enable-auxiliary-routing",
+            action="store_true",
+            dest="auxiliary_routing_enabled",
+            help="Enable routing of auxiliary requests (title/summary generation) to an alternative backend",
+        )
+        aux_routing_group.add_argument(
+            "--auxiliary-routing-backend",
+            dest="auxiliary_routing_backend",
+            metavar="BACKEND",
+            help="Backend to use for auxiliary requests (e.g., 'openrouter', 'gemini-flash')",
+        )
+        aux_routing_group.add_argument(
+            "--auxiliary-routing-model",
+            dest="auxiliary_routing_model",
+            metavar="MODEL",
+            help="Model to use on the auxiliary backend (optional, uses backend default if not set)",
+        )
+        aux_routing_group.add_argument(
+            "--auxiliary-routing-max-messages",
+            dest="auxiliary_routing_max_messages",
+            type=int,
+            metavar="N",
+            help="Maximum message count for a request to be considered auxiliary (default: 3)",
         )
 
     def _add_llm_assessment_arguments(self, parser: argparse.ArgumentParser) -> None:

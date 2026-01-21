@@ -390,6 +390,20 @@ routing:
   disable_backend_ids: false        # Disable routing via explicit backend IDs (e.g. openai.1:gpt-4)
   disable_backend_names: false      # Disable routing via backend names (e.g. openai:gpt-4)
   disable_model_names: false        # Disable routing via model name only (e.g. gpt-4)
+
+# Auxiliary Request Routing
+# Routes auxiliary requests (title/summary generation) to alternative backends
+# to reduce rate limiting pressure on the primary backend.
+auxiliary_routing:
+  enabled: false                    # Enable auxiliary request routing
+  backend: null                     # Backend to use for auxiliary requests (e.g., "openrouter", "gemini-flash")
+  model: null                       # Optional: specific model to use on auxiliary backend
+  detection_patterns:               # Regex patterns to detect auxiliary requests
+    - "The following is the text to summarize"
+    - "Generate a (?:short |brief )?(?:title|summary)"
+    - "Summarize (?:the|this) (?:conversation|text|content)"
+    - "Create a (?:title|heading) for"
+  max_message_count: 3              # Maximum message count for auxiliary request detection
 ```
 
 ### Resilience Scoping (`resilience`)

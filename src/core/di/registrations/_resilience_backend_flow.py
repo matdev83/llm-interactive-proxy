@@ -201,6 +201,10 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             from src.core.interfaces.uri_parameter_applicator_interface import (
                 IURIParameterApplicator,
             )
+            from src.core.services.auxiliary_request_router import (
+                AuxiliaryRequestRouter,
+                AuxiliaryRoutingConfig as AuxRoutingConfigDomain,
+            )
 
             backend_model_resolver: IBackendModelResolver = (
                 provider.get_required_service(cast(type, IBackendModelResolver))
@@ -215,12 +219,40 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 provider.get_required_service(cast(type, IURIParameterApplicator))
             )
             config: IConfig = provider.get_required_service(cast(type, IConfig))
+
+            # Create auxiliary request router if configured
+            auxiliary_router: AuxiliaryRequestRouter | None = None
+            try:
+                aux_config = getattr(config, "auxiliary_routing", None)
+                if aux_config and getattr(aux_config, "enabled", False):
+                    # Convert pydantic config to domain config
+                    domain_config = AuxRoutingConfigDomain(
+                        enabled=aux_config.enabled,
+                        backend=getattr(aux_config, "backend", None),
+                        model=getattr(aux_config, "model", None),
+                        detection_patterns=list(
+                            getattr(aux_config, "detection_patterns", [])
+                        ),
+                        max_message_count=getattr(aux_config, "max_message_count", 3),
+                    )
+                    auxiliary_router = AuxiliaryRequestRouter(domain_config)
+                    logger.info(
+                        "Auxiliary request routing enabled: backend=%s, model=%s",
+                        domain_config.backend,
+                        domain_config.model,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to initialize auxiliary request router: %s", e
+                )
+
             return BackendRequestPreparer(
                 backend_model_resolver=backend_model_resolver,
                 backend_config_service=backend_config_provider,
                 reasoning_config_applicator=reasoning_config_applicator,
                 uri_parameter_applicator=uri_parameter_applicator,
                 config=config,
+                auxiliary_router=auxiliary_router,
             )
 
         register_singleton_if_absent(

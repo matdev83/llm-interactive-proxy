@@ -7,6 +7,7 @@ from pydantic import ConfigDict, Field
 
 from src.core.auth.sso.config import SSOConfig
 from src.core.config.models.auth import AuthConfig
+from src.core.config.models.auxiliary_routing import AuxiliaryRoutingConfig
 from src.core.config.models.backends import BackendSettings
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.config.models.logging import LoggingConfig
@@ -95,6 +96,9 @@ class AppConfigModel(DomainModel, IConfig):
         default_factory=FailureHandlingConfig
     )
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    auxiliary_routing: AuxiliaryRoutingConfig = Field(
+        default_factory=AuxiliaryRoutingConfig
+    )
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
     memory: MemoryConfiguration = Field(default_factory=MemoryConfiguration)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
