@@ -208,7 +208,7 @@ class TokenManager:
             if sleep_for > 0:
                 await asyncio.sleep(sleep_for)
             attempts += 1
-            loaded = await credential_provider._load_oauth_credentials()
+            loaded = await credential_provider._load_oauth_credentials(silent=True)
             if loaded and not self.is_token_expired(
                 credential_provider._oauth_credentials
             ):
@@ -216,7 +216,7 @@ class TokenManager:
                 return True
 
         # One final check in case the token refreshed just as the loop exited
-        loaded = await credential_provider._load_oauth_credentials()
+        loaded = await credential_provider._load_oauth_credentials(silent=True)
         if loaded and not self.is_token_expired(credential_provider._oauth_credentials):
             logger.debug(
                 "Token refresh finalized after max wait window (%s seconds)",

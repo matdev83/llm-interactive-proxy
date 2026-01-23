@@ -446,6 +446,8 @@ class StreamingExecutor:
                     timeout=int(DEFAULT_READ_TIMEOUT),
                     stream=True,
                 )
+                if logger.isEnabledFor(TRACE_LEVEL):
+                    logger.log(TRACE_LEVEL, "[STREAMING] Response received: status=%s", response.status_code)
 
             except requests.exceptions.Timeout as te:
                 logger.error(f"Streaming timeout calling {url}: {te}", exc_info=True)
@@ -928,6 +930,22 @@ class StreamingExecutor:
                     usage=usage_summary,
                 )
             else:
+                # If we have no final stop chunk and no content, this is an empty response error
+                has_content = bool(generated_text_parts)
+                if not has_content:
+                    logger.warning("[STREAMING] Response completed without content or stop chunk - treating as error")
+                    error_message = "Backend returned empty response with no content."
+                    error_chunk = processor.build_error_chunk(
+                        message=error_message,
+                        code=502,
+                        error_type="empty_response",
+                    )
+                    yield ProcessedResponse(
+                        content=self._get_error_chunk_content(error_chunk),
+                        metadata=self._build_error_metadata(error_chunk),
+                    )
+                    return
+
                 logger.debug(
                     "[STREAMING] No stop chunk buffered, yielding generic stop with usage"
                 )
@@ -1301,23 +1319,24 @@ class StreamingExecutor:
                     yield retry_chunk
                 return
 
-        # Handle 400 Bad Request errors (including "Prompt is too long") gracefully
-        # by yielding an error chunk instead of raising, to prevent abrupt connection
-        # termination. This allows the client to receive a proper error response.
+        # Handle 400 Bad Request errors by raising a BackendError.
+        # Previously we tried to yield an error chunk, but clients often don't understand
+        # the error chunk format in SSE streams and end up retrying infinitely.
+        # Raising ensures the client receives a proper HTTP 400 response.
         if response.status_code == 400:
             with contextlib.suppress(Exception):
                 response.close()
-            error_chunk = processor.build_error_chunk(
+            logger.warning(
+                "[STREAMING] Backend returned 400 Bad Request: %s",
+                error_message,
+            )
+            raise BackendError(
                 message=error_message,
-                code=400,
-                error_type=code,  # e.g., "invalid_request_error"
+                code=code,
+                status_code=400,
+                details=detail_payload,
+                backend_name=self._backend_type,
             )
-            # Handle both Pydantic models and dicts (for test compatibility)
-            yield ProcessedResponse(
-                content=self._get_error_chunk_content(error_chunk),
-                metadata=self._build_error_metadata(error_chunk),
-            )
-            return
 
         with contextlib.suppress(Exception):
             response.close()

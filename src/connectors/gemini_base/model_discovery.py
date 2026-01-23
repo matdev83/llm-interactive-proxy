@@ -156,6 +156,7 @@ class FallbackModelDiscovery:
     ANTIGRAVITY_MODELS = [
         # Gemini models (google/ vendor prefix)
         "google/gemini-3-pro",  # Maps to gemini-3-pro-high/low internally
+        "google/gemini-3-flash-preview",
         "google/gemini-2.5-pro",
         "google/gemini-2.5-flash",
         "google/gemini-2.5-flash-lite",

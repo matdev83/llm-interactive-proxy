@@ -208,6 +208,17 @@ backends:
     # GEMINI_API_KEY environment variable
     timeout: 120
 
+  gemini_oauth_auto:
+    # Multi-account Gemini connector with automatic token refresh and rotation.
+    # To add accounts, run: python scripts/manage_gemini_accounts.py add
+    timeout: 120
+    extra:
+      accounts: all  # List of account IDs or "all"
+      refresh_buffer_seconds: 300
+      selection_strategy: "round-robin"
+      storage_path: "var/gemini_oauth_accounts"
+
+
   qwen_oauth:
     # API key set via environment variables (OAuth flow)
     timeout: 120

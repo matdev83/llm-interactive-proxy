@@ -310,10 +310,10 @@ class TestValidateRuntime:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_validate_runtime_returns_false_when_expired(
+    async def test_validate_runtime_returns_false_when_expired_and_refresh_fails(
         self, coordinator, mock_token_manager
     ):
-        """Verify expired token detection."""
+        """Verify expired token triggers refresh, returns False if refresh fails."""
         # Set expired credentials
         expired_creds = GeminiOAuthCredentials(
             access_token="expired_token",
@@ -322,12 +322,15 @@ class TestValidateRuntime:
         )
         coordinator._credentials = expired_creds
         mock_token_manager.is_token_expired.return_value = True
+        # Refresh also fails
+        mock_token_manager.refresh_token_if_needed = AsyncMock(return_value=False)
 
         # Execute
         result = await coordinator.validate_runtime()
 
-        # Verify
+        # Verify - should try to refresh and return False when refresh fails
         assert result is False
+        mock_token_manager.refresh_token_if_needed.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_validate_runtime_returns_false_when_no_credentials(

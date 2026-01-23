@@ -9,7 +9,7 @@ This connector uses the Strategy Pattern with the following strategies:
 - StandardCodeAssistEndpoint: Uses cloudcode-pa.googleapis.com
 - StandardRequestBodyBuilder: Standard user_prompt_id format
 - FreeTierProjectDiscovery: Free tier onboarding flow
-- ApiModelDiscovery: Uses fetchAvailableModels API
+- FallbackModelDiscovery: Returns hardcoded model list (API doesn't expose fetchAvailableModels)
 """
 
 import asyncio
@@ -23,7 +23,8 @@ from fastapi import HTTPException
 
 from src.connectors.gemini_base.credential_providers import FileCredentialProvider
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
-from src.connectors.gemini_base.model_discovery import ApiModelDiscovery
+from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
+from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
 from src.connectors.gemini_base.project_discovery import FreeTierProjectDiscovery
 from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder
 from src.connectors.gemini_base.response_processors import NoOpResponsePostProcessor
@@ -70,7 +71,7 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
             endpoint_config=StandardCodeAssistEndpoint(),
             request_body_builder=StandardRequestBodyBuilder(),
             project_discovery=FreeTierProjectDiscovery(),
-            model_discovery=ApiModelDiscovery(),
+            model_discovery=FallbackModelDiscovery(models=DEFAULT_AVAILABLE_MODELS),
             response_post_processor=NoOpResponsePostProcessor(),
         )
         self._enable_gemini_oauth_free_backend_debugging_override = (

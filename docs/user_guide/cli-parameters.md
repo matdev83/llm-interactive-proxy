@@ -307,8 +307,7 @@ Routes auxiliary requests (title/summary generation) to alternative backends to 
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--enable-auxiliary-routing` | `AUXILIARY_ROUTING_ENABLED=true` | Enable routing of auxiliary requests (title/summary generation) to an alternative backend. |
-| `--auxiliary-routing-backend BACKEND` | `AUXILIARY_ROUTING_BACKEND` | Backend to use for auxiliary requests (e.g., `openrouter`, `gemini-flash`). |
-| `--auxiliary-routing-model MODEL` | `AUXILIARY_ROUTING_MODEL` | Model to use on the auxiliary backend (optional, uses backend default if not set). |
+| `--auxiliary-routing-model MODEL` | `AUXILIARY_ROUTING_MODEL` | Model to use for auxiliary requests. Can be specified as `model` or fully qualified `backend:model` (e.g. `openrouter:gemini-1.5-flash`). |
 | `--auxiliary-routing-max-messages N` | `AUXILIARY_ROUTING_MAX_MESSAGES` | Maximum message count for a request to be considered auxiliary (default: 3). |
 
 ### Pytest Integration

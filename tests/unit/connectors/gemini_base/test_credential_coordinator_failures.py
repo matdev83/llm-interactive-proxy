@@ -244,22 +244,26 @@ class TestValidateRuntimeEdgeCases:
     """Test validate_runtime edge cases."""
 
     @pytest.mark.asyncio
-    async def test_validate_runtime_with_expired_token(
+    async def test_validate_runtime_with_expired_token_triggers_refresh(
         self,
         coordinator: GeminiCredentialCoordinator,
         mock_token_manager: Mock,
     ) -> None:
-        """Verify False returned for expired token."""
+        """Verify expired token triggers refresh attempt, returns False if refresh fails."""
         coordinator._credentials = GeminiOAuthCredentials(
             access_token="expired_token",
             refresh_token="refresh_token",
             expiry_date=1000,  # Past timestamp
         )
         mock_token_manager.is_token_expired.return_value = True
+        # Refresh fails
+        mock_token_manager.refresh_token_if_needed = AsyncMock(return_value=False)
 
         result = await coordinator.validate_runtime()
 
+        # Verify refresh was attempted and result is False
         assert result is False
+        mock_token_manager.refresh_token_if_needed.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_validate_runtime_with_no_refresh_token(

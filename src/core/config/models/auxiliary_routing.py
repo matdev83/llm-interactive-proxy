@@ -7,7 +7,12 @@ on the primary backend.
 
 from __future__ import annotations
 
-from pydantic import ConfigDict, Field
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+
+from pydantic import ConfigDict, Field, model_validator
 
 from src.core.interfaces.model_bases import DomainModel
 
@@ -47,9 +52,11 @@ class AuxiliaryRoutingConfig(DomainModel):
     detection_patterns: list[str] = Field(
         default_factory=lambda: [
             r"The following is the text to summarize",
-            r"Generate a (?:short |brief )?(?:title|summary)",
-            r"Summarize (?:the|this) (?:conversation|text|content)",
+            r"Generate a (?:short |brief )?(?:title|summary|heading)",
+            r"Summarize (?:the|this|my) (?:conversation|text|content|task)",
             r"Create a (?:title|heading) for",
+            r"Generate a title for the (?:session|conversation)",
+            r"Provide a summary of (?:the|this|my) (?:task|conversation|session)",
         ],
         description="Regex patterns to detect auxiliary requests in message content",
     )
@@ -57,3 +64,18 @@ class AuxiliaryRoutingConfig(DomainModel):
         default=3,
         description="Maximum message count for a request to be considered auxiliary (auxiliary requests typically have few messages)",
     )
+
+    @model_validator(mode="after")
+    def validate_target_configured_if_enabled(self) -> Self:
+        """Ensure a valid routing target is configured if enabled."""
+        if self.enabled:
+            # Must have either a backend explicitly set, or a model with FQN
+            has_backend = bool(self.backend)
+            has_fqn_model = bool(self.model and ":" in self.model)
+            if not has_backend and not has_fqn_model:
+                raise ValueError(
+                    "Auxiliary routing is enabled but no target is configured. "
+                    "Please provide --auxiliary-routing-model <backend>:<model> "
+                    "or configure a backend explicitly."
+                )
+        return self

@@ -117,7 +117,8 @@ See [Front-End APIs Overview](docs/user_guide/backends/overview.md#front-end-api
 
 - **[OpenAI](docs/user_guide/backends/openai.md)** (GPT-4, GPT-4o, o1)
 - **[Anthropic](docs/user_guide/backends/anthropic.md)** (Claude 3.5 Sonnet, Opus, Haiku)
-- **[Google Gemini](docs/user_guide/backends/gemini.md)** (API Key, OAuth, GCP, Vertex AI)
+- **[Google Gemini](docs/user_guide/backends/gemini.md)** (API Key, OAuth, GCP, Vertex AI, Auto-OAuth)
+
 - **[OpenRouter](docs/user_guide/backends/openrouter.md)** (Access to 100+ models)
 - **[ZAI](docs/user_guide/backends/zai.md)** (Zhipu AI / GLM models)
 - **[Qwen](docs/user_guide/backends/qwen.md)** (Alibaba Cloud Qwen models)

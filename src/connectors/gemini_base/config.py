@@ -31,6 +31,7 @@ CODE_ASSIST_PROMPT_LIMIT_MARGIN = 0.97
 DEFAULT_AVAILABLE_MODELS = [
     # Current generation (2.5 series) - DEFAULT models
     "gemini-2.5-pro",
+    "gemini-3-flash-preview",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     # Preview models

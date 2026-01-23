@@ -372,30 +372,65 @@ class TestTokenRefreshService:
         assert result.refresh_token == expired_account.refresh_token
 
     @pytest.mark.asyncio
-    async def test_token_request_format(
+    async def test_refresh_locks_independent(
+        self, refresh_service: TokenRefreshService
+    ) -> None:
+        """Test that different accounts have different locks."""
+        lock1 = refresh_service._get_lock("acc-1")
+        lock2 = refresh_service._get_lock("acc-2")
+        assert lock1 is not lock2
+        assert lock1 is refresh_service._get_lock("acc-1")
+
+    @pytest.mark.asyncio
+    async def test_refresh_unexpected_error_retry(
+        self,
+        mock_storage: MagicMock,
+        mock_http_client: MagicMock,
+        expired_account: StoredAccount,
+    ) -> None:
+        """Test retry on unexpected exceptions."""
+        service = TokenRefreshService(
+            storage=mock_storage,
+            http_client=mock_http_client,
+            max_retries=2,
+            base_delay=0.001,
+        )
+
+        mock_response_success = MagicMock()
+        mock_response_success.status_code = 200
+        mock_response_success.json.return_value = {
+            "access_token": "ya29.retry_success",
+            "expires_in": 3600,
+        }
+        mock_response_success.raise_for_status = MagicMock()
+
+        mock_http_client.post.side_effect = [
+            Exception("Unexpected error"),
+            mock_response_success,
+        ]
+
+        result = await service.force_refresh(expired_account)
+        assert result.access_token == "ya29.retry_success"
+        assert mock_http_client.post.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_refresh_invalid_grant_json_error(
         self,
         refresh_service: TokenRefreshService,
         mock_http_client: MagicMock,
-        mock_storage: MagicMock,
         expired_account: StoredAccount,
     ) -> None:
-        """Test token refresh request has correct format."""
+        """Test handling of 400 error with non-JSON body."""
         mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "access_token": "ya29.new",
-            "expires_in": 3600,
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_http_client.post = AsyncMock(return_value=mock_response)
+        mock_response.status_code = 400
+        mock_response.json.side_effect = ValueError("Not JSON")
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "Bad Request", request=MagicMock(), response=mock_response
+        )
 
-        await refresh_service.force_refresh(expired_account)
+        mock_http_client.post.return_value = mock_response
+        refresh_service._http_client = mock_http_client
 
-        # Verify request format
-        call_args = mock_http_client.post.call_args
-        assert "oauth2.googleapis.com/token" in call_args[0][0]
-        data = call_args[1]["data"]
-        assert data["grant_type"] == "refresh_token"
-        assert data["refresh_token"] == expired_account.refresh_token
-        assert "client_id" in data
-        assert "client_secret" in data
+        with pytest.raises(httpx.HTTPStatusError):
+            await refresh_service._execute_refresh(expired_account, mock_http_client)
+

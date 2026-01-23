@@ -188,7 +188,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ### Task 7: Implement OAuthFlowService
 
-- [ ] 7.1 Write unit tests for OAuthFlowService FIRST (TDD Red)
+- [x] 7.1 Write unit tests for OAuthFlowService FIRST (TDD Red)
   - Create `tests/unit/connectors/gemini_oauth_auto/test_oauth_flow.py`
   - Test state parameter generation (32 bytes hex)
   - Test authorization URL construction
@@ -199,7 +199,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Mock HTTP responses, skip browser tests
   - _Requirements: 1_
 
-- [ ] 7.2 Implement OAuthFlowService (TDD Green)
+- [x] 7.2 Implement OAuthFlowService (TDD Green)
   - Create `src/connectors/gemini_oauth_auto/oauth_flow.py`
   - Implement `OAuthFlowService`
   - Constructor accepts `storage: ITokenStorage`, `http_client: httpx.AsyncClient | None`
@@ -207,12 +207,12 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Implement `_build_auth_url()` with all required params
   - Implement `_exchange_code()` for token exchange
   - Implement `_fetch_userinfo()` for email
-  - Implement `_start_callback_server()` using `aiohttp`
+  - Implement `_start_callback_server()` using `FastAPI` (refactored from `aiohttp`)
   - Implement `authorize()` main entry point
   - Handle browser opening with fallback to URL print
   - _Requirements: 1, 6, 7_
 
-- [ ] 7.3 Verify tests pass (TDD Refactor)
+- [x] 7.3 Verify tests pass (TDD Refactor)
   - Run unit tests: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/gemini_oauth_auto/test_oauth_flow.py -v`
   - Fix any failures
   - Run QA checks on `oauth_flow.py`
@@ -224,21 +224,21 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ### Task 8: Implement Account Management Script
 
-- [ ] 8.1 Create script structure
+- [x] 8.1 Create script structure
   - Create `scripts/manage_gemini_accounts.py`
   - Add shebang and module docstring
   - Set up `argparse` with subcommands: list, add, update, remove
   - Add path setup for importing `src/` modules
   - _Requirements: 5, 6, 7, 8_
 
-- [ ] 8.2 Implement `list` command
+- [x] 8.2 Implement `list` command
   - Display accounts in table format (default)
   - Show: account_id, email, status, expiry, last_used
   - Add `--json` flag for machine-readable output
   - Handle empty accounts with helpful message
   - _Requirements: 5_
 
-- [ ] 8.3 Implement `add` command
+- [x] 8.3 Implement `add` command
   - Invoke `OAuthFlowService.authorize()`
   - Support `--account-id` for custom identifier
   - Support `--no-browser` to disable auto-open
@@ -248,21 +248,21 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Handle duplicate email warning
   - _Requirements: 6_
 
-- [ ] 8.4 Implement `update` command
+- [x] 8.4 Implement `update` command
   - Validate account exists
   - Reuse OAuth flow from add
   - Preserve `account_id` and `created_at`
   - Clear `needs_reauth` flag
   - _Requirements: 7_
 
-- [ ] 8.5 Implement `remove` command
+- [x] 8.5 Implement `remove` command
   - Validate account exists
   - Prompt for confirmation (unless `--force`)
   - Delete credential file
   - Recommend revoking at Google security settings
   - _Requirements: 8_
 
-- [ ] 8.6 Test script manually
+- [x] 8.6 Test script manually
   - Run `python scripts/manage_gemini_accounts.py list`
   - Verify output format
   - Run `python scripts/manage_gemini_accounts.py --help`
@@ -274,7 +274,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ### Task 9: Implement GeminiOAuthAutoConnector
 
-- [ ] 9.1 Write unit tests for connector FIRST (TDD Red)
+- [x] 9.1 Write unit tests for connector FIRST (TDD Red)
   - Create `tests/unit/connectors/gemini_oauth_auto/test_connector.py`
   - Test `initialize()` loads accounts
   - Test `initialize()` sets functional state
@@ -286,8 +286,8 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Mock all composed services
   - _Requirements: 9_
 
-- [ ] 9.2 Implement GeminiOAuthAutoConnector (TDD Green)
-  - Create `src/connectors/gemini_oauth_auto.py`
+- [x] 9.2 Implement GeminiOAuthAutoConnector (TDD Green)
+  - Create `src/connectors/gemini_oauth_auto/connector.py` (updated from stub)
   - Extend `GeminiOAuthBaseConnector`
   - Set `backend_type = "gemini-oauth-auto"`
   - Compose services in `__init__()` with shared httpx client
@@ -301,13 +301,13 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
   - Register with `backend_registry`
   - _Requirements: 9_
 
-- [ ] 9.3 Verify tests pass (TDD Refactor)
+- [x] 9.3 Verify tests pass (TDD Refactor)
   - Run unit tests: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/gemini_oauth_auto/test_connector.py -v`
   - Fix any failures
-  - Run QA checks on `gemini_oauth_auto.py`
+  - Run QA checks on `connector.py`
   - _Requirements: 9_
 
-- [ ] 9.4 Update package exports
+- [x] 9.4 Update package exports
   - Update `src/connectors/gemini_oauth_auto/__init__.py`
   - Export: `TokenStorageService`, `TokenRefreshService`, `AccountSelectorService`
   - Export: `OAuthFlowService`, `StoredAccount`, `AccountSummary`
@@ -320,7 +320,7 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ### Task 10: Add Configuration Schema
 
-- [ ] 10.1 Create configuration schema file
+- [x] 10.1 Create configuration schema file
   - Create `config/schemas/gemini_oauth_auto.yaml`
   - Define schema for connector configuration:
     - `accounts`: list of IDs or "all"
@@ -329,13 +329,13 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
     - `storage_path`: string (default "var/gemini_oauth_accounts")
   - _Requirements: 10_
 
-- [ ] 10.2 Add Pydantic config model
+- [x] 10.2 Add Pydantic config model
   - Add `GeminiOAuthAutoConfig` to `models.py` or separate config module
   - Define all fields with defaults
   - Add validation for selection_strategy enum
   - _Requirements: 10_
 
-- [ ] 10.3 Update example config
+- [x] 10.3 Update example config
   - Add `gemini-oauth-auto` backend example to `config/config.example.yaml`
   - Document all configuration options
   - _Requirements: 10_
@@ -346,19 +346,19 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ### Task 11: Integration Tests
 
-- [ ] 11.1 Create integration test for service composition
+- [x] 11.1 Create integration test for service composition
   - Create `tests/integration/connectors/test_gemini_oauth_auto.py`
   - Test `TokenStorageService` + `TokenRefreshService` + `AccountSelectorService` wiring
   - Test end-to-end token refresh flow with mocked Google endpoints
   - _Requirements: 3, 4_
 
-- [ ] 11.2 Create integration test for connector initialization
+- [x] 11.2 Create integration test for connector initialization
   - Test connector loads accounts from disk
   - Test connector handles zero accounts gracefully
   - Test connector rotates on quota exhaustion
   - _Requirements: 9_
 
-- [ ] 11.3 Run full test suite
+- [x] 11.3 Run full test suite
   - Run: `.venv\Scripts\python.exe -m pytest tests/unit/connectors/gemini_oauth_auto/ -v`
   - Run: `.venv\Scripts\python.exe -m pytest tests/integration/connectors/test_gemini_oauth_auto.py -v`
   - Ensure all tests pass
@@ -370,24 +370,25 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ### Task 12: Quality Assurance
 
-- [ ] 12.1 Run linting and type checks
+- [x] 12.1 Run linting and type checks
   - Run: `.venv\Scripts\python.exe -m ruff check src/connectors/gemini_oauth_auto/ --fix`
   - Run: `.venv\Scripts\python.exe -m black src/connectors/gemini_oauth_auto/`
   - Run: `.venv\Scripts\python.exe -m mypy src/connectors/gemini_oauth_auto/`
   - Fix any issues
   - _Requirements: All_
 
-- [ ] 12.2 Verify connector registration
+- [x] 12.2 Verify connector registration
   - Start proxy with `gemini-oauth-auto` backend configured
   - Verify backend appears in logs
   - Verify `/health` endpoint shows backend status
   - _Requirements: 9_
 
-- [ ] 12.3 Documentation
+- [x] 12.3 Documentation
   - Update `README.md` with new backend type
   - Add usage instructions to `docs/` if applicable
   - Document script usage in script docstring
   - _Requirements: All_
+
 
 ---
 

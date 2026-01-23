@@ -448,4 +448,6 @@ historian = "git"
 [tool.llm-interactive-proxy.backends]
 gemini-oauth-plan = "src.connectors.gemini_oauth_plan:GeminiOAuthPlanConnector"
 gemini-oauth-free = "src.connectors.gemini_oauth_free:GeminiOAuthFreeConnector"
+gemini-oauth-auto = "src.connectors.gemini_oauth_auto:GeminiOAuthAutoConnector"
 antigravity-oauth = "src.connectors.antigravity_oauth:AntigravityOAuthConnector"
+

@@ -42,9 +42,11 @@ class AuxiliaryRoutingConfig:
     model: str | None = None
     detection_patterns: list[str] = field(default_factory=lambda: [
         r"The following is the text to summarize",
-        r"Generate a (?:short |brief )?(?:title|summary)",
-        r"Summarize (?:the|this) (?:conversation|text|content)",
+        r"Generate a (?:short |brief )?(?:title|summary|heading)",
+        r"Summarize (?:the|this|my) (?:conversation|text|content|task)",
         r"Create a (?:title|heading) for",
+        r"Generate a title for the (?:session|conversation)",
+        r"Provide a summary of (?:the|this|my) (?:task|conversation|session)",
     ])
     max_message_count: int = 3  # Auxiliary requests typically have few messages
 
@@ -91,7 +93,8 @@ class AuxiliaryRequestDetector:
         if not self._config.enabled:
             return False
 
-        if not self._config.backend:
+        # Check if we have a valid routing target (explicit backend or FQN model)
+        if not self._config.backend and (not self._config.model or ":" not in self._config.model):
             return False
 
         messages = getattr(request, "messages", None)
@@ -155,7 +158,11 @@ class AuxiliaryRequestDetector:
         Returns:
             Tuple of (backend, model) where model may be None
         """
-        return (self._config.backend or "", self._config.model)
+        backend = self._config.backend
+        model = self._config.model
+        if not backend and model and ":" in model:
+            backend, model = model.split(":", 1)
+        return (backend or "", model)
 
 
 class AuxiliaryRequestRouter:
@@ -180,7 +187,9 @@ class AuxiliaryRequestRouter:
     @property
     def enabled(self) -> bool:
         """Check if auxiliary routing is enabled."""
-        return self._config.enabled and bool(self._config.backend)
+        if not self._config.enabled:
+            return False
+        return bool(self.get_auxiliary_backend())
 
     def should_route_to_auxiliary(self, request: ChatRequest) -> bool:
         """Check if a request should be routed to the auxiliary backend.
@@ -198,26 +207,34 @@ class AuxiliaryRequestRouter:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
                     "Routing auxiliary request to backend '%s' (aux: %d / total: %d)",
-                    self._config.backend,
+                    self.get_auxiliary_backend(),
                     self._auxiliary_request_count,
                     self._total_request_count,
                 )
         return is_auxiliary
 
     def get_auxiliary_backend(self) -> str:
-        """Get the configured auxiliary backend name.
+        """Get the effective auxiliary backend name.
 
         Returns:
             The auxiliary backend name
         """
-        return self._config.backend or ""
+        if self._config.backend:
+            return self._config.backend
+        if self._config.model and ":" in self._config.model:
+            return self._config.model.split(":", 1)[0]
+        return ""
 
     def get_auxiliary_model(self) -> str | None:
-        """Get the configured auxiliary model name.
+        """Get the effective auxiliary model name.
 
         Returns:
             The auxiliary model name, or None to use backend default
         """
+        if self._config.backend:
+            return self._config.model
+        if self._config.model and ":" in self._config.model:
+            return self._config.model.split(":", 1)[1]
         return self._config.model
 
     def modify_request_for_auxiliary(
@@ -251,8 +268,8 @@ class AuxiliaryRequestRouter:
         """
         return {
             "enabled": self.enabled,
-            "auxiliary_backend": self._config.backend,
-            "auxiliary_model": self._config.model,
+            "auxiliary_backend": self.get_auxiliary_backend(),
+            "auxiliary_model": self.get_auxiliary_model(),
             "auxiliary_request_count": self._auxiliary_request_count,
             "total_request_count": self._total_request_count,
             "auxiliary_percentage": (

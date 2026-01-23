@@ -903,16 +903,10 @@ class ArgumentParserBuilder:
             help="Enable routing of auxiliary requests (title/summary generation) to an alternative backend",
         )
         aux_routing_group.add_argument(
-            "--auxiliary-routing-backend",
-            dest="auxiliary_routing_backend",
-            metavar="BACKEND",
-            help="Backend to use for auxiliary requests (e.g., 'openrouter', 'gemini-flash')",
-        )
-        aux_routing_group.add_argument(
             "--auxiliary-routing-model",
             dest="auxiliary_routing_model",
             metavar="MODEL",
-            help="Model to use on the auxiliary backend (optional, uses backend default if not set)",
+            help="Model for auxiliary requests. Can be '<model>' or '<backend>:<model>' format.",
         )
         aux_routing_group.add_argument(
             "--auxiliary-routing-max-messages",

@@ -106,7 +106,9 @@ Backend provider configuration and usage:
 - **[Anthropic OAuth Backend](backends/anthropic-oauth.md)** - Claude Code OAuth configuration
 - **[Cline Backend](backends/cline.md)** - Internal development & debugging backend
 - **[Gemini Backends](backends/gemini.md)** - Google Gemini API, OAuth, and GCP configurations
+- **[Gemini OAuth Auto Backend](backends/gemini-oauth-auto.md)** - Multi-account Google Gemini with automatic rotation
 - **[Antigravity OAuth Backend](backends/antigravity-oauth.md)** - Internal Antigravity OAuth configuration
+
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access
 - **[ZAI Backend](backends/zai.md)** - Zhipu/Z.ai configuration
 - **[Qwen Backend](backends/qwen.md)** - Alibaba Qwen OAuth configuration

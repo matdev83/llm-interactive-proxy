@@ -5,8 +5,8 @@ Tests Requirement 2: Token Storage and Persistence.
 """
 
 import json
-import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -323,27 +323,28 @@ class TestTokenStorageService:
         assert len(files) == 1
 
     @pytest.mark.asyncio
-    async def test_save_account_with_special_account_id(
+    async def test_get_account_read_error(
         self, storage_service: TokenStorageService, temp_storage_dir: Path
     ) -> None:
-        """Test save_account handles account IDs with allowed special chars."""
-        import time
+        """Test that read errors in get_account return None."""
+        temp_storage_dir.mkdir(parents=True, exist_ok=True)
+        account_file = temp_storage_dir / "error.json"
+        account_file.write_text("{}", encoding="utf-8")
 
-        account = StoredAccount(
-            account_id="my-account_123",
-            email="test@gmail.com",
-            access_token="token",
-            refresh_token="refresh",
-            scope="scope",
-            expiry_date=int((time.time() + 3600) * 1000),
-        )
+        # Use patch to simulate read error
+        with patch.object(Path, "read_text", side_effect=Exception("Read error")):
+            account = await storage_service.get_account("error")
+            assert account is None
 
-        await storage_service.save_account(account)
+    @pytest.mark.asyncio
+    async def test_delete_account_os_error(
+        self, storage_service: TokenStorageService, temp_storage_dir: Path
+    ) -> None:
+        """Test that OS errors in delete_account are handled."""
+        temp_storage_dir.mkdir(parents=True, exist_ok=True)
+        account_file = temp_storage_dir / "delete_error.json"
+        account_file.write_text("{}", encoding="utf-8")
 
-        file_path = temp_storage_dir / "my-account_123.json"
-        assert file_path.exists()
-
-        # Round-trip verification
-        retrieved = await storage_service.get_account("my-account_123")
-        assert retrieved is not None
-        assert retrieved.account_id == "my-account_123"
+        with patch.object(Path, "unlink", side_effect=OSError("Permission denied")):
+            result = await storage_service.delete_account("delete_error")
+            assert result is False

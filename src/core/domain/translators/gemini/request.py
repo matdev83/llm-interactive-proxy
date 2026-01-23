@@ -247,7 +247,13 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                     import json as _json
 
                     try:
-                        resp_obj = _json.loads(val)
+                        parsed = _json.loads(val)
+                        # Gemini API requires function_response.response to be an object.
+                        # If the parsed JSON is a list or other non-dict, wrap it.
+                        if isinstance(parsed, dict):
+                            resp_obj = parsed
+                        else:
+                            resp_obj = {"result": parsed}
                     except (ValueError, TypeError) as err:
                         if _logger.isEnabledFor(TRACE_LEVEL):
                             _logger.log(
@@ -261,6 +267,9 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                         resp_obj = {"text": val}
                 elif isinstance(val, dict):
                     resp_obj = val
+                elif isinstance(val, list):
+                    # Wrap list in an object - Gemini API requires response to be an object
+                    resp_obj = {"result": val}
                 else:
                     resp_obj = {"text": str(val)}
 

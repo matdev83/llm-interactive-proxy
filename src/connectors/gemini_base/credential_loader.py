@@ -280,7 +280,7 @@ class CredentialLoader:
                         and storage._oauth_credentials  # type: ignore[misc]
                     ):
                         # File hasn't changed and credentials are in memory, no need to reload
-                        if logger.isEnabledFor(logging.DEBUG):
+                        if not silent and logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 "Gemini OAuth credentials file not modified, using cached."
                             )

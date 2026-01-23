@@ -1,0 +1,24 @@
+type: object
+properties:
+  accounts:
+    oneOf:
+      - type: array
+        items:
+          type: string
+      - type: string
+        enum: [all]
+    default: all
+    description: "List of account IDs to use, or 'all' for all registered accounts."
+  refresh_buffer_seconds:
+    type: integer
+    default: 300
+    description: "Seconds before expiry to proactively refresh the access token."
+  selection_strategy:
+    type: string
+    enum: [round-robin, random, first-available]
+    default: round-robin
+    description: "Strategy for selecting which account to use for the next request."
+  storage_path:
+    type: string
+    default: var/gemini_oauth_accounts
+    description: "Path to directory where account credentials are stored."

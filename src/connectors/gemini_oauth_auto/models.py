@@ -196,3 +196,25 @@ class AccountSummary(BaseModel):
             expiry_date=account.expiry_date,
             last_used=account.last_used,
         )
+
+
+class GeminiOAuthAutoConfig(BaseModel):
+    """Configuration for Gemini OAuth Auto-Connector."""
+
+    accounts: list[str] | Literal["all"] = Field(
+        default="all",
+        description="List of account IDs to use, or 'all' for all registered accounts.",
+    )
+    refresh_buffer_seconds: int = Field(
+        default=300,
+        description="Seconds before expiry to proactively refresh the access token.",
+    )
+    selection_strategy: Literal["round-robin", "random", "first-available"] = Field(
+        default="round-robin",
+        description="Strategy for selecting which account to use for the next request.",
+    )
+    storage_path: str = Field(
+        default="var/gemini_oauth_accounts",
+        description="Path to directory where account credentials are stored.",
+    )
+

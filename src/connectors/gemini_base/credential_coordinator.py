@@ -248,6 +248,9 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
     async def validate_runtime(self) -> bool:
         """Return True when credentials are valid for request execution.
 
+        If the token is expired, this method will attempt to refresh it
+        (potentially triggering the CLI refresh process) before returning False.
+
         Returns:
             True if credentials are valid and ready for use, False otherwise.
         """
@@ -255,7 +258,12 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
             return False
 
         # Check if token is expired
-        return not self._token_manager.is_token_expired(self._credentials.to_dict())
+        if not self._token_manager.is_token_expired(self._credentials.to_dict()):
+            return True
+
+        # Token is expired - attempt refresh (this will trigger CLI if needed)
+        refreshed = await self.refresh_if_needed(force_reload=False)
+        return refreshed
 
     async def refresh_if_needed(self, *, force_reload: bool = False) -> bool:
         """Refresh access token if required and return success.

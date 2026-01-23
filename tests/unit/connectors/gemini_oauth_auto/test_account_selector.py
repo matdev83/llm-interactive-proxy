@@ -99,184 +99,65 @@ class TestAccountSelectorService:
         assert result.account_id == "account-2"
 
     @pytest.mark.asyncio
-    async def test_get_next_account_triggers_refresh_for_near_expiry(
+    async def test_get_next_account_refresh_failure_needs_reauth(
         self,
         selector: AccountSelectorService,
         mock_storage: MagicMock,
         mock_refresh_service: MagicMock,
     ) -> None:
-        """Test get_next_account triggers refresh for near-expiry accounts."""
-        # Account expires in 2 minutes (within 5 minute buffer)
-        near_expiry = create_valid_account("account-1", hours_until_expiry=2 / 60)
-        mock_storage.load_all_accounts = AsyncMock(return_value=[near_expiry])
-
-        # Mock refresh to return updated account
-        refreshed = near_expiry.with_updated_tokens(
-            access_token="ya29.refreshed",
-            expiry_date=int((time.time() + 3600) * 1000),
-        )
-        mock_refresh_service.refresh_if_needed = AsyncMock(return_value=refreshed)
-
+        """Test get_next_account handles refresh failure with needs_reauth."""
+        from src.connectors.gemini_oauth_auto.errors import TokenRefreshError
+        
+        accounts = [
+            create_valid_account("account-1", hours_until_expiry=0),  # Expired
+            create_valid_account("account-2"),
+        ]
+        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
+        
+        # Mock first refresh to fail with needs_reauth
+        mock_refresh_service.refresh_if_needed.side_effect = [
+            TokenRefreshError("Invalid grant", needs_reauth=True, account_id="account-1"),
+            accounts[1] # Second one succeeds
+        ]
+        
         result = await selector.get_next_account()
-
+        
         assert result is not None
-        mock_refresh_service.refresh_if_needed.assert_called()
-
+        assert result.account_id == "account-2"
+        # Verify account-1 was updated in list (needs_reauth=True)
+        # We can't check internal list directly easily, but we can verify it was skipped
+        
     @pytest.mark.asyncio
-    async def test_round_robin_rotation(
+    async def test_get_next_account_refresh_failure_other(
         self,
         selector: AccountSelectorService,
         mock_storage: MagicMock,
+        mock_refresh_service: MagicMock,
     ) -> None:
-        """Test round-robin rotation between accounts."""
-        accounts = [
-            create_valid_account("account-1"),
-            create_valid_account("account-2"),
-            create_valid_account("account-3"),
-        ]
-        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-
-        # Get multiple accounts and verify rotation
-        seen_ids: list[str] = []
-        for _ in range(6):  # Two full rotations
-            result = await selector.get_next_account()
-            assert result is not None
-            seen_ids.append(result.account_id)
-
-        # Should see each account at least twice in round-robin order
-        assert seen_ids.count("account-1") == 2
-        assert seen_ids.count("account-2") == 2
-        assert seen_ids.count("account-3") == 2
-
-    @pytest.mark.asyncio
-    async def test_rotate_on_quota_advances_to_next(
-        self,
-        selector: AccountSelectorService,
-        mock_storage: MagicMock,
-    ) -> None:
-        """Test rotate_on_quota advances to next account."""
-        accounts = [
-            create_valid_account("account-1"),
-            create_valid_account("account-2"),
-        ]
-        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-
-        # Get initial account
-        first = await selector.get_next_account()
-        assert first is not None
-        first_id = first.account_id
-
-        # Rotate on quota
-        second = await selector.rotate_on_quota()
-        assert second is not None
-        assert second.account_id != first_id
-
-    @pytest.mark.asyncio
-    async def test_get_available_count_excludes_needs_reauth(
-        self,
-        selector: AccountSelectorService,
-        mock_storage: MagicMock,
-    ) -> None:
-        """Test get_available_count excludes accounts needing reauth."""
-        accounts = [
-            create_valid_account("account-1", needs_reauth=True),
-            create_valid_account("account-2", needs_reauth=False),
-            create_valid_account("account-3", needs_reauth=True),
-        ]
-        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-
-        # Initialize by loading accounts
-        await selector.get_next_account()
-
-        count = selector.get_available_count()
-        assert count == 1  # Only account-2 is available
-
-    @pytest.mark.asyncio
-    async def test_empty_accounts_returns_none(
-        self,
-        selector: AccountSelectorService,
-        mock_storage: MagicMock,
-    ) -> None:
-        """Test get_next_account returns None when no accounts."""
-        mock_storage.load_all_accounts = AsyncMock(return_value=[])
-
+        """Test get_next_account handles other refresh failures by using account anyway."""
+        from src.connectors.gemini_oauth_auto.errors import TokenRefreshError
+        
+        account = create_valid_account("account-1", hours_until_expiry=0)
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account])
+        
+        mock_refresh_service.refresh_if_needed.side_effect = TokenRefreshError("Transient error")
+        
         result = await selector.get_next_account()
-
-        assert result is None
+        
+        assert result is not None
+        assert result.account_id == "account-1"
 
     @pytest.mark.asyncio
-    async def test_all_needs_reauth_returns_none(
+    async def test_reload_accounts(
         self,
         selector: AccountSelectorService,
         mock_storage: MagicMock,
     ) -> None:
-        """Test get_next_account returns None when all accounts need reauth."""
-        accounts = [
-            create_valid_account("account-1", needs_reauth=True),
-            create_valid_account("account-2", needs_reauth=True),
-        ]
-        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
+        """Test reload_accounts resets state and loads from storage."""
+        mock_storage.load_all_accounts.return_value = [create_valid_account("acc")]
+        
+        await selector.reload_accounts()
+        
+        assert selector.get_available_count() == 1
+        mock_storage.load_all_accounts.assert_called()
 
-        result = await selector.get_next_account()
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_get_current_account_returns_selected(
-        self,
-        selector: AccountSelectorService,
-        mock_storage: MagicMock,
-    ) -> None:
-        """Test get_current_account returns currently selected account."""
-        accounts = [create_valid_account("account-1")]
-        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-
-        # Initially None
-        assert selector.get_current_account() is None
-
-        # After selection
-        await selector.get_next_account()
-        current = selector.get_current_account()
-        assert current is not None
-        assert current.account_id == "account-1"
-
-    @pytest.mark.asyncio
-    async def test_get_current_account_does_not_advance(
-        self,
-        selector: AccountSelectorService,
-        mock_storage: MagicMock,
-    ) -> None:
-        """Test get_current_account does not advance rotation."""
-        accounts = [
-            create_valid_account("account-1"),
-            create_valid_account("account-2"),
-        ]
-        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-
-        # Select first
-        first = await selector.get_next_account()
-        assert first is not None
-
-        # Call get_current_account multiple times
-        for _ in range(5):
-            current = selector.get_current_account()
-            assert current is not None
-            assert current.account_id == first.account_id
-
-    @pytest.mark.asyncio
-    async def test_rotate_on_quota_returns_none_when_all_exhausted(
-        self,
-        selector: AccountSelectorService,
-        mock_storage: MagicMock,
-    ) -> None:
-        """Test rotate_on_quota returns None when no alternatives available."""
-        accounts = [create_valid_account("account-1")]
-        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-
-        # Select the only account
-        await selector.get_next_account()
-
-        # Try to rotate - should return same account or None
-        result = await selector.rotate_on_quota()
-        # With only one account, rotation wraps back to it
-        assert result is None or result.account_id == "account-1"

@@ -43,23 +43,33 @@ class AuxiliaryRoutingApplicator:
                 origin="--enable-auxiliary-routing",
             )
 
-        if getattr(args, "auxiliary_routing_backend", None) is not None:
-            aux_routing_overrides["backend"] = args.auxiliary_routing_backend
-            resolution.record(
-                "auxiliary_routing.backend",
-                args.auxiliary_routing_backend,
-                ParameterSource.CLI,
-                origin="--auxiliary-routing-backend",
-            )
-
         if getattr(args, "auxiliary_routing_model", None) is not None:
-            aux_routing_overrides["model"] = args.auxiliary_routing_model
-            resolution.record(
-                "auxiliary_routing.model",
-                args.auxiliary_routing_model,
-                ParameterSource.CLI,
-                origin="--auxiliary-routing-model",
-            )
+            model_val: str = args.auxiliary_routing_model
+            if ":" in model_val:
+                backend, model = model_val.split(":", 1)
+                aux_routing_overrides["backend"] = backend
+                aux_routing_overrides["model"] = model
+                
+                resolution.record(
+                    "auxiliary_routing.backend",
+                    backend,
+                    ParameterSource.CLI,
+                    origin="--auxiliary-routing-model (parsed)",
+                )
+                resolution.record(
+                    "auxiliary_routing.model",
+                    model,
+                    ParameterSource.CLI,
+                    origin="--auxiliary-routing-model (parsed)",
+                )
+            else:
+                aux_routing_overrides["model"] = model_val
+                resolution.record(
+                    "auxiliary_routing.model",
+                    model_val,
+                    ParameterSource.CLI,
+                    origin="--auxiliary-routing-model",
+                )
 
         if getattr(args, "auxiliary_routing_max_messages", None) is not None:
             aux_routing_overrides["max_message_count"] = (

@@ -765,11 +765,15 @@ class OpenAIConnector(LLMBackend):
         # the model value coming from the domain request. Many tests expect
         # the provider payload to use the effective_model.
         if effective_model:
-            log_extra_payload = self._get_log_extra(context) if context else None
-            logger.info(
-                f"OpenAI DEBUG: Overriding model in payload from '{payload.get('model')}' to '{effective_model}'",
-                extra=log_extra_payload if log_extra_payload else None,
-            )
+            current_model = payload.get("model")
+            if current_model != effective_model:
+                log_extra_payload = self._get_log_extra(context) if context else None
+                logger.debug(
+                    "Overriding model in payload from '%s' to '%s'",
+                    current_model,
+                    effective_model,
+                    extra=log_extra_payload if log_extra_payload else None,
+                )
             payload["model"] = effective_model
 
         # Convert reasoning_effort to reasoning: {'effort': ...} format for OpenAI/OpenRouter

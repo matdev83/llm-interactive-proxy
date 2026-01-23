@@ -573,6 +573,14 @@ def configure_logging_with_environment_tagging(
     # Configure root logger
     _configure_root_logger(level, handlers)
 
+    # Suppress noisy third-party loggers even when DEBUG is enabled globally
+    # These loggers produce very verbose HTTP/2 and HPACK debugging output
+    # that is not useful for normal operation
+    logging.getLogger("httpcore.http2").setLevel(logging.WARNING)
+    logging.getLogger("hpack.hpack").setLevel(logging.WARNING)
+    # Also suppress parent httpcore logger to catch any other httpcore sub-loggers
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
     # Install environment tagging filter
     install_environment_tagging()
 

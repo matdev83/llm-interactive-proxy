@@ -1,41 +1,30 @@
 """Tests for 400 Bad Request error handling in streaming responses.
 
 Verifies that HTTP 400 errors (including "Prompt is too long") are handled
-gracefully by yielding error chunks instead of raising exceptions.
+by raising BackendError, which allows proper HTTP 400 responses to clients.
+
+Note: Previously 400 errors yielded error chunks, but this caused clients
+to receive HTTP 200 with an error chunk they didn't understand, leading
+to infinite retry loops. Now 400 errors raise BackendError to return
+proper HTTP 400 responses to clients.
 """
 
-import time
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import requests  # type: ignore[import-untyped]
 from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
 from src.connectors.gemini_base.streaming_executor import (
-    ProcessedResponse,
     SSELineProcessor,
     StreamingExecutor,
 )
+from src.core.common.exceptions import BackendError
 
 
 @pytest.fixture
 def mock_processor() -> MagicMock:
     """Create a mock SSELineProcessor."""
     processor = MagicMock(spec=SSELineProcessor)
-    base_time = 1000.0
-    with patch("time.time", return_value=base_time):
-        processor.build_error_chunk.return_value = {
-            "id": f"chatcmpl-error-{int(time.time())}",
-            "object": "chat.completion.chunk",
-            "created": int(time.time()),
-            "model": "test-model",
-            "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-            "error": {
-                "message": "Prompt is too long",
-                "type": "invalid_request_error",
-                "code": 400,
-            },
-        }
     return processor
 
 
@@ -78,117 +67,85 @@ class TestPromptTooLongErrorHandling:
     """Test suite for 400 'Prompt is too long' error handling."""
 
     @pytest.mark.asyncio
-    async def test_400_error_yields_chunk_not_exception(
+    async def test_400_error_raises_backend_error(
         self,
         executor: StreamingExecutor,
         mock_processor: MagicMock,
         mock_prepared_request: MagicMock,
         mock_400_response: MagicMock,
     ) -> None:
-        """400 errors should yield error chunks instead of raising exceptions."""
-        chunks: list[ProcessedResponse] = []
+        """400 errors should raise BackendError to return proper HTTP 400 to clients.
 
-        # Call _handle_error_response directly
-        async for chunk in executor._handle_error_response(
-            response=mock_400_response,
-            processor=mock_processor,
-            prepared=mock_prepared_request,
-            url="https://example.com/test",
-            prompt_tokens=50000,
-        ):
-            chunks.append(chunk)
+        This prevents the infinite retry loop that occurred when yielding error
+        chunks (clients received 200 with an error chunk they didn't understand).
+        """
+        with pytest.raises(BackendError) as exc_info:
+            async for _ in executor._handle_error_response(
+                response=mock_400_response,
+                processor=mock_processor,
+                prepared=mock_prepared_request,
+                url="https://example.com/test",
+                prompt_tokens=50000,
+            ):
+                pass
 
-        # Should yield exactly one error chunk
-        assert len(chunks) == 1
-
-        # Verify the chunk contains error information
-        chunk = chunks[0]
-        assert isinstance(chunk, ProcessedResponse)
-        assert isinstance(chunk.content, dict)
-        error_payload = chunk.content.get("error")
-        assert isinstance(error_payload, dict)
-        assert error_payload.get("code") == 400
+        # Verify the BackendError has correct properties
+        error = exc_info.value
+        assert error.status_code == 400
+        assert "Prompt is too long" in error.message
 
         # Verify the response was closed
         mock_400_response.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_prompt_too_long_message_preserved(
+    async def test_prompt_too_long_message_preserved_in_exception(
         self,
         executor: StreamingExecutor,
         mock_processor: MagicMock,
         mock_prepared_request: MagicMock,
         mock_400_response: MagicMock,
     ) -> None:
-        """The 'Prompt is too long' message should be preserved in the error chunk."""
-        # Set up the processor to capture the message
-        captured_message: list[str] = []
+        """The 'Prompt is too long' message should be preserved in the BackendError."""
+        with pytest.raises(BackendError) as exc_info:
+            async for _ in executor._handle_error_response(
+                response=mock_400_response,
+                processor=mock_processor,
+                prepared=mock_prepared_request,
+                url="https://example.com/test",
+                prompt_tokens=50000,
+            ):
+                pass
 
-        def capture_build_error_chunk(
-            message: str, code: int, error_type: str
-        ) -> dict[str, Any]:
-            captured_message.append(message)
-            base_time = 1000.0
-            with patch("time.time", return_value=base_time):
-                return {
-                    "id": "test-id",
-                    "object": "chat.completion.chunk",
-                    "created": int(time.time()),
-                    "model": "test-model",
-                    "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
-                    "error": {
-                        "message": message,
-                        "type": error_type,
-                        "code": code,
-                    },
-                }
-
-        mock_processor.build_error_chunk.side_effect = capture_build_error_chunk
-
-        # Call the handler
-        async for _ in executor._handle_error_response(
-            response=mock_400_response,
-            processor=mock_processor,
-            prepared=mock_prepared_request,
-            url="https://example.com/test",
-            prompt_tokens=50000,
-        ):
-            pass
-
-        # Verify the message was captured
-        assert len(captured_message) == 1
-        assert "Prompt is too long" in captured_message[0]
+        # Verify the message was preserved
+        assert "Prompt is too long" in exc_info.value.message
 
     @pytest.mark.asyncio
-    async def test_error_chunk_metadata_populated(
+    async def test_400_error_details_populated(
         self,
         executor: StreamingExecutor,
         mock_processor: MagicMock,
         mock_prepared_request: MagicMock,
         mock_400_response: MagicMock,
     ) -> None:
-        """Error chunks should have properly populated metadata."""
-        chunks: list[ProcessedResponse] = []
+        """BackendError should have properly populated details for 400 errors."""
+        with pytest.raises(BackendError) as exc_info:
+            async for _ in executor._handle_error_response(
+                response=mock_400_response,
+                processor=mock_processor,
+                prepared=mock_prepared_request,
+                url="https://example.com/test",
+                prompt_tokens=50000,
+            ):
+                pass
 
-        async for chunk in executor._handle_error_response(
-            response=mock_400_response,
-            processor=mock_processor,
-            prepared=mock_prepared_request,
-            url="https://example.com/test",
-            prompt_tokens=50000,
-        ):
-            chunks.append(chunk)
+        error = exc_info.value
 
-        assert len(chunks) == 1
-        metadata = chunks[0].metadata
-
-        # Verify required metadata fields
-        # metadata is a dict (ErrorMetadata.to_metadata() returns dict)
-        assert metadata["finish_reason"] == "error"
-        assert "error" in metadata
-        assert "id" in metadata
-        assert "model" in metadata
-        assert "created" in metadata
+        # Verify required properties
+        assert error.status_code == 400
+        assert error.backend_name == "gemini-test"
+        assert error.details is not None
+        # Details should contain the raw error from the API
+        assert "error" in error.details
 
     @pytest.mark.asyncio
     async def test_non_400_errors_still_raise(
@@ -205,8 +162,6 @@ class TestPromptTooLongErrorHandling:
             "error": {"message": "Internal server error"}
         }
         mock_response.close = MagicMock()
-
-        from src.core.common.exceptions import BackendError
 
         with pytest.raises(BackendError) as exc_info:
             async for _ in executor._handle_error_response(

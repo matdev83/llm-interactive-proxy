@@ -396,13 +396,15 @@ routing:
 # to reduce rate limiting pressure on the primary backend.
 auxiliary_routing:
   enabled: false                    # Enable auxiliary request routing
-  backend: null                     # Backend to use for auxiliary requests (e.g., "openrouter", "gemini-flash")
-  model: null                       # Optional: specific model to use on auxiliary backend
+  backend: null                     # Optional: Backend to use (e.g., "openrouter")
+  model: null                       # Model name (e.g., "gemini-1.5-flash" or "openrouter:gemini-1.5-flash")
   detection_patterns:               # Regex patterns to detect auxiliary requests
     - "The following is the text to summarize"
-    - "Generate a (?:short |brief )?(?:title|summary)"
-    - "Summarize (?:the|this) (?:conversation|text|content)"
+    - "Generate a (?:short |brief )?(?:title|summary|heading)"
+    - "Summarize (?:the|this|my) (?:conversation|text|content|task)"
     - "Create a (?:title|heading) for"
+    - "Generate a title for the (?:session|conversation)"
+    - "Provide a summary of (?:the|this|my) (?:task|conversation|session)"
   max_message_count: 3              # Maximum message count for auxiliary request detection
 ```
 
@@ -412,6 +414,7 @@ Resilience scoping controls whether rate-limit and cooldown state is shared acro
 (enterprise/shared backends) or isolated per user/session (personal OAuth/codex backends).
 
 Defaults (no config required):
+
 - Any backend type containing `oauth` or `codex` is treated as personal.
 - The built-in personal list includes: `anthropic-oauth`, `antigravity-oauth`,
   `gemini-oauth-free`, `gemini-oauth-plan`, `gemini-cli-cloud-project`,

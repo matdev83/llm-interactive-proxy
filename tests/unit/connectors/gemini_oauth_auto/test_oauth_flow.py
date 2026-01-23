@@ -5,12 +5,12 @@ Tests Requirement 1: OAuth2 Authorization Flow.
 Note: Browser and callback server tests are skipped - those require integration testing.
 """
 
-import secrets
-import time
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+
 
 from src.connectors.gemini_oauth_auto.errors import OAuthError
 from src.connectors.gemini_oauth_auto.oauth_flow import OAuthFlowService
@@ -191,17 +191,54 @@ class TestOAuthFlowService:
         # Should not raise
         oauth_service._validate_state(expected, received)
 
-    def test_validate_state_failure_raises_error(
-        self, oauth_service: OAuthFlowService
+    @pytest.mark.asyncio
+    async def test_authorize_timeout(
+        self,
+        oauth_service: OAuthFlowService,
     ) -> None:
-        """Test state validation failure raises OAuthError."""
-        expected = "abc123def456"
-        received = "wrong_state_value"
+        """Test authorize raises OAuthError on timeout."""
+        with patch("webbrowser.open"), \
+             patch("uvicorn.Server.serve", new_callable=AsyncMock):
+            
+            with pytest.raises(OAuthError, match="Authorization timed out"):
+                await oauth_service.authorize(timeout=1, open_browser=False)
 
-        with pytest.raises(OAuthError) as exc_info:
-            oauth_service._validate_state(expected, received)
+    @pytest.mark.asyncio
+    async def test_exchange_code_network_error(
+        self,
+        oauth_service: OAuthFlowService,
+        mock_http_client: MagicMock,
+    ) -> None:
+        """Test code exchange raises OAuthError on network error."""
+        mock_http_client.post = AsyncMock(side_effect=httpx.RequestError("Network down"))
+        oauth_service._http_client = mock_http_client
+        
+        with pytest.raises(OAuthError, match="Network error during code exchange"):
+            await oauth_service._exchange_code("code", "http://callback")
 
-        assert "state" in str(exc_info.value).lower()
+    @pytest.mark.asyncio
+    async def test_fetch_userinfo_failure(
+        self,
+        oauth_service: OAuthFlowService,
+        mock_http_client: MagicMock,
+    ) -> None:
+        """Test fetch_userinfo raises OAuthError on failure."""
+        mock_http_client.get = AsyncMock(side_effect=Exception("API error"))
+        oauth_service._http_client = mock_http_client
+        
+        with pytest.raises(OAuthError, match="Failed to fetch user information"):
+            await oauth_service._fetch_userinfo("token")
+
+    def test_validate_state_mismatch(self, oauth_service: OAuthFlowService) -> None:
+        """Test state validation raises error on mismatch."""
+        with pytest.raises(OAuthError, match="State parameter mismatch"):
+            oauth_service._validate_state("expected", "wrong")
+
+    def test_validate_state_missing(self, oauth_service: OAuthFlowService) -> None:
+        """Test state validation raises error on missing state."""
+        with pytest.raises(OAuthError, match="State parameter mismatch"):
+            oauth_service._validate_state("expected", None)
+
 
     @pytest.mark.asyncio
     async def test_exchange_code_request_format(
