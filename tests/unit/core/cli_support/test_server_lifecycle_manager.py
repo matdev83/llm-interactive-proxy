@@ -85,7 +85,7 @@ class TestServerLifecycleManager:
         ):
 
             # First fork returns > 0 (parent) -> exit
-            manager._daemonize()
+            manager.daemonize()
             mock_exit.assert_called_with(0)
 
             # Reset checks for second path
@@ -93,7 +93,8 @@ class TestServerLifecycleManager:
 
             # Full flow: first fork=0, setsid, umask, second fork=0
             with patch("os.fork", side_effect=[0, 0], create=True):
-                manager._daemonize()
+                manager.daemonize()
+
                 mock_chdir.assert_called_with("/")
                 mock_setsid.assert_called()
                 mock_umask.assert_called_with(0)

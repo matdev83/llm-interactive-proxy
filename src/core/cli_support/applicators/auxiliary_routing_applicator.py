@@ -43,7 +43,17 @@ class AuxiliaryRoutingApplicator:
                 origin="--enable-auxiliary-routing",
             )
 
+        if getattr(args, "auxiliary_routing_backend", None) is not None:
+            aux_routing_overrides["backend"] = args.auxiliary_routing_backend
+            resolution.record(
+                "auxiliary_routing.backend",
+                args.auxiliary_routing_backend,
+                ParameterSource.CLI,
+                origin="--auxiliary-routing-backend",
+            )
+
         if getattr(args, "auxiliary_routing_model", None) is not None:
+
             model_val: str = args.auxiliary_routing_model
             if ":" in model_val:
                 backend, model = model_val.split(":", 1)

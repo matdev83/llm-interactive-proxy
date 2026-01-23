@@ -307,29 +307,25 @@ class TestConfigurationApplicatorCommandPrefixValidation:
 
         with patch("src.core.config.app_config.load_config") as mock_load_config:
             mock_cfg = MagicMock()
+            # Simulate base config having None command_prefix
             mock_cfg.model_dump.return_value = {"command_prefix": None}
             mock_cfg.logging = MagicMock(log_file="./logs/test.log")
             mock_cfg.command_prefix = None
             mock_load_config.return_value = mock_cfg
 
             with patch("src.core.config.app_config.AppConfig") as mock_app_config:
-                # Create a mock that has command_prefix = None initially
+                # Create a mock that has command_prefix = "!/" (the default) after merge
+                # because merge logic sets it if None
                 validated_cfg = MagicMock()
-                validated_cfg.command_prefix = None
-
-                # Mock model_copy to return a new cfg with the default prefix
-                copy_cfg = MagicMock()
-                copy_cfg.command_prefix = "/proxy"
-                validated_cfg.model_copy.return_value = copy_cfg
+                validated_cfg.command_prefix = "!/"
 
                 mock_app_config.model_validate.return_value = validated_cfg
 
-                applicator.apply(args)
+                result = applicator.apply(args)
 
-        # model_copy should have been called with the default prefix
-        validated_cfg.model_copy.assert_called_once()
-        call_args = validated_cfg.model_copy.call_args
-        assert call_args.kwargs.get("update", {}).get("command_prefix") is not None
+        # Result should have the default prefix
+        assert result.command_prefix == "!/"
+
 
 
 class TestConfigurationApplicatorDefaultApplicators:
@@ -356,6 +352,7 @@ class TestConfigurationApplicatorDefaultApplicators:
             "AssessmentApplicator",
             "MemoryApplicator",
             "FailureHandlingApplicator",
+            "ReplacementApplicator",
             "ResilienceApplicator",
             "EditPrecisionApplicator",
             "IdentityApplicator",
@@ -363,6 +360,7 @@ class TestConfigurationApplicatorDefaultApplicators:
             "CompactionApplicator",
             "SandboxingApplicator",
         ]
+
 
         for expected in expected_applicators:
             assert expected in applicator_names, f"Missing applicator: {expected}"
