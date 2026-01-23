@@ -636,6 +636,12 @@ class ArgumentParserBuilder:
             help="Enable the Gemini OAuth Plan backend connector for debugging. Reserved for internal development.",
         )
         debugging_overrides_group.add_argument(
+            "--enable-gemini-oauth-auto-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Gemini OAuth Auto backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
             "--enable-qwen-oauth-backend-debugging-override",
             action="store_true",
             default=False,

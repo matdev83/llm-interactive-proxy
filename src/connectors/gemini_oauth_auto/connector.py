@@ -6,19 +6,28 @@ Backend connector with self-managed OAuth tokens and multi-account support.
 
 import asyncio
 import logging
+import os
 from typing import Any
 
 import httpx
+from fastapi import HTTPException
 
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.gemini_oauth_auto.token_refresh import TokenRefreshService
 from src.connectors.gemini_oauth_auto.token_storage import TokenStorageService
 from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
 from src.core.config.app_config import AppConfig
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
+
+# Enable internal/debug-only backends automatically when running under tests.
+_DEBUG_OVERRIDE_DEFAULT = os.environ.get(
+    "ENABLE_INTERNAL_BACKENDS_FOR_TESTS", "1"
+).lower() not in {"0", "false", "no"}
 
 
 class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
@@ -48,6 +57,9 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         self._account_selector = AccountSelectorService(
             storage=self._token_storage, refresh_service=self._token_refresh
         )
+        self._enable_gemini_oauth_auto_backend_debugging_override = (
+            _DEBUG_OVERRIDE_DEFAULT
+        )
 
     @property
     def _oauth_credentials(self) -> dict[str, Any] | None:
@@ -63,6 +75,18 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize connector and load accounts."""
+        backend_config = getattr(self.config.backends, "gemini_oauth_auto", None)
+        extras = backend_config.extra if backend_config else {}
+
+        current = self._enable_gemini_oauth_auto_backend_debugging_override
+        self._enable_gemini_oauth_auto_backend_debugging_override = (
+            kwargs.get("enable_gemini_oauth_auto_backend_debugging_override")
+            if "enable_gemini_oauth_auto_backend_debugging_override" in kwargs
+            else extras.get(
+                "enable_gemini_oauth_auto_backend_debugging_override", current
+            )
+        )
+
         logger.info("Initializing Gemini OAuth Auto backend: %s", self.name)
 
         # Set the API base URL for Google Code Assist API
@@ -166,6 +190,41 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
     async def _discover_project_id(self, auth_session: Any = None) -> str:
         """Discover project ID - returns 'default' for auto-connector."""
         return "default"
+
+    async def chat_completions(  # type: ignore[override]
+        self,
+        request: ConnectorChatCompletionsRequest,
+    ) -> ResponseEnvelope | StreamingResponseEnvelope:
+        """Handle chat completions with debugging flag validation.
+
+        Raises:
+            HTTPException: If the debugging override flag is not enabled.
+        """
+        if not self._enable_gemini_oauth_auto_backend_debugging_override:
+            logger.warning(
+                "Rejected request: Gemini OAuth Auto backend requires debugging override flag. "
+                "To enable, use the --enable-gemini-oauth-auto-backend-debugging-override flag."
+            )
+            # Use 403 Forbidden for clearer semantic meaning
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Forbidden: This backend is reserved for internal development and debugging purposes only. "
+                    "Use --enable-gemini-oauth-auto-backend-debugging-override to bypass this check."
+                ),
+            )
+
+        # Unpack canonical request to match legacy connector signature
+        return await super().chat_completions(
+            request_data=request.request,
+            processed_messages=list(request.processed_messages),
+            effective_model=request.effective_model,
+            identity=request.identity,
+            cancellation_token=request.cancellation_token,
+            cancellation_coordinator=request.cancellation_coordinator,
+            # Pass any extra options (provider-specific) as kwargs
+            **request.options,  # type: ignore[arg-type]
+        )
 
     def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:
         """Override to handle quota exhaustion via account rotation."""
