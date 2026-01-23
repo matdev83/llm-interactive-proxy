@@ -8,8 +8,10 @@ to domain-specific request contexts.
 from __future__ import annotations
 
 import logging
+import uuid
 
 from fastapi import Request
+
 
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
@@ -57,6 +59,16 @@ def fastapi_to_domain_request_context(
         logger.warning("Failed to extract agent from headers", exc_info=True)
         agent = None
 
+    # Extract request_id from headers or request state
+    # Requirement 1.6: primary_id (request_id) is required for SessionKey resolution
+    request_id = headers.get("x-request-id") or headers.get("x-correlation-id")
+    if not request_id:
+        request_id = getattr(request.state, "request_id", None)
+
+    # Fallback to generated request ID if missing to ensure SessionKey resolution
+    if not request_id:
+        request_id = f"req-{uuid.uuid4().hex[:12]}"
+
     # Create the context
     context = RequestContext(
         headers=headers,
@@ -75,11 +87,13 @@ def fastapi_to_domain_request_context(
             request.state, "request_state", {}
         ),  # noqa: DIP-violation-adapter-layer
         agent=agent,
+        request_id=request_id,
         domain_request=domain_request,
         raw_body=raw_body,
     )
 
     # Capture original domain request for provenance tracking (Requirement 5.3)
+
     if domain_request is not None:
         context.capture_original_domain_request(domain_request)
 

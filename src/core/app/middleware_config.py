@@ -23,8 +23,14 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         app: The FastAPI application
         config: The application configuration (AppConfig or dict)
     """
+    # Request ID middleware - ensure every request has a unique ID early in the stack
+    from src.core.app.middleware.request_id_middleware import RequestIDMiddleware
+
+    app.add_middleware(RequestIDMiddleware)
+
     # CORS middleware
     app.add_middleware(
+
         CORSMiddleware,
         allow_origins=["*"],  # Allows all origins
         allow_credentials=True,
