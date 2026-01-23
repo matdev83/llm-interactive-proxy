@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+from typing import cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
@@ -70,11 +71,32 @@ class CoreServicesStage(InitializationStage):
         # Register EventBus early for EoS services
         self._register_event_bus(services)
 
-        # Register ApplicationStateService
-        services.add_singleton(ApplicationStateService)
-        services.add_singleton(IApplicationState, ApplicationStateService)
+        # Register and initialize ApplicationStateService
+        # Initialize with default backend from config early to ensure it's available for
+        # model replacement and token limit enforcement.
+        def _app_state_factory(provider: IServiceProvider) -> ApplicationStateService:
+            app_state = ApplicationStateService()
+            if hasattr(config, "backends") and config.backends.default_backend:
+                app_state.set_backend_type(config.backends.default_backend)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Initialized ApplicationStateService with default backend: %s",
+                        config.backends.default_backend,
+                    )
+            return app_state
+
+        services.add_singleton(
+            ApplicationStateService, implementation_factory=_app_state_factory
+        )
+        services.add_singleton(
+            cast(type, IApplicationState),
+            implementation_factory=lambda p: p.get_required_service(
+                ApplicationStateService
+            ),
+        )
 
         # Register ToolCallRepairService as a singleton with configured buffer cap
+
         def _tool_repair_factory(
             provider: IServiceProvider,
         ) -> ToolCallRepairService:  # Modified to accept provider for consistency
@@ -91,11 +113,10 @@ class CoreServicesStage(InitializationStage):
         )
 
         # Register IToolCallRepairService interface binding
-        from typing import cast
-
         from src.core.interfaces.tool_call_repair_service_interface import (
             IToolCallRepairService,
         )
+
 
         def itool_call_repair_factory(
             provider: IServiceProvider,
@@ -163,11 +184,10 @@ class CoreServicesStage(InitializationStage):
         services.add_singleton(InMemorySessionRepository)
 
         # Register interface binding
-        from typing import cast
-
         services.add_singleton(
             cast(type, ISessionRepository), InMemorySessionRepository
         )
+
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Registered session repository services")
@@ -180,12 +200,11 @@ class CoreServicesStage(InitializationStage):
 
         def session_service_factory(provider: IServiceProvider) -> SessionService:
             """Factory function for creating SessionService with dependencies."""
-            from typing import cast
-
             repo: ISessionRepository = provider.get_required_service(
                 cast(type, ISessionRepository)
             )
             return SessionService(repo)
+
 
         # Register concrete implementation with factory
         services.add_singleton(
@@ -209,12 +228,11 @@ class CoreServicesStage(InitializationStage):
         config: AppConfig,  # Re-added config parameter
     ) -> None:
         """Register session resolver as singleton instance."""
-        from typing import cast
-
         from src.core.interfaces.repositories_interface import ISessionRepository
         from src.core.services.conversation_fingerprint_service import (
             ConversationFingerprintService,
         )
+
 
         # Register ConversationFingerprintService as singleton
         services.add_singleton(ConversationFingerprintService)
@@ -428,8 +446,6 @@ class CoreServicesStage(InitializationStage):
             provider: IServiceProvider,
         ) -> WireCaptureEosSubscriber:
             """Factory to create WireCaptureEosSubscriber."""
-            from typing import cast
-
             from src.core.interfaces.event_bus_interface import IEventBus
             from src.core.services.wire_capture_eos_subscriber import (
                 WireCaptureEosSubscriber,
@@ -442,6 +458,7 @@ class CoreServicesStage(InitializationStage):
             return WireCaptureEosSubscriber(
                 event_bus=event_bus, wire_capture=wire_capture
             )
+
 
         from src.core.services.wire_capture_eos_subscriber import (
             WireCaptureEosSubscriber,
@@ -546,8 +563,6 @@ class CoreServicesStage(InitializationStage):
             provider: IServiceProvider,
         ) -> UsageTrackingEosSubscriber:
             """Factory to create UsageTrackingEosSubscriber."""
-            from typing import cast
-
             from src.core.database.repositories.usage_repository import (
                 SessionMetricsRepository,
             )
@@ -563,6 +578,7 @@ class CoreServicesStage(InitializationStage):
             return UsageTrackingEosSubscriber(
                 event_bus=event_bus, session_repository=session_repo
             )
+
 
         from src.core.services.usage_tracking_eos_subscriber import (
             UsageTrackingEosSubscriber,
@@ -584,8 +600,6 @@ class CoreServicesStage(InitializationStage):
         - UsageCalculationService: Service for token calculation and derivation
         - UsageNormalizationService: Service for normalizing usage into canonical records
         """
-        from typing import cast
-
         from src.core.interfaces.usage_normalization_service_interface import (
             IUsageNormalizationService,
         )
