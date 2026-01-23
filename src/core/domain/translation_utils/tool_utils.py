@@ -85,7 +85,9 @@ def _normalize_tool_arguments(args: Any) -> str:
 
 
 def _process_gemini_function_call(
-    function_call: dict[str, Any], part: dict[str, Any] | None = None
+    function_call: dict[str, Any],
+    part: dict[str, Any] | None = None,
+    thought_signature: str | None = None,
 ) -> ToolCall:
     """Process a Gemini function call part into a ToolCall."""
     import uuid
@@ -96,10 +98,12 @@ def _process_gemini_function_call(
     normalized_args = _normalize_tool_arguments(raw_args)
 
     extra_content: dict[str, Any] | None = None
-    if part is not None:
+    thought_sig = thought_signature
+    if part is not None and not thought_sig:
         thought_sig = part.get("thoughtSignature") or part.get("thought_signature")
-        if thought_sig:
-            extra_content = {"google": {"thought_signature": thought_sig}}
+
+    if thought_sig:
+        extra_content = {"google": {"thought_signature": thought_sig}}
 
     return ToolCall(
         id=call_id,

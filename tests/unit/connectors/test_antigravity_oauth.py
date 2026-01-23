@@ -5,9 +5,9 @@ Tests for the Antigravity OAuth connector.
 import pytest
 
 # Skip entire module due to test hangs/crashes
-pytestmark = pytest.mark.skip(
-    reason="Antigravity OAuth tests hang/crash - needs investigation"
-)
+# pytestmark = pytest.mark.skip(
+#     reason="Antigravity OAuth tests hang/crash - needs investigation"
+# )
 
 import json
 import sqlite3

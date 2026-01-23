@@ -186,6 +186,7 @@ class RequestContext(InternalDTO):
     raw_body: bytes | None = None
     backend: str | None = None
     effective_model: str | None = None
+    requested_model: str | None = None
     extensions: dict[str, JsonValue] = field(default_factory=dict)
     """
     Extension container for vendor- and protocol-specific data.
@@ -258,6 +259,7 @@ class RequestContext(InternalDTO):
             raw_body=self.raw_body,
             backend=self.backend,
             effective_model=self.effective_model,
+            requested_model=self.requested_model,
             extensions=copy.deepcopy(self.extensions) if self.extensions else {},
             original_domain_request=self.original_domain_request,
         )

@@ -72,6 +72,15 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
         parts = content.get("parts", [])
 
         if parts and len(parts) > 0:
+            # Pre-scan for thought signature in any part
+            thought_signature = None
+            for part in parts:
+                if isinstance(part, dict):
+                    sig = part.get("thoughtSignature") or part.get("thought_signature")
+                    if sig:
+                        thought_signature = sig
+                        break
+
             text_parts = []
             for part in parts:
                 if isinstance(part, dict):
@@ -81,7 +90,9 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                         try:
                             tool_calls.append(
                                 _process_gemini_function_call(
-                                    part["functionCall"], part=part
+                                    part["functionCall"],
+                                    part=part,
+                                    thought_signature=thought_signature,
                                 )
                             )
                         except (KeyError, TypeError, AttributeError, ValueError) as e:

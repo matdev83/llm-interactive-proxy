@@ -315,9 +315,10 @@ def should_skip_chunk(chunk: dict[str, Any]) -> bool:
     has_content = bool(delta.get("content"))
     has_tools = bool(delta.get("tool_calls"))
     has_reasoning = bool(delta.get("reasoning_content") or delta.get("reasoning"))
+    has_thought_sig = bool(delta.get("thought_signature"))
 
     # Keep chunks with content
-    if has_content or has_tools or has_reasoning:
+    if has_content or has_tools or has_reasoning or has_thought_sig:
         return False
 
     # Preserve explicit terminal states even without content

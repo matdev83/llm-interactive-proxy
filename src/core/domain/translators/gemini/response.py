@@ -35,6 +35,15 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
             if "content" in candidate and "parts" in candidate["content"]:
                 parts = candidate["content"]["parts"]
 
+                # Pre-scan for thought signature
+                thought_signature = None
+                for part in parts:
+                    if isinstance(part, dict):
+                        sig = part.get("thoughtSignature") or part.get("thought_signature")
+                        if sig:
+                            thought_signature = sig
+                            break
+
                 text_parts: list[str] = []
                 for part in parts:
                     if not isinstance(part, dict):
@@ -61,7 +70,9 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
 
                         tool_calls.append(
                             _process_gemini_function_call(
-                                part["functionCall"], part=part
+                                part["functionCall"],
+                                part=part,
+                                thought_signature=thought_signature,
                             )
                         )
                     elif part.get("type") in {"reasoning", "thinking"}:

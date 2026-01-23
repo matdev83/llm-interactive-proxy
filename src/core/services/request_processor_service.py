@@ -166,6 +166,8 @@ class RequestProcessor(IRequestProcessor):
             context.backend = original_backend
         if not context.effective_model:
             context.effective_model = original_model
+        if not context.requested_model:
+            context.requested_model = original_model
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(

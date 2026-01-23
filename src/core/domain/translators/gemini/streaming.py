@@ -38,6 +38,7 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
     content_pieces: list[str] = []
     reasoning_pieces: list[str] = []
     tool_calls: list[dict[str, Any]] = []
+    thought_signature: str | None = None
     finish_reason = None
 
     logger.debug(
@@ -48,6 +49,14 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
     if "candidates" in chunk:
         for candidate in chunk["candidates"]:
             if "content" in candidate and "parts" in candidate["content"]:
+                # Pre-scan for thought signature in any part of this chunk
+                for part in candidate["content"]["parts"]:
+                    if isinstance(part, dict):
+                        sig = part.get("thoughtSignature") or part.get("thought_signature")
+                        if sig:
+                            thought_signature = sig
+                            break
+
                 for part in candidate["content"]["parts"]:
                     if not isinstance(part, dict):
                         continue
@@ -76,7 +85,9 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                     elif "functionCall" in part:
                         try:
                             tool_call_dict = _process_gemini_function_call(
-                                part["functionCall"], part=part
+                                part["functionCall"],
+                                part=part,
+                                thought_signature=thought_signature,
                             ).model_dump()
                             # Add index field required for streaming tool calls
                             tool_call_dict["index"] = len(tool_calls)
@@ -93,6 +104,8 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                 finish_reason = map_gemini_finish_reason(candidate["finishReason"])
 
     delta_dict: dict[str, Any] = {"role": "assistant"}
+    if thought_signature:
+        delta_dict["thought_signature"] = thought_signature
     if content_pieces:
         delta_dict["content"] = "".join(content_pieces)
     if reasoning_pieces:

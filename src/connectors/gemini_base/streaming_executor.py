@@ -403,6 +403,7 @@ class StreamingExecutor:
         # PERFORMANCE: Use list accumulators to avoid O(n²) string concatenation in streaming hot path
         generated_text_parts: list[str] = []
         error_json_buffer_parts: list[str] | None = None
+        current_thought_signature: str | None = None
         google_auth_exceptions = self._google_auth.get_auth_exceptions()
 
         try:
@@ -520,7 +521,7 @@ class StreamingExecutor:
             def _process_decoded_line(
                 decoded_line: str,
             ) -> Iterable[ProcessedResponse]:
-                nonlocal done, generated_text_parts, error_json_buffer_parts
+                nonlocal done, generated_text_parts, error_json_buffer_parts, current_thought_signature
 
                 # #region agent log
                 _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
@@ -598,6 +599,33 @@ class StreamingExecutor:
 
                         choice = domain_chunk["choices"][0]
                         delta = choice.get("delta", {}) or {}
+
+                        # Buffer/apply thought signature if present
+                        new_sig = delta.pop("thought_signature", None)
+                        if new_sig:
+                            current_thought_signature = new_sig
+
+                        # Apply buffered signature to tool calls in this chunk
+                        raw_tool_calls_in_delta = delta.get("tool_calls")
+                        if (
+                            isinstance(raw_tool_calls_in_delta, list)
+                            and current_thought_signature
+                        ):
+                            for tc in raw_tool_calls_in_delta:
+                                if isinstance(tc, dict):
+                                    extra = tc.setdefault("extra_content", {})
+                                    if not isinstance(extra, dict):
+                                        extra = {}
+                                        tc["extra_content"] = extra
+                                    google = extra.setdefault("google", {})
+                                    if not isinstance(google, dict):
+                                        google = {}
+                                        extra["google"] = google
+                                    if not google.get("thought_signature"):
+                                        google["thought_signature"] = (
+                                            current_thought_signature
+                                        )
+
                         text_piece = delta.get("content")
                         if text_piece:
                             generated_text_parts.append(text_piece)

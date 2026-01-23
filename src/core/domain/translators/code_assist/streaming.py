@@ -53,6 +53,7 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     content = ""
     finish_reason = None
     tool_calls: list[dict[str, Any]] | None = None
+    thought_signature: str | None = None
 
     response_wrapper = chunk.get("response", {})
     candidates = response_wrapper.get("candidates", [])
@@ -63,6 +64,14 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         parts = content_obj.get("parts", [])
 
         if parts and len(parts) > 0:
+            # Pre-scan for thought signature in any part of this chunk
+            for part in parts:
+                if isinstance(part, dict):
+                    sig = part.get("thoughtSignature") or part.get("thought_signature")
+                    if sig:
+                        thought_signature = sig
+                        break
+
             text_parts: list[str] = []
             for part in parts:
                 if isinstance(part, dict) and "text" in part:
@@ -73,7 +82,9 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                             tool_calls = []
                         tool_calls.append(
                             _process_gemini_function_call(
-                                part["functionCall"], part=part
+                                part["functionCall"],
+                                part=part,
+                                thought_signature=thought_signature,
                             ).model_dump()
                         )
                     except (KeyError, TypeError, AttributeError, ValueError) as e:
@@ -100,6 +111,9 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             finish_reason = candidate["finishReason"]
 
     delta: dict[str, Any] = {"role": "assistant"}
+    if thought_signature:
+        delta["thought_signature"] = thought_signature
+
     if tool_calls:
         delta["tool_calls"] = tool_calls
         delta.pop("content", None)
