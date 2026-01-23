@@ -188,13 +188,31 @@ class ModelReplacementService:
             self._metrics.record_opt_out(session_id, "header")
             return False
 
-        # Get or create state and move to end for LRU tracking
-        state = self.get_state(session_id)
+        # Get state, but don't create it yet
+        state = self._session_states.get(session_id)
+
+        # If state doesn't exist, it's the first turn of the session.
+        # Guarantee the original model is used and skip the dice roll.
+        if state is None:
+            state = ReplacementState()
+            self._session_states[session_id] = state
+            self._session_states.move_to_end(session_id)
+            self._evict_oldest_sessions_if_needed()
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"First turn for session {session_id}; skipping replacement check."
+                )
+            return False
+
+        # If we're here, it's not the first turn. Move state to end for LRU.
+        self._session_states.move_to_end(session_id)
 
         # Enforce cool-down period if active
         if state.consume_cool_down():
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(f"Enforcing cool-down for session {session_id}; skipping dice roll.")
+                logger.debug(
+                    f"Enforcing cool-down for session {session_id}; skipping dice roll."
+                )
             return False
 
         # If already active, continue replacement
