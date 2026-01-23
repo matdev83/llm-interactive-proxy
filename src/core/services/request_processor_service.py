@@ -90,17 +90,17 @@ class RequestProcessor(IRequestProcessor):
             logger.debug(
                 f"RequestProcessor.process_request called with session_id: {getattr(context, 'session_id', 'unknown')}"
             )
-        if not isinstance(request_data, ChatRequest):
-            raise TypeError("request_data must be of type ChatRequest")
 
         # Enrich session and client context
         from typing import cast
+
 
         from src.core.domain.session import Session
 
         enriched_session, request_data = await self._session_enricher.enrich(
             context, request_data
         )
+        # Enrichment step returns a concrete ChatRequest instance
         session = cast(Session, enriched_session)
         session_id = await self._session_manager.resolve_session_id(context)
 
@@ -111,13 +111,11 @@ class RequestProcessor(IRequestProcessor):
 
         # Transfer injection boundary from ChatRequest.extra_body to RequestContext.extensions
         # This allows middleware (like AssessmentMiddleware) to set boundaries that the enforcer can use
-        if request_data.extra_body and isinstance(request_data.extra_body, dict):
+        if request_data.extra_body:
             boundary_key = "_proxy_injected_messages_start_index"
             if boundary_key in request_data.extra_body:
                 boundary_value = request_data.extra_body[boundary_key]
                 if isinstance(boundary_value, int):
-                    if context.extensions is None:
-                        context.extensions = {}
                     from src.core.services.non_forwardable_message_enforcer import (
                         PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
                     )
@@ -125,6 +123,7 @@ class RequestProcessor(IRequestProcessor):
                     context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = (
                         boundary_value
                     )
+
 
         # Process commands and handle command-only flows
         result = await self._command_handler.handle(
@@ -142,10 +141,27 @@ class RequestProcessor(IRequestProcessor):
         # "In staged initialization wiring, the replacement service is currently not injected
         # into RequestProcessor, so this code path is typically inactive." If this feature
         # becomes more active or complex, consider extracting to a ModelReplacementHandler component.
-        original_backend = context.backend
-        original_model = request_data.model
+        from src.core.domain.model_utils import parse_model_backend
 
-        if self._replacement_service is not None and original_backend is not None:
+        # Resolve original backend and model for replacement service
+        # context.backend is often None at this point, so we fall back to app_state defaults
+        # or parse from model name if it contains a prefix (e.g., "openai:gpt-4o")
+        backend_type = None
+        if self._app_state is not None:
+            try:
+                backend_type = self._app_state.get_backend_type()
+            except (AttributeError, RuntimeError, TypeError):
+                backend_type = None
+
+        parsed = parse_model_backend(request_data.model, (backend_type or ""))
+        original_backend = context.backend or parsed.backend_type
+        original_model = parsed.model_name
+
+        if (
+            self._replacement_service is not None
+            and original_backend
+            and original_model
+        ):
             # Check if replacement should be triggered
             should_replace = self._replacement_service.should_replace(
                 session_id, context
@@ -166,13 +182,16 @@ class RequestProcessor(IRequestProcessor):
                     )
                 )
 
-                # Update backend and model
-                original_backend = effective_backend
+                # Update backend and model in context and request
+                # Downstream components (preparer, handlers) rely on these updated values
+                context.backend = effective_backend
+                context.effective_model = effective_model
                 request_data = request_data.model_copy(
-                    update={"model": effective_model}
+                    update={"model": f"{effective_backend}:{effective_model}"}
                 )
 
         # Prepare and validate backend request
+
         backend_request = await self._backend_preparer.prepare(
             context, session_id, request_data, command_result
         )
