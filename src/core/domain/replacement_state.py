@@ -17,7 +17,9 @@ class ReplacementState:
 
     active: bool = False
     turns_remaining: int = 0
+    cool_down_active: bool = False
     original_backend: str = ""
+
     original_model: str = ""
     replacement_backend: str = ""
     replacement_model: str = ""
@@ -30,50 +32,46 @@ class ReplacementState:
         replacement_backend: str,
         replacement_model: str,
     ) -> None:
-        """Activate replacement mode.
-
-        Args:
-            turn_count: Number of turns to keep replacement active
-            original_backend: The original backend name
-            original_model: The original model name
-            replacement_backend: The replacement backend name
-            replacement_model: The replacement model name
-        """
+        """Activate replacement mode."""
         self.active = True
         self.turns_remaining = turn_count
+        self.cool_down_active = False  # Ensure cool-down is cleared when activating
         self.original_backend = original_backend
         self.original_model = original_model
         self.replacement_backend = replacement_backend
         self.replacement_model = replacement_model
 
     def decrement_turn(self) -> None:
-        """Decrement turn counter and deactivate if expired.
-
-        If replacement is active and turns_remaining > 0, decrements the counter.
-        When the counter reaches 0, automatically deactivates replacement.
-        """
+        """Decrement turn counter and deactivate if expired."""
         if self.active and self.turns_remaining > 0:
             self.turns_remaining -= 1
             if self.turns_remaining == 0:
-                self.deactivate()
+                self.deactivate(trigger_cool_down=True)
 
-    def deactivate(self) -> None:
-        """Deactivate replacement mode.
-
-        Resets the active flag and turns_remaining counter to their default values.
-        """
+    def deactivate(self, trigger_cool_down: bool = False) -> None:
+        """Deactivate replacement mode."""
         self.active = False
         self.turns_remaining = 0
+        if trigger_cool_down:
+            self.cool_down_active = True
 
-    def to_dict(self) -> dict[str, Any]:
-        """Serialize state for persistence.
+    def consume_cool_down(self) -> bool:
+        """Check and consume the cool-down turn if active.
 
         Returns:
-            Dictionary representation of the replacement state
+            True if cool-down was active and has been consumed, False otherwise
         """
+        if self.cool_down_active:
+            self.cool_down_active = False
+            return True
+        return False
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize state for persistence."""
         return {
             "active": self.active,
             "turns_remaining": self.turns_remaining,
+            "cool_down_active": self.cool_down_active,
             "original_backend": self.original_backend,
             "original_model": self.original_model,
             "replacement_backend": self.replacement_backend,
@@ -82,19 +80,14 @@ class ReplacementState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ReplacementState:
-        """Deserialize state from persistence.
-
-        Args:
-            data: Dictionary containing replacement state data
-
-        Returns:
-            ReplacementState instance created from the dictionary
-        """
+        """Deserialize state from persistence."""
         return cls(
             active=data.get("active", False),
             turns_remaining=data.get("turns_remaining", 0),
+            cool_down_active=data.get("cool_down_active", False),
             original_backend=data.get("original_backend", ""),
             original_model=data.get("original_model", ""),
             replacement_backend=data.get("replacement_backend", ""),
             replacement_model=data.get("replacement_model", ""),
         )
+

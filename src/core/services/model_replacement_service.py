@@ -188,22 +188,19 @@ class ModelReplacementService:
             self._metrics.record_opt_out(session_id, "header")
             return False
 
-        # Get or create state
-        state = self._session_states.get(session_id)
-        if state is None:
-            state = ReplacementState()
-            self._session_states[session_id] = state
-            # Move to end (most recently used) for LRU tracking
-            self._session_states.move_to_end(session_id)
-            # Evict oldest entries if over limit
-            self._evict_oldest_sessions_if_needed()
-        else:
-            # Move to end (most recently used) for LRU tracking
-            self._session_states.move_to_end(session_id)
+        # Get or create state and move to end for LRU tracking
+        state = self.get_state(session_id)
+
+        # Enforce cool-down period if active
+        if state.consume_cool_down():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Enforcing cool-down for session {session_id}; skipping dice roll.")
+            return False
 
         # If already active, continue replacement
         if state.active:
             return True
+
 
         # Track probability check for metrics
         self._metrics.record_probability_check(session_id)
