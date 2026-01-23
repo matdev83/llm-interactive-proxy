@@ -149,8 +149,11 @@ class RequestProcessor(IRequestProcessor):
         backend_type = None
         if self._app_state is not None:
             try:
+                # Use IApplicationState.get_backend_type() to get the configured default backend
                 backend_type = self._app_state.get_backend_type()
-            except (AttributeError, RuntimeError, TypeError):
+            except (AttributeError, RuntimeError, TypeError) as exc:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Failed to get backend type from app state: {exc}")
                 backend_type = None
 
         parsed = parse_model_backend(request_data.model, (backend_type or ""))
@@ -168,6 +171,7 @@ class RequestProcessor(IRequestProcessor):
             logger.debug(
                 f"Model replacement resolution: original_backend='{original_backend}', "
                 f"original_model='{original_model}', "
+                f"backend_type_from_state='{backend_type}', "
                 f"replacement_service_present={self._replacement_service is not None}"
             )
 
