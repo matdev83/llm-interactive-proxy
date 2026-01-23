@@ -39,8 +39,12 @@ async def test_cool_down_is_enforced_after_replacement_cycle(mock_backend_regist
     session_id = "test-cooldown-session"
     context = RequestContext(headers={}, cookies={}, state={}, app_state=None)
 
-    # 3. First request: Activate and run the replacement turn
-    mock_random_gen.return_value = 0.1 # Triggers
+    # 3. First request: Should be the guaranteed-original first turn
+    mock_random_gen.return_value = 0.1 # Should NOT be used yet
+    assert service.should_replace(session_id, context) is False
+    mock_random_gen.assert_not_called()
+
+    # 4. Second request: Now it rolls and activates replacement
     assert service.should_replace(session_id, context) is True
     await service.activate_replacement(session_id, "original-backend", "original-model")
     service.complete_turn(session_id)
@@ -50,7 +54,7 @@ async def test_cool_down_is_enforced_after_replacement_cycle(mock_backend_regist
     assert not state.active
     assert state.cool_down_active
 
-    # 4. Second request: This should be the cool-down turn
+    # 5. Third request: This should be the cool-down turn
     # Now we set the side effect to fail if called
     mock_random_gen.side_effect = Exception("Dice roll performed during cool-down!")
     
@@ -63,10 +67,10 @@ async def test_cool_down_is_enforced_after_replacement_cycle(mock_backend_regist
     # Verify that the cool-down has been consumed
     assert not service.get_state(session_id).cool_down_active
 
-    # 5. Third request: The cool-down is over, so the dice roll should now happen
+    # 6. Fourth request: The cool-down is over, so the dice roll should now happen
     mock_random_gen.side_effect = None # Disable the exception
     mock_random_gen.return_value = 0.1 # Ensure dice roll succeeds
     
     assert service.should_replace(session_id, context) is True
-    # total calls should be 2 (first request + this third request)
+    # total calls should be 2 (second request + this fourth request)
     assert mock_random_gen.call_count == 2
