@@ -40,7 +40,35 @@ class BackendStage(InitializationStage):
         if logger.isEnabledFor(logging.INFO):
             logger.info("Initializing backend services...")
 
+        # Initialize ApplicationStateService with default backend from config
+        # This is critical for model replacement and token limit enforcement
+        try:
+            from src.core.interfaces.application_state_interface import (
+                IApplicationState,
+            )
+
+            # Build a temporary provider to resolve IApplicationState
+            provider = services.build_service_provider()
+            app_state = provider.get_service(cast(type, IApplicationState))
+            if app_state:
+                default_backend = config.backends.default_backend
+                if default_backend:
+                    app_state.set_backend_type(default_backend)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Initialized application state with default backend: %s",
+                            default_backend,
+                        )
+        except Exception as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to initialize application state with default backend: %s",
+                    exc,
+                    exc_info=True,
+                )
+
         # Import connectors package to trigger backend registrations via side effects
+
         importlib.import_module("src.connectors")
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(

@@ -157,6 +157,20 @@ class RequestProcessor(IRequestProcessor):
         original_backend = context.backend or parsed.backend_type
         original_model = parsed.model_name
 
+        # Ensure context.backend is populated even if not replacing, 
+        # as downstream services rely on it.
+        if not context.backend:
+            context.backend = original_backend
+        if not context.effective_model:
+            context.effective_model = original_model
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                f"Model replacement resolution: original_backend='{original_backend}', "
+                f"original_model='{original_model}', "
+                f"replacement_service_present={self._replacement_service is not None}"
+            )
+
         if (
             self._replacement_service is not None
             and original_backend

@@ -28,9 +28,16 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
         app_config = AppConfig()
 
     replacement_config = getattr(app_config, "replacement", None)
-    if replacement_config is None or not getattr(replacement_config, "enabled", False):
+    
+    enabled = getattr(replacement_config, "enabled", False)
+    # Debug logging to investigate why replacement might be disabled contrary to expectations
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(f"Registering replacement services. Config enabled: {enabled}")
+        logger.debug(f"Replacement config: {replacement_config}")
+
+    if not enabled:
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Model replacement disabled; skipping service registration")
+            logger.debug("Model replacement feature not active in this configuration pass")
         return
 
     from src.core.interfaces.model_replacement_service_interface import (

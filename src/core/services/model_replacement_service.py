@@ -94,8 +94,10 @@ class ModelReplacementService:
 
         # Performance optimization: Sample probability check debug logs to reduce
         # hot-path overhead while still emitting visibility points.
-        self._probability_log_every_n = 1000
+        # Log every request in DEBUG mode for better visibility during development/troubleshooting.
+        self._probability_log_every_n = 1
         self._probability_log_counter = 0
+
 
         # Validate configuration with detailed error logging
         try:
