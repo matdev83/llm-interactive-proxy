@@ -54,6 +54,7 @@ from src.core.cli_support.applicators.logging_applicator import LoggingApplicato
 from src.core.cli_support.applicators.memory_applicator import MemoryApplicator
 from src.core.cli_support.applicators.resilience_applicator import ResilienceApplicator
 from src.core.cli_support.applicators.routing_applicator import RoutingApplicator
+from src.core.cli_support.applicators.replacement_applicator import ReplacementApplicator
 from src.core.cli_support.applicators.sandboxing_applicator import SandboxingApplicator
 from src.core.cli_support.applicators.server_applicator import ServerApplicator
 from src.core.cli_support.applicators.session_applicator import SessionApplicator
@@ -72,6 +73,7 @@ __all__ = [
     "MemoryApplicator",
     "ResilienceApplicator",
     "RoutingApplicator",
+    "ReplacementApplicator",
     "SandboxingApplicator",
     "ServerApplicator",
     "SessionApplicator",

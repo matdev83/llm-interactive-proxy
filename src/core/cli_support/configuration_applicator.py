@@ -16,7 +16,7 @@ Requirements satisfied:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from src.core.cli_support.protocols import CliArgs, CliOverrides, DomainApplicator
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
@@ -135,17 +135,14 @@ class ConfigurationApplicator:
             tuple (AppConfig, ParameterResolution) if return_resolution is True
         """
         # Import at runtime to avoid circular imports
-        from src.core.config.app_config import AppConfig, load_config
+        from src.core.config.app_config import load_config
 
         # Create or use provided resolution tracker
         res = resolution or ParameterResolution()
 
         # Load base configuration
         config_path = getattr(args, "config_file", None)
-        base_cfg: AppConfig = cast(
-            AppConfig,
-            load_config(config_path, resolution=res),
-        )
+        base_cfg: AppConfig = load_config(config_path, resolution=res)
 
         final_cfg = self.apply_overrides(args, base_cfg, resolution=res)
 
@@ -269,9 +266,6 @@ class ConfigurationApplicator:
         Returns:
             AppConfig with validated command prefix
         """
-        if cfg.command_prefix is None:
-            return cfg.model_copy(update={"command_prefix": default_prefix})
-
         prefix = str(cfg.command_prefix)
         err = validate_fn(prefix)
         if err:
@@ -299,7 +293,9 @@ class ConfigurationApplicator:
             IdentityApplicator,
             LoggingApplicator,
             MemoryApplicator,
+            ReplacementApplicator,
             ResilienceApplicator,
+
             RoutingApplicator,
             SandboxingApplicator,
             ServerApplicator,
@@ -315,6 +311,7 @@ class ConfigurationApplicator:
             AssessmentApplicator(),
             MemoryApplicator(),
             FailureHandlingApplicator(),
+            ReplacementApplicator(),
             ResilienceApplicator(),
             EditPrecisionApplicator(),
             IdentityApplicator(),

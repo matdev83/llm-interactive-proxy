@@ -681,8 +681,51 @@ class TestActivityDeduplicationFlags:
 
 
 # =============================================================================
+# Random Model Replacement Flags Tests
+# =============================================================================
+
+
+class TestRandomModelReplacementFlags:
+    """Tests for random model replacement CLI arguments."""
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "--enable-replacement",
+            "--disable-replacement",
+            "--replacement-probability",
+            "--replacement-backend-model",
+            "--replacement-turn-count",
+        ],
+    )
+    def test_replacement_flags_present(
+        self, parser: argparse.ArgumentParser, flag: str
+    ) -> None:
+        """Random model replacement flags are present."""
+        flags = _collect_cli_flags(parser)
+        assert flag in flags, f"Flag {flag} not found in parser"
+
+    def test_replacement_probability_is_float(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """--replacement-probability flag accepts float type."""
+        action = _get_action_by_dest(parser, "replacement_probability")
+        assert action is not None
+        assert action.type is float
+
+    def test_replacement_turn_count_is_int(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """--replacement-turn-count flag accepts integer type."""
+        action = _get_action_by_dest(parser, "replacement_turn_count")
+        assert action is not None
+        assert action.type is int
+
+
+# =============================================================================
 # Argument Groups Tests
 # =============================================================================
+
 
 
 class TestArgumentGroups:
@@ -742,6 +785,14 @@ class TestArgumentGroups:
         """Parser has a Resilience Scoping argument group."""
         group_names = [g.title for g in parser._action_groups]
         assert "Resilience Scoping" in group_names
+
+    def test_has_random_model_replacement_group(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Parser has a Random Model Replacement argument group."""
+        group_names = [g.title for g in parser._action_groups]
+        assert "Random Model Replacement" in group_names
+
 
 
 # =============================================================================

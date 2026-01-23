@@ -33,7 +33,8 @@ def _normalize_api_key_value(value: str | Sequence[str]) -> list[str]:
     if isinstance(value, str):
         cleaned = value.strip()
         return [cleaned] if cleaned else []
-    return [item for item in value if isinstance(item, str) and item.strip()]
+    return [item for item in value if item and item.strip()]
+
 
 
 class BackendApplicator:

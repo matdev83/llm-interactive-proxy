@@ -72,8 +72,51 @@ class ArgumentParserBuilder:
         self._add_failure_handling_arguments(parser)
         self._add_resilience_arguments(parser)
         self._add_end_of_session_arguments(parser)
+        self._add_replacement_arguments(parser)
 
         return parser
+
+    def _add_replacement_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add random model replacement arguments."""
+        replacement_group = parser.add_argument_group(
+            "Random Model Replacement",
+            "Options for probabilistic swapping of models for session diversity and resilience",
+        )
+        replacement_group.add_argument(
+            "--enable-replacement",
+            dest="replacement_enabled",
+            action="store_true",
+            default=None,
+            help="Enable random model replacement feature",
+        )
+        replacement_group.add_argument(
+            "--disable-replacement",
+            dest="replacement_enabled",
+            action="store_false",
+            default=None,
+            help="Disable random model replacement feature",
+        )
+        replacement_group.add_argument(
+            "--replacement-probability",
+            dest="replacement_probability",
+            type=float,
+            metavar="FLOAT",
+            help="Probability (0.0-1.0) of triggering replacement (default: 0.0)",
+        )
+        replacement_group.add_argument(
+            "--replacement-backend-model",
+            dest="replacement_backend_model",
+            type=str,
+            metavar="BACKEND:MODEL",
+            help="Replacement backend:model in format 'backend:model'",
+        )
+        replacement_group.add_argument(
+            "--replacement-turn-count",
+            dest="replacement_turn_count",
+            type=int,
+            metavar="N",
+            help="Number of turns to use replacement model (default: 1)",
+        )
 
     def _add_backend_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add backend selection and configuration arguments."""

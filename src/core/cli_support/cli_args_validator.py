@@ -42,9 +42,10 @@ class CliArgsValidator:
             ValueError: If validation fails, with detailed error message
         """
         self._validate_llm_assessment_config(args)
-        # Future validations can be added here
+        self._validate_replacement_config(args)
 
     def _validate_llm_assessment_config(self, args: argparse.Namespace) -> None:
+
         """Validate LLM assessment configuration.
 
         Raises:
@@ -91,3 +92,49 @@ class CliArgsValidator:
                 f"Available backends: {available_backends}\n"
                 f"Use a valid backend in the format BACKEND:MODEL."
             )
+
+    def _validate_replacement_config(self, args: argparse.Namespace) -> None:
+        """Validate random model replacement configuration."""
+        if not getattr(args, "replacement_enabled", False):
+            return
+
+        model_str = getattr(args, "replacement_backend_model", None)
+        if not model_str:
+            raise ValueError(
+                "Replacement backend:model must be specified when --enable-replacement is used.\n"
+                "Use --replacement-backend-model BACKEND:MODEL"
+            )
+
+        if ":" not in model_str:
+            raise ValueError(
+                f"Invalid format for --replacement-backend-model: '{model_str}'. "
+                "Expected BACKEND:MODEL."
+            )
+
+        backend, model = model_str.split(":", 1)
+        if not backend or not model:
+            raise ValueError(
+                f"Invalid format for --replacement-backend-model: '{model_str}'. "
+                "Both backend and model must be specified."
+            )
+
+        registered_backends = backend_registry.get_registered_backends()
+        if backend not in registered_backends:
+            available_backends = ", ".join(sorted(registered_backends))
+            raise ValueError(
+                f"Invalid backend '{backend}' specified for model replacement.\n"
+                f"Available backends: {available_backends}"
+            )
+
+        prob = getattr(args, "replacement_probability", None)
+        if prob is not None and not (0.0 <= prob <= 1.0):
+            raise ValueError(
+                f"Invalid --replacement-probability: {prob}. Must be between 0.0 and 1.0."
+            )
+
+        turn_count = getattr(args, "replacement_turn_count", None)
+        if turn_count is not None and turn_count < 1:
+            raise ValueError(
+                f"Invalid --replacement-turn-count: {turn_count}. Must be at least 1."
+            )
+

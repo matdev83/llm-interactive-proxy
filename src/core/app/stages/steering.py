@@ -57,8 +57,19 @@ class SteeringStage(InitializationStage):
         # Register unified steering handler
         self._register_unified_steering_handler(services, config)
 
+        # Register model replacement services
+        self._register_model_replacement(services, config)
+
         if logger.isEnabledFor(logging.INFO):
             logger.info("Steering services initialized successfully")
+
+    def _register_model_replacement(
+        self, services: ServiceCollection, config: AppConfig
+    ) -> None:
+        """Register model replacement services."""
+        from src.core.di.registrations import replacement
+
+        replacement.register(services, config)
 
     async def validate(self, services: ServiceCollection, config: AppConfig) -> bool:
         """Validate that steering services can be registered."""

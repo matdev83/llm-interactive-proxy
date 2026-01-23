@@ -176,8 +176,9 @@ class ServerLifecycleManager:
 
         return in_use
 
-    def _daemonize(self) -> None:
+    def daemonize(self) -> None:
         """Daemonize the process on Unix-like systems."""
+
         if os.name != "nt":
             if hasattr(os, "fork") and os.fork() > 0:
                 sys.exit(0)  # exit first parent
@@ -259,7 +260,8 @@ class ServerLifecycleManager:
                         )
                 raise
 
-        self._daemonize()
+        self.daemonize()
+
         return False
 
     def check_ports(self, cfg: AppConfig) -> None:

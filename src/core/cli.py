@@ -14,7 +14,7 @@ import logging
 import os
 import sys
 from collections.abc import Callable
-from typing import Literal, cast, overload
+from typing import Literal, overload
 
 from fastapi import FastAPI
 
@@ -119,7 +119,7 @@ def apply_cli_args(
     # Use the module-level `load_config` symbol for backward compatibility with
     # existing tests that patch `src.core.cli.load_config`.
     config_path = getattr(args, "config_file", None)
-    base_cfg = cast(AppConfig, load_config(config_path, resolution=res))
+    base_cfg: AppConfig = load_config(config_path, resolution=res)
 
     applicator = ConfigurationApplicator()
     final_cfg = applicator.apply_overrides(args, base_cfg, resolution=res)
@@ -154,6 +154,7 @@ def _has_privilege_functionality() -> bool:
 
 
 def _check_privileges() -> None:
+
     """Refuse to run the server with elevated privileges.
 
     DEPRECATED: Use PrivilegeChecker.check_and_enforce() instead.
@@ -168,10 +169,12 @@ def _check_privileges() -> None:
 
 
 def _daemonize() -> None:
+
     """Backward-compatible wrapper for daemonization on POSIX."""
     from src.core.cli_support.server_lifecycle_manager import ServerLifecycleManager
 
-    ServerLifecycleManager()._daemonize()
+    ServerLifecycleManager().daemonize()
+
 
 
 def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
@@ -309,7 +312,7 @@ async def main(
         args: argparse.Namespace = parse_cli_args(argv)
 
         cfg_result = apply_cli_args(args, return_resolution=True)
-        cfg, resolution = cast(tuple[AppConfig, ParameterResolution], cfg_result)
+        cfg, resolution = cfg_result
 
         server_manager = ServerLifecycleManager(
             privilege_checker=PrivilegeChecker(),
@@ -341,3 +344,18 @@ async def main(
 if __name__ == "__main__":
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(main())
+
+# Keep deprecated functions for backward compatibility with tests
+_DEPRECATED_EXPORTS = (
+    backend_imports,
+    _is_admin,
+    _has_privilege_functionality,
+    _check_privileges,
+    _daemonize,
+    _maybe_run_as_daemon,
+    _configure_logging,
+    _with_timestamp_suffix,
+    _apply_pid_suffixes,
+    _handle_application_build_error,
+)
+

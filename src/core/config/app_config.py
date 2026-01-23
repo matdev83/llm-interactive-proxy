@@ -150,7 +150,7 @@ class AppConfig(AppConfigModel):
 
         loader = AppConfigLoader(backend_instances_dir=BACKEND_INSTANCES_DIR)
         model = loader.load(None, environ=env, resolution=res)
-        return cast(AppConfig, cls.model_validate(model.model_dump()))
+        return cls.model_validate(model.model_dump())
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a configuration value by dotted key path."""
@@ -197,7 +197,7 @@ def load_config(
     model = loader.load(config_path, environ=env, resolution=res)
 
     # Return the legacy concrete type (subclass) for compatibility.
-    return cast(AppConfig, AppConfig.model_validate(model.model_dump()))
+    return AppConfig.model_validate(model.model_dump())
 
 
 __all__ = [

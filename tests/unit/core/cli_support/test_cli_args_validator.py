@@ -67,8 +67,105 @@ class TestCliArgsValidatorBasic:
 
 
 # =============================================================================
-# LLM Assessment Validation Tests
+# Random Model Replacement Validation Tests
 # =============================================================================
+
+
+class TestRandomModelReplacementValidation:
+    """Tests for random model replacement configuration validation."""
+
+    def test_passes_when_replacement_disabled(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation passes when replacement is not enabled."""
+        args.replacement_enabled = False
+        args.replacement_backend_model = None
+        validator.validate(args)  # type: ignore[union-attr]
+
+    def test_raises_when_replacement_enabled_no_model(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation raises ValueError when replacement enabled but model missing."""
+        args.replacement_enabled = True
+        args.replacement_backend_model = None
+
+        with pytest.raises(ValueError) as exc_info:
+            validator.validate(args)  # type: ignore[union-attr]
+
+        assert "Replacement backend:model must be specified" in str(exc_info.value)
+
+    def test_raises_when_replacement_model_invalid_format(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation raises ValueError when replacement model format is invalid."""
+        args.replacement_enabled = True
+        args.replacement_backend_model = "openai"  # Missing colon
+
+        with pytest.raises(ValueError) as exc_info:
+            validator.validate(args)  # type: ignore[union-attr]
+
+        assert "Expected BACKEND:MODEL" in str(exc_info.value)
+
+    @patch("src.core.cli_support.cli_args_validator.backend_registry")
+    def test_raises_when_replacement_backend_not_registered(
+        self, mock_registry, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation raises ValueError when replacement backend is not registered."""
+        args.replacement_enabled = True
+        args.replacement_backend_model = "invalid:gpt-4"
+        mock_registry.get_registered_backends.return_value = ["openai", "gemini"]
+
+        with pytest.raises(ValueError) as exc_info:
+            validator.validate(args)  # type: ignore[union-attr]
+
+        assert "Invalid backend 'invalid' specified for model replacement" in str(
+            exc_info.value
+        )
+
+    @patch("src.core.cli_support.cli_args_validator.backend_registry")
+    def test_raises_when_replacement_probability_out_of_range(
+        self, mock_registry, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation raises ValueError when replacement probability is out of range."""
+        args.replacement_enabled = True
+        args.replacement_backend_model = "openai:gpt-4"
+        args.replacement_probability = 1.5
+        mock_registry.get_registered_backends.return_value = ["openai"]
+
+        with pytest.raises(ValueError) as exc_info:
+            validator.validate(args)  # type: ignore[union-attr]
+
+        assert "Must be between 0.0 and 1.0" in str(exc_info.value)
+
+    @patch("src.core.cli_support.cli_args_validator.backend_registry")
+    def test_raises_when_replacement_turn_count_too_low(
+        self, mock_registry, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation raises ValueError when replacement turn count is less than 1."""
+        args.replacement_enabled = True
+        args.replacement_backend_model = "openai:gpt-4"
+        args.replacement_turn_count = 0
+        mock_registry.get_registered_backends.return_value = ["openai"]
+
+        with pytest.raises(ValueError) as exc_info:
+            validator.validate(args)  # type: ignore[union-attr]
+
+        assert "Must be at least 1" in str(exc_info.value)
+
+    @patch("src.core.cli_support.cli_args_validator.backend_registry")
+    def test_passes_on_valid_replacement_config(
+        self, mock_registry, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation passes with full valid replacement configuration."""
+        args.replacement_enabled = True
+        args.replacement_backend_model = "openai:gpt-4"
+        args.replacement_probability = 0.5
+        args.replacement_turn_count = 3
+        mock_registry.get_registered_backends.return_value = ["openai"]
+
+        # Should not raise
+        validator.validate(args)  # type: ignore[union-attr]
+
 
 
 class TestLlmAssessmentValidation:
