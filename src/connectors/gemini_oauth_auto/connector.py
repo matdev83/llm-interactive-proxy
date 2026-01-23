@@ -7,7 +7,7 @@ Backend connector with self-managed OAuth tokens and multi-account support.
 import asyncio
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from fastapi import HTTPException
@@ -200,6 +200,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         Raises:
             HTTPException: If the debugging override flag is not enabled.
         """
+
         if not self._enable_gemini_oauth_auto_backend_debugging_override:
             logger.warning(
                 "Rejected request: Gemini OAuth Auto backend requires debugging override flag. "
@@ -223,7 +224,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             cancellation_token=request.cancellation_token,
             cancellation_coordinator=request.cancellation_coordinator,
             # Pass any extra options (provider-specific) as kwargs
-            **request.options,  # type: ignore[arg-type]
+            **cast(dict[str, Any], request.options),
         )
 
     def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:
