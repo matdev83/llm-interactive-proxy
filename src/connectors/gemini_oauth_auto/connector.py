@@ -216,10 +216,17 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             )
 
         # Unpack canonical request to match legacy connector signature
+        # We need to ensure the effective model has the backend prefix stripped
+        # before passing it to the base class, which only knows about gemini-oauth-plan prefix.
+        effective_model = request.effective_model
+        prefix = f"{self.backend_type}:"
+        if effective_model.startswith(prefix):
+            effective_model = effective_model[len(prefix) :]
+
         return await super().chat_completions(
             request_data=request.request,
             processed_messages=list(request.processed_messages),
-            effective_model=request.effective_model,
+            effective_model=effective_model,
             identity=request.identity,
             cancellation_token=request.cancellation_token,
             cancellation_coordinator=request.cancellation_coordinator,
