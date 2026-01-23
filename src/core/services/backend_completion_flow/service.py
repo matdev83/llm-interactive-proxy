@@ -327,13 +327,28 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         attempted_backends: list[str] = []
         current_backend = backend_type
         content_started = False
+        session_id_for_backend: str | None = None
 
         try:
+
             # Step 5: Resolve session
             (
                 session,
                 session_id_for_backend,
             ) = await self._session_resolver.resolve_session(context, canonical_request)
+
+            # Ensure session_id is non-empty (Requirement 8.1)
+            if not session_id_for_backend:
+                session_id_for_backend = str(uuid4())
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Generated new session ID for backend call: %s",
+                        session_id_for_backend,
+                    )
+
+            # Synchronize session_id back to context if it's missing (Requirement 8.1)
+            if context and not context.session_id:
+                context.session_id = session_id_for_backend
 
             # Step 6: Acquire backend instance
             backend = await self._backend_invoker.acquire_backend(
@@ -349,16 +364,6 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             # This happens after history compaction (if enabled) and before wire capture
             # to ensure filtered messages are used for both capture and backend calls
             if self._non_forwardable_enforcer is not None:
-                # Ensure session_id is non-empty (requirement 8.1)
-                # Generate a new session ID if none was resolved
-                if not session_id_for_backend:
-                    session_id_for_backend = str(uuid4())
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Generated new session ID for non-forwardable enforcement: %s",
-                            session_id_for_backend,
-                        )
-
                 try:
                     filtered_messages, filtered_count = (
                         await self._non_forwardable_enforcer.filter_messages(
@@ -367,6 +372,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                             context=context,
                         )
                     )
+
 
                     # Update both canonical_request and domain_request with filtered messages
                     canonical_request = canonical_request.model_copy(
@@ -586,33 +592,33 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                     extracted_metadata["stream_id"] = session_id
 
                                 # Try to parse SSE data and extract metadata
-                                if isinstance(b, bytes):
-                                    try:
-                                        text = b.decode("utf-8", errors="replace")
-                                        # Check if this is an empty keepalive chunk
-                                        stripped = text.strip()
-                                        if stripped == "data:" or stripped == "data: ":
-                                            extracted_metadata["_keepalive"] = True
-                                            extracted_metadata["model"] = effective_model
-                                        elif stripped.startswith("data: "):
-                                            json_part = stripped[6:].strip()
-                                            if json_part and json_part != "[DONE]":
-                                                try:
-                                                    parsed = _json_mod.loads(json_part)
-                                                    if isinstance(parsed, dict):
-                                                        for key in (
-                                                            "id",
-                                                            "model",
-                                                            "created",
-                                                        ):
-                                                            if key in parsed:
-                                                                extracted_metadata[key] = (
-                                                                    parsed[key]
-                                                                )
-                                                except _json_mod.JSONDecodeError:
-                                                    pass
-                                    except (UnicodeDecodeError, AttributeError):
-                                        pass
+                                try:
+                                    text = b.decode("utf-8", errors="replace")
+                                    # Check if this is an empty keepalive chunk
+                                    stripped = text.strip()
+                                    if stripped == "data:" or stripped == "data: ":
+                                        extracted_metadata["_keepalive"] = True
+                                        extracted_metadata["model"] = effective_model
+                                    elif stripped.startswith("data: "):
+                                        json_part = stripped[6:].strip()
+                                        if json_part and json_part != "[DONE]":
+                                            try:
+                                                parsed = _json_mod.loads(json_part)
+                                                if isinstance(parsed, dict):
+                                                    for key in (
+                                                        "id",
+                                                        "model",
+                                                        "created",
+                                                    ):
+                                                        if key in parsed:
+                                                            extracted_metadata[key] = (
+                                                                parsed[key]
+                                                            )
+                                            except _json_mod.JSONDecodeError:
+                                                pass
+                                except (UnicodeDecodeError, AttributeError):
+                                    pass
+
 
                                 yield ProcessedResponse(
                                     content=normalized_content,
@@ -866,15 +872,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             # Record EoS error termination signal (fail-open)
             if self._eos_adapter is not None:  # type: ignore[reportUnknownVariableType]
                 try:
-                    session_id = (
-                        getattr(context, "session_id", None) if context else None
-                    )
                     await self._eos_adapter.record_error_termination(  # type: ignore[reportUnknownMemberType]
                         error=exc,
-                        session_id=session_id,
+                        session_id=session_id_for_backend,
                         backend_type=backend_type,
                         context=context,
                     )
+
                 except Exception as eos_error:
                     # Fail-open: log but don't interfere with error handling
                     logger.warning(
@@ -893,15 +897,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             # Record EoS error termination signal (fail-open)
             if self._eos_adapter is not None:  # type: ignore[reportUnknownVariableType]
                 try:
-                    session_id = (
-                        getattr(context, "session_id", None) if context else None
-                    )
                     await self._eos_adapter.record_error_termination(  # type: ignore[reportUnknownMemberType]
                         error=normalized_exc,
-                        session_id=session_id,
+                        session_id=session_id_for_backend,
                         backend_type=backend_type,
                         context=context,
                     )
+
                 except Exception as eos_error:
                     # Fail-open: log but don't interfere with error handling
                     logger.warning(

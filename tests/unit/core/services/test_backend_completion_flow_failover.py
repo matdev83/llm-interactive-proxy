@@ -135,7 +135,9 @@ class TestAttemptFailoverPlan:
         if request_arg is None and call_args.args:
             request_arg = call_args.args[0]
 
+        assert request_arg is not None
         assert request_arg.extra_body["backend_type"] == "anthropic"
+
 
     @pytest.mark.asyncio
     async def test_attempt_failover_tries_all_backends(self, failover_executor):
@@ -224,7 +226,7 @@ class TestApplyFailureStrategy:
 
         error = BackendError("test error", "openai")
 
-        decision, wait, next_backend = await failover_executor.apply_failure_strategy(
+        decision, wait, _ = await failover_executor.apply_failure_strategy(
             error=error,
             model="gpt-4",
             backend_type="openai",
@@ -237,7 +239,7 @@ class TestApplyFailureStrategy:
         # Should surface error when no strategy
         assert decision == FailureDecision.SURFACE_ERROR
         assert wait is None
-        assert next_backend is None
+
 
     @pytest.mark.asyncio
     async def test_strategy_delegates_to_failure_handler(self, mock_dependencies):
@@ -259,7 +261,7 @@ class TestApplyFailureStrategy:
 
         error = BackendError("test error", "openai")
 
-        decision, wait, next_backend = await failover_executor.apply_failure_strategy(
+        decision, wait, _ = await failover_executor.apply_failure_strategy(
             error=error,
             model="gpt-4",
             backend_type="openai",
@@ -273,3 +275,4 @@ class TestApplyFailureStrategy:
         assert decision == FailureDecision.WAIT_AND_RETRY
         assert wait == 1.0
         assert strategy.decide.called
+

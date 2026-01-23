@@ -221,10 +221,11 @@ class RequestContext(InternalDTO):
             self.cookies = RequestCookies(self.cookies)  # type: ignore[arg-type]
         if self.processing_context is not None and not isinstance(
             self.processing_context, ProcessingContext
-        ):
+        ):  # type: ignore[reportUnnecessaryIsInstance]
             self.processing_context = ProcessingContext(
                 values=dict(self.processing_context)  # type: ignore[arg-type]
             )
+
 
     def get_header(self, key: str, default: str | None = None) -> str | None:
         return self.headers.get(key, default)
