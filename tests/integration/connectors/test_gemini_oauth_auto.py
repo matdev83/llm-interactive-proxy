@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 import respx
-
 from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.gemini_oauth_auto.connector import GeminiOAuthAutoConnector
 from src.connectors.gemini_oauth_auto.constants import TOKEN_URL
@@ -21,13 +20,22 @@ from src.connectors.gemini_oauth_auto.token_refresh import TokenRefreshService
 from src.connectors.gemini_oauth_auto.token_storage import TokenStorageService
 from src.core.config.app_config import AppConfig
 from src.core.services.translation_service import TranslationService
+from tests.unit.fixtures.markers import real_time
 
 
 @pytest.fixture
 def mock_config() -> MagicMock:
     config = MagicMock(spec=AppConfig)
     config.get.return_value = False
-    config.backends = MagicMock()
+    
+    # Configure backends structure
+    backends = MagicMock()
+    # Configure gemini_oauth_auto backend config
+    gemini_config = MagicMock()
+    gemini_config.extra = {} # Empty dict so .get() returns None
+    backends.gemini_oauth_auto = gemini_config
+    
+    config.backends = backends
     return config
 
 
@@ -37,6 +45,7 @@ def mock_translation_service() -> MagicMock:
 
 
 @pytest.mark.integration
+@real_time(reason="Integration tests use real time for async task scheduling and coordination")
 class TestGeminiOAuthAutoIntegration:
     """Integration tests for Gemini OAuth Auto-Connector services."""
 

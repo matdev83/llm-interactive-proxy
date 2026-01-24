@@ -116,7 +116,7 @@ def from_domain_to_anthropic_response(response: ChatResponse) -> dict[str, Any]:
 
     if message and message.tool_calls:
         for tool_call in message.tool_calls:
-            arguments_raw = tool_call.function.arguments
+            arguments_raw = tool_call.function.arguments or "{}"
             try:
                 arguments = json.loads(arguments_raw)
             except json.JSONDecodeError as e:

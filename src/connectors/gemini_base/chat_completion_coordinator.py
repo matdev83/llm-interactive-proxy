@@ -124,14 +124,9 @@ class GeminiChatCompletionCoordinator(IChatCompletionCoordinator):
                     "streaming" if is_streaming else "non-streaming",
                     url,
                 )
-            # #region agent log
-            _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-            import json as _json_debug
-            with open(_log_path, "a", encoding="utf-8") as _f:
-                _f.write(_json_debug.dumps({"location": "chat_completion_coordinator.py:execute_completion", "message": "Initiating Gemini backend call", "data": {"session_id": str(getattr(request_data, "session_id", None)), "model": effective_model, "streaming": is_streaming}, "timestamp": __import__("time").time(), "hypothesisId": "B,C"}) + "\n")
-            # #endregion
 
             # Build VTC wrapper if enabled and builder is available
+
             stream_wrapper = None
             if is_streaming and self._vtc_wrapper_builder is not None:
                 stream_wrapper = self._vtc_wrapper_builder.build(

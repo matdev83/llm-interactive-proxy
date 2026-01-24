@@ -40,8 +40,26 @@ Add to your `config.yaml`:
 replacement:
   enabled: true
   probability: 0.3  # 30% chance of replacement
-  backend_model: "qwen-oauth:qwen3-coder-plus"
+  replacement_rules:
+    - from_pattern: "*"  # Wildcard: matches all models
+      to_backend: "qwen-oauth"
+      to_model: "qwen3-coder-plus"
+    - from_pattern: "gpt-4"  # Partial match: matches any model containing "gpt-4"
+      to_backend: "openai"
+      to_model: "gpt-3.5-turbo"
+    - from_pattern: "openai:gpt-4"  # Exact match: matches specific backend:model
+      to_backend: "anthropic"
+      to_model: "claude-3-5-sonnet"
   turn_count: 3  # Stay with replacement for 3 turns
+```
+
+**Legacy format** (automatically converted to wildcard rule):
+```yaml
+replacement:
+  enabled: true
+  probability: 0.3
+  backend_model: "qwen-oauth:qwen3-coder-plus"  # Deprecated
+  turn_count: 3
 ```
 
 ### Environment Variables
@@ -53,7 +71,10 @@ REPLACEMENT_ENABLED=true
 # Set replacement probability (0.0-1.0)
 REPLACEMENT_PROBABILITY=0.3
 
-# Specify the replacement backend:model
+# Specify replacement rules as JSON array
+REPLACEMENT_RULES='[{"from_pattern":"*","to_backend":"qwen-oauth","to_model":"qwen3-coder-plus"},{"from_pattern":"gpt-4","to_backend":"openai","to_model":"gpt-3.5-turbo"}]'
+
+# Legacy format (deprecated)
 REPLACEMENT_BACKEND_MODEL=qwen-oauth:qwen3-coder-plus
 
 # Set number of turns to use replacement
@@ -65,22 +86,78 @@ REPLACEMENT_TURN_COUNT=3
 ```bash
 --enable-replacement
 --replacement-probability FLOAT
---replacement-backend-model BACKEND:MODEL
+--random-model-replacement-from-to "<from>=<to>"  # Can be specified multiple times
+--replacement-backend-model BACKEND:MODEL  # Deprecated: use --random-model-replacement-from-to instead
 --replacement-turn-count N
+```
+
+## Conditional Replacement Rules
+
+The replacement feature supports conditional rules that specify **when** to replace (which models) and **what** to replace them with. Rules are evaluated in order, and the first matching rule is used.
+
+### Pattern Matching
+
+Each rule has a `from_pattern` that matches against the original model:
+
+- **Wildcard (`*`)**: Matches all models from any backend
+  ```yaml
+  from_pattern: "*"
+  ```
+
+- **Partial Match (`model-name`)**: Matches any model whose name contains the substring (case-sensitive)
+  ```yaml
+  from_pattern: "gpt-4"  # Matches "gpt-4", "gpt-4-turbo", "gpt-4o", etc.
+  ```
+
+- **Exact Match (`backend:model`)**: Matches a specific fully qualified model identifier
+  ```yaml
+  from_pattern: "openai:gpt-4"  # Only matches exactly "openai:gpt-4"
+  ```
+
+### Rule Evaluation Order
+
+Rules are evaluated in the order they are specified. Place more specific rules before wildcard rules:
+
+```yaml
+replacement_rules:
+  - from_pattern: "openai:gpt-4"  # Specific rule first
+    to_backend: "anthropic"
+    to_model: "claude-3-5-sonnet"
+  - from_pattern: "gpt-4"  # Partial match (catches other gpt-4 variants)
+    to_backend: "openai"
+    to_model: "gpt-3.5-turbo"
+  - from_pattern: "*"  # Wildcard last (catches everything else)
+    to_backend: "qwen-oauth"
+    to_model: "qwen3-coder-plus"
 ```
 
 ## Usage Examples
 
 ### Basic Usage
 
-Enable replacement with 30% probability:
+Enable replacement with 30% probability using a wildcard rule:
 
 ```bash
 python -m src.core.cli \
   --default-backend openai \
   --enable-replacement \
   --replacement-probability 0.3 \
-  --replacement-backend-model qwen-oauth:qwen3-coder-plus \
+  --random-model-replacement-from-to "*=qwen-oauth:qwen3-coder-plus" \
+  --replacement-turn-count 3
+```
+
+### Conditional Replacement
+
+Replace specific models with different targets:
+
+```bash
+python -m src.core.cli \
+  --default-backend openai \
+  --enable-replacement \
+  --replacement-probability 0.3 \
+  --random-model-replacement-from-to "gpt-4=openai:gpt-3.5-turbo" \
+  --random-model-replacement-from-to "claude=anthropic:claude-3-haiku" \
+  --random-model-replacement-from-to "*=qwen-oauth:qwen3-coder-plus" \
   --replacement-turn-count 3
 ```
 
@@ -93,7 +170,7 @@ python -m src.core.cli \
   --default-backend anthropic \
   --enable-replacement \
   --replacement-probability 0.8 \
-  --replacement-backend-model openai:gpt-4 \
+  --random-model-replacement-from-to "*=openai:gpt-4" \
   --replacement-turn-count 5
 ```
 
@@ -106,7 +183,7 @@ python -m src.core.cli \
   --default-backend openai \
   --enable-replacement \
   --replacement-probability 0.5 \
-  --replacement-backend-model anthropic:claude-3-5-sonnet \
+  --random-model-replacement-from-to "*=anthropic:claude-3-5-sonnet" \
   --replacement-turn-count 1
 ```
 
@@ -117,7 +194,7 @@ Set up replacement via environment variables:
 ```bash
 export REPLACEMENT_ENABLED=true
 export REPLACEMENT_PROBABILITY=0.3
-export REPLACEMENT_BACKEND_MODEL=qwen-oauth:qwen3-coder-plus
+export REPLACEMENT_RULES='[{"from_pattern":"*","to_backend":"qwen-oauth","to_model":"qwen3-coder-plus"}]'
 export REPLACEMENT_TURN_COUNT=3
 
 python -m src.core.cli --default-backend openai
@@ -133,13 +210,16 @@ Test your application with multiple models to ensure compatibility:
 replacement:
   enabled: true
   probability: 0.5  # 50% of sessions use alternative model
-  backend_model: "anthropic:claude-3-5-sonnet"
+  replacement_rules:
+    - from_pattern: "*"
+      to_backend: "anthropic"
+      to_model: "claude-3-5-sonnet"
   turn_count: 10  # Use alternative for extended testing
 ```
 
 ### Cost Optimization
 
-Probabilistically route to more cost-effective models:
+Probabilistically route expensive models to more cost-effective alternatives:
 
 ```bash
 python -m src.core.cli \
@@ -147,7 +227,8 @@ python -m src.core.cli \
   --default-model gpt-4 \
   --enable-replacement \
   --replacement-probability 0.4 \
-  --replacement-backend-model openai:gpt-3.5-turbo \
+  --random-model-replacement-from-to "gpt-4=openai:gpt-3.5-turbo" \
+  --random-model-replacement-from-to "claude-3-5-sonnet=anthropic:claude-3-haiku" \
   --replacement-turn-count 5
 ```
 
@@ -159,7 +240,10 @@ When a model struggles, automatically try an alternative:
 replacement:
   enabled: true
   probability: 0.3
-  backend_model: "qwen-oauth:qwen3-coder-plus"
+  replacement_rules:
+    - from_pattern: "*"
+      to_backend: "qwen-oauth"
+      to_model: "qwen3-coder-plus"
   turn_count: 3  # Give alternative model a few turns to help
 ```
 
@@ -173,8 +257,25 @@ python -m src.core.cli \
   --default-backend anthropic \
   --enable-replacement \
   --replacement-probability 0.5 \
-  --replacement-backend-model openai:gpt-4 \
+  --random-model-replacement-from-to "*=openai:gpt-4" \
   --replacement-turn-count 5
+```
+
+### Selective Model Replacement
+
+Replace only specific models while leaving others unchanged:
+
+```yaml
+replacement:
+  enabled: true
+  probability: 0.3
+  replacement_rules:
+    # Only replace GPT-4 models with GPT-3.5
+    - from_pattern: "gpt-4"
+      to_backend: "openai"
+      to_model: "gpt-3.5-turbo"
+    # Other models are not replaced (no wildcard rule)
+  turn_count: 3
 ```
 
 ## Behavior Details
@@ -241,17 +342,35 @@ Disable replacement for an entire session programmatically via the replacement s
   - `0.0` = Never replace
   - `0.3` = 30% chance of replacement
   - `1.0` = Always replace
-- **backend_model**: Replacement backend:model in format "backend:model" (required when enabled)
+- **replacement_rules**: List of conditional replacement rules (required when enabled)
+  - Each rule specifies `from_pattern`, `to_backend`, and `to_model`
+  - Rules are evaluated in order; first matching rule is used
+  - At least one rule is required when enabled
+- **backend_model**: **Deprecated** - Legacy format for backward compatibility. Automatically converted to a wildcard replacement rule if `replacement_rules` is empty.
 - **turn_count**: Number of consecutive turns to use replacement model (default: `1`, minimum: `1`)
+
+### Replacement Rule Format
+
+Each replacement rule has three fields:
+
+- **from_pattern**: Pattern to match against original models
+  - `"*"` - Wildcard (matches all models)
+  - `"model-name"` - Partial match (substring in model name)
+  - `"backend:model"` - Exact match (fully qualified identifier)
+- **to_backend**: Target backend identifier (e.g., `"qwen-oauth"`, `"openai"`)
+- **to_model**: Target model identifier (e.g., `"qwen3-coder-plus"`, `"gpt-3.5-turbo"`)
 
 ### Validation Rules
 
 The system validates configuration at startup:
 
 - **probability** must be between 0.0 and 1.0 inclusive
-- **backend_model** must be in format "backend:model" with exactly one colon
+- **replacement_rules** must be a non-empty list when enabled
+- Each rule's `to_backend` and `to_model` must be non-empty strings
+- Each rule's `to_backend:to_model` must be in format "backend:model"
+- **to_backend** specified in each rule must be registered in the backend registry
 - **turn_count** must be a positive integer (>= 1)
-- **backend** specified in backend_model must be registered in the backend registry
+- **backend_model** (legacy) must be in format "backend:model" with exactly one colon if provided
 
 ## Feature Compatibility
 

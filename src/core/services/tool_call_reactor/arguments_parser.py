@@ -113,6 +113,14 @@ class ToolArgumentsParser(IToolArgumentsParser):
         Returns:
             ToolArgumentsEnvelope with parse outcome and normalized arguments.
         """
+        # Handle empty or whitespace-only strings as empty object {}
+        stripped = raw_arguments.strip()
+        if not stripped:
+            envelope = normalize_tool_arguments({}, parse_outcome="success")
+            envelope.raw_arguments = raw_arguments
+            self._record_outcome("success")
+            return envelope
+
         repair_outcome: Literal["success", "recovered", "failed"] = "failed"
         candidates: list[str] = []
         last_error: Exception | None = None

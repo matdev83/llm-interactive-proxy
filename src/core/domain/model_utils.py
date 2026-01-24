@@ -60,6 +60,10 @@ def parse_model_backend(model: str, default_backend: str = "") -> ParsedModel:
     Returns:
         ParsedModel with backend_type and model_name fields
     """
+    # Ensure default_backend is a string to avoid validation errors with mocks
+    if not isinstance(default_backend, str):
+        default_backend = str(default_backend) if default_backend is not None else ""
+
     # IMPORTANT: Backend selection uses ONLY ":".
     # "/" is part of model identifier (e.g., "vendor/model") and must not be
     # treated as a backend separator.

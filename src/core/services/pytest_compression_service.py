@@ -53,8 +53,11 @@ class PytestCompressionService:
         Returns:
             PytestDetectionResult if pytest is detected, otherwise None.
         """
+        tool_name = tool_call.function.name
+        if not tool_name:
+            return None
         detection_result = self.scan_for_pytest(
-            tool_call.function.name, tool_call.function.arguments
+            tool_name, tool_call.function.arguments
         )
         if detection_result:
             return detection_result

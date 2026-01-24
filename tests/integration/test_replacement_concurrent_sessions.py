@@ -73,6 +73,7 @@ async def test_independent_session_states() -> None:
     session_ids = ["session-1", "session-2", "session-3"]
 
     # Activate replacement for session-1
+    service.should_replace(session_ids[0], context)  # First turn skip
     should_replace_1 = service.should_replace(session_ids[0], context)
     assert should_replace_1
     await service.activate_replacement(
@@ -91,6 +92,7 @@ async def test_independent_session_states() -> None:
     assert not state_3.active
 
     # Activate replacement for session-2
+    service.should_replace(session_ids[1], context)  # First turn skip
     should_replace_2 = service.should_replace(session_ids[1], context)
     assert should_replace_2
     await service.activate_replacement(
@@ -188,6 +190,7 @@ async def test_session_cleanup() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
     await service.activate_replacement(session_id, "original-backend", "original-model")

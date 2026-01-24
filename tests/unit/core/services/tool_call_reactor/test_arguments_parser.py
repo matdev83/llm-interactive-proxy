@@ -112,14 +112,26 @@ class TestParseStringInput:
         assert envelope.normalized_arguments.root["__proxy_args_raw__"] == raw_text
 
     def test_parse_empty_string(self) -> None:
-        """Test parsing an empty string."""
+        """Test parsing an empty string returns empty object."""
         parser = ToolArgumentsParser()
 
         envelope = parser.parse("")
 
-        # Empty string may parse as empty JSON or fail
-        assert envelope.parse_outcome in ("success", "failed")
+        # Empty string should be treated as empty object {}
+        assert envelope.parse_outcome == "success"
         assert envelope.raw_arguments == ""
+        assert envelope.normalized_arguments.root == {}
+
+    def test_parse_whitespace_only_string(self) -> None:
+        """Test parsing a whitespace-only string returns empty object."""
+        parser = ToolArgumentsParser()
+
+        envelope = parser.parse("   ")
+
+        # Whitespace-only string should be treated as empty object {}
+        assert envelope.parse_outcome == "success"
+        assert envelope.raw_arguments == "   "
+        assert envelope.normalized_arguments.root == {}
 
 
 class TestParseOtherTypes:

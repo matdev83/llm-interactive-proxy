@@ -5,19 +5,33 @@ Tests Requirement 3: Automatic Token Refresh.
 """
 
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
+from freezegun import freeze_time
 from src.connectors.gemini_oauth_auto.errors import TokenRefreshError
 from src.connectors.gemini_oauth_auto.models import StoredAccount
 from src.connectors.gemini_oauth_auto.token_refresh import TokenRefreshService
 
+# Base time for tests to avoid direct BASE_TIME calls (flagged by linter)
+# Matches @freeze_time("2026-01-19") used in tests.
+BASE_TIME = 1768780800.0  # 2026-01-19 00:00:00 UTC
+
+
+@pytest.fixture(autouse=True)
+def mock_sleep():
+    """Mock asyncio.sleep to avoid waiting in tests."""
+    with patch(
+        "src.connectors.gemini_oauth_auto.token_refresh.asyncio.sleep",
+        new_callable=AsyncMock,
+    ) as mock:
+        yield mock
+
 
 @pytest.fixture
 def mock_storage() -> MagicMock:
+
     """Fixture providing mock token storage."""
     storage = MagicMock()
     storage.save_account = AsyncMock()
@@ -53,7 +67,7 @@ def valid_account() -> StoredAccount:
         access_token="ya29.old_access_token",
         refresh_token="1//test_refresh_token",
         scope="https://www.googleapis.com/auth/cloud-platform",
-        expiry_date=int((time.time() + 3600) * 1000),  # 1 hour from now
+        expiry_date=int((BASE_TIME + 3600) * 1000),  # 1 hour from now
     )
 
 
@@ -66,7 +80,7 @@ def expired_account() -> StoredAccount:
         access_token="ya29.expired_access_token",
         refresh_token="1//test_refresh_token",
         scope="https://www.googleapis.com/auth/cloud-platform",
-        expiry_date=int((time.time() - 3600) * 1000),  # 1 hour ago
+        expiry_date=int((BASE_TIME - 3600) * 1000),  # 1 hour ago
     )
 
 
@@ -79,11 +93,13 @@ def near_expiry_account() -> StoredAccount:
         access_token="ya29.near_expiry_token",
         refresh_token="1//test_refresh_token",
         scope="https://www.googleapis.com/auth/cloud-platform",
-        expiry_date=int((time.time() + 120) * 1000),  # 2 minutes from now
+        expiry_date=int((BASE_TIME + 120) * 1000),  # 2 minutes from now
     )
 
 
+@freeze_time("2026-01-19")
 class TestTokenRefreshService:
+
     """Tests for TokenRefreshService."""
 
     @pytest.mark.asyncio
@@ -307,9 +323,9 @@ class TestTokenRefreshService:
         mock_response.raise_for_status = MagicMock()
         mock_http_client.post = AsyncMock(return_value=mock_response)
 
-        before_time = int(time.time() * 1000)
+        before_time = int(BASE_TIME * 1000)
         result = await refresh_service.force_refresh(expired_account)
-        after_time = int(time.time() * 1000)
+        after_time = int(BASE_TIME * 1000)
 
         # Expiry should be approximately now + expires_in
         expected_min = before_time + (new_expires_in * 1000)
@@ -330,7 +346,7 @@ class TestTokenRefreshService:
             access_token="ya29.old",
             refresh_token="1//refresh",
             scope="scope",
-            expiry_date=int((time.time() - 3600) * 1000),
+            expiry_date=int((BASE_TIME - 3600) * 1000),
             needs_reauth=True,
         )
 

@@ -3,7 +3,6 @@
 import argparse
 
 import pytest
-
 from src.core.cli_support.applicators.auxiliary_routing_applicator import (
     AuxiliaryRoutingApplicator,
 )

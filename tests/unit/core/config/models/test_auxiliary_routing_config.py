@@ -1,6 +1,5 @@
 import pytest
 from pydantic import ValidationError
-
 from src.core.config.models.auxiliary_routing import AuxiliaryRoutingConfig
 
 

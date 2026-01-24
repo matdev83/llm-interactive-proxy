@@ -1,6 +1,5 @@
 """Tests for auxiliary request router."""
 
-import pytest
 
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.auxiliary_request_router import (

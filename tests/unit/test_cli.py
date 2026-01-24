@@ -149,8 +149,10 @@ def test_cli_backend_choices_match_registry() -> None:
         # Configure the mock parser to return a namespace with proper defaults
         # to prevent validation errors in _validate_llm_loop_assessment_config
         mock_args = Mock()
-        mock_args.llm_assessment_enabled = None  # Default to disabled
-        mock_args.llm_assessment_model = None  # Default to None
+        mock_args.llm_assessment_enabled = False
+        mock_args.llm_assessment_model = None
+        mock_args.replacement_enabled = False
+        mock_args.replacement_backend_model = None
         mock_parser_instance.parse_args.return_value = mock_args
 
         # Call the function that creates the parser

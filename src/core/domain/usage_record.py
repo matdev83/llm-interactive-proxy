@@ -7,16 +7,17 @@ verbatim and mutated traffic.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from pydantic import Field
+
 from src.core.domain.openrouter_usage import OpenRouterUsage
 from src.core.domain.traffic_leg import TrafficLeg
+from src.core.interfaces.model_bases import DomainModel
 
 
-@dataclass
-class UsageRecord:
+class UsageRecord(DomainModel):
     """Core data structure for tracking individual request/response cycles.
 
     This class provides full observability of traffic before and after proxy
@@ -96,7 +97,7 @@ class UsageRecord:
     tool_call_count: int = 0
     native_tool_call_count: int = 0
     vtc_tool_call_count: int = 0
-    tool_names: list[str] = field(default_factory=list)
+    tool_names: list[str] = Field(default_factory=list)
 
     # Timing metrics
     ttft_ms: float | None = None
@@ -109,6 +110,7 @@ class UsageRecord:
     user_agent: str | None = None
     app_title: str | None = None
     proxy_user: str | None = None
+
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the usage record to a dictionary.

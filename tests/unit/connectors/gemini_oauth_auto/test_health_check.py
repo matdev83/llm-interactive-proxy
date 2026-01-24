@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
 from src.connectors.gemini_oauth_auto.connector import GeminiOAuthAutoConnector
 
 
@@ -25,15 +24,25 @@ def mock_dependencies():
 async def connector(mock_dependencies):
     """Fixture providing an initialized GeminiOAuthAutoConnector."""
     client, config, translation_service = mock_dependencies
-    conn = GeminiOAuthAutoConnector(client, config, translation_service)
     
-    # Mock services
-    conn._account_selector = MagicMock()
-    conn._account_selector.reload_accounts = AsyncMock()
-    conn._account_selector.get_next_account = AsyncMock()
-    conn._account_selector.get_available_count.return_value = 1
-    
-    return conn
+    with patch(
+        "src.connectors.gemini_oauth_auto.connector.TokenStorageService"
+    ), patch(
+        "src.connectors.gemini_oauth_auto.connector.TokenRefreshService"
+    ), patch(
+        "src.connectors.gemini_oauth_auto.connector.AccountSelectorService"
+    ) as mock_selector_cls:
+        # Configure mock selector
+        mock_selector = mock_selector_cls.return_value
+        mock_selector.reload_accounts = AsyncMock()
+        mock_selector.get_next_account = AsyncMock()
+        mock_selector.get_available_count.return_value = 1
+        
+        conn = GeminiOAuthAutoConnector(client, config, translation_service)
+        # Ensure it uses the mock even before initialize
+        conn._account_selector = mock_selector
+        
+        yield conn
 
 
 @pytest.mark.asyncio

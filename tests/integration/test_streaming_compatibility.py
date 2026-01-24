@@ -76,6 +76,7 @@ async def test_streaming_works_with_replacement() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace, "Replacement should trigger with probability=1.0"
 
@@ -115,6 +116,7 @@ async def test_streaming_responses_returned_correctly() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -164,6 +166,7 @@ async def test_non_streaming_requests_unaffected() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -202,6 +205,7 @@ async def test_streaming_format_consistency() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -240,6 +244,7 @@ async def test_streaming_turn_completion() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -287,6 +292,7 @@ async def test_streaming_context_association() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -327,6 +333,7 @@ async def test_streaming_error_handling_consistency() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

@@ -11,12 +11,12 @@ ensuring that:
 from __future__ import annotations
 
 import pytest
-from fastapi import FastAPI
-
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.application_state_interface import IApplicationState
-from src.core.interfaces.model_replacement_service_interface import IModelReplacementService
+from src.core.interfaces.model_replacement_service_interface import (
+    IModelReplacementService,
+)
 from src.core.services.application_state_service import ApplicationStateService
 
 

@@ -4,11 +4,10 @@ Unit tests for AccountSelectorService.
 Tests Requirement 4: Multi-Account Support.
 """
 
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
+from freezegun import freeze_time
 from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.gemini_oauth_auto.models import StoredAccount
 
@@ -47,19 +46,27 @@ def create_valid_account(
     needs_reauth: bool = False,
     hours_until_expiry: float = 1.0,
 ) -> StoredAccount:
-    """Helper to create a valid account with configurable expiry."""
+    """Helper to create a valid account with configurable expiry.
+    
+    Uses a fixed base time to avoid direct time.time() calls flagged by linter.
+    Base time matches @freeze_time("2026-01-19") used in tests.
+    """
+    base_time = 1768780800.0  # 2026-01-19 00:00:00 UTC
     return StoredAccount(
         account_id=account_id,
         email=email,
         access_token=f"ya29.token_{account_id}",
         refresh_token=f"1//refresh_{account_id}",
         scope="https://www.googleapis.com/auth/cloud-platform",
-        expiry_date=int((time.time() + hours_until_expiry * 3600) * 1000),
+        expiry_date=int((base_time + hours_until_expiry * 3600) * 1000),
         needs_reauth=needs_reauth,
     )
 
 
+
+@freeze_time("2026-01-19")
 class TestAccountSelectorService:
+
     """Tests for AccountSelectorService."""
 
     @pytest.mark.asyncio
@@ -106,7 +113,12 @@ class TestAccountSelectorService:
         mock_refresh_service: MagicMock,
     ) -> None:
         """Test get_next_account handles refresh failure with needs_reauth."""
+        from src.connectors.gemini_oauth_auto.account_selector import (
+            TokenRefreshError as SelectorTokenRefreshError,
+        )
         from src.connectors.gemini_oauth_auto.errors import TokenRefreshError
+        print(f"DEBUG: Test TokenRefreshError id: {id(TokenRefreshError)}")
+        print(f"DEBUG: Selector TokenRefreshError id: {id(SelectorTokenRefreshError)}")
         
         accounts = [
             create_valid_account("account-1", hours_until_expiry=0),  # Expired
@@ -160,4 +172,48 @@ class TestAccountSelectorService:
         
         assert selector.get_available_count() == 1
         mock_storage.load_all_accounts.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_allowlist_filters_accounts(
+        self,
+        mock_storage: MagicMock,
+        mock_refresh_service: MagicMock,
+    ) -> None:
+        """Configured allowlist should restrict which accounts are eligible."""
+        accounts = [
+            create_valid_account("account-1"),
+            create_valid_account("account-2"),
+        ]
+        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
+
+        selector = AccountSelectorService(
+            storage=mock_storage,
+            refresh_service=mock_refresh_service,
+            allowed_account_ids={"account-2"},
+        )
+
+        selected = await selector.get_next_account()
+        assert selected is not None
+        assert selected.account_id == "account-2"
+
+    @pytest.mark.asyncio
+    async def test_refresh_buffer_is_passed_through(
+        self,
+        mock_storage: MagicMock,
+        mock_refresh_service: MagicMock,
+    ) -> None:
+        """Selector should pass configured buffer_ms to refresh service."""
+        account = create_valid_account("account-1", hours_until_expiry=0)
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account])
+
+        selector = AccountSelectorService(
+            storage=mock_storage,
+            refresh_service=mock_refresh_service,
+            refresh_buffer_ms=1234,
+        )
+
+        await selector.get_next_account()
+        mock_refresh_service.refresh_if_needed.assert_awaited()
+        _, kwargs = mock_refresh_service.refresh_if_needed.await_args
+        assert kwargs.get("buffer_ms") == 1234
 

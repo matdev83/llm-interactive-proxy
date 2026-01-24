@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Sequence
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -62,9 +63,20 @@ def extract_prompt_text(messages: list[Any]) -> str:
             content = m.get("content", content)
         if isinstance(content, str):
             parts.append(f"{role}: {content}")
-        elif isinstance(content, list):
+        elif isinstance(content, Sequence):
             # Concatenate text parts only
             for p in content:
-                if isinstance(p, dict) and p.get("type") == "text":
-                    parts.append(f"{role}: {p.get('text','')}")
+                p_type = None
+                p_text = None
+
+                if isinstance(p, dict):
+                    p_type = p.get("type")
+                    p_text = p.get("text")
+                else:
+                    # Handle Pydantic models or other objects
+                    p_type = getattr(p, "type", None)
+                    p_text = getattr(p, "text", None)
+
+                if p_type == "text" and isinstance(p_text, str):
+                    parts.append(f"{role}: {p_text}")
     return "\n".join(parts)

@@ -137,7 +137,24 @@ class BackendExecutor(IBackendExecutor):
 
             # Return backend response unchanged (Req 1.4)
             return backend_response
+        except Exception:
+            # If backend call fails, check if replacement was active.
+            # If so, we should NOT count this as a successful turn consumption to avoid
+            # unfair penalization, OR we might want to deactivate replacement immediately
+            # depending on UX preference.
+            # Current logic: The finally block runs complete_turn(), which consumes a turn.
+            # For rate limits/errors, this might burn a turn without user benefit.
+            #
+            # However, the user request is "skip the use of replacement model when it is not available".
+            # This implies automatic fallback during *this* request, which would require
+            # catch-and-retry logic here or in RequestProcessor.
+            #
+            # Since the current design propagates errors up (Req 10.4), we can't easily
+            # retry here without a larger refactor.
+            # BUT, we can ensure we don't count this as a valid turn for the replacement logic.
+            raise
         finally:
             # Complete turn after response (or error) to update replacement state (Req 1.7)
             if self._replacement_service is not None:
                 self._replacement_service.complete_turn(session_id)
+

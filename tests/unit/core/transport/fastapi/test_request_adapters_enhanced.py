@@ -5,7 +5,9 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from fastapi import Request
-from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
+from src.core.transport.fastapi.request_adapters import (
+    fastapi_to_domain_request_context,
+)
 
 
 class TestFastapiToDomainRequestContextEnhanced:

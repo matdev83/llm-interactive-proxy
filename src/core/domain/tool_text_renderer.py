@@ -34,7 +34,7 @@ class XmlRenderer(ToolTextRenderer):
     def render(self, tool_call: ToolCall) -> str | None:
         if tool_call.function.name == "shell":
             try:
-                args = json.loads(tool_call.function.arguments)
+                args = json.loads(tool_call.function.arguments or "{}")
                 command_arg = args.get("command", [])
                 if isinstance(command_arg, list):
                     command = " ".join(command_arg)
@@ -49,7 +49,7 @@ class XmlRenderer(ToolTextRenderer):
                 return None
         if tool_call.function.name == "apply_patch":
             try:
-                args = json.loads(tool_call.function.arguments)
+                args = json.loads(tool_call.function.arguments or "{}")
                 path = args.get("path")
                 diff = args.get("diff") or args.get("patch")
                 if path and diff:
@@ -58,7 +58,7 @@ class XmlRenderer(ToolTextRenderer):
                 return None
         if tool_call.function.name == "view_image":
             try:
-                args = json.loads(tool_call.function.arguments)
+                args = json.loads(tool_call.function.arguments or "{}")
                 path = args.get("path")
                 if path:
                     return f"<view_image><path>{path}</path></view_image>"

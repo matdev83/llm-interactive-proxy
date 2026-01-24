@@ -15,16 +15,15 @@ This connector uses the Strategy Pattern with the following strategies:
 import asyncio
 import logging
 import os
-from collections.abc import Callable
 from typing import Any
 
 import httpx
 from fastapi import HTTPException
 
 from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
 from src.connectors.gemini_base.credential_providers import FileCredentialProvider
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
-from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
 from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
 from src.connectors.gemini_base.models import TierScore
 from src.connectors.gemini_base.project_discovery import PaidTierProjectDiscovery
@@ -33,9 +32,6 @@ from src.connectors.gemini_base.response_processors import NoOpResponsePostProce
 from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.domain.session_key import SessionKey
-from src.core.interfaces.configuration_interface import IAppIdentityConfig
-from src.core.interfaces.model_bases import DomainModel, InternalDTO
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 

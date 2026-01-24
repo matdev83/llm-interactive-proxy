@@ -21,9 +21,9 @@ from typing import Any
 import httpx
 from fastapi import HTTPException
 
+from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
 from src.connectors.gemini_base.credential_providers import FileCredentialProvider
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
-from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
 from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
 from src.connectors.gemini_base.project_discovery import FreeTierProjectDiscovery
 from src.connectors.gemini_base.request_builders import StandardRequestBodyBuilder

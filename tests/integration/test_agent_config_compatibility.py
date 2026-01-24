@@ -86,6 +86,7 @@ async def test_agent_config_preserved_with_replacement() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace, "Replacement should trigger with probability=1.0"
 
@@ -137,6 +138,7 @@ async def test_agent_config_preserved_across_turns() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -191,6 +193,7 @@ async def test_no_agent_config_with_replacement() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -249,6 +252,7 @@ async def test_complex_agent_config_preserved() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -306,6 +310,7 @@ async def test_agent_config_not_modified_by_replacement() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

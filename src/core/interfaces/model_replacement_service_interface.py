@@ -28,6 +28,8 @@ class IModelReplacementService(Protocol):
         self,
         session_id: str,
         request_context: RequestContext,
+        original_backend: str | None = None,
+        original_model: str | None = None,
     ) -> bool:
         """Determine if replacement should be triggered for this request.
 
@@ -36,11 +38,14 @@ class IModelReplacementService(Protocol):
         - Session-level disable flag
         - Request header opt-out
         - Current replacement state (already active)
+        - Matching replacement rule (if backend/model provided)
         - Probability threshold
 
         Args:
             session_id: The session identifier
             request_context: The request context containing headers and state
+            original_backend: Optional original backend (for rule matching check)
+            original_model: Optional original model (for rule matching check)
 
         Returns:
             True if replacement should be triggered, False otherwise

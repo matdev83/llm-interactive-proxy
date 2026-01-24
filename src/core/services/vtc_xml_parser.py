@@ -453,6 +453,8 @@ def serialize_tool_calls_to_xml(
 
         # Build parameter elements
         param_elements: list[str] = []
+        if not isinstance(args, dict):
+            args = {}
         for param_name, param_value in args.items():
             # Serialize value
             if isinstance(param_value, dict | list):

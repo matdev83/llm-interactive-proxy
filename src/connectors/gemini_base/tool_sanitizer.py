@@ -60,16 +60,8 @@ def _sanitize_parameters(params: Any) -> dict[str, Any]:
     if not isinstance(normalized, dict):
         return {}
     result = Translation._sanitize_gemini_parameters(normalized)
-    # #region agent log
-    _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-    import json as _json_debug
-    # Check if this schema has $defs or $ref related fields
-    _has_defs = "$defs" in str(params) or "definitions" in str(params) or "$ref" in str(params)
-    if _has_defs:
-        with open(_log_path, "a", encoding="utf-8") as _f:
-            _f.write(_json_debug.dumps({"location": "tool_sanitizer.py:_sanitize_parameters", "message": "Schema with refs/defs detected", "data": {"input_preview": str(params)[:1500], "output_preview": str(result)[:1500]}, "timestamp": __import__("time").time(), "hypothesisId": "F"}) + "\n")
-    # #endregion
     return result
+
 
 
 logger = logging.getLogger(__name__)

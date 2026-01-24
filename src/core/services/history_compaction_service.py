@@ -174,10 +174,10 @@ class HistoryCompactionService(IHistoryCompactionService):
         for msg in messages:
             if msg.role == "assistant" and msg.tool_calls:
                 for tc in msg.tool_calls:
-                    if tc.id:
+                    if tc.id and tc.function.name:
                         tool_call_index[tc.id] = (
                             tc.function.name,
-                            tc.function.arguments,
+                            tc.function.arguments or "{}",
                         )
 
         # Phase 1: Build resource correlation map

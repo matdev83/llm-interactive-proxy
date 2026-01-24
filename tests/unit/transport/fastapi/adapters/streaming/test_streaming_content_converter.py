@@ -582,3 +582,51 @@ class TestStreamingContentConverter:
         assert isinstance(results[0], StreamingContent)
         assert results[0].metadata.get("stream_id") == "test-json"
         assert results[0].metadata.get("finish_reason") == "stop"
+
+    @pytest.mark.asyncio
+    async def test_expected_proxy_error_does_not_log_traceback(self, caplog) -> None:
+        """Expected LLMProxyError should not emit raw traceback logs."""
+        from src.core.common.exceptions import BackendError
+
+        converter = StreamingContentConverter()
+
+        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+            raise BackendError(
+                "rate limited", status_code=429, code="rate_limit_exceeded"
+            )
+            yield  # pragma: no cover
+
+        caplog.set_level("ERROR")
+        context: dict[str, JsonValue | RequestContext | None] = {}
+
+        results: list[StreamingContent] = []
+        async for content in converter.convert_stream(raw_stream(), context):
+            results.append(content)
+
+        assert results
+        assert results[-1].is_done is True
+        assert isinstance(results[-1].metadata.get("error"), dict)
+
+        messages = [rec.getMessage() for rec in caplog.records]
+        assert any("Streaming content conversion terminated" in m for m in messages)
+
+        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content="test",
+                metadata={
+                    "stream_id": "test-json",
+                    "finish_reason": "stop",
+                    "model": "test-model",
+                    "nested": {"key": "value", "number": 42},
+                },
+            )
+
+        context: dict[str, JsonValue | RequestContext | None] = {}
+        results = []
+        async for content in converter.convert_stream(raw_stream(), context):
+            results.append(content)
+
+        assert len(results) == 1
+        assert isinstance(results[0], StreamingContent)
+        assert results[0].metadata.get("stream_id") == "test-json"
+        assert results[0].metadata.get("finish_reason") == "stop"

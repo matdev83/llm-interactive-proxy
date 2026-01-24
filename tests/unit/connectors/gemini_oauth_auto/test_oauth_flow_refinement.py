@@ -6,11 +6,12 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi.responses import RedirectResponse
-
+from src.connectors.gemini_oauth_auto.constants import (
+    FAILURE_REDIRECT,
+    SUCCESS_REDIRECT,
+)
 from src.connectors.gemini_oauth_auto.errors import OAuthError
 from src.connectors.gemini_oauth_auto.oauth_flow import OAuthFlowService
-from src.connectors.gemini_oauth_auto.constants import FAILURE_REDIRECT, SUCCESS_REDIRECT
 
 
 @pytest.fixture
@@ -107,7 +108,7 @@ class TestOAuthFlowRefinement:
         
         # Mock uvicorn and webbrowser
         with patch("webbrowser.open"), \
-             patch("uvicorn.Server.serve", new_callable=AsyncMock) as mock_serve:
+             patch("uvicorn.Server.serve", new_callable=AsyncMock):
             
             # Simulate code received
             async def simulate_code(*args, **kwargs):

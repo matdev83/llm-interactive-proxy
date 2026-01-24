@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from src.core.config.models.end_of_session import EndOfSessionConfig
 from src.core.domain.events.end_of_session_events import (
@@ -75,11 +76,6 @@ class EndOfSessionStreamProcessor(IStreamProcessor):
 
         # Early exit if session has already ended (hot-path dedupe)
         if await self._eos_service.has_ended(session_id):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "EoS stream processor: Session %s already ended, skipping signal detection",
-                    session_id,
-                )
             return content
 
         # Detect completion markers
@@ -150,9 +146,10 @@ class EndOfSessionStreamProcessor(IStreamProcessor):
             content_str = content.content
         elif isinstance(content.content, bytes):
             content_str = content.content.decode("utf-8", errors="ignore")
-        elif isinstance(content.content, dict):
-            # Check in nested content fields
-            content_str = str(content.content.get("content", ""))
+        else:
+            # Check in nested content fields (must be dict if not str or bytes)
+            content_val = cast(dict[str, Any], content.content)
+            content_str = str(content_val.get("content", ""))
 
         if "[DONE]" in content_str:
             return EndOfSessionSignal(

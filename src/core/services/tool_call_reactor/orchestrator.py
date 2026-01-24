@@ -15,6 +15,9 @@ from pydantic.types import JsonValue
 
 from src.core.common.logging_utils import get_logger
 from src.core.domain.chat import ToolCall
+from src.core.interfaces.end_of_session_service_interface import (
+    IEndOfSessionService,
+)
 from src.core.interfaces.replacement_response_factory_interface import (
     IReplacementResponseFactory,
     ToolCallReactionMetadata,
@@ -81,6 +84,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
         reactor: IToolCallReactor,
         replacement_factory: IReplacementResponseFactory,
         lifecycle_registry: ToolCallLifecycleRegistry,
+        end_of_session_service: IEndOfSessionService | None = None,
     ) -> None:
         """Initialize the orchestrator with injected dependencies.
 
@@ -94,6 +98,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
             reactor: Reactor service for handler invocation.
             replacement_factory: Factory for building replacement responses.
             lifecycle_registry: Registry for lifecycle tracking and stream state clearing.
+            end_of_session_service: Optional service for checking if session has ended.
         """
         self._extractor = extractor
         self._normalizer = normalizer
@@ -104,6 +109,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
         self._reactor = reactor
         self._replacement_factory = replacement_factory
         self._lifecycle_registry = lifecycle_registry
+        self._end_of_session_service = end_of_session_service
 
     async def handle(
         self,
@@ -200,6 +206,24 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
             await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
+        # Early exit if session has already ended (performance optimization)
+        if self._end_of_session_service:
+            try:
+                if await self._end_of_session_service.has_ended(session_id):
+                    await self._reset_stream_state_if_needed(
+                        stream_key, response, is_streaming
+                    )
+                    return response
+            except Exception as e:
+                # Fail-open: if EoS check fails, continue processing
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Error checking session end status for %s: %s",
+                        session_id,
+                        e,
+                        exc_info=True,
+                    )
+
         # Filter to new tool calls via deduplicator
         # Note: deduplicator handles buffered calls internally
         new_tool_calls = await self._deduplicator.filter_new_calls(
@@ -231,7 +255,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
 
         # Expose tool calls in metadata (for backward compatibility)
         try:
-            if hasattr(response, "metadata") and isinstance(response.metadata, dict):
+            if hasattr(response, "metadata"):
                 response.metadata.setdefault("tool_calls", [])
                 existing_calls = response.metadata.get("tool_calls")
 
@@ -301,6 +325,14 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
             # Extract function payload
             function_payload = tool_call.function
             tool_name = function_payload.name
+            if not tool_name:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Skipping tool call with missing name in session %s",
+                        session_id,
+                    )
+                continue
+
             raw_arguments = function_payload.arguments
 
             # Parse arguments
@@ -330,7 +362,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 backend_name=backend_name or "unknown",
                 model_name=model_name or "unknown",
                 full_response=full_response,
-                tool_name=tool_name,
+                tool_name=tool_name or "unknown",
                 tool_arguments=envelope.normalized_arguments.root,
                 calling_agent=calling_agent,
             )

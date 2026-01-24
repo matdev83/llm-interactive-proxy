@@ -69,6 +69,7 @@ async def test_replacement_persists_for_configured_turns() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -127,6 +128,7 @@ async def test_counter_decrements_correctly() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -169,6 +171,7 @@ async def test_deactivation_after_turns_expire() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -207,6 +210,7 @@ async def test_single_turn_replacement() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -256,6 +260,7 @@ async def test_replacement_window_with_multiple_activations() -> None:
     session_id = "test-session"
 
     # First activation
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -270,6 +275,7 @@ async def test_replacement_window_with_multiple_activations() -> None:
     assert not state.active
 
     # Second activation
+    service.should_replace(session_id, context)  # Consume cool-down
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -304,6 +310,7 @@ async def test_turn_counter_does_not_go_negative() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -335,6 +342,7 @@ async def test_replacement_routing_throughout_window() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -381,6 +389,7 @@ async def test_long_replacement_window() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

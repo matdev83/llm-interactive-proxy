@@ -347,7 +347,8 @@ See [Random Model Replacement Feature Guide](features/random-model-replacement.m
  | :--- | :--- | :--- |
  | `--enable-replacement` | `REPLACEMENT_ENABLED=true` | Enable random model replacement. |
  | `--replacement-probability FLOAT` | `REPLACEMENT_PROBABILITY` | Probability of replacement (0.0 to 1.0). |
- | `--replacement-backend-model BACKEND:MODEL` | `REPLACEMENT_BACKEND_MODEL` | Backend and model to use for replacement. |
+ | `--random-model-replacement-from-to FROM=TO` | `REPLACEMENT_RULES` | Conditional replacement rule. Can be specified multiple times. Format: `<from-model-name>=<to-model-name>`. `<from-model-name>` can be `*` (wildcard), `model-name` (partial match), or `backend:model` (exact match). `<to-model-name>` must be `backend:model`. |
+ | `--replacement-backend-model BACKEND:MODEL` | `REPLACEMENT_BACKEND_MODEL` | **Deprecated**: Use `--random-model-replacement-from-to` instead. Backend and model to use for replacement (converted to wildcard rule). |
  | `--replacement-turn-count N` | `REPLACEMENT_TURN_COUNT` | Number of turns to stay on replacement. |
 
 ### Failure Handling

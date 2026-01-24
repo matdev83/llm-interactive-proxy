@@ -86,6 +86,9 @@ class RequestProcessor(IRequestProcessor):
         request_data: ChatRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request using decomposed services."""
+        if not isinstance(request_data, ChatRequest):
+            raise TypeError("request_data must be of type ChatRequest")
+
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 f"RequestProcessor.process_request called with session_id: {getattr(context, 'session_id', 'unknown')}"
@@ -93,7 +96,6 @@ class RequestProcessor(IRequestProcessor):
 
         # Enrich session and client context
         from typing import cast
-
 
         from src.core.domain.session import Session
 
@@ -123,7 +125,6 @@ class RequestProcessor(IRequestProcessor):
                     context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = (
                         boundary_value
                     )
-
 
         # Process commands and handle command-only flows
         result = await self._command_handler.handle(
@@ -160,6 +161,10 @@ class RequestProcessor(IRequestProcessor):
         original_backend = context.backend or parsed.backend_type
         original_model = parsed.model_name
 
+        # Ensure requested_model is populated for metrics and tracking
+        if not context.requested_model:
+            context.requested_model = original_model
+
         # Ensure context attributes are populated for downstream services and fallback logic
         if not context.backend:
             context.backend = original_backend
@@ -175,7 +180,6 @@ class RequestProcessor(IRequestProcessor):
                 f"replacement_service_present={self._replacement_service is not None}"
             )
 
-
         if (
             self._replacement_service is not None
             and original_backend
@@ -183,7 +187,7 @@ class RequestProcessor(IRequestProcessor):
         ):
             # Check if replacement should be triggered
             should_replace = self._replacement_service.should_replace(
-                session_id, context
+                session_id, context, original_backend, original_model
             )
 
             if should_replace:
@@ -266,30 +270,34 @@ class RequestProcessor(IRequestProcessor):
                     # Revert context to original backend
                     context.backend = state.original_backend
                     context.effective_model = state.original_model
-                    
+
                     # Revert request model
                     request_data_fallback = request_data.model_copy(
-                        update={"model": f"{state.original_backend}:{state.original_model}"}
+                        update={
+                            "model": f"{state.original_backend}:{state.original_model}"
+                        }
                     )
-                    
+
                     # Prepare new backend request for fallback
                     # We need to re-prepare because backend-specific logic might differ
                     fallback_backend_request = await self._backend_preparer.prepare(
                         context, session_id, request_data_fallback, command_result
                     )
-                    
+
                     if fallback_backend_request:
                         # Re-transform if needed
-                        fallback_backend_request = await self._transform_pipeline.transform(
-                            context, session, session_id, fallback_backend_request
+                        fallback_backend_request = (
+                            await self._transform_pipeline.transform(
+                                context, session, session_id, fallback_backend_request
+                            )
                         )
-                        
+
                         if logger.isEnabledFor(logging.INFO):
                             logger.info(
                                 f"Retrying with original model {state.original_backend}:{state.original_model} "
                                 f"for session {session_id}"
                             )
-                            
+
                         # Retry execution with original model
                         return await self._backend_executor.execute(
                             context,
@@ -298,7 +306,6 @@ class RequestProcessor(IRequestProcessor):
                             fallback_backend_request,
                             request_data_fallback,
                         )
-            
+
             # If we can't handle it or it wasn't a replacement failure, re-raise
             raise
-

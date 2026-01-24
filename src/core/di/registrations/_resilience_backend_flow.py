@@ -203,6 +203,8 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             )
             from src.core.services.auxiliary_request_router import (
                 AuxiliaryRequestRouter,
+            )
+            from src.core.services.auxiliary_request_router import (
                 AuxiliaryRoutingConfig as AuxRoutingConfigDomain,
             )
 

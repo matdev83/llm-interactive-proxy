@@ -78,11 +78,6 @@ class ModelReplacementService:
         # better concurrency performance
         self._lock = asyncio.Lock()
 
-        # Performance optimization: Cache parsed backend:model to avoid
-        # repeated string parsing on every activation
-        self._cached_replacement_backend: str | None = None
-        self._cached_replacement_model: str | None = None
-
         # Performance optimization: Cache configuration values for faster
         # access during probability evaluation (avoid attribute lookups)
         self._cached_enabled: bool = config.enabled
@@ -98,7 +93,6 @@ class ModelReplacementService:
         self._probability_log_every_n = 1
         self._probability_log_counter = 0
 
-
         # Validate configuration with detailed error logging
         try:
             self._config.validate_config()
@@ -107,49 +101,45 @@ class ModelReplacementService:
                 f"Model replacement service configuration validation failed: {e}. "
                 f"Configuration: enabled={self._config.enabled}, "
                 f"probability={self._config.probability}, "
-                f"backend_model={self._config.backend_model}, "
+                f"replacement_rules count={len(self._config.replacement_rules)}, "
                 f"turn_count={self._config.turn_count}",
                 exc_info=True,
             )
             raise
 
-        # Validate replacement backend exists and cache parsed values
+        # Validate replacement rule backends exist
         if self._config.enabled:
             try:
-                parsed = self._config.parse_backend_model()
-
-                # Performance optimization: Cache parsed backend:model to avoid
-                # repeated string parsing on every activation
-                self._cached_replacement_backend = parsed.backend
-                self._cached_replacement_model = parsed.model
-
                 registered_backends = self._backend_registry.get_registered_backends()
-                if parsed.backend not in registered_backends:
-                    error_msg = (
-                        f"Replacement backend '{parsed.backend}' is not registered. "
-                        f"Available backends: {', '.join(registered_backends)}"
-                    )
-                    logger.error(
-                        f"Model replacement service initialization failed: {error_msg}"
-                    )
-                    raise ValueError(error_msg)
+                for i, rule in enumerate(self._config.replacement_rules):
+                    if rule.to_backend not in registered_backends:
+                        error_msg = (
+                            f"Replacement rule[{i}]: Target backend '{rule.to_backend}' is not registered. "
+                            f"Available backends: {', '.join(registered_backends)}"
+                        )
+                        logger.error(
+                            f"Model replacement service initialization failed: {error_msg}"
+                        )
+                        raise ValueError(error_msg)
             except ValueError:
                 # Re-raise ValueError from backend validation
                 raise
             except Exception as e:
                 logger.error(
-                    f"Error validating replacement backend: {e}. "
-                    f"Backend model: {self._config.backend_model}",
+                    f"Error validating replacement rules: {e}",
                     exc_info=True,
                 )
-                raise ValueError(f"Failed to validate replacement backend: {e}") from e
+                raise ValueError(f"Failed to validate replacement rules: {e}") from e
 
         if logger.isEnabledFor(logging.INFO):
+            rules_info = ", ".join(
+                [str(rule) for rule in self._config.replacement_rules]
+            )
             logger.info(
                 f"Model replacement service initialized: "
                 f"enabled={self._config.enabled}, "
                 f"probability={self._config.probability}, "
-                f"backend_model={self._config.backend_model}, "
+                f"replacement_rules=[{rules_info}], "
                 f"turn_count={self._config.turn_count}"
             )
 
@@ -157,12 +147,16 @@ class ModelReplacementService:
         self,
         session_id: str,
         request_context: RequestContext,
+        original_backend: str | None = None,
+        original_model: str | None = None,
     ) -> bool:
         """Determine if replacement should be triggered for this request.
 
         Args:
             session_id: The session identifier
             request_context: The request context containing headers and state
+            original_backend: Optional original backend (for rule matching check)
+            original_model: Optional original model (for rule matching check)
 
         Returns:
             True if replacement should be triggered, False otherwise
@@ -192,20 +186,23 @@ class ModelReplacementService:
         state = self._session_states.get(session_id)
 
         # If state doesn't exist, it's the first turn of the session.
-        # Guarantee the original model is used and skip the dice roll.
         if state is None:
             state = ReplacementState()
             self._session_states[session_id] = state
             self._session_states.move_to_end(session_id)
             self._evict_oldest_sessions_if_needed()
+
+        # Move state to end for LRU.
+        self._session_states.move_to_end(session_id)
+
+        # Skip dice roll on first turn (guaranteed original model)
+        if not state.first_turn_complete:
+            state.mark_first_turn_complete()
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    f"First turn for session {session_id}; skipping replacement check."
+                    f"First turn for session {session_id}; skipping dice roll (guaranteed original)."
                 )
             return False
-
-        # If we're here, it's not the first turn. Move state to end for LRU.
-        self._session_states.move_to_end(session_id)
 
         # Enforce cool-down period if active
         if state.consume_cool_down():
@@ -219,6 +216,18 @@ class ModelReplacementService:
         if state.active:
             return True
 
+        # Check if a replacement rule matches (if backend/model provided)
+        if original_backend and original_model:
+            matching_rule = self._config.find_matching_rule(
+                original_backend, original_model
+            )
+            if matching_rule is None:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"No matching replacement rule for session {session_id}: "
+                        f"{original_backend}:{original_model}. Skipping replacement."
+                    )
+                return False
 
         # Track probability check for metrics
         self._metrics.record_probability_check(session_id)
@@ -314,21 +323,27 @@ class ModelReplacementService:
             session_id: The session identifier
             original_backend: The user-specified backend name
             original_model: The user-specified model name
+
+        Raises:
+            ValueError: If no matching replacement rule is found
         """
         async with self._lock:
-            # Performance optimization: Use cached parsed values instead of
-            # parsing backend_model string on every activation
-            if (
-                self._cached_replacement_backend is None
-                or self._cached_replacement_model is None
-            ):
-                # Fallback to parsing if cache is not initialized (shouldn't happen)
-                parsed = self._config.parse_backend_model()
-                replacement_backend = parsed.backend
-                replacement_model = parsed.model
-            else:
-                replacement_backend = self._cached_replacement_backend
-                replacement_model = self._cached_replacement_model
+            # Find matching replacement rule
+            matching_rule = self._config.find_matching_rule(
+                original_backend, original_model
+            )
+
+            if matching_rule is None:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"No matching replacement rule found for session {session_id}: "
+                        f"{original_backend}:{original_model}. Skipping replacement activation."
+                    )
+                # Don't activate replacement if no rule matches
+                return
+
+            replacement_backend = matching_rule.to_backend
+            replacement_model = matching_rule.to_model
 
             state = self._session_states.get(session_id)
             if state is None:
@@ -359,6 +374,7 @@ class ModelReplacementService:
                     f"Replacement activated for session {session_id}: "
                     f"{original_backend}:{original_model} -> "
                     f"{replacement_backend}:{replacement_model} "
+                    f"(matched rule: {matching_rule.from_pattern}) "
                     f"for {self._cached_turn_count} turns"
                 )
 

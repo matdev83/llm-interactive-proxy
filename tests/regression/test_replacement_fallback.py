@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.core.services.request_processor_service import RequestProcessor
-from src.core.domain.chat import ChatRequest, ChatMessage
-from src.core.domain.request_context import RequestContext
+import pytest
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
-from src.core.interfaces.model_replacement_service_interface import IModelReplacementService
+from src.core.domain.request_context import RequestContext
+from src.core.interfaces.model_replacement_service_interface import (
+    IModelReplacementService,
+)
+from src.core.services.request_processor_service import RequestProcessor
 
 
 @pytest.mark.asyncio

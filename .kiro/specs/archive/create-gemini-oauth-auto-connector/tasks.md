@@ -404,13 +404,14 @@ This implementation plan breaks down the `gemini-oauth-auto` connector into orde
 
 ## Checklist Before Marking Complete
 
-- [ ] All 10 requirements have test coverage
-- [ ] Unit tests pass for all services
-- [ ] Integration tests pass for service composition
-- [ ] No lint errors (`ruff check .`)
-- [ ] Type checks pass (`mypy src/connectors/gemini_oauth_auto/`)
-- [ ] Script runs without errors
-- [ ] Connector registers with backend_registry
-- [ ] Configuration schema documented
-- [ ] Error handling uses `LLMProxyError` hierarchy
-- [ ] Async/await used correctly (no blocking I/O)
+- [x] All 10 requirements have test coverage
+- [x] Unit tests pass for all services
+- [x] Integration tests pass for service composition
+- [x] No lint errors (`ruff check .`)
+- [x] Type checks pass (`mypy src/connectors/gemini_oauth_auto/`)
+- [x] Script runs without errors
+- [x] Connector registers with backend_registry
+- [x] Configuration schema documented
+- [x] Error handling uses `LLMProxyError` hierarchy
+- [x] Async/await used correctly (no blocking I/O)
+

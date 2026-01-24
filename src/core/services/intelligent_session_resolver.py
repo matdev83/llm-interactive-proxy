@@ -134,21 +134,11 @@ class IntelligentSessionResolver(ISessionResolver):
             )
 
         # 6. Try exact fingerprint match
-        # #region agent log
-        _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-        import json as _json_debug
-        _lookup_start = __import__("time").time()
-        # #endregion
         existing_session = (
             await self._session_repository.find_by_client_and_fingerprint(
                 client_key, conversation_fp
             )
         )
-        # #region agent log
-        _lookup_duration = (__import__("time").time() - _lookup_start) * 1000
-        with open(_log_path, "a", encoding="utf-8") as _f:
-            _f.write(_json_debug.dumps({"location": "intelligent_session_resolver.py:find_by_client_and_fingerprint", "message": "Fingerprint lookup result", "data": {"client_key": client_key[:16], "fingerprint": conversation_fp[:16], "found": bool(existing_session), "session_id": str(existing_session.id) if existing_session else None, "lookup_ms": round(_lookup_duration, 2)}, "timestamp": __import__("time").time(), "hypothesisId": "A"}) + "\n")
-        # #endregion
 
         if existing_session:
             logger.info(
@@ -175,12 +165,6 @@ class IntelligentSessionResolver(ISessionResolver):
         # Before this fix, parallel requests would find the session but with null fingerprint,
         # causing them to create duplicate sessions instead of reusing the existing one.
         await self._session_repository.update_fingerprint(session_id, conversation_fp)
-        # #region agent log
-        _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-        import json as _json_debug
-        with open(_log_path, "a", encoding="utf-8") as _f:
-            _f.write(_json_debug.dumps({"location": "intelligent_session_resolver.py:create_new_session", "message": "Created new session WITH fingerprint stored immediately", "data": {"session_id": session_id, "client_key": client_key[:16], "fingerprint": conversation_fp[:16], "msg_count": len(messages)}, "timestamp": __import__("time").time(), "hypothesisId": "A-FIX"}) + "\n")
-        # #endregion
 
         return session_id
 

@@ -9,6 +9,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from src.core.domain.chat import FunctionCall, ToolCall
+from src.core.interfaces.end_of_session_service_interface import (
+    IEndOfSessionService,
+)
 from src.core.interfaces.replacement_response_factory_interface import (
     IReplacementResponseFactory,
 )
@@ -525,3 +528,207 @@ class TestFailOpenOnExtractionNormalization:
 
         # Should return original response unchanged (fail-open)
         assert result is response
+
+
+class TestEndOfSessionCheck:
+    """Tests for end-of-session check optimization."""
+
+    @pytest.fixture
+    def mock_eos_service(self) -> Mock:
+        """Fixture for a mock end-of-session service."""
+        eos_service = Mock(spec=IEndOfSessionService)
+        eos_service.has_ended = AsyncMock(return_value=False)
+        return eos_service
+
+    @pytest.fixture
+    def orchestrator_with_eos(
+        self,
+        mock_extractor: Mock,
+        mock_normalizer: Mock,
+        mock_stream_context_resolver: Mock,
+        mock_deduplicator: Mock,
+        mock_arguments_parser: Mock,
+        mock_arguments_fixup_pipeline: Mock,
+        mock_reactor: AsyncMock,
+        mock_replacement_factory: Mock,
+        lifecycle_registry: ToolCallLifecycleRegistry,
+        mock_eos_service: Mock,
+    ) -> ToolCallReactorOrchestrator:
+        """Fixture for orchestrator with EoS service."""
+        return ToolCallReactorOrchestrator(
+            extractor=mock_extractor,
+            normalizer=mock_normalizer,
+            stream_context_resolver=mock_stream_context_resolver,
+            deduplicator=mock_deduplicator,
+            arguments_parser=mock_arguments_parser,
+            arguments_fixup_pipeline=mock_arguments_fixup_pipeline,
+            reactor=mock_reactor,
+            replacement_factory=mock_replacement_factory,
+            lifecycle_registry=lifecycle_registry,
+            end_of_session_service=mock_eos_service,
+        )
+
+    @pytest.mark.asyncio
+    async def test_skips_processing_when_session_ended(
+        self,
+        orchestrator_with_eos: ToolCallReactorOrchestrator,
+        mock_extractor: Mock,
+        mock_normalizer: Mock,
+        mock_deduplicator: Mock,
+        mock_reactor: AsyncMock,
+        mock_eos_service: Mock,
+    ) -> None:
+        """Test that tool calls are skipped when session has already ended."""
+        # Setup: session has ended
+        mock_eos_service.has_ended.return_value = True
+
+        # Setup: response has tool calls
+        raw_tool_call = {
+            "id": "call_1",
+            "function": {"name": "test_tool", "arguments": '{"key": "value"}'},
+        }
+        normalized_tool_call = {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "test_tool", "arguments": '{"key": "value"}'},
+        }
+        mock_extractor.extract.return_value = [raw_tool_call]
+        mock_normalizer.normalize.return_value = normalized_tool_call
+        mock_deduplicator.filter_new_calls.return_value = [
+            ToolCall(
+                id="call_1",
+                type="function",
+                function=FunctionCall(name="test_tool", arguments='{"key": "value"}'),
+            )
+        ]
+
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "test"}}]},
+        )
+        context = ToolCallReactorContext(stream_key="test-stream")
+
+        result = await orchestrator_with_eos.handle(
+            response, "test-session", context, is_streaming=False
+        )
+
+        # Should return original response without processing tool calls
+        assert result is response
+        # EoS service should be checked
+        mock_eos_service.has_ended.assert_called_once_with("test-session")
+        # Reactor should not be called
+        mock_reactor.process_tool_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_processes_when_session_not_ended(
+        self,
+        orchestrator_with_eos: ToolCallReactorOrchestrator,
+        mock_extractor: Mock,
+        mock_normalizer: Mock,
+        mock_deduplicator: Mock,
+        mock_arguments_parser: Mock,
+        mock_arguments_fixup_pipeline: Mock,
+        mock_reactor: AsyncMock,
+        mock_eos_service: Mock,
+    ) -> None:
+        """Test that tool calls are processed when session has not ended."""
+        # Setup: session has not ended
+        mock_eos_service.has_ended.return_value = False
+
+        # Setup: response has tool calls
+        raw_tool_call = {
+            "id": "call_1",
+            "function": {"name": "test_tool", "arguments": '{"key": "value"}'},
+        }
+        normalized_tool_call = {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "test_tool", "arguments": '{"key": "value"}'},
+        }
+        tool_call = ToolCall(
+            id="call_1",
+            type="function",
+            function=FunctionCall(name="test_tool", arguments='{"key": "value"}'),
+        )
+
+        mock_extractor.extract.return_value = [raw_tool_call]
+        mock_normalizer.normalize.return_value = normalized_tool_call
+        mock_deduplicator.filter_new_calls.return_value = [tool_call]
+        mock_deduplicator.is_processed.return_value = False
+        mock_arguments_parser.parse.return_value = Mock(
+            normalized_arguments=Mock(root={"key": "value"}),
+            parse_outcome="success",
+            was_modified_by_fixups=False,
+        )
+        mock_arguments_fixup_pipeline.apply_fixups.return_value = Mock(
+            normalized_arguments=Mock(root={"key": "value"}),
+            parse_outcome="success",
+            was_modified_by_fixups=False,
+        )
+
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "test"}}]},
+        )
+        context = ToolCallReactorContext(stream_key="test-stream")
+
+        await orchestrator_with_eos.handle(
+            response, "test-session", context, is_streaming=False
+        )
+
+        # Should process tool calls normally
+        mock_eos_service.has_ended.assert_called_once_with("test-session")
+        mock_reactor.process_tool_call.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_works_without_eos_service(
+        self,
+        orchestrator: ToolCallReactorOrchestrator,
+        mock_extractor: Mock,
+        mock_normalizer: Mock,
+        mock_deduplicator: Mock,
+        mock_arguments_parser: Mock,
+        mock_arguments_fixup_pipeline: Mock,
+        mock_reactor: AsyncMock,
+    ) -> None:
+        """Test that orchestrator works when EoS service is not provided."""
+        # Setup: response has tool calls
+        raw_tool_call = {
+            "id": "call_1",
+            "function": {"name": "test_tool", "arguments": '{"key": "value"}'},
+        }
+        normalized_tool_call = {
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "test_tool", "arguments": '{"key": "value"}'},
+        }
+        tool_call = ToolCall(
+            id="call_1",
+            type="function",
+            function=FunctionCall(name="test_tool", arguments='{"key": "value"}'),
+        )
+
+        mock_extractor.extract.return_value = [raw_tool_call]
+        mock_normalizer.normalize.return_value = normalized_tool_call
+        mock_deduplicator.filter_new_calls.return_value = [tool_call]
+        mock_deduplicator.is_processed.return_value = False
+        mock_arguments_parser.parse.return_value = Mock(
+            normalized_arguments=Mock(root={"key": "value"}),
+            parse_outcome="success",
+            was_modified_by_fixups=False,
+        )
+        mock_arguments_fixup_pipeline.apply_fixups.return_value = Mock(
+            normalized_arguments=Mock(root={"key": "value"}),
+            parse_outcome="success",
+            was_modified_by_fixups=False,
+        )
+
+        response = ProcessedResponse(
+            content={"choices": [{"message": {"content": "test"}}]},
+        )
+        context = ToolCallReactorContext(stream_key="test-stream")
+
+        await orchestrator.handle(
+            response, "test-session", context, is_streaming=False
+        )
+
+        # Should process tool calls normally (no EoS check)
+        mock_reactor.process_tool_call.assert_called_once()

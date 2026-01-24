@@ -194,9 +194,7 @@ class ConfigurationApplicator:
         final_cfg = AppConfig.model_validate(config_dict)
 
         # Validate and apply command prefix (ensures it's never None)
-        return self._validate_and_apply_prefix(
-            final_cfg, validate_command_prefix, DEFAULT_COMMAND_PREFIX
-        )
+        return self._validate_and_apply_prefix(final_cfg, validate_command_prefix)
 
     def _apply_default_log_file(
         self,
@@ -254,14 +252,12 @@ class ConfigurationApplicator:
         self,
         cfg: AppConfig,
         validate_fn: Any,
-        default_prefix: str,
     ) -> AppConfig:
         """Validate command prefix configuration and apply defaults safely.
 
         Args:
             cfg: AppConfig to validate
             validate_fn: Function to validate command prefix string
-            default_prefix: Default prefix to use if None
 
         Returns:
             AppConfig with validated command prefix
@@ -295,7 +291,6 @@ class ConfigurationApplicator:
             MemoryApplicator,
             ReplacementApplicator,
             ResilienceApplicator,
-
             RoutingApplicator,
             SandboxingApplicator,
             ServerApplicator,

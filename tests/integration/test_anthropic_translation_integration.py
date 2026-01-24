@@ -12,7 +12,6 @@ from typing import Any
 
 import pytest
 import requests
-from freezegun import freeze_time
 from src.core.app.test_builder import build_httpx_mock_test_app as build_app
 
 # Suppress upstream deprecations emitted during uvicorn/websockets import
@@ -79,19 +78,18 @@ class _ProxyServer:
 
         self._thread = threading.Thread(target=lambda: asyncio.run(_run()), daemon=True)
         self._thread.start()
-        # Use freezegun to control time progression instead of sleeping
-        with freeze_time() as frozen_time:
-            deadline = time.time() + 15
-            while time.time() < deadline:
-                try:
-                    r = requests.get(f"http://127.0.0.1:{self.port}/docs", timeout=2)
-                    if r.status_code == 200:
-                        return
-                except requests.exceptions.ConnectionError:
-                    pass
-                # Advance time instead of sleeping
-                frozen_time.tick(delta=0.25)
+        # Wait for server to start
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            try:
+                r = requests.get(f"http://127.0.0.1:{self.port}/docs", timeout=2)
+                if r.status_code == 200:
+                    return
+            except requests.exceptions.ConnectionError:
+                pass
+            time.sleep(0.25)
         raise RuntimeError("Proxy server failed to start within timeout")
+
 
     def stop(self) -> None:
         if self.server:

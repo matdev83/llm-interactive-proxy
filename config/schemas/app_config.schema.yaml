@@ -381,6 +381,15 @@ properties:
     properties:
       enabled: { type: boolean }
       probability: { type: number, minimum: 0.0, maximum: 1.0 }
+      replacement_rules:
+        type: array
+        items:
+          type: object
+          required: [from_pattern, to_backend, to_model]
+          properties:
+            from_pattern: { type: string }
+            to_backend: { type: string }
+            to_model: { type: string }
       backend_model: { type: string }
       turn_count: { type: integer, minimum: 1 }
   vtc_client_patterns:

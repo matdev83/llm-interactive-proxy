@@ -12,7 +12,6 @@ import uuid
 
 from fastapi import Request
 
-
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 

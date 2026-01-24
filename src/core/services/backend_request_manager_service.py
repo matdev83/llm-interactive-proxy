@@ -265,14 +265,6 @@ class BackendRequestManager(IBackendRequestManager):
                         session_id,
                         backend_request.model,
                     )
-                # #region agent log
-                _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-                import json as _json_debug
-                import hashlib as _hashlib_debug
-                _content_hash = _hashlib_debug.md5(str(backend_request.messages).encode()).hexdigest()[:12]
-                with open(_log_path, "a", encoding="utf-8") as _f:
-                    _f.write(_json_debug.dumps({"location": "backend_request_manager_service.py:process_backend_request", "message": "Dedup BYPASSED for streaming", "data": {"session_id": session_id, "content_hash": _content_hash, "stream": getattr(backend_request, "stream", False)}, "timestamp": __import__("time").time(), "hypothesisId": "B"}) + "\n")
-                # #endregion
             else:
                 is_duplicate, content_hash = (
                     await self._dedup_service.check_and_register(

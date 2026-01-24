@@ -5,10 +5,10 @@ Tests Requirement 9: Connector implementation.
 """
 
 import asyncio
+from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from src.connectors.gemini_oauth_auto.connector import GeminiOAuthAutoConnector
 from src.connectors.gemini_oauth_auto.models import StoredAccount
 
@@ -39,35 +39,37 @@ def connector(
     mock_client: MagicMock,
     mock_config: MagicMock,
     mock_translation_service: MagicMock,
-) -> GeminiOAuthAutoConnector:
+) -> Generator[GeminiOAuthAutoConnector, None, None]:
     """Fixture providing GeminiOAuthAutoConnector with mocked dependencies."""
-    # Patch services during init
+    # Patch services during init and initialization
     with patch(
         "src.connectors.gemini_oauth_auto.connector.TokenStorageService"
     ), patch(
         "src.connectors.gemini_oauth_auto.connector.TokenRefreshService"
     ), patch(
         "src.connectors.gemini_oauth_auto.connector.AccountSelectorService"
-    ):
+    ) as mock_selector_cls:
+        # Configure mock selector to be returned by constructor
+        mock_selector = mock_selector_cls.return_value
+        mock_selector.reload_accounts = AsyncMock()
+        mock_selector.get_next_account = AsyncMock()
+        mock_selector.get_current_account = MagicMock()
+        mock_selector.get_available_count = MagicMock(return_value=0)
+        mock_selector.rotate_on_quota = AsyncMock()
+
         conn = GeminiOAuthAutoConnector(
             client=mock_client,
             config=mock_config,
             translation_service=mock_translation_service,
         )
-        # Mock the internal services
-        conn._token_storage = MagicMock()
-        conn._token_refresh = MagicMock()
-        conn._account_selector = MagicMock()
-        conn._account_selector.reload_accounts = AsyncMock()
-        conn._account_selector.get_next_account = AsyncMock()
-        conn._account_selector.get_current_account = MagicMock()
-        conn._account_selector.get_available_count = MagicMock(return_value=0)
-        conn._account_selector.rotate_on_quota = AsyncMock()
+        
+        # Inject the mock manually too for pre-initialization state
+        conn._account_selector = mock_selector
         
         # Mock base class methods we don't want to run in unit tests
         conn._ensure_models_loaded = AsyncMock()
         
-        return conn
+        yield conn
 
 
 class TestGeminiOAuthAutoConnector:

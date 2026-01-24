@@ -190,6 +190,11 @@ async def test_streaming_executor_retries_on_zero_retry_after(
     ):
         chunks.append(chunk)
 
+    # Zero retry-after windows must not result in a hot retry loop.
+    module_under_test.asyncio.sleep.assert_awaited()
+    sleep_args = module_under_test.asyncio.sleep.await_args.args
+    assert sleep_args[0] >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+
     assert any(chunk.content == "ok" for chunk in chunks)
 
 

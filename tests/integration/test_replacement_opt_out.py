@@ -123,6 +123,7 @@ async def test_header_opt_out_with_false_value() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace, "Replacement should not be disabled when header is 'false'"
 
@@ -174,6 +175,7 @@ async def test_immediate_deactivation_on_disable() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -245,6 +247,10 @@ async def test_header_opt_out_does_not_affect_other_sessions() -> None:
     context_with_header = create_test_context(headers={"x-disable-replacement": "true"})
     context_without_header = create_test_context()
 
+    # Prime sessions
+    service.should_replace(session_1, context_with_header)
+    service.should_replace(session_2, context_without_header)
+
     # Check session-1 with header
     should_replace_1 = service.should_replace(session_1, context_with_header)
     assert not should_replace_1, "Session-1 should have replacement disabled"
@@ -272,6 +278,10 @@ async def test_session_opt_out_does_not_affect_other_sessions() -> None:
 
     # Disable replacement for session-1
     service.disable_for_session(session_1)
+
+    # Prime sessions
+    service.should_replace(session_1, context)
+    service.should_replace(session_2, context)
 
     # Check session-1
     should_replace_1 = service.should_replace(session_1, context)
@@ -357,6 +367,7 @@ async def test_cleanup_removes_session_opt_out() -> None:
     service.cleanup_session(session_id)
 
     # Verify opt-out was removed
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace, "Replacement should be enabled after cleanup"
 
@@ -414,6 +425,7 @@ async def test_header_opt_out_with_missing_header() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace, "Replacement should be enabled without opt-out header"
 
@@ -439,6 +451,11 @@ async def test_multiple_sessions_with_mixed_opt_out() -> None:
 
     # Disable session-2
     service.disable_for_session(session_2)
+
+    # Prime sessions
+    service.should_replace(session_1, context)
+    service.should_replace(session_2, context)
+    service.should_replace(session_3, context)
 
     # Check all sessions
     should_replace_1 = service.should_replace(session_1, context)

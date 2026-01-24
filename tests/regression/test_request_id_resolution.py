@@ -11,7 +11,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-
 from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 
@@ -83,9 +82,13 @@ async def test_session_key_resolution_success():
     Verify that SessionKey resolution succeeds for a standard request context
     created during a request.
     """
-    from src.core.transport.session_key_resolver import resolve_session_key_from_request_context
-    from src.core.transport.fastapi.request_adapters import fastapi_to_domain_request_context
     from fastapi import Request
+    from src.core.transport.fastapi.request_adapters import (
+        fastapi_to_domain_request_context,
+    )
+    from src.core.transport.session_key_resolver import (
+        resolve_session_key_from_request_context,
+    )
     
     # Mock a FastAPI request
     mock_request = MagicMock(spec=Request)

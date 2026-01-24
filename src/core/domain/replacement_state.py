@@ -18,6 +18,7 @@ class ReplacementState:
     active: bool = False
     turns_remaining: int = 0
     cool_down_active: bool = False
+    first_turn_complete: bool = False  # Tracks if first turn has been processed
     original_backend: str = ""
 
     original_model: str = ""
@@ -66,12 +67,17 @@ class ReplacementState:
             return True
         return False
 
+    def mark_first_turn_complete(self) -> None:
+        """Mark that the first turn has been completed."""
+        self.first_turn_complete = True
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize state for persistence."""
         return {
             "active": self.active,
             "turns_remaining": self.turns_remaining,
             "cool_down_active": self.cool_down_active,
+            "first_turn_complete": self.first_turn_complete,
             "original_backend": self.original_backend,
             "original_model": self.original_model,
             "replacement_backend": self.replacement_backend,
@@ -85,9 +91,9 @@ class ReplacementState:
             active=data.get("active", False),
             turns_remaining=data.get("turns_remaining", 0),
             cool_down_active=data.get("cool_down_active", False),
+            first_turn_complete=data.get("first_turn_complete", False),
             original_backend=data.get("original_backend", ""),
             original_model=data.get("original_model", ""),
             replacement_backend=data.get("replacement_backend", ""),
             replacement_model=data.get("replacement_model", ""),
         )
-

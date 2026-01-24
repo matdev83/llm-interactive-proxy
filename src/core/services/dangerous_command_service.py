@@ -47,7 +47,10 @@ class DangerousCommandService:
         Returns:
             A DangerousCommandMatch object if a dangerous command is found, otherwise None.
         """
-        return self.scan(tool_call.function.name, tool_call.function.arguments)
+        tool_name = tool_call.function.name
+        if not tool_name:
+            return None
+        return self.scan(tool_name, tool_call.function.arguments)
 
     def _extract_command_string(self, arguments: Any) -> str | None:
         """Extract a shell command string from tool arguments.

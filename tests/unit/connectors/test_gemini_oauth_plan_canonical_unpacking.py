@@ -1,10 +1,14 @@
 from unittest.mock import AsyncMock, MagicMock, patch
-import pytest
 
+import pytest
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+)
 from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
-from src.connectors.contracts import ConnectorChatCompletionsRequest, ConnectorRequestContext
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.config.app_config import AppConfig
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
 
 @pytest.mark.asyncio
 async def test_chat_completions_unpacks_canonical_request():

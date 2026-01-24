@@ -78,6 +78,7 @@ async def test_wire_capture_records_replacement_requests() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace, "Replacement should trigger with probability=1.0"
 
@@ -143,6 +144,7 @@ async def test_wire_capture_records_both_original_and_replacement() -> None:
     session_id = "test-session"
 
     # First request - should not trigger replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace_1 = service.should_replace(session_id, context)
     assert not should_replace_1, "First request should not trigger replacement"
 
@@ -163,6 +165,7 @@ async def test_wire_capture_records_both_original_and_replacement() -> None:
     service.complete_turn(session_id)
 
     # Second request - should trigger replacement
+    # No priming needed here as state already exists
     should_replace_2 = service.should_replace(session_id, context)
     assert should_replace_2, "Second request should trigger replacement"
 
@@ -216,6 +219,7 @@ async def test_wire_capture_disabled_with_replacement() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -250,6 +254,7 @@ async def test_wire_capture_across_replacement_window() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -307,6 +312,7 @@ async def test_wire_capture_response_recording() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

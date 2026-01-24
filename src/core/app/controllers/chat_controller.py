@@ -340,17 +340,8 @@ class ChatController:
                 logger.info(
                     f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
                 )
-            # #region agent log
-            _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-            import json as _json_debug
-            import hashlib as _hashlib_debug
-            _msg_count = len(domain_request.messages) if domain_request.messages else 0
-            _last_msg = str(domain_request.messages[-1].content)[:100] if domain_request.messages else "none"
-            _content_hash = _hashlib_debug.md5(str(domain_request.messages).encode()).hexdigest()[:12]
-            with open(_log_path, "a", encoding="utf-8") as _f:
-                _f.write(_json_debug.dumps({"location": "chat_controller.py:handle_request", "message": "Incoming request", "data": {"model": str(domain_request.model), "msg_count": _msg_count, "stream": getattr(domain_request, "stream", False), "content_hash": _content_hash, "last_msg_preview": _last_msg}, "timestamp": __import__("time").time(), "hypothesisId": "B,C,D"}) + "\n")
-            # #endregion
             if self._processor is None:
+
                 raise HTTPException(status_code=500, detail="Processor is None")
 
             # Special-case ZAI: delegate non-streaming calls through Anthropic controller path

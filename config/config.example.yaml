@@ -300,7 +300,18 @@ resilience:
 # replacement:
 #   enabled: false  # Set to true to enable random model replacement
 #   probability: 0.3  # Probability (0.0-1.0) of triggering replacement (0.3 = 30% chance)
-#   backend_model: "qwen-oauth:qwen3-coder-plus"  # Replacement backend:model to use
+#   replacement_rules:
+#     - from_pattern: "*"  # Wildcard: matches all models
+#       to_backend: "qwen-oauth"
+#       to_model: "qwen3-coder-plus"
+#     - from_pattern: "gpt-4"  # Partial match: matches any model containing "gpt-4"
+#       to_backend: "openai"
+#       to_model: "gpt-3.5-turbo"
+#     - from_pattern: "openai:gpt-4"  # Exact match: matches specific backend:model
+#       to_backend: "anthropic"
+#       to_model: "claude-3-5-sonnet"
+#   # Legacy format (automatically converted to wildcard rule if replacement_rules is empty):
+#   # backend_model: "qwen-oauth:qwen3-coder-plus"
 #   turn_count: 3  # Number of consecutive turns to use replacement model once activated
 
 # LLM Assessment Configuration

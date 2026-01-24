@@ -642,19 +642,8 @@ def to_fastapi_streaming_response(
             coordinator = _get_wire_capture_coordinator(wire_capture)
             sse_bytes_iter = coordinator.wrap_stream(domain_response, sse_bytes_iter)
 
-        # #region agent log
-        _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-        import json as _json_debug
-        _chunk_idx = 0
-        # #endregion
         try:
             async for sse_chunk in sse_bytes_iter:
-                # #region agent log
-                _chunk_idx += 1
-                if _chunk_idx <= 5:
-                    with open(_log_path, "a", encoding="utf-8") as _f:
-                        _f.write(_json_debug.dumps({"location": "response_adapters.py:_convert_and_assemble", "message": f"yielding SSE chunk #{_chunk_idx}", "data": {"chunk_preview": sse_chunk[:500].decode("utf-8", errors="replace") if isinstance(sse_chunk, bytes) else str(sse_chunk)[:500], "chunk_len": len(sse_chunk) if sse_chunk else 0}, "timestamp": __import__("time").time(), "hypothesisId": "A,C,D"}) + "\n")
-                # #endregion
                 yield sse_chunk
                 await asyncio.sleep(0)  # Yield to event loop
         except GeneratorExit:
@@ -664,6 +653,7 @@ def to_fastapi_streaming_response(
                     await sse_bytes_iter.aclose()  # type: ignore[attr-defined]
             raise
 
+
     # Inject canonical usage headers if available (Requirement 5.5)
     # Note: StreamingResponseEnvelope doesn't have a usage field, only canonical_usage
     headers = domain_response.headers or {}
@@ -672,22 +662,15 @@ def to_fastapi_streaming_response(
         headers, {}, canonical_usage=domain_response.canonical_usage
     )
 
-    # #region agent log
-    _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-    import json as _json_debug
-    _media_type = getattr(domain_response, "media_type", "text/event-stream")
-    _status_code = domain_response.status_code or 200
-    with open(_log_path, "a", encoding="utf-8") as _f:
-        _f.write(_json_debug.dumps({"location": "response_adapters.py:to_fastapi_streaming_response", "message": "Building StreamingResponse", "data": {"headers": dict(headers) if headers else {}, "media_type": _media_type, "status_code": _status_code}, "timestamp": __import__("time").time(), "hypothesisId": "B"}) + "\n")
-    # #endregion
-
     # Build streaming response
     return StreamingResponse(
+
         content=_convert_and_assemble(),
-        media_type=_media_type,
-        status_code=_status_code,
+        media_type=getattr(domain_response, "media_type", "text/event-stream"),
+        status_code=domain_response.status_code or 200,
         headers=headers,
     )
+
 
 
 def domain_response_to_fastapi(

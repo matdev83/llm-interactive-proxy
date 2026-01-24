@@ -104,11 +104,26 @@ class ArgumentParserBuilder:
             help="Probability (0.0-1.0) of triggering replacement (default: 0.0)",
         )
         replacement_group.add_argument(
+            "--random-model-replacement-from-to",
+            dest="replacement_rules",
+            action="append",
+            type=self._validate_replacement_rule,
+            metavar="FROM=TO",
+            help=(
+                "Replacement rule in format '<from-model-name>=<to-model-name>'. "
+                "Can be specified multiple times. "
+                "<from-model-name> can be: '*' (wildcard), 'model-name' (partial match), "
+                "or 'backend:model' (exact match). "
+                "<to-model-name> must be 'backend:model'. "
+                "Example: --random-model-replacement-from-to '*=qwen-oauth:qwen3-coder-plus' "
+                "or --random-model-replacement-from-to 'gpt-4=openai:gpt-3.5-turbo'"
+            ),
+        )
+        replacement_group.add_argument(
             "--replacement-backend-model",
             dest="replacement_backend_model",
-            type=str,
             metavar="BACKEND:MODEL",
-            help="Replacement backend:model in format 'backend:model'",
+            help="Deprecated: Use --random-model-replacement-from-to instead. Backend and model to use for replacement.",
         )
         replacement_group.add_argument(
             "--replacement-turn-count",
@@ -233,6 +248,81 @@ class ArgumentParserBuilder:
                 f"Invalid regex pattern '{pattern}' in model alias: {e}"
             )
         return pattern, replacement
+
+    def _validate_replacement_rule(self, value: str) -> str:
+        """Validate replacement rule format: <from>=<to>.
+
+        Args:
+            value: The replacement rule string in format '<from>=<to>'
+
+        Returns:
+            The validated rule string
+
+        Raises:
+            argparse.ArgumentTypeError: If the format is invalid
+        """
+        if "=" not in value:
+            raise argparse.ArgumentTypeError(
+                f"Invalid replacement rule format '{value}'. "
+                f"Expected '<from-model-name>=<to-model-name>' (use = as separator)"
+            )
+
+        parts = value.split("=", 1)
+        if len(parts) != 2:
+            raise argparse.ArgumentTypeError(
+                f"Invalid replacement rule format '{value}'. "
+                f"Expected exactly one '=' separator"
+            )
+
+        from_pattern, to_part = parts
+        from_pattern = from_pattern.strip()
+        to_part = to_part.strip()
+
+        if not from_pattern:
+            raise argparse.ArgumentTypeError(
+                f"Invalid replacement rule format '{value}'. "
+                f"<from-model-name> cannot be empty"
+            )
+
+        if not to_part:
+            raise argparse.ArgumentTypeError(
+                f"Invalid replacement rule format '{value}'. "
+                f"<to-model-name> cannot be empty"
+            )
+
+        # Validate to_part is in backend:model format
+        if ":" not in to_part:
+            raise argparse.ArgumentTypeError(
+                f"Invalid replacement rule format '{value}'. "
+                f"<to-model-name> must be in format 'backend:model', got '{to_part}'"
+            )
+
+        to_backend, to_model = to_part.split(":", 1)
+        if not to_backend or not to_model:
+            raise argparse.ArgumentTypeError(
+                f"Invalid replacement rule format '{value}'. "
+                f"Both backend and model must be specified in <to-model-name>"
+            )
+
+        # Validate that replacement target is not a wildcard
+        if to_backend == "*" or to_model == "*":
+            raise argparse.ArgumentTypeError(
+                f"Invalid replacement rule '{value}': "
+                f"Replacement target cannot use wildcard '*'. "
+                f"Only the source pattern (left side) can be a wildcard."
+            )
+
+        # Validate from_pattern formats (wildcard, partial, or backend:model)
+        if from_pattern != "*" and ":" in from_pattern:
+            # Fully qualified format: validate it has both parts
+            from_parts = from_pattern.split(":", 1)
+            if len(from_parts) != 2 or not from_parts[0] or not from_parts[1]:
+                raise argparse.ArgumentTypeError(
+                    f"Invalid replacement rule format '{value}'. "
+                    f"If <from-model-name> contains ':', it must be in format 'backend:model'"
+                )
+
+        return value
 
     def _parse_csv_list(self, value: str) -> list[str]:
         """Parse a comma-separated list into a list of strings."""

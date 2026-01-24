@@ -5,6 +5,7 @@ Backend connector with self-managed OAuth tokens and multi-account support.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 from typing import Any, cast
@@ -13,6 +14,7 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.gemini_base.models import GeminiOAuthCredentials
 from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.gemini_oauth_auto.token_refresh import TokenRefreshService
 from src.connectors.gemini_oauth_auto.token_storage import TokenStorageService
@@ -61,6 +63,56 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             _DEBUG_OVERRIDE_DEFAULT
         )
 
+
+
+    def _sync_selected_account_to_base(self) -> None:
+        """Sync the currently-selected account into the gemini_base credential coordinator.
+
+        The refactored Gemini stack (model registry, health checks) reads credentials
+        from `self._credential_coordinator.credentials`. `gemini-oauth-auto` manages
+        its own token storage/rotation, so we must keep that coordinator in sync.
+        """
+        coordinator = getattr(self, "_credential_coordinator", None)
+        if coordinator is None:
+            return
+
+        account = self._account_selector.get_current_account()
+        if not account:
+            # Clear coordinator credentials so downstream services fail fast.
+            with contextlib.suppress(Exception):
+                coordinator._credentials = None  # type: ignore[attr-defined]
+            return
+
+        try:
+            creds_dict = account.to_credentials_dict()
+            coordinator._credentials = GeminiOAuthCredentials.from_dict(creds_dict)  # type: ignore[attr-defined]
+        except Exception:
+            logger.warning(
+                "Failed to sync OAuth auto account into credential coordinator",
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _parse_accounts_allowlist(value: Any) -> set[str] | None:
+        """Parse config `extra.accounts` value.
+
+        Accepts:
+        - 'all' (default) -> None (no filtering)
+        - list[str] -> set[str]
+        - comma-separated string -> set[str]
+        """
+        if value is None:
+            return None
+        if isinstance(value, str):
+            if value.strip().lower() == "all":
+                return None
+            parts = [p.strip() for p in value.split(",") if p.strip()]
+            return set(parts) if parts else None
+        if isinstance(value, list | tuple | set):
+            parts = [str(p).strip() for p in value if str(p).strip()]
+            return set(parts) if parts else None
+        return None
+
     @property
     def _oauth_credentials(self) -> dict[str, Any] | None:
         """Get current OAuth credentials from the selected account."""
@@ -95,11 +147,40 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         )
         self.api_url = self.gemini_api_base_url
 
+        # Apply gemini-oauth-auto specific configuration
+        storage_path = extras.get("storage_path")
+        refresh_buffer_seconds = extras.get("refresh_buffer_seconds")
+        accounts_allowlist = self._parse_accounts_allowlist(extras.get("accounts"))
+
+        refresh_buffer_ms: int | None = None
+        if refresh_buffer_seconds is not None:
+            with contextlib.suppress(TypeError, ValueError):
+                refresh_buffer_ms = int(float(refresh_buffer_seconds) * 1000)
+
+        # Rebuild internal services with configured storage path / selection options.
+        # Tests may replace these services after construction, so we only rebuild
+        # when a storage_path is explicitly provided.
+        if storage_path:
+            self._token_storage = TokenStorageService(storage_path=storage_path)
+            self._token_refresh = TokenRefreshService(
+                storage=self._token_storage,
+                http_client=self.client,
+            )
+
+        # Always rebuild selector to apply allowlist / refresh buffer.
+        self._account_selector = AccountSelectorService(
+            storage=self._token_storage,
+            refresh_service=self._token_refresh,
+            refresh_buffer_ms=refresh_buffer_ms or 300_000,
+            allowed_account_ids=accounts_allowlist,
+        )
+
         # Load accounts via selector
         await self._account_selector.reload_accounts()
 
         # Select first account
         account = await self._account_selector.get_next_account()
+        self._sync_selected_account_to_base()
 
         if account:
             self.is_functional = True
@@ -129,6 +210,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         if not account or account.is_expired():
             account = await self._account_selector.get_next_account()
 
+        self._sync_selected_account_to_base()
         return account is not None
 
     async def _load_oauth_credentials(
@@ -234,12 +316,17 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             **cast(dict[str, Any], request.options),
         )
 
+    async def _rotate_and_sync(self) -> None:
+        """Rotate to next account and sync credentials into gemini_base."""
+        await self._account_selector.rotate_on_quota()
+        self._sync_selected_account_to_base()
+
     def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:
         """Override to handle quota exhaustion via account rotation."""
         if reason == "quota_exceeded":
             logger.warning("Quota exceeded for account, triggering rotation")
             # Schedule rotation task and keep reference to prevent GC
-            task = asyncio.create_task(self._account_selector.rotate_on_quota())
+            task = asyncio.create_task(self._rotate_and_sync())
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
         else:

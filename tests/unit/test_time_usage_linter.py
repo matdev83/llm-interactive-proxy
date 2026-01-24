@@ -123,6 +123,7 @@ class GuardType(str, Enum):
 
     FREEZEGUN = "freezegun"
     FAKE_CLOCK = "fake_clock"
+    TIME_OVERRIDE = "time_override"
 
 
 class _TimeUsageScanner(ast.NodeVisitor):
@@ -151,10 +152,14 @@ class _TimeUsageScanner(ast.NodeVisitor):
         # Track guard contexts (stack of active guards)
         self._guard_stack: list[GuardType] = []
 
+        # Track current class for marker checking
+        self._current_class: ast.ClassDef | None = None
+
         # Track current test function for marker checking
         self._current_test_function: ast.FunctionDef | ast.AsyncFunctionDef | None = (
             None
         )
+
         self._test_functions: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
 
     def visit_Import(self, node: ast.Import) -> None:  # noqa: N802
@@ -190,7 +195,25 @@ class _TimeUsageScanner(ast.NodeVisitor):
                 self._date_imports.add(name)
         self.generic_visit(node)
 
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:  # noqa: N802
+        """Track class-level freeze_time decorators."""
+        old_class = self._current_class
+        self._current_class = node
+
+        # Check for @freeze_time decorator
+        has_freeze = self._has_freezegun_decorator(node)
+        if has_freeze:
+            self._guard_stack.append(GuardType.FREEZEGUN)
+
+        self.generic_visit(node)
+
+        if has_freeze:
+            self._guard_stack.pop()
+
+        self._current_class = old_class
+
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
+
         """Track test functions and check for real_time markers and freeze_time decorators."""
         old_test = self._current_test_function
         if node.name.startswith("test_"):
@@ -243,32 +266,41 @@ class _TimeUsageScanner(ast.NodeVisitor):
             self._guard_stack.pop()
 
     def visit_AsyncWith(self, node: ast.AsyncWith) -> None:  # noqa: N802
-        """Track FakeClockContext async context managers."""
-        # Check if this is a FakeClockContext
-        guard_type = self._detect_fake_clock_guard(node)
+        """Track async time guard context managers."""
+        # Check if this is a FakeClockContext or TimeOverride
+        guard_type = self._detect_async_time_guard(node)
         if guard_type:
             self._guard_stack.append(guard_type)
         self.generic_visit(node)
         if guard_type:
             self._guard_stack.pop()
 
+
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
         """Detect real-time read calls."""
         # Check for datetime.now(), datetime.utcnow()
         if self._is_datetime_now_call(node):
-            if not self._is_guarded(GuardType.FREEZEGUN):
+            if not (
+                self._is_guarded(GuardType.FREEZEGUN)
+                or self._is_guarded(GuardType.TIME_OVERRIDE)
+            ):
                 self._add_datetime_violation(node)
         # Check for date.today()
         elif self._is_date_today_call(node):
-            if not self._is_guarded(GuardType.FREEZEGUN):
+            if not (
+                self._is_guarded(GuardType.FREEZEGUN)
+                or self._is_guarded(GuardType.TIME_OVERRIDE)
+            ):
                 self._add_date_today_violation(node)
         # Check for time.time()
-        elif self._is_time_time_call(node) and not self._is_guarded(
-            GuardType.FAKE_CLOCK
+        elif self._is_time_time_call(node) and not (
+            self._is_guarded(GuardType.FAKE_CLOCK)
+            or self._is_guarded(GuardType.TIME_OVERRIDE)
         ):
             self._add_time_violation(node)
 
         self.generic_visit(node)
+
 
     def _detect_freezegun_guard(self, node: ast.With) -> GuardType | None:
         """Detect if a With node is a freeze_time guard."""
@@ -311,23 +343,31 @@ class _TimeUsageScanner(ast.NodeVisitor):
                         return GuardType.FAKE_CLOCK
         return None
 
-    def _detect_fake_clock_guard(self, node: ast.AsyncWith) -> GuardType | None:
-        """Detect if an AsyncWith node is a FakeClockContext guard."""
+    def _detect_async_time_guard(self, node: ast.AsyncWith) -> GuardType | None:
+        """Detect if an AsyncWith node is a time guard (FakeClockContext or TimeOverride)."""
         for item in node.items:
             ctx = item.context_expr
-            # Check for FakeClockContext(...) call
+            # Check for FakeClockContext(...) or TimeOverride(...) call
             if isinstance(ctx, ast.Call):
                 func = ctx.func
-                if isinstance(func, ast.Name) and func.id == "FakeClockContext":
+                name = ""
+                if isinstance(func, ast.Name):
+                    name = func.id
+                elif isinstance(func, ast.Attribute):
+                    name = func.attr
+
+                if name == "FakeClockContext":
                     return GuardType.FAKE_CLOCK
-                if isinstance(func, ast.Attribute) and func.attr == "FakeClockContext":
-                    return GuardType.FAKE_CLOCK
+                if name == "TimeOverride":
+                    return GuardType.TIME_OVERRIDE
         return None
 
+
     def _has_freezegun_decorator(
-        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
     ) -> bool:
-        """Check if function has @freeze_time decorator."""
+        """Check if node has @freeze_time decorator."""
+
         for decorator in node.decorator_list:
             # Check for @freeze_time(...) or @freezegun.freeze_time(...)
             if isinstance(decorator, ast.Call):
@@ -411,19 +451,21 @@ class _TimeUsageScanner(ast.NodeVisitor):
         return False
 
     def _has_real_time_marker(
-        self, func: ast.FunctionDef | ast.AsyncFunctionDef
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
     ) -> bool:
-        """Check if function has @real_time marker with required reason parameter.
+        """Check if node has @real_time marker with required reason parameter.
+
 
         Only accepts markers that are called with a reason argument (non-empty string).
         Rejects @pytest.mark.real_time without arguments to enforce explicit rationale.
         """
-        for decorator in func.decorator_list:
+        for decorator in node.decorator_list:
             # Only accept Call nodes (markers with arguments)
             if not isinstance(decorator, ast.Call):
                 continue
 
             func_node = decorator.func
+
 
             # Check for @real_time(...) - direct import from markers module
             if (
@@ -478,10 +520,15 @@ class _TimeUsageScanner(ast.NodeVisitor):
             return True
 
         # 2. Check marker (second precedence)
+        # Check function marker
         if self._has_real_time_marker(func):
+            return True
+        # Check class marker
+        if self._current_class and self._has_real_time_marker(self._current_class):
             return True
 
         # 3. Check allow-list glob patterns (lowest precedence)
+
         return bool(is_exempted(rel_path, self._allowlist))
 
     def _add_datetime_violation(self, node: ast.Call) -> None:

@@ -76,38 +76,44 @@ async def test_usage_attributed_to_replacement_model() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
-    assert should_replace, "Replacement should trigger with probability=1.0"
+    assert should_replace
 
-    # Activate replacement
     await service.activate_replacement(session_id, "original-backend", "original-model")
 
-    # Get effective backend:model
-    effective_backend, effective_model = service.get_effective_backend_model(
-        session_id, "original-backend", "original-model"
-    )
+    # Simulate 3 turns with usage tracking
+    for turn in range(3):
+        # Get effective backend:model
+        effective_backend, effective_model = service.get_effective_backend_model(
+            session_id, "original-backend", "original-model"
+        )
 
-    # Verify replacement is active
-    assert effective_backend == "replacement-backend"
-    assert effective_model == "replacement-model"
+        # Record usage for this turn
+        context.state["usage_records"].append(
+            {
+                "backend": effective_backend,
+                "model": effective_model,
+                "turn": turn + 1,
+                "prompt_tokens": 100 * (turn + 1),
+                "completion_tokens": 50 * (turn + 1),
+                "total_tokens": 150 * (turn + 1),
+            }
+        )
 
-    # Simulate recording usage for the request
-    context.state["usage_records"].append(
-        {
-            "backend": effective_backend,
-            "model": effective_model,
-            "prompt_tokens": 100,
-            "completion_tokens": 50,
-            "total_tokens": 150,
-        }
-    )
+        # Complete the turn
+        service.complete_turn(session_id)
 
-    # Verify usage was attributed to replacement backend:model
-    assert len(context.state["usage_records"]) == 1
-    usage_record = context.state["usage_records"][0]
-    assert usage_record["backend"] == "replacement-backend"
-    assert usage_record["model"] == "replacement-model"
-    assert usage_record["total_tokens"] == 150
+    # Verify all 3 usage records were created
+    assert len(context.state["usage_records"]) == 3
+
+    # All usage records should be attributed to replacement backend during the window
+    for i, record in enumerate(context.state["usage_records"]):
+        if i < 2:  # First 2 turns use replacement
+            assert record["backend"] == "replacement-backend"
+            assert record["model"] == "replacement-model"
+        # Note: The 3rd turn completes and deactivates, but usage is still
+        # attributed to the replacement backend before deactivation
 
 
 @pytest.mark.asyncio
@@ -159,63 +165,6 @@ async def test_usage_attributed_to_original_when_inactive() -> None:
 
 
 @pytest.mark.asyncio
-async def test_usage_tracking_across_replacement_window() -> None:
-    """Test that usage tracking works throughout the replacement window.
-
-    When replacement is active for multiple turns, usage should be correctly
-    attributed to the replacement backend for all turns in the window.
-
-    Validates: Requirements 7.4
-    """
-    # Create service with 3-turn window
-    service = create_test_service(probability=1.0, turn_count=3)
-
-    # Create context with usage tracking
-    context = create_test_context_with_usage_tracking()
-
-    session_id = "test-session"
-
-    # Activate replacement
-    should_replace = service.should_replace(session_id, context)
-    assert should_replace
-
-    await service.activate_replacement(session_id, "original-backend", "original-model")
-
-    # Simulate 3 turns with usage tracking
-    for turn in range(3):
-        # Get effective backend:model
-        effective_backend, effective_model = service.get_effective_backend_model(
-            session_id, "original-backend", "original-model"
-        )
-
-        # Record usage for this turn
-        context.state["usage_records"].append(
-            {
-                "backend": effective_backend,
-                "model": effective_model,
-                "turn": turn + 1,
-                "prompt_tokens": 100 * (turn + 1),
-                "completion_tokens": 50 * (turn + 1),
-                "total_tokens": 150 * (turn + 1),
-            }
-        )
-
-        # Complete the turn
-        service.complete_turn(session_id)
-
-    # Verify all 3 usage records were created
-    assert len(context.state["usage_records"]) == 3
-
-    # All usage records should be attributed to replacement backend during the window
-    for i, record in enumerate(context.state["usage_records"]):
-        if i < 2:  # First 2 turns use replacement
-            assert record["backend"] == "replacement-backend"
-            assert record["model"] == "replacement-model"
-        # Note: The 3rd turn completes and deactivates, but usage is still
-        # attributed to the replacement backend before deactivation
-
-
-@pytest.mark.asyncio
 async def test_usage_transition_from_replacement_to_original() -> None:
     """Test usage attribution when transitioning from replacement to original.
 
@@ -233,6 +182,7 @@ async def test_usage_transition_from_replacement_to_original() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -311,6 +261,7 @@ async def test_usage_tracking_with_different_token_counts() -> None:
     session_id = "test-session"
 
     # Activate replacement
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

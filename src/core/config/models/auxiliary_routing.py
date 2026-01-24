@@ -7,12 +7,8 @@ on the primary backend.
 
 from __future__ import annotations
 
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
-
 from pydantic import ConfigDict, Field, model_validator
+from typing_extensions import Self
 
 from src.core.interfaces.model_bases import DomainModel
 

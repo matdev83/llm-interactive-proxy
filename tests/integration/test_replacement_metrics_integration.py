@@ -83,6 +83,7 @@ class TestReplacementMetricsIntegration:
     ) -> None:
         """Test that activation metrics are tracked correctly."""
         # Check if replacement should be triggered
+        service.should_replace("session1", request_context)  # Prime session
         should_replace = service.should_replace("session1", request_context)
         assert should_replace
 
@@ -210,7 +211,8 @@ class TestReplacementMetricsIntegration:
         assert metrics.total_probability_checks == 0
 
         # Check if replacement should be triggered
-        service.should_replace("session1", request_context)
+        service.should_replace("session1", request_context)  # First turn skip
+        service.should_replace("session1", request_context)  # Actual check
 
         # Verify probability check was tracked
         assert metrics.total_probability_checks == 1
@@ -226,6 +228,7 @@ class TestReplacementMetricsIntegration:
 
         # Activate replacement for session1
         service.should_replace("session1", request_context)
+        service.should_replace("session1", request_context)  # Trigger probability check
         asyncio.run(
             service.activate_replacement("session1", "anthropic", "claude-3-5-sonnet")
         )
@@ -233,6 +236,7 @@ class TestReplacementMetricsIntegration:
 
         # Activate replacement for session2
         service.should_replace("session2", request_context)
+        service.should_replace("session2", request_context)  # Trigger probability check
         asyncio.run(
             service.activate_replacement("session2", "anthropic", "claude-3-5-sonnet")
         )
@@ -363,6 +367,7 @@ class TestReplacementMetricsIntegration:
 
         # Record various events
         service.should_replace("session1", request_context)
+        service.should_replace("session1", request_context)  # Trigger probability check
         asyncio.run(
             service.activate_replacement("session1", "anthropic", "claude-3-5-sonnet")
         )

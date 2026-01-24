@@ -351,15 +351,8 @@ class InMemorySessionRepository(ISessionRepository):
         # Get all sessions for this client
         session_ids = self._client_sessions.get(client_key, [])
 
-        # #region agent log
-        _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-        import json as _json_debug
-        _session_fps = {sid: self._fingerprints.get(sid) for sid in session_ids[:5]}
-        with open(_log_path, "a", encoding="utf-8") as _f:
-            _f.write(_json_debug.dumps({"location": "in_memory_session_repository.py:find_by_client_and_fingerprint", "message": "Searching sessions", "data": {"client_key": client_key[:16], "target_fingerprint": fingerprint[:16], "existing_sessions_count": len(session_ids), "session_fingerprints": {k: (v[:16] if v else None) for k, v in _session_fps.items()}}, "timestamp": __import__("time").time(), "hypothesisId": "A,E"}) + "\n")
-        # #endregion
-
         # Check each session for matching fingerprint
+
         for session_id in session_ids:
             if self._fingerprints.get(session_id) == fingerprint:
                 session = self._sessions.get(session_id)

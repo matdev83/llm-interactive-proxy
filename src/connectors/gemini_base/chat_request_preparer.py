@@ -341,15 +341,6 @@ class ChatRequestPreparer:
 
         # Strip/repair unsupported tool definitions (e.g., custom tools from clients)
         # Uses IMessageConverter interface
-        # #region agent log
-        _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-        import json as _json_debug
-        _tools_before = code_assist_request.get("tools")
-        _canonical_tools = getattr(canonical_request, "tools", None)
-        if _canonical_tools:
-            with open(_log_path, "a", encoding="utf-8") as _f:
-                _f.write(_json_debug.dumps({"location": "chat_request_preparer.py:prepare_request", "message": "Tools before sanitization", "data": {"canonical_tools_count": len(_canonical_tools) if _canonical_tools else 0, "canonical_tools_preview": str(_canonical_tools)[:2000] if _canonical_tools else "None", "code_assist_tools_preview": str(_tools_before)[:1500] if _tools_before else "None"}, "timestamp": __import__("time").time(), "hypothesisId": "F"}) + "\n")
-        # #endregion
         self._message_converter._sanitize_code_assist_tools(
             canonical_request, code_assist_request
         )

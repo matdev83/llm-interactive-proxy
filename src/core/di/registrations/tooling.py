@@ -321,6 +321,9 @@ def _register_tool_call_reactor_orchestrator(
         provider: IServiceProvider,
     ) -> ToolCallReactorOrchestrator:
         """Factory for creating ToolCallReactorOrchestrator with all dependencies."""
+        from src.core.interfaces.end_of_session_service_interface import (
+            IEndOfSessionService,
+        )
         from src.core.interfaces.replacement_response_factory_interface import (
             IReplacementResponseFactory,
         )
@@ -374,6 +377,10 @@ def _register_tool_call_reactor_orchestrator(
         lifecycle_registry: ToolCallLifecycleRegistry = provider.get_required_service(
             ToolCallLifecycleRegistry
         )
+        # Optional: End-of-Session service (may not be available in all configurations)
+        end_of_session_service: IEndOfSessionService | None = provider.get_service(
+            cast(type, IEndOfSessionService)
+        )
 
         return ToolCallReactorOrchestrator(
             extractor=extractor,
@@ -385,6 +392,7 @@ def _register_tool_call_reactor_orchestrator(
             reactor=reactor,
             replacement_factory=replacement_factory,
             lifecycle_registry=lifecycle_registry,
+            end_of_session_service=end_of_session_service,
         )
 
     register_singleton_if_absent(

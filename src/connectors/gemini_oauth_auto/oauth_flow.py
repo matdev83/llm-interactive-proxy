@@ -5,7 +5,7 @@ import re
 import secrets
 import time
 import webbrowser
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
 import httpx
@@ -123,10 +123,10 @@ class OAuthFlowService:
 
         # 2. Open browser or print URL
         if open_browser:
-            print("Opening browser for OAuth authorization...")
+            logger.info("Opening browser for OAuth authorization...")
             webbrowser.open(auth_url)
         else:
-            print(f"Please visit this URL to authorize the application:\n\n{auth_url}\n")
+            logger.info(f"Please visit this URL to authorize the application:\n\n{auth_url}\n")
 
         try:
             # 3. Wait for code
@@ -250,7 +250,7 @@ class OAuthFlowService:
         try:
             response = await self._http_client.post(TOKEN_URL, data=data)
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
         except httpx.HTTPStatusError as e:
             error_data = {}
             with contextlib.suppress(Exception):
@@ -271,7 +271,7 @@ class OAuthFlowService:
         try:
             response = await self._http_client.get(USERINFO_URL, headers=headers)
             response.raise_for_status()
-            return response.json()
+            return cast(dict[str, Any], response.json())
         except Exception as e:
             raise OAuthError(f"Failed to fetch user information: {e}") from e
 

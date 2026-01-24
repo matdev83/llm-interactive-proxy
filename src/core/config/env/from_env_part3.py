@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -20,8 +21,72 @@ from src.core.config.env.util import (
     to_int as _to_int,
 )
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
+from src.core.domain.configuration.replacement_rule import ReplacementRule
 
 logger = logging.getLogger(__name__)
+
+
+def _load_replacement_rules_from_env(
+    env: Mapping[str, str],
+    resolution: ParameterResolution | None,
+) -> list[ReplacementRule]:
+    """Load replacement rules from REPLACEMENT_RULES environment variable.
+
+    The environment variable should contain a JSON array of rule objects:
+    [{"from_pattern": "*", "to_backend": "qwen-oauth", "to_model": "qwen3-coder-plus"}]
+
+    Returns:
+        List of ReplacementRule objects, or empty list if not set
+    """
+    replacement_rules_env = env.get("REPLACEMENT_RULES")
+    if not replacement_rules_env:
+        return []
+
+    try:
+        rules_data = json.loads(replacement_rules_env)
+        if not isinstance(rules_data, list):
+            logger.warning(
+                "REPLACEMENT_RULES environment variable must be a JSON array. "
+                f"Got: {type(rules_data).__name__}"
+            )
+            return []
+
+        rules = []
+        for i, rule_data in enumerate(rules_data):
+            if not isinstance(rule_data, dict):
+                logger.warning(
+                    f"Replacement rule at index {i} must be an object. "
+                    f"Skipping invalid rule."
+                )
+                continue
+
+            try:
+                rule = ReplacementRule(
+                    from_pattern=rule_data.get("from_pattern", ""),
+                    to_backend=rule_data.get("to_backend", ""),
+                    to_model=rule_data.get("to_model", ""),
+                )
+                rules.append(rule)
+                if resolution:
+                    resolution.record(
+                        f"replacement.replacement_rules[{i}]",
+                        rule,
+                        ParameterSource.ENVIRONMENT,
+                        origin="REPLACEMENT_RULES",
+                    )
+            except (TypeError, ValueError) as e:
+                logger.warning(
+                    f"Invalid replacement rule at index {i}: {e}. Skipping rule."
+                )
+                continue
+
+        return rules
+    except json.JSONDecodeError as e:
+        logger.warning(
+            f"Failed to parse REPLACEMENT_RULES environment variable as JSON: {e}. "
+            f"Ignoring replacement rules from environment."
+        )
+        return []
 
 
 def apply_config_part3(
@@ -259,6 +324,11 @@ def apply_config_part3(
             path="replacement.probability",
             resolution=resolution,
         ),
+        # Handle new replacement_rules format (JSON array)
+        "replacement_rules": _load_replacement_rules_from_env(
+            env, resolution=resolution
+        ),
+        # Legacy backend_model for backward compatibility
         "backend_model": _get_env_value(
             env,
             "REPLACEMENT_BACKEND_MODEL",

@@ -35,6 +35,7 @@ class TestReplacementApplicator:
             replacement_enabled=None,
             replacement_probability=None,
             replacement_backend_model=None,
+            replacement_rules=None,
             replacement_turn_count=None,
         )
 
@@ -111,6 +112,75 @@ class TestReplacementApplicator:
         assert overrides["replacement"].get("turn_count") == 3
         assert resolution.is_set("replacement.turn_count")
         assert os.environ.get("REPLACEMENT_TURN_COUNT") == "3"
+
+    def test_apply_replacement_rules(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that replacement_rules argument is applied correctly."""
+        from src.core.domain.configuration.replacement_rule import ReplacementRule
+
+        empty_args.replacement_rules = [
+            "*=qwen-oauth:qwen3-coder-plus",
+            "gpt-4=openai:gpt-3.5-turbo",
+        ]
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert "replacement" in overrides
+        rules = overrides["replacement"].get("replacement_rules")
+        assert rules is not None
+        assert len(rules) == 2
+        assert isinstance(rules[0], ReplacementRule)
+        assert rules[0].from_pattern == "*"
+        assert rules[0].to_backend == "qwen-oauth"
+        assert rules[0].to_model == "qwen3-coder-plus"
+        assert rules[1].from_pattern == "gpt-4"
+        assert rules[1].to_backend == "openai"
+        assert rules[1].to_model == "gpt-3.5-turbo"
+        assert resolution.is_set("replacement.replacement_rules")
+        import json
+
+        env_rules = json.loads(os.environ.get("REPLACEMENT_RULES", "[]"))
+        assert len(env_rules) == 2
+
+    def test_apply_multiple_replacement_rules_with_gemini(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test multiple replacement rules including the gemini example."""
+
+        empty_args.replacement_rules = [
+            "gemini-3-flash-preview=gemini-oauth-plan:gemini-3-pro-preview",
+            "gpt-4=openai:gpt-3.5-turbo",
+            "*=qwen-oauth:qwen3-coder-plus",
+        ]
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert "replacement" in overrides
+        rules = overrides["replacement"].get("replacement_rules")
+        assert rules is not None
+        assert len(rules) == 3
+        
+        # Check gemini rule
+        assert rules[0].from_pattern == "gemini-3-flash-preview"
+        assert rules[0].to_backend == "gemini-oauth-plan"
+        assert rules[0].to_model == "gemini-3-pro-preview"
+        
+        # Check gpt-4 rule
+        assert rules[1].from_pattern == "gpt-4"
+        assert rules[1].to_backend == "openai"
+        assert rules[1].to_model == "gpt-3.5-turbo"
+        
+        # Check wildcard rule
+        assert rules[2].from_pattern == "*"
+        assert rules[2].to_backend == "qwen-oauth"
+        assert rules[2].to_model == "qwen3-coder-plus"
 
     def test_no_modifications_when_all_none(
         self,

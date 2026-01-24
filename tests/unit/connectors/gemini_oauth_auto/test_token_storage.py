@@ -9,9 +9,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
+from freezegun import freeze_time
 from src.connectors.gemini_oauth_auto.models import StoredAccount
 from src.connectors.gemini_oauth_auto.token_storage import TokenStorageService
+
+# Base time for tests to avoid direct BASE_TIME calls (flagged by linter)
+# Matches @freeze_time("2026-01-24") used in tests.
+BASE_TIME = 1768780800.0  # 2026-01-24 00:00:00 UTC
 
 
 @pytest.fixture
@@ -30,18 +34,17 @@ def storage_service(temp_storage_dir: Path) -> TokenStorageService:
 @pytest.fixture
 def valid_account() -> StoredAccount:
     """Fixture providing a valid StoredAccount."""
-    import time
-
     return StoredAccount(
         account_id="test-account",
         email="test@gmail.com",
         access_token="ya29.test_access_token",
         refresh_token="1//test_refresh_token",
         scope="https://www.googleapis.com/auth/cloud-platform",
-        expiry_date=int((time.time() + 3600) * 1000),
+        expiry_date=int((BASE_TIME + 3600) * 1000),
     )
 
 
+@freeze_time("2026-01-19")
 class TestTokenStorageService:
     """Tests for TokenStorageService."""
 
@@ -171,26 +174,20 @@ class TestTokenStorageService:
         self,
         storage_service: TokenStorageService,
         temp_storage_dir: Path,
+        valid_account: StoredAccount,
     ) -> None:
         """Test load_all_accounts loads all valid account files."""
-        import time
-
-        # Create two accounts
-        account1 = StoredAccount(
-            account_id="account-1",
-            email="user1@gmail.com",
-            access_token="token1",
-            refresh_token="refresh1",
-            scope="scope",
-            expiry_date=int((time.time() + 3600) * 1000),
+        account1 = valid_account.with_updated_tokens(
+            access_token="token-1", expiry_date=int(BASE_TIME * 1000)
         )
+
         account2 = StoredAccount(
             account_id="account-2",
             email="user2@gmail.com",
             access_token="token2",
             refresh_token="refresh2",
             scope="scope",
-            expiry_date=int((time.time() + 3600) * 1000),
+            expiry_date=int((BASE_TIME + 3600) * 1000),
         )
 
         await storage_service.save_account(account1)
@@ -200,7 +197,7 @@ class TestTokenStorageService:
 
         assert len(accounts) == 2
         account_ids = {a.account_id for a in accounts}
-        assert account_ids == {"account-1", "account-2"}
+        assert account_ids == {"test-account", "account-2"}
 
     @pytest.mark.asyncio
     async def test_load_all_accounts_skips_corrupted_files(

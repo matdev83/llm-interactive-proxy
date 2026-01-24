@@ -1,5 +1,4 @@
-"""
-AccountSelectorService implementation.
+"""AccountSelectorService implementation.
 
 Manages which account to use for API requests with round-robin rotation.
 """
@@ -25,6 +24,7 @@ class AccountSelectorService(IAccountSelector):
 
     Features:
     - Round-robin rotation among valid accounts
+    - Optional allowlist of account IDs
     - Skips accounts with needs_reauth=True
     - Proactive refresh for near-expiry accounts
     - Immediate rotation on quota exhaustion
@@ -34,15 +34,24 @@ class AccountSelectorService(IAccountSelector):
         self,
         storage: ITokenStorage,
         refresh_service: ITokenRefresh,
+        *,
+        refresh_buffer_ms: int = DEFAULT_REFRESH_BUFFER_MS,
+        allowed_account_ids: set[str] | None = None,
     ) -> None:
         """Initialize account selector.
 
         Args:
             storage: Token storage service for account retrieval
             refresh_service: Token refresh service for proactive refresh
+            refresh_buffer_ms: Token refresh buffer in milliseconds.
+            allowed_account_ids: Optional allowlist of account IDs. If set, only these
+                accounts will be used for selection.
         """
         self._storage = storage
         self._refresh_service = refresh_service
+        self._refresh_buffer_ms = refresh_buffer_ms
+        self._allowed_account_ids = allowed_account_ids
+
         self._current_account: StoredAccount | None = None
         self._accounts: list[StoredAccount] = []
         self._rotation_index: int = 0
@@ -58,10 +67,15 @@ class AccountSelectorService(IAccountSelector):
     def _get_available_accounts(self) -> list[StoredAccount]:
         """Get list of accounts that don't need reauthorization.
 
+        Applies allowlist filtering when `allowed_account_ids` is configured.
+
         Returns:
             List of accounts with needs_reauth=False
         """
-        return [acc for acc in self._accounts if not acc.needs_reauth]
+        accounts = [acc for acc in self._accounts if not acc.needs_reauth]
+        if self._allowed_account_ids is None:
+            return accounts
+        return [acc for acc in accounts if acc.account_id in self._allowed_account_ids]
 
     async def get_next_account(self) -> StoredAccount | None:
         """Get next valid account in rotation.
@@ -90,7 +104,7 @@ class AccountSelectorService(IAccountSelector):
         # Try to refresh if near expiry
         try:
             account = await self._refresh_service.refresh_if_needed(
-                account, buffer_ms=DEFAULT_REFRESH_BUFFER_MS
+                account, buffer_ms=self._refresh_buffer_ms
             )
             # Update account in our list with refreshed version
             self._update_account_in_list(account)
@@ -106,8 +120,8 @@ class AccountSelectorService(IAccountSelector):
                 self._update_account_in_list(account)
                 # Recursively try next account
                 return await self.get_next_account()
-            # For other refresh errors, still return the account
-            # (it might work, let the API call determine)
+
+            # For other refresh errors, still return the account (it might work).
             logger.warning(
                 "Failed to refresh account %s, using anyway: %s",
                 account.account_id,
@@ -130,30 +144,16 @@ class AccountSelectorService(IAccountSelector):
                 break
 
     def get_current_account(self) -> StoredAccount | None:
-        """Get currently selected account without advancing.
-
-        Returns:
-            Currently selected account, or None if not set.
-        """
+        """Get currently selected account without advancing."""
         return self._current_account
 
     async def rotate_on_quota(self) -> StoredAccount | None:
-        """Rotate to next account due to quota exhaustion.
-
-        Called when HTTP 429 is received. Immediately advances to
-        the next available account.
-
-        Returns:
-            Next available account, or None if all exhausted.
-        """
+        """Rotate to next account due to quota exhaustion."""
         await self._ensure_accounts_loaded()
 
         available = self._get_available_accounts()
         if len(available) <= 1:
-            # Only one account (or none), can't rotate
-            logger.warning(
-                "Cannot rotate: only %d account(s) available", len(available)
-            )
+            logger.warning("Cannot rotate: only %d account(s) available", len(available))
             return None
 
         logger.debug(
@@ -165,19 +165,13 @@ class AccountSelectorService(IAccountSelector):
         return await self.get_next_account()
 
     def get_available_count(self) -> int:
-        """Count of accounts not marked needs_reauth.
-
-        Returns:
-            Number of usable accounts.
-        """
+        """Count of accounts not marked needs_reauth."""
         return len(self._get_available_accounts())
 
     async def reload_accounts(self) -> None:
-        """Force reload accounts from storage.
-
-        Useful after adding/removing accounts via management script.
-        """
+        """Force reload accounts from storage."""
         self._accounts = await self._storage.load_all_accounts()
         self._rotation_index = 0
         self._current_account = None
+        self._initialized = True
         logger.debug("Reloaded %d accounts", len(self._accounts))

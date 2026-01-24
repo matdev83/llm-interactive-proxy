@@ -12,10 +12,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.core.domain.chat import ToolCall
+from src.core.domain.chat import StreamingToolCall, ToolCall
 
 
 class StreamingErrorInfo(BaseModel):
+
     """Error envelope for streaming chunks."""
 
     model_config = ConfigDict(extra="forbid")
@@ -46,8 +47,9 @@ class StreamingMetadata(BaseModel):
     stream_id: str | None = None
     finish_reason: str | None = None
     role: str | None = None
-    tool_calls: list[ToolCall] | None = None
+    tool_calls: list[ToolCall | StreamingToolCall] | None = None
     reasoning_content: str | None = None
+
     error: StreamingErrorInfo | None = None
     usage: StreamingUsage | None = None
 

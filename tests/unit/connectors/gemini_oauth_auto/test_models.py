@@ -4,20 +4,29 @@ Unit tests for Gemini OAuth Auto-Connector models.
 Tests Requirement 2: Token Storage and Persistence (model validation).
 """
 
-import time
 from datetime import datetime, timezone
 
 import pytest
-
+from freezegun import freeze_time
 from src.connectors.gemini_oauth_auto.models import AccountSummary, StoredAccount
 
+# Base time for tests to avoid direct BASE_TIME calls (flagged by linter)
+# Matches @freeze_time("2026-01-19") used in tests.
+BASE_TIME = 1768780800.0  # 2026-01-19 00:00:00 UTC
 
+
+@freeze_time("2026-01-19")
 class TestStoredAccount:
+
+
     """Tests for StoredAccount model."""
 
     @pytest.fixture
     def valid_account_data(self) -> dict:
-        """Fixture providing valid account data."""
+        """Fixture providing valid account data.
+        
+        Uses fixed base time to avoid direct BASE_TIME calls flagged by linter.
+        """
         return {
             "account_id": "test-account-1",
             "email": "test@gmail.com",
@@ -25,10 +34,11 @@ class TestStoredAccount:
             "refresh_token": "1//test_refresh_token",
             "token_type": "Bearer",
             "scope": "https://www.googleapis.com/auth/cloud-platform",
-            "expiry_date": int((time.time() + 3600) * 1000),  # 1 hour from now
+            "expiry_date": int((BASE_TIME + 3600) * 1000),  # 1 hour from base
             "created_at": "2026-01-20T10:00:00+00:00",
             "updated_at": "2026-01-20T10:00:00+00:00",
         }
+
 
     def test_create_valid_account(self, valid_account_data: dict) -> None:
         """Test creating a valid StoredAccount."""
@@ -50,7 +60,7 @@ class TestStoredAccount:
             access_token="token",
             refresh_token="refresh",
             scope="scope",
-            expiry_date=int(time.time() * 1000),
+            expiry_date=int(BASE_TIME * 1000),
         )
         assert account.account_id == "MyAccount123"
 
@@ -62,7 +72,7 @@ class TestStoredAccount:
             access_token="token",
             refresh_token="refresh",
             scope="scope",
-            expiry_date=int(time.time() * 1000),
+            expiry_date=int(BASE_TIME * 1000),
         )
         assert account.account_id == "my-account-1"
 
@@ -74,7 +84,7 @@ class TestStoredAccount:
             access_token="token",
             refresh_token="refresh",
             scope="scope",
-            expiry_date=int(time.time() * 1000),
+            expiry_date=int(BASE_TIME * 1000),
         )
         assert account.account_id == "my_account_1"
 
@@ -87,7 +97,7 @@ class TestStoredAccount:
                 access_token="token",
                 refresh_token="refresh",
                 scope="scope",
-                expiry_date=int(time.time() * 1000),
+                expiry_date=int(BASE_TIME * 1000),
             )
 
     def test_account_id_validation_rejects_special_chars(self) -> None:
@@ -99,7 +109,7 @@ class TestStoredAccount:
                 access_token="token",
                 refresh_token="refresh",
                 scope="scope",
-                expiry_date=int(time.time() * 1000),
+                expiry_date=int(BASE_TIME * 1000),
             )
 
     def test_account_id_validation_rejects_starting_with_hyphen(self) -> None:
@@ -111,7 +121,7 @@ class TestStoredAccount:
                 access_token="token",
                 refresh_token="refresh",
                 scope="scope",
-                expiry_date=int(time.time() * 1000),
+                expiry_date=int(BASE_TIME * 1000),
             )
 
     def test_account_id_max_length(self) -> None:
@@ -124,7 +134,7 @@ class TestStoredAccount:
             access_token="token",
             refresh_token="refresh",
             scope="scope",
-            expiry_date=int(time.time() * 1000),
+            expiry_date=int(BASE_TIME * 1000),
         )
         assert len(account.account_id) == 64
 
@@ -136,13 +146,15 @@ class TestStoredAccount:
                 access_token="token",
                 refresh_token="refresh",
                 scope="scope",
-                expiry_date=int(time.time() * 1000),
+                expiry_date=int(BASE_TIME * 1000),
             )
 
     def test_is_expired_with_future_expiry(self, valid_account_data: dict) -> None:
         """Test is_expired returns False for future expiry."""
         # Set expiry 1 hour from now
-        valid_account_data["expiry_date"] = int((time.time() + 3600) * 1000)
+
+
+        valid_account_data["expiry_date"] = int((BASE_TIME + 3600) * 1000)
         account = StoredAccount(**valid_account_data)
 
         assert account.is_expired() is False
@@ -151,7 +163,7 @@ class TestStoredAccount:
     def test_is_expired_with_past_expiry(self, valid_account_data: dict) -> None:
         """Test is_expired returns True for past expiry."""
         # Set expiry 1 hour ago
-        valid_account_data["expiry_date"] = int((time.time() - 3600) * 1000)
+        valid_account_data["expiry_date"] = int((BASE_TIME - 3600) * 1000)
         account = StoredAccount(**valid_account_data)
 
         assert account.is_expired() is True
@@ -162,7 +174,7 @@ class TestStoredAccount:
     ) -> None:
         """Test is_expired with buffer returns True when within buffer window."""
         # Set expiry 2 minutes from now (120 seconds = 120_000 ms)
-        valid_account_data["expiry_date"] = int((time.time() + 120) * 1000)
+        valid_account_data["expiry_date"] = int((BASE_TIME + 120) * 1000)
         account = StoredAccount(**valid_account_data)
 
         # Without buffer, not expired
@@ -179,7 +191,7 @@ class TestStoredAccount:
     ) -> None:
         """Test is_expired with buffer returns False when outside buffer window."""
         # Set expiry 10 minutes from now
-        valid_account_data["expiry_date"] = int((time.time() + 600) * 1000)
+        valid_account_data["expiry_date"] = int((BASE_TIME + 600) * 1000)
         account = StoredAccount(**valid_account_data)
 
         # With 5 minute buffer, should not be considered expired
@@ -213,7 +225,7 @@ class TestStoredAccount:
 
     def test_status_valid(self, valid_account_data: dict) -> None:
         """Test status returns 'valid' for valid, non-expired token."""
-        valid_account_data["expiry_date"] = int((time.time() + 3600) * 1000)
+        valid_account_data["expiry_date"] = int((BASE_TIME + 3600) * 1000)
         valid_account_data["needs_reauth"] = False
         account = StoredAccount(**valid_account_data)
 
@@ -221,7 +233,7 @@ class TestStoredAccount:
 
     def test_status_expired(self, valid_account_data: dict) -> None:
         """Test status returns 'expired' for expired token."""
-        valid_account_data["expiry_date"] = int((time.time() - 3600) * 1000)
+        valid_account_data["expiry_date"] = int((BASE_TIME - 3600) * 1000)
         valid_account_data["needs_reauth"] = False
         account = StoredAccount(**valid_account_data)
 
@@ -238,7 +250,7 @@ class TestStoredAccount:
         self, valid_account_data: dict
     ) -> None:
         """Test needs_reauth status takes precedence over expired."""
-        valid_account_data["expiry_date"] = int((time.time() - 3600) * 1000)  # Expired
+        valid_account_data["expiry_date"] = int((BASE_TIME - 3600) * 1000)  # Expired
         valid_account_data["needs_reauth"] = True
         account = StoredAccount(**valid_account_data)
 
@@ -251,7 +263,7 @@ class TestStoredAccount:
         original = StoredAccount(**valid_account_data)
         original_access_token = original.access_token
 
-        new_expiry = int((time.time() + 7200) * 1000)
+        new_expiry = int((BASE_TIME + 7200) * 1000)
         updated = original.with_updated_tokens(
             access_token="new_access_token",
             expiry_date=new_expiry,
@@ -274,7 +286,7 @@ class TestStoredAccount:
 
         updated = original.with_updated_tokens(
             access_token="new_token",
-            expiry_date=int(time.time() * 1000),
+            expiry_date=int(BASE_TIME * 1000),
         )
 
         assert updated.account_id == original.account_id
@@ -292,7 +304,7 @@ class TestStoredAccount:
 
         updated = original.with_updated_tokens(
             access_token="new_token",
-            expiry_date=int(time.time() * 1000),
+            expiry_date=int(BASE_TIME * 1000),
         )
 
         assert updated.needs_reauth is False
@@ -305,7 +317,7 @@ class TestStoredAccount:
 
         updated = original.with_updated_tokens(
             access_token="new_access",
-            expiry_date=int(time.time() * 1000),
+            expiry_date=int(BASE_TIME * 1000),
             refresh_token="new_refresh",
         )
 
@@ -335,7 +347,7 @@ class TestStoredAccount:
             access_token="token",
             refresh_token="refresh",
             scope="scope",
-            expiry_date=int(time.time() * 1000),
+            expiry_date=int(BASE_TIME * 1000),
         )
 
         # Should have valid ISO timestamps
@@ -345,7 +357,9 @@ class TestStoredAccount:
         datetime.fromisoformat(account.updated_at)  # Should not raise
 
 
+@freeze_time("2026-01-19")
 class TestAccountSummary:
+
     """Tests for AccountSummary model."""
 
     @pytest.fixture
@@ -357,7 +371,7 @@ class TestAccountSummary:
             access_token="ya29.test",
             refresh_token="1//test",
             scope="scope",
-            expiry_date=int((time.time() + 3600) * 1000),
+            expiry_date=int((BASE_TIME + 3600) * 1000),
             last_used="2026-01-20T10:00:00+00:00",
         )
 
@@ -379,7 +393,7 @@ class TestAccountSummary:
             access_token="token",
             refresh_token="refresh",
             scope="scope",
-            expiry_date=int((time.time() - 3600) * 1000),  # Expired
+            expiry_date=int((BASE_TIME - 3600) * 1000),  # Expired
         )
 
         summary = AccountSummary.from_stored_account(account)
@@ -393,7 +407,7 @@ class TestAccountSummary:
             access_token="token",
             refresh_token="refresh",
             scope="scope",
-            expiry_date=int((time.time() + 3600) * 1000),
+            expiry_date=int((BASE_TIME + 3600) * 1000),
             needs_reauth=True,
         )
 
@@ -408,7 +422,7 @@ class TestAccountSummary:
             access_token="token",
             refresh_token="refresh",
             scope="scope",
-            expiry_date=int((time.time() + 3600) * 1000),
+            expiry_date=int((BASE_TIME + 3600) * 1000),
             last_used=None,
         )
 

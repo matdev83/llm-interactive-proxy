@@ -148,7 +148,7 @@ def from_domain_to_gemini_response(response: ChatResponse) -> dict[str, Any]:
                 for tool_call in choice.message.tool_calls:
                     function_call = {
                         "name": tool_call.function.name,
-                        "args": json.loads(tool_call.function.arguments),
+                        "args": json.loads(tool_call.function.arguments or "{}"),
                     }
                     parts.append({"functionCall": function_call})
 

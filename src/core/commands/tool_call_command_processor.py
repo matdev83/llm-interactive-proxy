@@ -130,6 +130,9 @@ class ToolCallCommandProcessor(ICommandProcessor):
             return None
 
         command_name = tool_call.function.name
+        if not command_name:
+            logger.warning("Tool call has no function name, skipping")
+            return None
         try:
             args = json.loads(tool_call.function.arguments or "{}")
         except json.JSONDecodeError:

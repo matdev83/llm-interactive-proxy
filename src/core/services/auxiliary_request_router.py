@@ -252,11 +252,8 @@ class AuxiliaryRequestRouter:
         model = self.get_auxiliary_model()
 
         # If a specific model is configured, update the request
-        if model:
-            # Create a modified request with the new model
-            # We use attribute modification since ChatRequest may be a dataclass
-            if hasattr(request, "model"):
-                request.model = model
+        if model and hasattr(request, "model"):
+            request.model = model
 
         return (request, backend, model)
 

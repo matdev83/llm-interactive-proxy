@@ -64,27 +64,30 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         target = await self._backend_model_resolver.resolve_target(request, context)
 
         # Check if this is an auxiliary request that should be routed differently
-        if self._auxiliary_router and self._auxiliary_router.enabled:
-            if self._auxiliary_router.should_route_to_auxiliary(request):
-                auxiliary_backend = self._auxiliary_router.get_auxiliary_backend()
-                auxiliary_model = self._auxiliary_router.get_auxiliary_model()
+        if (
+            self._auxiliary_router
+            and self._auxiliary_router.enabled
+            and self._auxiliary_router.should_route_to_auxiliary(request)
+        ):
+            auxiliary_backend = self._auxiliary_router.get_auxiliary_backend()
+            auxiliary_model = self._auxiliary_router.get_auxiliary_model()
 
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Routing auxiliary request to backend '%s' (model: %s) "
-                        "instead of '%s' (model: %s)",
-                        auxiliary_backend,
-                        auxiliary_model or "default",
-                        target.backend,
-                        target.model,
-                    )
-
-                # Create a new target with the auxiliary backend/model
-                target = BackendTarget(
-                    backend=auxiliary_backend,
-                    model=auxiliary_model or target.model,
-                    uri_params=target.uri_params,
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Routing auxiliary request to backend '%s' (model: %s) "
+                    "instead of '%s' (model: %s)",
+                    auxiliary_backend,
+                    auxiliary_model or "default",
+                    target.backend,
+                    target.model,
                 )
+
+            # Create a new target with the auxiliary backend/model
+            target = BackendTarget(
+                backend=auxiliary_backend,
+                model=auxiliary_model or target.model,
+                uri_params=target.uri_params,
+            )
 
         return target
 

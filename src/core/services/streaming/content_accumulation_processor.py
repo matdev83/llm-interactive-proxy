@@ -225,14 +225,15 @@ class ContentAccumulationProcessor(IStreamProcessor):
                     extracted_content += delta_content
 
         if extracted_content:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "ContentAccumulationProcessor: Extracted text content, len=%d, stream_id=%s",
-                    len(extracted_content),
-                    stream_id,
-                )
+            # if logger.isEnabledFor(logging.DEBUG):
+            #     logger.debug(
+            #         "ContentAccumulationProcessor: Extracted text content, len=%d, stream_id=%s",
+            #         len(extracted_content),
+            #         stream_id,
+            #     )
 
             encoded_content = extracted_content.encode("utf-8")
+
             content_length = len(encoded_content)
             state.append_content_chunk(
                 extracted_content, encoded_content, content_length
@@ -291,7 +292,8 @@ class ContentAccumulationProcessor(IStreamProcessor):
             merged_metadata = dict(state.metadata_snapshot)
             merged_metadata.update(content.metadata)
             state.metadata_snapshot = merged_metadata
-        elif not state.metadata_snapshot and content.metadata is not None:
+        elif state.metadata_snapshot is not None and content.metadata is not None:
+
             state.metadata_snapshot = dict(content.metadata)
 
         if stream_id and "stream_id" in state.metadata_snapshot:

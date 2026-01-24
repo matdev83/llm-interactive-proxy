@@ -222,6 +222,220 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         normalized.__cause__ = exc
         return normalized
 
+    async def _enforce_non_forwardable_content(
+        self,
+        session_id: str,
+        canonical_request: CanonicalChatRequest,
+        domain_request: CanonicalChatRequest,
+        context: RequestContext | None,
+        backend_type: str,
+    ) -> tuple[CanonicalChatRequest, CanonicalChatRequest]:
+        """Apply non-forwardable message filtering."""
+        if self._non_forwardable_enforcer is None:
+            return canonical_request, domain_request
+
+        try:
+            filtered_messages, filtered_count = (
+                await self._non_forwardable_enforcer.filter_messages(
+                    session_id=session_id,
+                    messages=domain_request.messages,
+                    context=context,
+                )
+            )
+
+            # Update both canonical_request and domain_request with filtered messages
+            canonical_request = canonical_request.model_copy(
+                update={"messages": filtered_messages}
+            )
+            domain_request = domain_request.model_copy(
+                update={"messages": filtered_messages}
+            )
+
+            # Log filtering decision if messages were filtered (requirement 6.1, 6.2)
+            if filtered_count > 0 and logger.isEnabledFor(logging.INFO):
+                log_extra = {
+                    "session_id": session_id,
+                    "filtered_count": filtered_count,
+                    "remaining_count": len(filtered_messages),
+                }
+                # Include request correlation identifier if available (requirement 6.1)
+                if context and context.request_id:
+                    log_extra["request_id"] = context.request_id
+                logger.info(
+                    "Filtered non-forwardable messages from backend request",
+                    extra=log_extra,
+                )
+            
+            return canonical_request, domain_request
+
+        except (NoForwardableContentError, NonForwardableEnforcementError) as e:
+            # Fail closed: do not proceed with backend call
+            raise BackendError(
+                message=f"Non-forwardable message enforcement failed: {e!s}",
+                backend_name=backend_type,
+            ) from e
+
+    async def _handle_streaming_response(
+        self,
+        result: StreamingResponseEnvelope,
+        backend_type: str,
+        effective_model: str,
+        context: RequestContext | None,
+        domain_request: CanonicalChatRequest,
+        session_id_for_backend: str | None,
+        session_key: Any | None,
+    ) -> StreamingResponseEnvelope:
+        """Handle streaming response with wire capture and session ID injection."""
+        # Wire-capture: capture inbound stream
+        key_name = self._wire_capture_orchestrator.detect_key_name(backend_type)
+        session_id = getattr(context, "session_id", None)
+
+        if result.content is not None:
+            # Adapt domain stream to bytes for capture
+            byte_stream = self._stream_formatting_service.stream_as_sse_bytes(
+                result.content
+            )
+            wrapped_stream = self._wire_capture_orchestrator.wrap_inbound_stream(
+                context=context,
+                session_id=session_id,
+                backend_type=backend_type,
+                effective_model=effective_model,
+                key_name=key_name,
+                stream=byte_stream,
+            )
+
+            # Convert back to ProcessedResponse stream for adapters
+            async def _to_processed_with_capture() -> Any:
+                import json as _json_mod
+
+                from src.core.interfaces.response_processor_interface import (
+                    ProcessedResponse,
+                )
+
+                async for b in wrapped_stream:
+                    # Normalize bytes to ProcessedChunkContent before wrapping
+                    normalized_content = normalize_to_processed_chunk_content(b)
+
+                    # Extract metadata from SSE bytes to preserve model info
+                    extracted_metadata: dict[str, Any] = {}
+                    if session_id:
+                        extracted_metadata["session_id"] = session_id
+                        extracted_metadata["stream_id"] = session_id
+
+                    # Try to parse SSE data and extract metadata
+                    try:
+                        text = b.decode("utf-8", errors="replace")
+                        stripped = text.strip()
+                        if stripped == "data:" or stripped == "data: ":
+                            extracted_metadata["_keepalive"] = True
+                            extracted_metadata["model"] = effective_model
+                        elif stripped.startswith("data: "):
+                            json_part = stripped[6:].strip()
+                            if json_part and json_part != "[DONE]":
+                                try:
+                                    parsed = _json_mod.loads(json_part)
+                                    if isinstance(parsed, dict):
+                                        for key in (
+                                            "id",
+                                            "model",
+                                            "created",
+                                        ):
+                                            if key in parsed:
+                                                extracted_metadata[key] = parsed[key]
+                                except _json_mod.JSONDecodeError:
+                                    pass
+                    except (UnicodeDecodeError, AttributeError):
+                        pass
+
+                    yield ProcessedResponse(
+                        content=normalized_content,
+                        metadata=extracted_metadata,
+                    )
+
+            result.content = _to_processed_with_capture()  # type: ignore[assignment]
+
+        streaming_result = await self._usage_accounting.handle_streaming_response(
+            result=result,
+            backend_type=backend_type,
+            effective_model=effective_model,
+            context=context,
+            request=domain_request,
+            session_id_for_backend=session_id_for_backend,
+            key_name=key_name,
+        )
+
+        # Check cancellation status before returning
+        if (
+            self._cancellation_coordinator is not None
+            and session_key is not None
+            and self._cancellation_coordinator.is_cancelled(session_key)
+        ):
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Backend call completed but session was cancelled - "
+                    "treating streaming result as non-deliverable",
+                    extra={"session_key": session_key.primary_id},
+                )
+            raise SessionCancelledError(session_key=session_key)
+
+        return streaming_result
+
+    async def _handle_non_streaming_response(
+        self,
+        result: ResponseEnvelope,
+        backend_type: str,
+        effective_model: str,
+        context: RequestContext | None,
+        session_id_for_backend: str | None,
+        session_key: Any | None,
+    ) -> ResponseEnvelope:
+        """Handle non-streaming response with wire capture and usage recording."""
+        # Wire-capture: capture inbound response
+        key_name = self._wire_capture_orchestrator.detect_key_name(backend_type)
+        # Serialize content for capture (best effort)
+        response_content: Any = result
+        if hasattr(result, "model_dump") and not isinstance(result, dict):
+            response_content = result.model_dump()  # type: ignore[attr-defined]
+        elif hasattr(result, "__dict__"):
+            response_content = result.__dict__
+
+        # Extract canonical usage from envelope if present
+        canonical_usage_for_capture: CanonicalUsageRecord | None = None
+        if hasattr(result, "canonical_usage") and result.canonical_usage is not None:
+            canonical_usage_for_capture = result.canonical_usage
+
+        await self._wire_capture_orchestrator.capture_inbound_response(
+            context=context,
+            session_id=getattr(context, "session_id", None),
+            backend_type=backend_type,
+            effective_model=effective_model,
+            key_name=key_name,
+            response_content=response_content,  # type: ignore[reportUnknownArgumentType]
+            canonical_usage=canonical_usage_for_capture,
+        )
+
+        # Check cancellation status before returning
+        if (
+            self._cancellation_coordinator is not None
+            and session_key is not None
+            and self._cancellation_coordinator.is_cancelled(session_key)
+        ):
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Backend call completed but session was cancelled - "
+                    "treating non-streaming result as non-deliverable",
+                    extra={"session_key": session_key.primary_id},
+                )
+            raise SessionCancelledError(session_key=session_key)
+
+        return await self._usage_accounting.handle_non_streaming_response(
+            result=result,
+            backend_type=backend_type,
+            effective_model=effective_model,
+            session_id_for_backend=session_id_for_backend,
+            context=context,
+        )
+
     async def call_completion(
         self,
         request: ChatRequest,
@@ -363,45 +577,16 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             # Step 7.5: Apply non-forwardable message filtering
             # This happens after history compaction (if enabled) and before wire capture
             # to ensure filtered messages are used for both capture and backend calls
-            if self._non_forwardable_enforcer is not None:
-                try:
-                    filtered_messages, filtered_count = (
-                        await self._non_forwardable_enforcer.filter_messages(
-                            session_id=session_id_for_backend,
-                            messages=domain_request.messages,
-                            context=context,
-                        )
-                    )
-
-
-                    # Update both canonical_request and domain_request with filtered messages
-                    canonical_request = canonical_request.model_copy(
-                        update={"messages": filtered_messages}
-                    )
-                    domain_request = domain_request.model_copy(
-                        update={"messages": filtered_messages}
-                    )
-
-                    # Log filtering decision if messages were filtered (requirement 6.1, 6.2)
-                    if filtered_count > 0 and logger.isEnabledFor(logging.INFO):
-                        log_extra = {
-                            "session_id": session_id_for_backend,
-                            "filtered_count": filtered_count,
-                            "remaining_count": len(filtered_messages),
-                        }
-                        # Include request correlation identifier if available (requirement 6.1)
-                        if context and context.request_id:
-                            log_extra["request_id"] = context.request_id
-                        logger.info(
-                            "Filtered non-forwardable messages from backend request",
-                            extra=log_extra,
-                        )
-                except (NoForwardableContentError, NonForwardableEnforcementError) as e:
-                    # Fail closed: do not proceed with backend call
-                    raise BackendError(
-                        message=f"Non-forwardable message enforcement failed: {e!s}",
-                        backend_name=backend_type,
-                    ) from e
+            (
+                canonical_request,
+                domain_request,
+            ) = await self._enforce_non_forwardable_content(
+                session_id=session_id_for_backend,
+                canonical_request=canonical_request,
+                domain_request=domain_request,
+                context=context,
+                backend_type=backend_type,
+            )
 
             # Step 8: Prepare wire capture context (identity + backend config)
             identity = (
@@ -545,171 +730,30 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                 # Step 10: Handle streaming response (wire capture + session ID injection)
                 if isinstance(result, StreamingResponseEnvelope):
-                    # Wire-capture: capture inbound stream
-                    key_name = self._wire_capture_orchestrator.detect_key_name(
-                        backend_type
+                    return await self._handle_streaming_response(
+                        result=result,
+                        backend_type=backend_type,
+                        effective_model=effective_model,
+                        context=context,
+                        domain_request=domain_request,
+                        session_id_for_backend=session_id_for_backend,
+                        session_key=session_key,
                     )
-                    session_id = getattr(context, "session_id", None)
-
-                    if result.content is not None:
-                        # Adapt domain stream to bytes for capture
-                        byte_stream = (
-                            self._stream_formatting_service.stream_as_sse_bytes(
-                                result.content
-                            )
-                        )
-                        wrapped_stream = (
-                            self._wire_capture_orchestrator.wrap_inbound_stream(
-                                context=context,
-                                session_id=session_id,
-                                backend_type=backend_type,
-                                effective_model=effective_model,
-                                key_name=key_name,
-                                stream=byte_stream,
-                            )
-                        )
-
-                        # Convert back to ProcessedResponse stream for adapters
-                        async def _to_processed_with_capture() -> Any:
-                            import json as _json_mod
-
-                            from src.core.interfaces.response_processor_interface import (
-                                ProcessedResponse,
-                            )
-
-                            async for b in wrapped_stream:
-                                # Normalize bytes to ProcessedChunkContent before wrapping
-                                normalized_content = (
-                                    normalize_to_processed_chunk_content(b)
-                                )
-
-                                # Extract metadata from SSE bytes to preserve model info
-                                # This is needed because wire capture serializes to bytes
-                                # and we need to reconstruct metadata for downstream processors
-                                extracted_metadata: dict[str, Any] = {}
-                                if session_id:
-                                    extracted_metadata["session_id"] = session_id
-                                    extracted_metadata["stream_id"] = session_id
-
-                                # Try to parse SSE data and extract metadata
-                                try:
-                                    text = b.decode("utf-8", errors="replace")
-                                    # Check if this is an empty keepalive chunk
-                                    stripped = text.strip()
-                                    if stripped == "data:" or stripped == "data: ":
-                                        extracted_metadata["_keepalive"] = True
-                                        extracted_metadata["model"] = effective_model
-                                    elif stripped.startswith("data: "):
-                                        json_part = stripped[6:].strip()
-                                        if json_part and json_part != "[DONE]":
-                                            try:
-                                                parsed = _json_mod.loads(json_part)
-                                                if isinstance(parsed, dict):
-                                                    for key in (
-                                                        "id",
-                                                        "model",
-                                                        "created",
-                                                    ):
-                                                        if key in parsed:
-                                                            extracted_metadata[key] = (
-                                                                parsed[key]
-                                                            )
-                                            except _json_mod.JSONDecodeError:
-                                                pass
-                                except (UnicodeDecodeError, AttributeError):
-                                    pass
-
-
-                                yield ProcessedResponse(
-                                    content=normalized_content,
-                                    metadata=extracted_metadata,
-                                )
-
-                        result.content = _to_processed_with_capture()  # type: ignore[assignment]
-
-                    streaming_result = (
-                        await self._usage_accounting.handle_streaming_response(
-                            result=result,
-                            backend_type=backend_type,
-                            effective_model=effective_model,
-                            context=context,
-                            request=domain_request,
-                            session_id_for_backend=session_id_for_backend,
-                            key_name=key_name,
-                        )
-                    )
-
-                    # Note: canonical_usage capture is now handled inside
-                    # handle_streaming_response's finally block, which executes
-                    # when the stream completes (not here, before stream consumption)
-
-                    # Check cancellation status before returning streaming result
-                    # If cancelled, treat result as non-deliverable
-                    if (
-                        self._cancellation_coordinator is not None
-                        and session_key is not None
-                        and self._cancellation_coordinator.is_cancelled(session_key)
-                    ):
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info(
-                                "Backend call completed but session was cancelled - "
-                                "treating streaming result as non-deliverable",
-                                extra={"session_key": session_key.primary_id},
-                            )
-                        raise SessionCancelledError(session_key=session_key)
-
-                    return streaming_result
 
                 # Step 11: Handle non-streaming response
                 # Wire-capture: capture inbound response
-                key_name = self._wire_capture_orchestrator.detect_key_name(backend_type)
-                # Serialize content for capture (best effort)
-                response_content: Any = result
-                if hasattr(result, "model_dump") and not isinstance(result, dict):
-                    response_content = result.model_dump()  # type: ignore[attr-defined]
-                elif hasattr(result, "__dict__"):
-                    response_content = result.__dict__
-
-                # Extract canonical usage from envelope if present
-                canonical_usage_for_capture: CanonicalUsageRecord | None = None
-                if (
-                    hasattr(result, "canonical_usage")
-                    and result.canonical_usage is not None
-                ):
-                    canonical_usage_for_capture = result.canonical_usage
-
-                await self._wire_capture_orchestrator.capture_inbound_response(
-                    context=context,
-                    session_id=getattr(context, "session_id", None),
-                    backend_type=backend_type,
-                    effective_model=effective_model,
-                    key_name=key_name,
-                    response_content=response_content,  # type: ignore[reportUnknownArgumentType]
-                    canonical_usage=canonical_usage_for_capture,
-                )
-
-                # Check cancellation status before returning non-streaming result
-                # If cancelled, treat result as non-deliverable
-                if (
-                    self._cancellation_coordinator is not None
-                    and session_key is not None
-                    and self._cancellation_coordinator.is_cancelled(session_key)
-                ):
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Backend call completed but session was cancelled - "
-                            "treating non-streaming result as non-deliverable",
-                            extra={"session_key": session_key.primary_id},
-                        )
-                    raise SessionCancelledError(session_key=session_key)
-
-                return await self._usage_accounting.handle_non_streaming_response(
-                    result=result,
-                    backend_type=backend_type,
-                    effective_model=effective_model,
-                    session_id_for_backend=session_id_for_backend,
-                    context=context,
-                )
+                if isinstance(result, ResponseEnvelope):
+                    return await self._handle_non_streaming_response(
+                        result=result,
+                        backend_type=backend_type,
+                        effective_model=effective_model,
+                        context=context,
+                        session_id_for_backend=session_id_for_backend,
+                        session_key=session_key,
+                    )
+                
+                # Should be unreachable if result is not None and matches types
+                return result # type: ignore[return-value]
 
             except asyncio.CancelledError:
                 raise

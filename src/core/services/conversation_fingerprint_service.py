@@ -162,7 +162,7 @@ class ConversationFingerprintService:
         if content is None:
             # Check for tool calls
             if message.tool_calls:
-                tool_names = [tc.function.name for tc in message.tool_calls]
+                tool_names = [tc.function.name for tc in message.tool_calls if tc.function.name]
                 return f"tool_calls:{','.join(tool_names)}"
             return "empty"
 
@@ -314,7 +314,7 @@ class ConversationFingerprintService:
 
         if content is None:
             if message.tool_calls:
-                tool_names = [tc.function.name for tc in message.tool_calls]
+                tool_names = [tc.function.name for tc in message.tool_calls if tc.function.name]
                 return " ".join(tool_names)
             return ""
 

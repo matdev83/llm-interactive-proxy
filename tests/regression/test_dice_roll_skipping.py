@@ -5,7 +5,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-
 from src.core.domain.configuration.replacement_config import ReplacementConfig
 from src.core.domain.request_context import RequestContext
 from src.core.services.model_replacement_service import ModelReplacementService

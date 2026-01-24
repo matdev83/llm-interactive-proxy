@@ -11,7 +11,7 @@ import base64
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pydantic
 
@@ -42,6 +42,8 @@ class StreamingContent:
 
     def __post_init__(self) -> None:
         """Validate the streaming content after initialization."""
+        self._validate()
+
         if self.is_empty is None:
             self.is_empty = self._compute_is_empty()
         else:
@@ -54,9 +56,9 @@ class StreamingContent:
         if self.is_empty and not computed_is_empty:
             self.is_empty = computed_is_empty
 
-        self._validate()
         self._synchronize_stream_id()
         self._synchronize_completion_state()
+
 
     def _synchronize_stream_id(self) -> None:
         """Ensure stream_id is reflected in both attribute and metadata."""
@@ -91,31 +93,16 @@ class StreamingContent:
         Raises:
             ValueError: If validation fails
         """
-        # Validate content type
-        if not isinstance(self.content, str | dict | bytes):
+        if not isinstance(cast(Any, self.content), (str, dict, bytes)):
             raise ValueError(
-                f"content must be str, dict, or bytes, got {type(self.content)}"
+                f"content must be str, dict, or bytes, got {type(self.content).__name__}"
             )
 
-        # Validate metadata is a dictionary
-        if not isinstance(self.metadata, dict):
-            raise ValueError(f"metadata must be dict, got {type(self.metadata)}")
+        if not isinstance(cast(Any, self.metadata), dict):
+            raise ValueError(f"metadata must be dict, got {type(self.metadata).__name__}")
 
-        # Validate boolean flags
-        if not isinstance(self.is_done, bool):
-            raise ValueError(f"is_done must be bool, got {type(self.is_done)}")
-        if not isinstance(self.is_empty, bool):
-            raise ValueError(f"is_empty must be bool, got {type(self.is_empty)}")
-        if not isinstance(self.is_cancellation, bool):
-            raise ValueError(
-                f"is_cancellation must be bool, got {type(self.is_cancellation)}"
-            )
-
-        # Validate stream_id if present
-        if self.stream_id is not None and not isinstance(self.stream_id, str):
-            raise ValueError(
-                f"stream_id must be str or None, got {type(self.stream_id)}"
-            )
+        if not isinstance(cast(Any, self.is_done), bool):
+            raise ValueError(f"is_done must be bool, got {type(self.is_done).__name__}")
 
         # Validate metadata schema for required fields
         if self.metadata:
@@ -139,7 +126,7 @@ class StreamingContent:
 
     def _compute_is_empty(self) -> bool:
         """Compute whether the chunk is empty based on its content and metadata."""
-        if isinstance(self.metadata, dict) and self.metadata.get("error"):
+        if self.metadata.get("error"):
             return False
 
         if self.content:
@@ -167,6 +154,7 @@ class StreamingContent:
 
         reasoning = self.metadata.get("reasoning")
         return not (isinstance(reasoning, str) and reasoning.strip())
+
 
     def _is_empty_completion_payload(self) -> bool:
         """Detect terminal payloads that do not carry any assistant content."""
@@ -217,14 +205,12 @@ class StreamingContent:
         """
         # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict first
         working_content = self.content
-        if (
-            not isinstance(working_content, str | dict | bytes)
-            and hasattr(working_content, "model_dump")
-            and callable(working_content.model_dump)
-        ):
-            working_content = working_content.model_dump()  # type: ignore[attr-defined]
+        model_dump = getattr(working_content, "model_dump", None)
+        if model_dump and callable(model_dump):
+            working_content = model_dump()
 
         content_value: str | dict | None
+
         if isinstance(working_content, bytes):
             try:
                 content_value = working_content.decode("utf-8")
@@ -261,12 +247,10 @@ class StreamingContent:
         Raises:
             ValueError: If required fields are missing or invalid
         """
-        if not isinstance(data, dict):
-            raise ValueError(f"Expected dict, got {type(data).__name__}")
-
         # Extract fields with defaults
         content = data.get("content", "")
         metadata = data.get("metadata", {})
+
         is_done = data.get("is_done", False)
         is_empty = data.get("is_empty")
         stream_id = data.get("stream_id")
@@ -320,7 +304,7 @@ class StreamingContent:
             need internal metadata fields, use the original StreamingContent
             instance directly rather than converting to typed contract.
         """
-        from src.core.domain.chat import ToolCall
+        from src.core.domain.chat import StreamingToolCall, ToolCall
         from src.core.domain.streaming.contracts import (
             StreamingChunk,
             StreamingErrorInfo,
@@ -349,32 +333,37 @@ class StreamingContent:
             payload = StreamingPayload(
                 kind="opaque_json_dict", opaque_json_dict=self.content
             )
-        elif isinstance(self.content, bytes):
+        else:
+            # self.content must be bytes based on type hint if we reached here
             binary_b64 = base64.b64encode(self.content).decode("utf-8")
             payload = StreamingPayload(kind="binary", binary_b64=binary_b64)
-        else:
-            # Fallback: convert to string
-            payload = StreamingPayload(kind="text", text=str(self.content))
 
         # Convert metadata
         metadata_dict = dict(self.metadata)
-        tool_calls: list[ToolCall] | None = None
+        tool_calls: list[ToolCall | StreamingToolCall] | None = None
         if "tool_calls" in metadata_dict:
             tool_calls_raw = metadata_dict.pop("tool_calls")
             if isinstance(tool_calls_raw, list):
                 tool_calls = []
                 for tc in tool_calls_raw:
-                    if isinstance(tc, ToolCall):
+                    if isinstance(tc, (ToolCall, StreamingToolCall)):
                         tool_calls.append(tc)
                     elif isinstance(tc, dict):
+                        # Try StreamingToolCall first as it's more suitable for streaming chunks
+                        # (e.g. has optional name/id and supports index)
                         try:
-                            tool_calls.append(ToolCall(**tc))
-                        except (pydantic.ValidationError, TypeError, ValueError):
-                            # If conversion fails, skip this tool call
-                            logger.warning(
-                                f"Failed to convert tool call dict to ToolCall: {tc}",
-                                exc_info=True,
-                            )
+                            tool_calls.append(StreamingToolCall(**tc))
+                        except (pydantic.ValidationError, TypeError, ValueError) as e1:
+                            try:
+                                tool_calls.append(ToolCall(**tc))
+                            except (pydantic.ValidationError, TypeError, ValueError) as e2:
+                                # If both fail, skip this tool call
+                                logger.warning(
+                                    f"Failed to convert tool call dict to StreamingToolCall (Error: {e1}) "
+                                    f"or ToolCall (Error: {e2}): {tc}",
+                                    exc_info=True,
+                                )
+
 
         error: StreamingErrorInfo | None = None
         if "error" in metadata_dict:

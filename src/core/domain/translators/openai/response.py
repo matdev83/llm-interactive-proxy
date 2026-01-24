@@ -4,6 +4,8 @@ import logging
 import time
 from typing import Any
 
+import pydantic
+
 from src.core.domain.chat import (
     CanonicalChatResponse,
     ChatCompletionChoice,
@@ -53,7 +55,7 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
                     try:
                         tool_call_obj = ToolCall(**tc)
                         validated_tool_calls.append(tool_call_obj)
-                    except (TypeError, ValueError) as e:
+                    except (pydantic.ValidationError, TypeError, ValueError) as e:
                         logger = logging.getLogger(__name__)
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(

@@ -18,11 +18,42 @@ properties:
     maximum: 1.0
     default: 0.0
     description: Probability (0.0-1.0) of triggering model replacement for a new session. 0.0 means never replace, 1.0 means always replace.
+  replacement_rules:
+    type: array
+    description: List of conditional replacement rules. Each rule specifies when to replace (from_pattern) and what to replace with (to_backend:to_model)
+    items:
+      type: object
+      required:
+        - from_pattern
+        - to_backend
+        - to_model
+      properties:
+        from_pattern:
+          type: string
+          description: |
+            Pattern to match against original models. Can be:
+            - "*" - matches all models (wildcard)
+            - "model-name" - partial match on model name (substring)
+            - "backend:model" - exact match on fully qualified identifier
+          examples:
+            - "*"
+            - "gpt-4"
+            - "openai:gpt-4"
+        to_backend:
+          type: string
+          description: Target backend to use for replacement (e.g., "qwen-oauth", "openai")
+        to_model:
+          type: string
+          description: Target model to use for replacement (e.g., "qwen3-coder-plus", "gpt-3.5-turbo")
+    default: []
   backend_model:
     type: string
     default: ""
-    description: Replacement backend and model in the format "backend:model" (e.g., "qwen-oauth:qwen3-coder-plus")
-    # Note: The pattern validation is handled by the code's validate_config() method
+    description: |
+      Legacy field for backward compatibility. If replacement_rules is empty and backend_model is set,
+      it will be automatically converted to a wildcard replacement rule.
+      Replacement backend and model in the format "backend:model" (e.g., "qwen-oauth:qwen3-coder-plus")
+      # Note: The pattern validation is handled by the code's validate_config() method
   turn_count:
     type: integer
     minimum: 1

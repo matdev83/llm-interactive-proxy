@@ -288,6 +288,10 @@ class StreamingExecutor:
 
     MAX_ERROR_JSON_SIZE = 32 * 1024  # 32KB limit for error JSON detection
     MAX_RATE_LIMIT_RETRY_SECONDS = 60.0
+    # Guardrail: avoid hammering the backend when the server reports a retry window
+    # of 0s (this happens in practice with some Gemini RESOURCE_EXHAUSTED responses).
+    # We still want to retry, but never in a hot loop.
+    MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS = 1.0
     STREAMING_KEEPALIVE_INTERVAL_SECONDS = 8.0
 
     def __init__(
@@ -448,7 +452,11 @@ class StreamingExecutor:
                     stream=True,
                 )
                 if logger.isEnabledFor(TRACE_LEVEL):
-                    logger.log(TRACE_LEVEL, "[STREAMING] Response received: status=%s", response.status_code)
+                    logger.log(
+                        TRACE_LEVEL,
+                        "[STREAMING] Response received: status=%s",
+                        response.status_code,
+                    )
 
             except requests.exceptions.Timeout as te:
                 logger.error(f"Streaming timeout calling {url}: {te}", exc_info=True)
@@ -523,14 +531,6 @@ class StreamingExecutor:
             ) -> Iterable[ProcessedResponse]:
                 nonlocal done, generated_text_parts, error_json_buffer_parts, current_thought_signature
 
-                # #region agent log
-                _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-                import json as _json_debug
-                if decoded_line and decoded_line.strip():
-                    with open(_log_path, "a", encoding="utf-8") as _f:
-                        _f.write(_json_debug.dumps({"location": "streaming_executor.py:_process_decoded_line", "message": "Processing line from Gemini", "data": {"line_preview": decoded_line[:500] if decoded_line else "None", "line_len": len(decoded_line) if decoded_line else 0}, "timestamp": __import__("time").time(), "hypothesisId": "G"}) + "\n")
-                # #endregion
-
                 if not decoded_line:
                     return
 
@@ -589,15 +589,10 @@ class StreamingExecutor:
 
                     if domain_chunk and domain_chunk.get("choices"):
                         if processor.should_skip_chunk(domain_chunk):
-                            # #region agent log
-                            _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-                            import json as _json_debug
-                            with open(_log_path, "a", encoding="utf-8") as _f:
-                                _f.write(_json_debug.dumps({"location": "streaming_executor.py:_process_decoded_line:skip", "message": "Skipping chunk", "data": {"chunk_preview": str(domain_chunk)[:500]}, "timestamp": __import__("time").time(), "hypothesisId": "G"}) + "\n")
-                            # #endregion
                             return
 
                         choice = domain_chunk["choices"][0]
+
                         delta = choice.get("delta", {}) or {}
 
                         # Buffer/apply thought signature if present
@@ -726,14 +721,6 @@ class StreamingExecutor:
                     ):
                         thought_signature_callback(raw_tool_calls, prepared.session_id)
 
-                    # #region agent log
-                    _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-                    import json as _json_debug
-                    _tc = domain_chunk.get("choices", [{}])[0].get("delta", {}).get("tool_calls")
-                    _content = domain_chunk.get("choices", [{}])[0].get("delta", {}).get("content")
-                    with open(_log_path, "a", encoding="utf-8") as _f:
-                        _f.write(_json_debug.dumps({"location": "streaming_executor.py:_process_decoded_line:yield", "message": "Yielding domain chunk", "data": {"has_tool_calls": bool(_tc), "tool_calls_preview": str(_tc)[:300] if _tc else None, "content_preview": str(_content)[:200] if _content else None, "finish_reason": domain_chunk.get("choices", [{}])[0].get("finish_reason")}, "timestamp": __import__("time").time(), "hypothesisId": "G"}) + "\n")
-                    # #endregion
                     yield ProcessedResponse(content=domain_chunk, metadata=metadata)
                     return
 
@@ -746,12 +733,6 @@ class StreamingExecutor:
             keepalive_created = int(time.time())
 
             def _build_keepalive() -> ProcessedResponse:
-                # #region agent log
-                _log_path = r"c:\Users\Mateusz\source\repos\llm-interactive-proxy\.cursor\debug.log"
-                import json as _json_debug
-                with open(_log_path, "a", encoding="utf-8") as _f:
-                    _f.write(_json_debug.dumps({"location": "streaming_executor.py:_build_keepalive", "message": "Building keepalive chunk", "data": {"model": prepared.effective_model, "session_id": prepared.session_id}, "timestamp": __import__("time").time(), "hypothesisId": "H"}) + "\n")
-                # #endregion
                 return ProcessedResponse(
                     content="",
                     metadata={
@@ -961,7 +942,9 @@ class StreamingExecutor:
                 # If we have no final stop chunk and no content, this is an empty response error
                 has_content = bool(generated_text_parts)
                 if not has_content:
-                    logger.warning("[STREAMING] Response completed without content or stop chunk - treating as error")
+                    logger.warning(
+                        "[STREAMING] Response completed without content or stop chunk - treating as error"
+                    )
                     error_message = "Backend returned empty response with no content."
                     error_chunk = processor.build_error_chunk(
                         message=error_message,
@@ -1025,7 +1008,11 @@ class StreamingExecutor:
                             decision.sleep_seconds,
                             attempt + 1,
                         )
-                    await asyncio.sleep(decision.sleep_seconds)
+                    sleep_seconds = max(
+                        decision.sleep_seconds,
+                        self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
+                    )
+                    await asyncio.sleep(sleep_seconds)
                     async for retry_chunk in self._stream_generator(
                         prepared=prepared,
                         url=url,
@@ -1299,6 +1286,10 @@ class StreamingExecutor:
             ):
                 with contextlib.suppress(Exception):
                     response.close()
+                sleep_seconds = max(
+                    sleep_seconds,
+                    self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
+                )
                 logger.info(
                     "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
                     sleep_seconds,

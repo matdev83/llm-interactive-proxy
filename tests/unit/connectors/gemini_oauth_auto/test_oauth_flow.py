@@ -5,13 +5,10 @@ Tests Requirement 1: OAuth2 Authorization Flow.
 Note: Browser and callback server tests are skipped - those require integration testing.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-
-
 from src.connectors.gemini_oauth_auto.errors import OAuthError
 from src.connectors.gemini_oauth_auto.oauth_flow import OAuthFlowService
 
@@ -197,11 +194,12 @@ class TestOAuthFlowService:
         oauth_service: OAuthFlowService,
     ) -> None:
         """Test authorize raises OAuthError on timeout."""
-        with patch("webbrowser.open"), \
-             patch("uvicorn.Server.serve", new_callable=AsyncMock):
-            
-            with pytest.raises(OAuthError, match="Authorization timed out"):
-                await oauth_service.authorize(timeout=1, open_browser=False)
+        with (
+            patch("webbrowser.open"),
+            patch("uvicorn.Server.serve", new_callable=AsyncMock),
+            pytest.raises(OAuthError, match="Authorization timed out"),
+        ):
+            await oauth_service.authorize(timeout=1, open_browser=False)
 
     @pytest.mark.asyncio
     async def test_exchange_code_network_error(

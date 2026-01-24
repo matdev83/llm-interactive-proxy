@@ -23,7 +23,7 @@ from src.core.config.app_config import AppConfig, load_config
 from src.core.config.parameter_resolution import ParameterResolution
 
 # Import backend connectors to ensure they register themselves
-from src.core.services import backend_imports  # noqa: F401
+from src.core.services import backend_imports
 from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)

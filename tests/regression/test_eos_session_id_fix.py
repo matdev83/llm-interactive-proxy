@@ -6,13 +6,14 @@ session identifiers even when the client does not provide one, ensuring that
 the EoS adapter always receives a non-empty session_id.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.core.services.backend_completion_flow.service import BackendCompletionFlow
-from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-from src.core.domain.request_context import RequestContext, ProcessingContext
+import pytest
 from src.core.common.exceptions import BackendError
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+from src.core.domain.request_context import ProcessingContext, RequestContext
+from src.core.services.backend_completion_flow.service import BackendCompletionFlow
+
 
 @pytest.fixture
 def mock_dependencies():

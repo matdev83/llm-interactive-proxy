@@ -67,6 +67,7 @@ async def test_full_request_flow_with_replacement_active() -> None:
     session_id = "test-session"
 
     # Check if replacement should trigger
+    service.should_replace(session_id, context)  # First turn skip
     should_replace = service.should_replace(session_id, context)
     assert should_replace, "Replacement should trigger with probability=1.0"
 

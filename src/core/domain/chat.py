@@ -78,8 +78,10 @@ MessageContentPart = (
 class FunctionCall(DomainModel):
     """Represents a function call within a tool call."""
 
-    name: str
-    arguments: str
+    model_config = ConfigDict(extra="allow")
+
+    name: str | None = None
+    arguments: str | None = None
 
 
 class ToolCall(DomainModel):
@@ -90,9 +92,10 @@ class ToolCall(DomainModel):
         extra="allow",
     )
 
-    id: str
+    id: str | None = None
     type: str = "function"
     function: FunctionCall
+
     # Extra content for provider-specific metadata (e.g., Gemini thought_signature)
     # We don't use Field(exclude=True) because we want to include it when it has a value
     extra_content: dict[str, Any] | None = None
@@ -278,14 +281,9 @@ class ChatMessage(DomainModel):
         if isinstance(content, DomainModel):
             return content.model_dump()
 
-        if isinstance(content, Sequence):
-            serialized_parts: list[Any] = []
-            for part in content:
-                if isinstance(part, DomainModel):
-                    serialized_parts.append(part.model_dump())
-                else:
-                    serialized_parts.append(part)
-            return serialized_parts
+        # content is Sequence[MessageContentPart]
+        return [part.model_dump() for part in content]
+
 
         return content
 
@@ -511,8 +509,11 @@ class CanonicalChatResponse(ChatResponse):
 class StreamingFunctionCall(DomainModel):
     """Represents a partial function call within a streaming tool call."""
 
+    model_config = ConfigDict(extra="allow")
+
     name: str | None = None
     arguments: str | None = None
+
 
 
 class StreamingToolCall(DomainModel):

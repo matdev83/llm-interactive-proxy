@@ -750,12 +750,7 @@ class StreamingContentConverter:
                     logger.debug("[STREAMING] Client disconnected during stream")
             raise
         except Exception as e:
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    "Error during streaming content conversion: %s",
-                    e,
-                    exc_info=True,
-                )
+            self._log_stream_conversion_exception(e)
             error_payload: dict[str, JsonValue] = {
                 "message": str(e),
                 "type": "api_error",
@@ -779,6 +774,25 @@ class StreamingContentConverter:
                 content="",
                 metadata={"error": error_payload, "finish_reason": "error"},
                 is_done=True,
+            )
+
+    def _log_stream_conversion_exception(self, exc: Exception) -> None:
+        """Log streaming conversion exceptions with appropriate verbosity."""
+        try:
+            from src.core.common.exceptions import LLMProxyError
+
+            is_expected = isinstance(exc, LLMProxyError)
+        except Exception:
+            is_expected = False
+
+        if not logger.isEnabledFor(logging.ERROR):
+            return
+
+        if is_expected:
+            logger.error("Streaming content conversion terminated: %s", exc)
+        else:
+            logger.error(
+                "Error during streaming content conversion: %s", exc, exc_info=True
             )
 
     def _get_sse_decoder(self) -> ISSEDecoder:
