@@ -160,22 +160,21 @@ class RequestProcessor(IRequestProcessor):
         original_backend = context.backend or parsed.backend_type
         original_model = parsed.model_name
 
-        # Ensure context.backend is populated even if not replacing, 
-        # as downstream services rely on it.
+        # Ensure context attributes are populated for downstream services and fallback logic
         if not context.backend:
             context.backend = original_backend
         if not context.effective_model:
             context.effective_model = original_model
-        if not context.requested_model:
-            context.requested_model = original_model
 
         if logger.isEnabledFor(logging.DEBUG):
+
             logger.debug(
                 f"Model replacement resolution: original_backend='{original_backend}', "
                 f"original_model='{original_model}', "
                 f"backend_type_from_state='{backend_type}', "
                 f"replacement_service_present={self._replacement_service is not None}"
             )
+
 
         if (
             self._replacement_service is not None
@@ -237,6 +236,69 @@ class RequestProcessor(IRequestProcessor):
         )
 
         # Execute backend and perform persistence side effects
-        return await self._backend_executor.execute(
-            context, session, session_id, backend_request, request_data
-        )
+        try:
+            return await self._backend_executor.execute(
+                context, session, session_id, backend_request, request_data
+            )
+        except Exception as e:
+            # Check if this failure happened while using a replacement model
+            if (
+                self._replacement_service is not None
+                and context.backend
+                and context.effective_model
+            ):
+                state = self._replacement_service.get_state(session_id)
+                # If failure occurred on replacement model
+                if (
+                    state.active
+                    and context.backend == state.replacement_backend
+                    and context.effective_model == state.replacement_model
+                ):
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            f"Replacement model {context.backend}:{context.effective_model} failed: {e}. "
+                            f"Falling back to original model for session {session_id}."
+                        )
+
+                    # Deactivate replacement immediately due to failure
+                    state.deactivate()
+
+                    # Revert context to original backend
+                    context.backend = state.original_backend
+                    context.effective_model = state.original_model
+                    
+                    # Revert request model
+                    request_data_fallback = request_data.model_copy(
+                        update={"model": f"{state.original_backend}:{state.original_model}"}
+                    )
+                    
+                    # Prepare new backend request for fallback
+                    # We need to re-prepare because backend-specific logic might differ
+                    fallback_backend_request = await self._backend_preparer.prepare(
+                        context, session_id, request_data_fallback, command_result
+                    )
+                    
+                    if fallback_backend_request:
+                        # Re-transform if needed
+                        fallback_backend_request = await self._transform_pipeline.transform(
+                            context, session, session_id, fallback_backend_request
+                        )
+                        
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                f"Retrying with original model {state.original_backend}:{state.original_model} "
+                                f"for session {session_id}"
+                            )
+                            
+                        # Retry execution with original model
+                        return await self._backend_executor.execute(
+                            context,
+                            session,
+                            session_id,
+                            fallback_backend_request,
+                            request_data_fallback,
+                        )
+            
+            # If we can't handle it or it wasn't a replacement failure, re-raise
+            raise
+
