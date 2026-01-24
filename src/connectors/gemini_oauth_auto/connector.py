@@ -127,74 +127,69 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize connector and load accounts."""
-        backend_config = getattr(self.config.backends, "gemini_oauth_auto", None)
-        extras = backend_config.extra if backend_config else {}
+        backend_config = self.config.backends.get("gemini-oauth-auto")
+        extras_dict = backend_config.extra if backend_config else {}
+        
+        from src.connectors.gemini_oauth_auto.models import GeminiOAuthAutoConfig
+        try:
+            auto_config = GeminiOAuthAutoConfig(**extras_dict)
+        except Exception as e:
+            logger.warning("Invalid gemini-oauth-auto configuration, using defaults: %s", e)
+            auto_config = GeminiOAuthAutoConfig()
 
         current = self._enable_gemini_oauth_auto_backend_debugging_override
         self._enable_gemini_oauth_auto_backend_debugging_override = (
             kwargs.get("enable_gemini_oauth_auto_backend_debugging_override")
             if "enable_gemini_oauth_auto_backend_debugging_override" in kwargs
-            else extras.get(
+            else extras_dict.get(
                 "enable_gemini_oauth_auto_backend_debugging_override", current
             )
         )
 
         logger.info("Initializing Gemini OAuth Auto backend: %s", self.name)
 
-        # Set the API base URL for Google Code Assist API
         self.gemini_api_base_url = kwargs.get(
             "gemini_api_base_url", "https://cloudcode-pa.googleapis.com"
         )
         self.api_url = self.gemini_api_base_url
 
-        # Apply gemini-oauth-auto specific configuration
-        storage_path = extras.get("storage_path")
-        refresh_buffer_seconds = extras.get("refresh_buffer_seconds")
-        accounts_allowlist = self._parse_accounts_allowlist(extras.get("accounts"))
+        storage_path = auto_config.storage_path
+        refresh_buffer_seconds = auto_config.refresh_buffer_seconds
+        accounts_allowlist = self._parse_accounts_allowlist(auto_config.accounts)
+        selection_strategy = auto_config.selection_strategy
 
-        refresh_buffer_ms: int | None = None
-        if refresh_buffer_seconds is not None:
-            with contextlib.suppress(TypeError, ValueError):
-                refresh_buffer_ms = int(float(refresh_buffer_seconds) * 1000)
+        refresh_buffer_ms = int(refresh_buffer_seconds * 1000)
 
-        # Rebuild internal services with configured storage path / selection options.
-        # Tests may replace these services after construction, so we only rebuild
-        # when a storage_path is explicitly provided.
-        if storage_path:
-            self._token_storage = TokenStorageService(storage_path=storage_path)
-            self._token_refresh = TokenRefreshService(
-                storage=self._token_storage,
-                http_client=self.client,
-            )
+        self._token_storage = TokenStorageService(storage_path=storage_path)
+        self._token_refresh = TokenRefreshService(
+            storage=self._token_storage,
+            http_client=self.client,
+        )
 
-        # Always rebuild selector to apply allowlist / refresh buffer.
         self._account_selector = AccountSelectorService(
             storage=self._token_storage,
             refresh_service=self._token_refresh,
-            refresh_buffer_ms=refresh_buffer_ms or 300_000,
+            refresh_buffer_ms=refresh_buffer_ms,
             allowed_account_ids=accounts_allowlist,
+            selection_strategy=selection_strategy,
         )
 
-        # Load accounts via selector
         await self._account_selector.reload_accounts()
 
-        # Select first account
         account = await self._account_selector.get_next_account()
         self._sync_selected_account_to_base()
 
         if account:
             self.is_functional = True
             logger.info(
-                "Gemini OAuth Auto backend initialized with %d accounts",
+                "Gemini OAuth Auto backend initialized with %d accounts (strategy: %s)",
                 self._account_selector.get_available_count(),
+                selection_strategy,
             )
         else:
             logger.warning("Gemini OAuth Auto backend initialized with NO valid accounts")
             self.is_functional = False
 
-        # We skip super().initialize() because it tries to use
-        # GeminiCredentialCoordinator which we are bypassing.
-        # But we still need model discovery if we are functional.
         if self.is_functional:
             await self._ensure_models_loaded()
 
@@ -305,16 +300,19 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         if effective_model.startswith(prefix):
             effective_model = effective_model[len(prefix) :]
 
-        return await super().chat_completions(
+        result = await super().chat_completions(
             request_data=request.request,
             processed_messages=list(request.processed_messages),
             effective_model=effective_model,
             identity=request.identity,
             cancellation_token=request.cancellation_token,
             cancellation_coordinator=request.cancellation_coordinator,
-            # Pass any extra options (provider-specific) as kwargs
             **cast(dict[str, Any], request.options),
         )
+
+        await self._account_selector.mark_current_account_used()
+        
+        return result
 
     async def _rotate_and_sync(self) -> None:
         """Rotate to next account and sync credentials into gemini_base."""

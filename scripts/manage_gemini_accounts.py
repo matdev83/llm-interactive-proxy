@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add src to sys.path to allow imports from the project
@@ -107,6 +108,28 @@ async def cmd_remove(storage: TokenStorageService, args: argparse.Namespace) -> 
         sys.exit(1)
 
 
+async def cmd_show(storage: TokenStorageService, args: argparse.Namespace) -> None:
+    account = await storage.get_account(args.account_id)
+    if not account:
+        print(f"Error: Account '{args.account_id}' not found.")
+        sys.exit(1)
+
+    if args.json:
+        print(account.model_dump_json(indent=2))
+        return
+
+    print(f"Account Details: {account.account_id}")
+    print("-" * 40)
+    print(f"Email:         {account.email}")
+    print(f"Status:        {account.status}")
+    print(f"Created At:    {account.created_at}")
+    print(f"Updated At:    {account.updated_at}")
+    print(f"Last Used:     {account.last_used or 'Never'}")
+    print(f"Expiry Date:   {account.expiry_date} ({datetime.fromtimestamp(account.expiry_date / 1000, tz=timezone.utc).isoformat()})")
+    print(f"Needs Reauth:  {account.needs_reauth}")
+    print(f"Scopes:        {account.scope}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage Gemini OAuth accounts")
     parser.add_argument(
@@ -121,6 +144,10 @@ def main() -> None:
     # List command
     list_parser = subparsers.add_parser("list", help="List registered accounts")
     list_parser.add_argument("--json", action="store_true", help="Output in JSON format")
+
+    show_parser = subparsers.add_parser("show", help="Show detailed account information")
+    show_parser.add_argument("account_id", help="Identifier of the account to show")
+    show_parser.add_argument("--json", action="store_true", help="Output in JSON format")
 
     # Add command
     add_parser = subparsers.add_parser("add", help="Add a new Google account")
@@ -158,6 +185,8 @@ def main() -> None:
 
     if args.command == "list":
         asyncio.run(cmd_list(storage, args))
+    elif args.command == "show":
+        asyncio.run(cmd_show(storage, args))
     elif args.command == "add":
         asyncio.run(cmd_add(storage, args))
     elif args.command == "update":

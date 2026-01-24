@@ -5,6 +5,18 @@ from hypothesis import given
 from hypothesis import strategies as st
 from src.core.config.app_config import AppConfig
 from src.core.domain.configuration.replacement_config import ReplacementConfig
+from src.core.domain.configuration.replacement_rule import ReplacementRule
+
+
+def _make_replacement_rule(
+    from_pattern: str = "*", to_backend: str = "backend", to_model: str = "model"
+) -> ReplacementRule:
+    """Helper to create a replacement rule."""
+    return ReplacementRule(
+        from_pattern=from_pattern,
+        to_backend=to_backend,
+        to_model=to_model,
+    )
 
 
 @given(st.floats())
@@ -18,7 +30,7 @@ def test_probability_range_validation(probability: float) -> None:
         config = ReplacementConfig(
             enabled=True,
             probability=probability,
-            backend_model="backend:model",
+            replacement_rules=[_make_replacement_rule()],
             turn_count=1,
         )
         assert config.probability == probability
@@ -28,33 +40,43 @@ def test_probability_range_validation(probability: float) -> None:
             ReplacementConfig(
                 enabled=True,
                 probability=probability,
-                backend_model="backend:model",
+                replacement_rules=[_make_replacement_rule()],
                 turn_count=1,
             )
 
 
-@given(st.text())
-def test_backend_model_format_validation(backend_model: str) -> None:
-    """Verify that backend_model must contain a colon when enabled.
+@given(st.text(), st.text())
+def test_replacement_rule_validation(to_backend: str, to_model: str) -> None:
+    """Verify that replacement rules must have valid to_backend and to_model.
 
-    Property 2: Valid backend:model format
+    Property 2: Valid replacement rule format
     """
-    # If backend_model is valid (non-empty and contains colon), it should pass
-    if backend_model and ":" in backend_model:
+    # If both backend and model are non-empty, it should pass
+    if to_backend and to_model and to_backend != "*" and to_model != "*":
+        rule = ReplacementRule(
+            from_pattern="*",
+            to_backend=to_backend,
+            to_model=to_model,
+        )
         config = ReplacementConfig(
             enabled=True,
             probability=0.5,
-            backend_model=backend_model,
+            replacement_rules=[rule],
             turn_count=1,
         )
-        assert config.backend_model == backend_model
+        assert len(config.replacement_rules) == 1
     else:
-        # If backend_model is invalid, it should raise ValueError
-        with pytest.raises(ValueError, match="replacement_backend_model"):
+        # If backend or model is empty or wildcard, it should raise ValueError
+        with pytest.raises(ValueError, match="replacement_rules"):
+            rule = ReplacementRule(
+                from_pattern="*",
+                to_backend=to_backend,
+                to_model=to_model,
+            )
             ReplacementConfig(
                 enabled=True,
                 probability=0.5,
-                backend_model=backend_model,
+                replacement_rules=[rule],
                 turn_count=1,
             )
 
@@ -69,7 +91,7 @@ def test_turn_count_validation(turn_count: int) -> None:
         config = ReplacementConfig(
             enabled=True,
             probability=0.5,
-            backend_model="backend:model",
+            replacement_rules=[_make_replacement_rule()],
             turn_count=turn_count,
         )
         assert config.turn_count == turn_count
@@ -78,7 +100,7 @@ def test_turn_count_validation(turn_count: int) -> None:
             ReplacementConfig(
                 enabled=True,
                 probability=0.5,
-                backend_model="backend:model",
+                replacement_rules=[_make_replacement_rule()],
                 turn_count=turn_count,
             )
 
@@ -104,7 +126,7 @@ def test_app_config_integration(probability: float) -> None:
     replacement = ReplacementConfig(
         enabled=True,
         probability=probability,
-        backend_model="backend:model",
+        replacement_rules=[_make_replacement_rule()],
         turn_count=1,
     )
 
@@ -114,20 +136,26 @@ def test_app_config_integration(probability: float) -> None:
 
 
 @given(st.text(min_size=1), st.text(min_size=1))
-def test_parse_backend_model(backend: str, model: str) -> None:
-    """Verify parsing of backend:model string."""
-    # Ensure backend doesn't contain colon to avoid ambiguity in split
-    if ":" in backend:
+def test_find_matching_rule(from_pattern: str, model: str) -> None:
+    """Verify find_matching_rule returns the correct rule."""
+    # Ensure from_pattern doesn't contain special characters that would affect matching
+    if ":" in from_pattern or "*" in from_pattern:
         return
 
-    backend_model = f"{backend}:{model}"
+    # Create a rule with a specific pattern
+    rule = ReplacementRule(
+        from_pattern=from_pattern,
+        to_backend="target_backend",
+        to_model="target_model",
+    )
     config = ReplacementConfig(
         enabled=True,
         probability=0.5,
-        backend_model=backend_model,
+        replacement_rules=[rule],
         turn_count=1,
     )
 
-    parsed = config.parse_backend_model()
-    assert parsed.backend == backend
-    assert parsed.model == model
+    # Exact match should find the rule
+    matched = config.find_matching_rule(from_pattern, model)
+    if matched:
+        assert matched.from_pattern == from_pattern

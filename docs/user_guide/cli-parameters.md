@@ -346,6 +346,7 @@ See [Random Model Replacement Feature Guide](features/random-model-replacement.m
  | CLI Argument | Environment Variable | Description |
  | :--- | :--- | :--- |
  | `--enable-replacement` | `REPLACEMENT_ENABLED=true` | Enable random model replacement. |
+ | `--disable-replacement` | `REPLACEMENT_ENABLED=false` | Disable random model replacement. |
  | `--replacement-probability FLOAT` | `REPLACEMENT_PROBABILITY` | Probability of replacement (0.0 to 1.0). |
  | `--random-model-replacement-from-to FROM=TO` | `REPLACEMENT_RULES` | Conditional replacement rule. Can be specified multiple times. Format: `<from-model-name>=<to-model-name>`. `<from-model-name>` can be `*` (wildcard), `model-name` (partial match), or `backend:model` (exact match). `<to-model-name>` must be `backend:model`. |
  | `--replacement-backend-model BACKEND:MODEL` | `REPLACEMENT_BACKEND_MODEL` | **Deprecated**: Use `--random-model-replacement-from-to` instead. Backend and model to use for replacement (converted to wildcard rule). |

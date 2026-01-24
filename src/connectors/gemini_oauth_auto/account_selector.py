@@ -37,6 +37,7 @@ class AccountSelectorService(IAccountSelector):
         *,
         refresh_buffer_ms: int = DEFAULT_REFRESH_BUFFER_MS,
         allowed_account_ids: set[str] | None = None,
+        selection_strategy: str = "round-robin",
     ) -> None:
         """Initialize account selector.
 
@@ -46,11 +47,13 @@ class AccountSelectorService(IAccountSelector):
             refresh_buffer_ms: Token refresh buffer in milliseconds.
             allowed_account_ids: Optional allowlist of account IDs. If set, only these
                 accounts will be used for selection.
+            selection_strategy: Strategy for account selection (round-robin, random, first-available).
         """
         self._storage = storage
         self._refresh_service = refresh_service
         self._refresh_buffer_ms = refresh_buffer_ms
         self._allowed_account_ids = allowed_account_ids
+        self._selection_strategy = selection_strategy
 
         self._current_account: StoredAccount | None = None
         self._accounts: list[StoredAccount] = []
@@ -78,7 +81,7 @@ class AccountSelectorService(IAccountSelector):
         return [acc for acc in accounts if acc.account_id in self._allowed_account_ids]
 
     async def get_next_account(self) -> StoredAccount | None:
-        """Get next valid account in rotation.
+        """Get next valid account based on selection strategy.
 
         Advances the rotation index and returns the next usable account.
         Skips accounts with needs_reauth=True.
@@ -94,34 +97,25 @@ class AccountSelectorService(IAccountSelector):
             logger.warning("No valid accounts available for selection")
             return None
 
-        # Round-robin selection
-        if self._rotation_index >= len(available):
-            self._rotation_index = 0
+        account = self._select_account_from_available(available)
+        if not account:
+            return None
 
-        account = available[self._rotation_index]
-        self._rotation_index = (self._rotation_index + 1) % len(available)
-
-        # Try to refresh if near expiry
         try:
             account = await self._refresh_service.refresh_if_needed(
                 account, buffer_ms=self._refresh_buffer_ms
             )
-            # Update account in our list with refreshed version
             self._update_account_in_list(account)
         except TokenRefreshError as e:
             if e.needs_reauth:
-                # Account needs reauthorization, mark it and try next
                 logger.warning(
                     "Account %s needs reauth, trying next account",
                     account.account_id,
                 )
-                # Update our local list with needs_reauth flag
                 account = account.model_copy(update={"needs_reauth": True})
                 self._update_account_in_list(account)
-                # Recursively try next account
                 return await self.get_next_account()
 
-            # For other refresh errors, still return the account (it might work).
             logger.warning(
                 "Failed to refresh account %s, using anyway: %s",
                 account.account_id,
@@ -131,6 +125,44 @@ class AccountSelectorService(IAccountSelector):
         self._current_account = account
         logger.debug("Selected account: %s", account.account_id)
         return account
+
+    def _select_account_from_available(
+        self, available: list[StoredAccount]
+    ) -> StoredAccount | None:
+        if not available:
+            return None
+
+        if self._selection_strategy == "random":
+            import random
+
+            if len(available) > 1 and self._current_account:
+                others = [
+                    acc
+                    for acc in available
+                    if acc.account_id != self._current_account.account_id
+                ]
+                return random.choice(others)
+            return random.choice(available)
+
+        if self._selection_strategy == "first-available":
+            return available[0]
+
+        if self._rotation_index >= len(available):
+            self._rotation_index = 0
+
+        account = available[self._rotation_index]
+        self._rotation_index = (self._rotation_index + 1) % len(available)
+        return account
+
+    async def mark_current_account_used(self) -> None:
+        if not self._current_account:
+            return
+
+        updated = self._current_account.mark_used()
+        self._current_account = updated
+        self._update_account_in_list(updated)
+        await self._storage.save_account(updated)
+        logger.debug("Updated last_used for account: %s", updated.account_id)
 
     def _update_account_in_list(self, updated: StoredAccount) -> None:
         """Update an account in our local list.

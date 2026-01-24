@@ -197,23 +197,76 @@ class TestAccountSelectorService:
         assert selected.account_id == "account-2"
 
     @pytest.mark.asyncio
-    async def test_refresh_buffer_is_passed_through(
+    async def test_random_strategy_picks_different_account(
         self,
         mock_storage: MagicMock,
         mock_refresh_service: MagicMock,
     ) -> None:
-        """Selector should pass configured buffer_ms to refresh service."""
-        account = create_valid_account("account-1", hours_until_expiry=0)
-        mock_storage.load_all_accounts = AsyncMock(return_value=[account])
-
+        accounts = [
+            create_valid_account("acc-1"),
+            create_valid_account("acc-2"),
+        ]
+        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
+        
         selector = AccountSelectorService(
             storage=mock_storage,
             refresh_service=mock_refresh_service,
-            refresh_buffer_ms=1234,
+            selection_strategy="random"
         )
+        
+        first = await selector.get_next_account()
+        assert first is not None
+        
+        second = await selector.get_next_account()
+        assert second is not None
+        assert second.account_id != first.account_id
 
+    @pytest.mark.asyncio
+    async def test_first_available_strategy(
+        self,
+        mock_storage: MagicMock,
+        mock_refresh_service: MagicMock,
+    ) -> None:
+        accounts = [
+            create_valid_account("acc-1"),
+            create_valid_account("acc-2"),
+        ]
+        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
+        
+        selector = AccountSelectorService(
+            storage=mock_storage,
+            refresh_service=mock_refresh_service,
+            selection_strategy="first-available"
+        )
+        
+        first = await selector.get_next_account()
+        assert first is not None
+        assert first.account_id == "acc-1"
+        
+        second = await selector.get_next_account()
+        assert second is not None
+        assert second.account_id == "acc-1"
+
+    @pytest.mark.asyncio
+    async def test_mark_current_account_used(
+        self,
+        selector: AccountSelectorService,
+        mock_storage: MagicMock,
+    ) -> None:
+        account = create_valid_account("acc-1")
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account])
+        
         await selector.get_next_account()
-        mock_refresh_service.refresh_if_needed.assert_awaited()
-        _, kwargs = mock_refresh_service.refresh_if_needed.await_args
-        assert kwargs.get("buffer_ms") == 1234
+        current = selector.get_current_account()
+        assert current is not None
+        assert current.last_used is None
+        
+        await selector.mark_current_account_used()
+        
+        updated = selector.get_current_account()
+        assert updated is not None
+        assert updated.last_used is not None
+        mock_storage.save_account.assert_called()
+        
+        assert selector._accounts[0].last_used is not None
 

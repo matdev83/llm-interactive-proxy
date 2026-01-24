@@ -103,11 +103,6 @@ class EndOfSessionService(IEndOfSessionService):
 
         # Fast-path dedupe check (in-memory cache)
         if await self.has_ended(signal.session_id):
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Session %s already ended (in-memory cache), skipping emission",
-                    signal.session_id,
-                )
             return
 
         # Attempt atomic DB claim

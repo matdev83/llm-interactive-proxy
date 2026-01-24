@@ -30,10 +30,11 @@ def mock_config() -> MagicMock:
     
     # Configure backends structure
     backends = MagicMock()
-    # Configure gemini_oauth_auto backend config
     gemini_config = MagicMock()
-    gemini_config.extra = {} # Empty dict so .get() returns None
+    gemini_config.extra = {} 
+    
     backends.gemini_oauth_auto = gemini_config
+    backends.get.side_effect = lambda key: gemini_config if key in ["gemini-oauth-auto", "gemini_oauth_auto"] else None
     
     config.backends = backends
     return config
@@ -136,26 +137,16 @@ class TestGeminiOAuthAutoIntegration:
         (storage_path / "acc-2.json").write_text(acc2.model_dump_json())
         
         async with httpx.AsyncClient() as client:
+            mock_config.backends.get("gemini-oauth-auto").extra["storage_path"] = str(storage_path)
+            
             connector = GeminiOAuthAutoConnector(
                 client=client,
                 config=mock_config,
                 translation_service=mock_translation_service
             )
-            # Inject our test storage path
-            connector._token_storage = TokenStorageService(storage_path=storage_path)
-            connector._token_refresh = TokenRefreshService(
-                storage=connector._token_storage, 
-                http_client=client
-            )
-            connector._account_selector = AccountSelectorService(
-                storage=connector._token_storage, 
-                refresh_service=connector._token_refresh
-            )
             
-            # Mock _ensure_models_loaded to avoid API calls
             connector._ensure_models_loaded = AsyncMock()
             
-            # Initialize
             await connector.initialize()
             
             assert connector.is_functional is True
