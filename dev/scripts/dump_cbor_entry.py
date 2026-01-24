@@ -1,8 +1,9 @@
-import cbor2
 import json
 import sys
 import zlib
-from pathlib import Path
+
+import cbor2
+
 
 def dump_cbor(path, entry_index):
     entries = []

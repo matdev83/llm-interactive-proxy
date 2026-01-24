@@ -1,14 +1,17 @@
 import asyncio
-import httpx
-import json
 import sys
 from pathlib import Path
+
+import httpx
 
 PROJECT_ROOT = Path("c:/Users/Mateusz/source/repos/llm-interactive-proxy")
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.connectors.gemini_base.credential_providers.sqlite_provider import AntigravitySQLiteCredentialProvider
+from src.connectors.gemini_base.credential_providers.sqlite_provider import (
+    AntigravitySQLiteCredentialProvider,
+)
+
 
 async def probe_model(client, base_url, headers, project, model, request_type="agent"):
     print(f"\nProbing {model} ({request_type}) on {base_url}...")

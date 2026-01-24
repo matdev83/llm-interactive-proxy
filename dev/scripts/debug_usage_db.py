@@ -1,14 +1,16 @@
 import asyncio
 import os
 import sys
-from sqlalchemy import select, func
+
+from sqlalchemy import func, select
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from src.core.config.app_config import load_config
 from src.core.database.engine import init_database
-from src.core.database.models.usage import UsageRecordTable, SessionMetricsTable
+from src.core.database.models.usage import SessionMetricsTable, UsageRecordTable
+
 
 async def inspect_db():
     config = load_config()

@@ -1,8 +1,9 @@
 
 from pathlib import Path
+
+import yaml
 from src.core.config.app_config import AppConfig
 from src.core.domain.configuration.sandboxing_config import SandboxingConfiguration
-import yaml
 
 config = AppConfig(
     sandboxing=SandboxingConfiguration(
@@ -18,10 +19,11 @@ if not config.backends.openai.api_key:
 config_path = Path("debug_config.yaml")
 config.save(config_path)
 
-with open(config_path, "r") as f:
+with open(config_path) as f:
     print(yaml.safe_load(f))
 
 from src.core.config.yaml_validation import validate_yaml_against_schema
+
 schema_path = Path("config/schemas/app_config.schema.yaml")
 try:
     validate_yaml_against_schema(config_path, schema_path)

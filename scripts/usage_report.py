@@ -59,6 +59,7 @@ async def generate_report(config_path: str | None = None) -> None:
     # Try to import CBOR inspection tools
     try:
         import cbor2
+
         from scripts.inspect_cbor_capture import load_capture_file, parse_all_sse_events
         cbor_available = True
     except ImportError:
