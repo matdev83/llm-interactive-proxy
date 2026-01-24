@@ -6,9 +6,9 @@ The `gemini-oauth-auto` backend provides a multi-account, self-managed OAuth sol
 
 - **Multi-Account Management**: Store and use multiple Google accounts simultaneously.
 - **Automatic Rotation**: Seamlessly switches to the next available account when a "Quota Exceeded" (429) error is detected.
+- **Selection Strategies**: Choose between `round-robin`, `random`, or `first-available` strategies to manage how accounts are picked.
+- **Usage Tracking**: Automatically tracks the `last_used` timestamp for each account to monitor distribution.
 - **Self-Contained OAuth**: Handles the entire browser-based authorization flow without requiring external CLI tools like `gcloud` or `gemini`.
-- **Proactive Token Refresh**: Automatically refreshes access tokens in the background before they expire.
-- **Round-Robin Selection**: Distributes requests across all healthy accounts to maximize total throughput.
 
 ## Setup and Configuration
 
@@ -31,6 +31,12 @@ This will:
 To see all registered accounts and their current status:
 ```bash
 python scripts/manage_gemini_accounts.py list
+```
+
+#### Show Account Details
+To see full details for a specific account (expiry, scopes, last used):
+```bash
+python scripts/manage_gemini_accounts.py show <account-id>
 ```
 
 #### Remove an Account
@@ -88,6 +94,14 @@ By using this proxy with the Gemini OAuth Auto backend configuration, you acknow
 **If you do not agree to these terms, do not use the Gemini OAuth Auto backend or the debugging override flag.**
 
 ## How It Works
+
+### Account Selection Strategies
+
+You can configure how the proxy selects the next account using the `selection_strategy` parameter:
+
+- `round-robin` (Default): Cycles through all healthy accounts in order. Best for even load distribution.
+- `random`: Picks a random account from the available pool. When rotating due to quota, it attempts to select a different account than the current one.
+- `first-available`: Always uses the first registered account in the list until it hits a quota limit or expires, then moves to the next.
 
 ### Account Rotation
 When a request fails with a `429 Quota Exceeded` error, the connector:

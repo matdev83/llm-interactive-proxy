@@ -10,7 +10,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Gemini OAuth Auto**: Implemented `random` and `first-available` selection strategies for multi-account rotation.
+- **Gemini OAuth Auto**: Added `last_used` usage tracking for registered accounts.
+- **Gemini OAuth Auto**: Added `show` command to `manage_gemini_accounts.py` for detailed account inspection.
 - OpenAI Codex enthusiast mode configuration for third-party agents (Factory Droid, OpenCode, etc.)
+
 - New configuration profiles for Chat Completions and Responses API clients
 - Per-request capability overrides via extra_body parameter
 - Lazy discovery mechanism for strategy registry to avoid circular imports
