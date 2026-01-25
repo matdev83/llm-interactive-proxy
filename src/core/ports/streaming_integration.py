@@ -8,7 +8,6 @@ with the new streaming pipeline orchestrator.
 from __future__ import annotations
 
 import logging
-
 from collections.abc import AsyncIterator
 from typing import cast
 
@@ -16,8 +15,10 @@ from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import IStreamProcessor, handle_streaming_error
-from src.core.ports.streaming_orchestrator import create_pipeline_for_provider, safe_aclose
-
+from src.core.ports.streaming_orchestrator import (
+    create_pipeline_for_provider,
+    safe_aclose,
+)
 from src.core.ports.streaming_processors import (
     LoopDetectionProcessor as PortsLoopDetectionProcessor,
 )

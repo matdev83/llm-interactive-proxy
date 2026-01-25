@@ -345,3 +345,57 @@ class TestTokenStorageService:
         with patch.object(Path, "unlink", side_effect=OSError("Permission denied")):
             result = await storage_service.delete_account("delete_error")
             assert result is False
+
+    @pytest.mark.asyncio
+    async def test_load_all_accounts_validation_error(
+        self, storage_service: TokenStorageService, temp_storage_dir: Path
+    ) -> None:
+        """Test load_all_accounts skips files with validation errors."""
+        temp_storage_dir.mkdir(parents=True, exist_ok=True)
+        account_file = temp_storage_dir / "invalid_model.json"
+        account_file.write_text('{"account_id": "test"}', encoding="utf-8") # Missing required fields
+        
+        accounts = await storage_service.load_all_accounts()
+        assert len(accounts) == 0
+
+    @pytest.mark.asyncio
+    async def test_save_account_write_error_cleans_up(
+        self,
+        storage_service: TokenStorageService,
+        temp_storage_dir: Path,
+        valid_account: StoredAccount,
+    ) -> None:
+        """Test save_account cleans up temp file on write error."""
+        # Patch os.fdopen to fail
+        with patch("os.fdopen", side_effect=Exception("Write failed")):
+            with pytest.raises(Exception, match="Write failed"):
+                await storage_service.save_account(valid_account)
+        
+        # Temp file should be gone (cleaned up in finally block)
+        temp_files = list(temp_storage_dir.glob("*.tmp"))
+        assert len(temp_files) == 0
+
+    @pytest.mark.asyncio
+    async def test_load_all_accounts_missing_dir(
+        self,
+        storage_service: TokenStorageService,
+        temp_storage_dir: Path,
+    ) -> None:
+        """Test load_all_accounts returns empty list if directory missing."""
+        # Ensure directory does not exist
+        if temp_storage_dir.exists():
+            import shutil
+            shutil.rmtree(temp_storage_dir)
+            
+        accounts = await storage_service.load_all_accounts()
+        assert accounts == []
+
+    @pytest.mark.asyncio
+    async def test_get_account_missing_file(
+        self,
+        storage_service: TokenStorageService,
+        temp_storage_dir: Path,
+    ) -> None:
+        """Test get_account returns None if file missing."""
+        account = await storage_service.get_account("missing")
+        assert account is None

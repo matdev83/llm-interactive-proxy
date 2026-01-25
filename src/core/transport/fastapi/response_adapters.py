@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-
 import threading
 from collections.abc import AsyncIterator, Callable
 from typing import Any, TypeVar
@@ -29,7 +28,6 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 # Import SSEAssembler for streaming conversion
 from src.core.ports.sse_assembler import SSEAssembler
 from src.core.ports.streaming_orchestrator import safe_aclose
-
 
 # Import layer implementations
 from src.core.transport.fastapi.adapters.capture.wire_capture_coordinator import (

@@ -450,3 +450,65 @@ class TestTokenRefreshService:
         with pytest.raises(httpx.HTTPStatusError):
             await refresh_service._execute_refresh(expired_account, mock_http_client)
 
+    @pytest.mark.asyncio
+    async def test_refresh_double_check_locking(
+        self,
+        mock_storage: MagicMock,
+        mock_http_client: MagicMock,
+        expired_account: StoredAccount,
+    ) -> None:
+        """Test double-check pattern prevents redundant refresh."""
+        service = TokenRefreshService(
+            storage=mock_storage,
+            http_client=mock_http_client,
+        )
+        
+        # Setup: concurrent refreshes
+        # First one refreshes and updates storage
+        # Second one sees updated storage and skips
+        
+        refreshed_account = expired_account.with_updated_tokens(
+            access_token="ya29.refreshed", 
+            expiry_date=int((BASE_TIME + 3600) * 1000)
+        )
+        
+        mock_storage.get_account.return_value = refreshed_account
+        
+        # When lock acquired, check storage
+        result = await service._do_refresh(expired_account)
+        
+        # Should return the refreshed account from storage without calling API
+        assert result.access_token == "ya29.refreshed"
+        mock_http_client.post.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refresh_creates_temp_client(
+        self,
+        mock_storage: MagicMock,
+        expired_account: StoredAccount,
+    ) -> None:
+        """Test transient client creation when none provided."""
+        service = TokenRefreshService(
+            storage=mock_storage,
+            http_client=None, # No client provided
+        )
+        
+        # Mock httpx.AsyncClient context manager
+        with patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client_cls.return_value.__aenter__.return_value = mock_client
+            
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "access_token": "ya29.temp_client",
+                "expires_in": 3600,
+            }
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post.return_value = mock_response
+            
+            result = await service.force_refresh(expired_account)
+            
+            assert result.access_token == "ya29.temp_client"
+            mock_client.post.assert_called_once()
+

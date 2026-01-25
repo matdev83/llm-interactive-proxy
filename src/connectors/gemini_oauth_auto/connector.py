@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import logging
 import os
+from collections.abc import AsyncIterator
 from typing import Any, cast
 
 import httpx
@@ -19,8 +20,10 @@ from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorSer
 from src.connectors.gemini_oauth_auto.token_refresh import TokenRefreshService
 from src.connectors.gemini_oauth_auto.token_storage import TokenStorageService
 from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
+from src.core.common.exceptions import BackendError
 from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
 from src.core.services.translation_service import TranslationService
 
@@ -236,6 +239,13 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         """Internal check for account availability."""
         return self.is_functional and self._account_selector.get_available_count() > 0
 
+    async def _validate_runtime_credentials(self) -> bool:
+        """Validate credentials at runtime.
+        
+        Overrides base class to use auto-connector's functional state.
+        """
+        return self.is_backend_functional()
+
     def get_validation_errors(self) -> list[str]:
         """Get the current list of validation/health errors.
 
@@ -300,19 +310,43 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         if effective_model.startswith(prefix):
             effective_model = effective_model[len(prefix) :]
 
-        result = await super().chat_completions(
-            request_data=request.request,
-            processed_messages=list(request.processed_messages),
-            effective_model=effective_model,
-            identity=request.identity,
-            cancellation_token=request.cancellation_token,
-            cancellation_coordinator=request.cancellation_coordinator,
-            **cast(dict[str, Any], request.options),
-        )
+        try:
+            result = await super().chat_completions(
+                request_data=request.request,
+                processed_messages=list(request.processed_messages),
+                effective_model=effective_model,
+                identity=request.identity,
+                cancellation_token=request.cancellation_token,
+                cancellation_coordinator=request.cancellation_coordinator,
+                **cast(dict[str, Any], request.options),
+            )
+        except BackendError as e:
+            if e.code == "quota_exceeded":
+                self._mark_backend_unusable(reason="quota_exceeded")
+            raise
+
+        if isinstance(result, StreamingResponseEnvelope) and result.content:
+            result.content = self._wrap_stream_for_rotation(result.content)
 
         await self._account_selector.mark_current_account_used()
         
         return result
+
+    async def _wrap_stream_for_rotation(
+        self, stream: AsyncIterator[ProcessedResponse]
+    ) -> AsyncIterator[ProcessedResponse]:
+        """Wrap streaming responses to detect quota errors and trigger rotation."""
+        async for chunk in stream:
+            # Check for error in chunk metadata
+            error_info = chunk.metadata.get("error") if chunk.metadata else None
+            if isinstance(error_info, dict):
+                error_type = str(error_info.get("type", "")).lower()
+                error_code = error_info.get("code")
+                if error_type == "quota_exceeded" or error_code in (429, 503):
+                    logger.warning("Detected quota error in stream, triggering rotation")
+                    self._mark_backend_unusable(reason="quota_exceeded")
+
+            yield chunk
 
     async def _rotate_and_sync(self) -> None:
         """Rotate to next account and sync credentials into gemini_base."""

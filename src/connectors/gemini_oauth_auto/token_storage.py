@@ -94,8 +94,15 @@ class TokenStorageService(ITokenStorage):
 
         try:
             # Write content to temp file
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                f.write(content)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(content)
+            except Exception:
+                # If fdopen failed or write failed, ensure fd is closed
+                # before we try to unlink (especially important on Windows)
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                raise
 
             # Set restrictive permissions on POSIX (before rename for security)
             if platform.system() != "Windows":

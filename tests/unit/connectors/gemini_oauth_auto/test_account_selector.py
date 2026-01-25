@@ -4,6 +4,7 @@ Unit tests for AccountSelectorService.
 Tests Requirement 4: Multi-Account Support.
 """
 
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -269,4 +270,71 @@ class TestAccountSelectorService:
         mock_storage.save_account.assert_called()
         
         assert selector._accounts[0].last_used is not None
+
+    @pytest.mark.asyncio
+    async def test_get_next_account_returns_none_when_no_accounts(
+        self,
+        selector: AccountSelectorService,
+        mock_storage: MagicMock,
+    ) -> None:
+        """Test get_next_account returns None when no accounts available."""
+        mock_storage.load_all_accounts = AsyncMock(return_value=[])
+        
+        result = await selector.get_next_account()
+        
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_next_account_returns_none_when_all_reauth(
+        self,
+        selector: AccountSelectorService,
+        mock_storage: MagicMock,
+    ) -> None:
+        """Test get_next_account returns None when all accounts need reauth."""
+        accounts = [
+            create_valid_account("account-1", needs_reauth=True),
+        ]
+        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
+        
+        result = await selector.get_next_account()
+        
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_mark_current_account_used_no_current(
+        self,
+        selector: AccountSelectorService,
+    ) -> None:
+        """Test mark_current_account_used does nothing if no current account."""
+        await selector.mark_current_account_used()
+        # Should not raise
+
+    @pytest.mark.asyncio
+    async def test_rotate_on_quota_no_alternatives(
+        self,
+        selector: AccountSelectorService,
+        mock_storage: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Test rotate_on_quota logs warning when only one account available."""
+        accounts = [
+            create_valid_account("account-1"),
+        ]
+        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
+        
+        await selector.get_next_account() # Sets current
+        
+        with caplog.at_level(logging.WARNING):
+            result = await selector.rotate_on_quota()
+            
+        assert result is None
+        assert "Cannot rotate: only 1 account(s) available" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_select_account_from_available_empty(
+        self,
+        selector: AccountSelectorService,
+    ) -> None:
+        """Test _select_account_from_available returns None for empty list."""
+        assert selector._select_account_from_available([]) is None
 

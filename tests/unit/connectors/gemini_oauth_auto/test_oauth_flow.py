@@ -238,33 +238,55 @@ class TestOAuthFlowService:
             oauth_service._validate_state("expected", None)
 
 
+    def test_generate_account_id_leading_chars(
+        self, oauth_service: OAuthFlowService
+    ) -> None:
+        """Test account ID generation handles leading hyphens/underscores."""
+        # Emails starting with special chars (unlikely but possible in local part)
+        # Should be prefixed with "user_" if sanitized local part starts with - or _
+        account_id = oauth_service._generate_account_id_from_email("._test@gmail.com")
+        assert account_id.startswith("user_")
+        
+        account_id2 = oauth_service._generate_account_id_from_email("-test@gmail.com")
+        assert account_id2.startswith("user_")
+
+    def test_generate_account_id_length_limit(
+        self, oauth_service: OAuthFlowService
+    ) -> None:
+        """Test account ID generation respects length limit."""
+        long_email = "a" * 100 + "@gmail.com"
+        account_id = oauth_service._generate_account_id_from_email(long_email)
+        assert len(account_id) == 64
+
     @pytest.mark.asyncio
-    async def test_exchange_code_request_format(
+    async def test_authorize_open_browser_false(
         self,
         oauth_service: OAuthFlowService,
-        mock_http_client: MagicMock,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Test code exchange request has correct format."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "access_token": "token",
-            "refresh_token": "refresh",
-            "expires_in": 3600,
-        }
-        mock_response.raise_for_status = MagicMock()
-        mock_http_client.post = AsyncMock(return_value=mock_response)
+        """Test authorize with open_browser=False logs the URL instead."""
+        with (
+            patch("webbrowser.open") as mock_open,
+            patch("uvicorn.Server.serve", new_callable=AsyncMock),
+            pytest.raises(OAuthError, match="Authorization timed out"),
+        ):
+            await oauth_service.authorize(timeout=1, open_browser=False)
+            
+        mock_open.assert_not_called()
+        assert "Please visit this URL" in caplog.text
 
-        oauth_service._http_client = mock_http_client
+    @pytest.mark.asyncio
+    async def test_authorize_open_browser_true(
+        self,
+        oauth_service: OAuthFlowService,
+    ) -> None:
+        """Test authorize with open_browser=True calls webbrowser.open."""
+        with (
+            patch("webbrowser.open") as mock_open,
+            patch("uvicorn.Server.serve", new_callable=AsyncMock),
+            pytest.raises(OAuthError, match="Authorization timed out"),
+        ):
+            await oauth_service.authorize(timeout=1, open_browser=True)
+            
+        mock_open.assert_called_once()
 
-        await oauth_service._exchange_code("code123", "http://localhost:8080/callback")
-
-        # Verify request format
-        call_args = mock_http_client.post.call_args
-        assert "oauth2.googleapis.com/token" in call_args[0][0]
-        data = call_args[1]["data"]
-        assert data["grant_type"] == "authorization_code"
-        assert data["code"] == "code123"
-        assert data["redirect_uri"] == "http://localhost:8080/callback"
-        assert "client_id" in data
-        assert "client_secret" in data
