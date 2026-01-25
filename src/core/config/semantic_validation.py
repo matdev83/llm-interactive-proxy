@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from src.core.common.exceptions import ConfigurationError
+from src.core.common.session_continuity_warnings import topic_similarity_enabled_warning
 from src.core.config.app_config import AppConfig
 from src.core.services.backend_registry import backend_registry
 
@@ -33,6 +34,7 @@ class ConfigurationValidator:
         self._validate_logging_config()
         self._validate_backend_config()
         self._validate_end_of_session_config()
+        self._validate_session_continuity_config()
 
         if self.errors:
             raise ConfigurationError(
@@ -125,6 +127,18 @@ class ConfigurationValidator:
                 f"backends.default_backend is set to '{default_backend}' but no configuration "
                 f"exists for this backend. Ensure the backend is properly configured."
             )
+
+    def _validate_session_continuity_config(self) -> None:
+        session_cfg = self.config_data.get("session")
+        if not isinstance(session_cfg, dict):
+            return
+
+        continuity_cfg = session_cfg.get("session_continuity")
+        if not isinstance(continuity_cfg, dict):
+            return
+
+        if continuity_cfg.get("enable_topic_similarity_matching") is True:
+            self.warnings.append(topic_similarity_enabled_warning())
 
     def _validate_end_of_session_config(self) -> None:
         """Validate end-of-session configuration."""

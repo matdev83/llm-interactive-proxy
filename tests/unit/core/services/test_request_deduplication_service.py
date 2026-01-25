@@ -246,3 +246,183 @@ class TestRequestDeduplicationService:
         is_duplicate, _ = await service.check_and_register(request2, "session-1")
 
         assert is_duplicate is False
+
+
+class TestStatusAwareDeduplication:
+    """Tests for status-aware deduplication (retry-after-429 scenarios)."""
+
+    @pytest.fixture
+    def service(self) -> RequestDeduplicationService:
+        """Create a deduplication service with default settings."""
+        return RequestDeduplicationService(window_seconds=5.0, enabled=True)
+
+    @pytest.fixture
+    def sample_request(self) -> ChatRequest:
+        """Create a sample chat request."""
+        return ChatRequest(
+            model="gpt-4",
+            messages=[
+                ChatMessage(role="user", content="Test message with 120 messages"),
+            ]
+            * 120,
+        )
+
+    @pytest.mark.asyncio
+    async def test_retry_after_429_always_allowed(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after 429 rate limit should ALWAYS be allowed, regardless of timing.
+
+        This is the critical requirement: never block retries after retriable errors.
+        """
+        # First request
+        is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is False
+
+        # Mark as 429 (rate limited)
+        await service.mark_request_complete(hash1, "session-1", status_code=429)
+
+        # Immediate retry should be allowed (within dedup window)
+        is_dup, hash2 = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is False, "Retry after 429 should be allowed immediately"
+        assert hash1 == hash2
+
+        # Verify stats tracked retry
+        stats = service.get_stats()
+        assert stats.extra["retries_after_error_allowed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_after_503_allowed(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after 503 service unavailable should be allowed."""
+        is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+        await service.mark_request_complete(hash1, "session-1", status_code=503)
+
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is False
+
+    @pytest.mark.asyncio
+    async def test_retry_after_502_allowed(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after 502 bad gateway should be allowed."""
+        is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+        await service.mark_request_complete(hash1, "session-1", status_code=502)
+
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is False
+
+    @pytest.mark.asyncio
+    async def test_retry_after_timeout_allowed(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after 408 timeout should be allowed."""
+        is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+        await service.mark_request_complete(hash1, "session-1", status_code=408)
+
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is False
+
+    @pytest.mark.asyncio
+    async def test_retry_after_success_blocked(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after successful completion (200) should be blocked (zombie pattern)."""
+        is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+        await service.mark_request_complete(hash1, "session-1", status_code=200)
+
+        # Retry within window should be blocked
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is True, "Retry after success should be blocked (zombie)"
+
+        stats = service.get_stats()
+        assert stats.duplicates_blocked == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_after_client_disconnect_blocked(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after client disconnect should be blocked (zombie pattern)."""
+        is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+        await service.mark_request_complete(
+            hash1, "session-1", client_disconnected=True
+        )
+
+        # Retry within window should be blocked
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is True, "Retry after disconnect should be blocked (zombie)"
+
+    @pytest.mark.asyncio
+    async def test_parallel_duplicate_blocked(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Parallel duplicate request (while original is in-flight) should be blocked."""
+        # First request (in-flight, not yet completed)
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is False
+
+        # Second parallel request before first completes
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is True, "Parallel duplicate should be blocked"
+
+    @pytest.mark.asyncio
+    async def test_multiple_retries_after_429_allowed(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Multiple retries after 429 should all be allowed (retry loop scenario)."""
+        hash_val = None
+
+        # Simulate multiple retry attempts
+        for i in range(5):
+            is_dup, hash_val = await service.check_and_register(
+                sample_request, "session-1"
+            )
+            assert is_dup is False, f"Retry {i+1} should be allowed"
+
+            # Mark as 429 each time
+            await service.mark_request_complete(hash_val, "session-1", status_code=429)
+
+        # All retries should have been allowed
+        stats = service.get_stats()
+        assert stats.extra["retries_after_error_allowed"] == 4  # First isn't a retry
+
+    @pytest.mark.asyncio
+    async def test_retry_after_non_retriable_error_blocked(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after non-retriable error (400, 404, etc) should be blocked."""
+        is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+        # 400 bad request - non-retriable
+        await service.mark_request_complete(hash1, "session-1", status_code=400)
+
+        # Retry should be blocked (treated as success for dedup purposes)
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is True, "Retry after 400 should be blocked"
+
+    @pytest.mark.asyncio
+    async def test_zombie_pattern_detection(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Reproduce zombie request pattern from production logs.
+
+        Scenario:
+        1. Request sent → succeeds (200)
+        2. Client "stops" but orphaned retry logic continues
+        3. Same request retried → should be BLOCKED (zombie)
+        """
+        # Initial request succeeds
+        is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+        await service.mark_request_complete(hash1, "session-1", status_code=200)
+
+        # User "stops" client, but zombie retry fires
+        is_dup, _ = await service.check_and_register(sample_request, "session-1")
+        assert is_dup is True, "Zombie retry after success should be blocked"
+
+        # Multiple zombie retries should all be blocked
+        for _ in range(3):
+            is_dup, _ = await service.check_and_register(sample_request, "session-1")
+            assert is_dup is True
+
+        stats = service.get_stats()
+        assert stats.duplicates_blocked == 4  # Initial + 3 more

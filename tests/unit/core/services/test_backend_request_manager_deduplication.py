@@ -134,13 +134,20 @@ class TestBackendRequestManagerDeduplication:
         mock_backend_processor.process_backend_request.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_streaming_dedup_bypassed_for_streaming_request(
+    async def test_streaming_dedup_enabled_for_streaming_requests(
         self,
         backend_request_manager: BackendRequestManager,
         mock_dedup_service: AsyncMock,
         mock_backend_processor: MagicMock,
     ) -> None:
-        """Verify streaming dedup is bypassed for streaming requests."""
+        """Verify streaming dedup is enabled for streaming requests.
+        
+        This was changed from bypass to enabled to prevent zombie request
+        patterns where clients continue retrying after being stopped.
+        
+        Status-aware tracking ensures legitimate retries after 429/503
+        are still allowed.
+        """
         request = ChatRequest(
             model="gpt-4",
             messages=[ChatMessage(role="user", content="test")],
@@ -149,6 +156,47 @@ class TestBackendRequestManagerDeduplication:
         session_id = "test-session"
         context = RequestContext(
             headers={"user-agent": "generic-client/1.0"},
+            cookies={},
+            state=MagicMock(),
+            app_state=MagicMock(),
+            agent="generic-client/1.0",
+        )
+
+        # Mock dedup service to return duplicate
+        mock_dedup_service.check_and_register.return_value = (True, "hash123")
+
+        # Execute & verify - should raise DuplicateRequestError
+        with pytest.raises(DuplicateRequestError):
+            await backend_request_manager.process_backend_request(
+                request, session_id, context
+            )
+
+        # Dedup service should have been called
+        mock_dedup_service.check_and_register.assert_awaited_once_with(
+            request, session_id
+        )
+        # Backend should not be called on duplicate
+        mock_backend_processor.process_backend_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_streaming_dedup_bypass_via_header(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Verify dedup can still be bypassed via x-llmproxy-no-dedup header."""
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={
+                "user-agent": "generic-client/1.0",
+                "x-llmproxy-no-dedup": "true",
+            },
             cookies={},
             state=MagicMock(),
             app_state=MagicMock(),
@@ -169,5 +217,6 @@ class TestBackendRequestManagerDeduplication:
             request, session_id, context
         )
 
+        # Dedup should be bypassed via header
         mock_dedup_service.check_and_register.assert_not_called()
         mock_backend_processor.process_backend_request.assert_awaited_once()

@@ -19,6 +19,7 @@ from typing import Literal, overload
 from fastapi import FastAPI
 
 from src.core.app.application_builder import build_app_async
+from src.core.common.session_continuity_warnings import topic_similarity_enabled_warning
 from src.core.config.app_config import AppConfig, load_config
 from src.core.config.parameter_resolution import ParameterResolution
 
@@ -154,7 +155,6 @@ def _has_privilege_functionality() -> bool:
 
 
 def _check_privileges() -> None:
-
     """Refuse to run the server with elevated privileges.
 
     DEPRECATED: Use PrivilegeChecker.check_and_enforce() instead.
@@ -169,12 +169,10 @@ def _check_privileges() -> None:
 
 
 def _daemonize() -> None:
-
     """Backward-compatible wrapper for daemonization on POSIX."""
     from src.core.cli_support.server_lifecycle_manager import ServerLifecycleManager
 
     ServerLifecycleManager().daemonize()
-
 
 
 def _maybe_run_as_daemon(args: argparse.Namespace, cfg: AppConfig) -> bool:
@@ -280,6 +278,27 @@ def _enforce_localhost_if_auth_disabled(cfg: AppConfig) -> AppConfig:
     return cfg
 
 
+def _warn_if_topic_similarity_matching_enabled(cfg: AppConfig) -> AppConfig:
+    """Warn if topic similarity session matching is enabled.
+
+    Topic similarity is an inherently weaker continuity signal and can increase the
+    risk of cross-session merges when multiple independent sessions work on the same
+    codebase. This is disabled by default and should only be enabled by operators who
+    understand the trade-offs.
+
+    Returns cfg unchanged.
+    """
+    try:
+        continuity = cfg.session.session_continuity
+    except Exception:
+        return cfg
+
+    if getattr(continuity, "enable_topic_similarity_matching", False):
+        logging.warning(topic_similarity_enabled_warning())
+
+    return cfg
+
+
 def _handle_application_build_error(error_msg: str) -> None:
     """Handle application build errors with user-friendly messages.
 
@@ -313,6 +332,7 @@ async def main(
 
         cfg_result = apply_cli_args(args, return_resolution=True)
         cfg, resolution = cfg_result
+        cfg = _warn_if_topic_similarity_matching_enabled(cfg)
 
         server_manager = ServerLifecycleManager(
             privilege_checker=PrivilegeChecker(),
@@ -358,4 +378,3 @@ _DEPRECATED_EXPORTS = (
     _apply_pid_suffixes,
     _handle_application_build_error,
 )
-

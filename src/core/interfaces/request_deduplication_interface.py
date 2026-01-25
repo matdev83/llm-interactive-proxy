@@ -23,10 +23,13 @@ class DeduplicationStats(BaseModel):
     duplicates_blocked: int
     requests_processed: int
     dedup_rate: float
+    extra: dict[str, int] | None = (
+        None  # Extended stats (retries_after_error_allowed, etc)
+    )
 
 
 class IRequestDeduplicationService(Protocol):
-    """Protocol for request deduplication service."""
+    """Protocol for request deduplication service with status-aware tracking."""
 
     async def check_and_register(
         self, request: ChatRequest, session_id: str
@@ -44,6 +47,26 @@ class IRequestDeduplicationService(Protocol):
         """
         ...
 
+    async def mark_request_complete(
+        self,
+        content_hash: str,
+        session_id: str,
+        status_code: int | None = None,
+        client_disconnected: bool = False,
+    ) -> None:
+        """Mark a request as complete with its final status.
+
+        This enables status-aware deduplication that distinguishes between
+        legitimate retries (after 429) and zombie duplicates (after success).
+
+        Args:
+            content_hash: The request content hash
+            session_id: The session identifier
+            status_code: HTTP status code (200, 429, 503, etc) or None
+            client_disconnected: Whether client disconnected before completion
+        """
+        ...
+
     def get_stats(self) -> DeduplicationStats:
         """Return deduplication statistics.
 
@@ -55,6 +78,7 @@ class IRequestDeduplicationService(Protocol):
             - duplicates_blocked: Total duplicates blocked
             - requests_processed: Total requests processed
             - dedup_rate: Ratio of duplicates to total requests
+            - extra: Extended stats (retries_after_error_allowed, etc)
         """
         ...
 

@@ -44,6 +44,14 @@
   - Treat empty/whitespace-only identifiers as absent.
   - _Requirements: 3.1, 3.2, 3.4, 3.5, 3.6, 3.7, 13.1, 13.2_
 
+
+- [ ] 2.4 (P) Implement proxy-issued `client_session_id` cookie for HTTP clients (no client config required)
+  - When `client_session_id` is absent on inbound HTTP requests, mint an opaque random token and return it via `Set-Cookie`.
+  - Add configuration for enabling/disabling cookie issuance, cookie name, Max-Age, SameSite, and Secure behavior.
+  - Ensure cookie values are treated as untrusted input when received (trim/sanitize) and are never derived from internal ids.
+  - Ensure inbound `x-b2bua-session-id` is still ignored for identity decisions.
+  - _Requirements: 3.8, 3.9, 4.11, 4.12, 4.13, 4.14, 8.8_
+
 - [ ] 3. Continuity mapping and expiration
 - [ ] 3.1 Implement in-memory continuity mapping store with TTL, sliding expiration, and bounded growth
   - Map (`auth_scope_id`, `client_session_id`) to a proxy-generated `a_session_id`.

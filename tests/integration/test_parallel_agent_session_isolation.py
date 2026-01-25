@@ -151,7 +151,15 @@ async def test_topic_similarity_with_structural_evidence_still_matches() -> None
     similarity should still help match sessions even with some message drift.
     """
     # Setup
-    config = AppConfig()
+    config = AppConfig(
+        {
+            "session": {
+                "session_continuity": {
+                    "enable_topic_similarity_matching": True,
+                }
+            }
+        }
+    )
     session_repository = InMemorySessionRepository()
     fingerprint_service = ConversationFingerprintService()
     resolver = IntelligentSessionResolver(

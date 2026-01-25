@@ -49,6 +49,18 @@ sandboxing:
 session:
   cleanup_enabled: true
   cleanup_interval: 3600  # 1 hour
+
+  # Session continuity (proxy-side heuristic session reuse when clients do not send session ids)
+  session_continuity:
+    enabled: true
+    fuzzy_matching: true
+    max_session_age_seconds: 604800  # 7 days
+    fingerprint_message_count: 5
+    client_key_includes_ip: true
+    # Topic similarity is inherently weaker and can increase risk of cross-session merges.
+    # Disabled by default. Enable only if you understand the trade-offs.
+    enable_topic_similarity_matching: false
+
   max_age: 86400  # 1 day
   default_interactive_mode: true
   force_set_project: false

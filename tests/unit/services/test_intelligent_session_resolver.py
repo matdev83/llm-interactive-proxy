@@ -217,12 +217,12 @@ class TestIntelligentSessionResolver:
         config: AppConfig,
     ) -> None:
         """Condensed history should use explicit session ID for continuation.
-        
+
         When clients condense/summarize history (e.g., Claude's context management),
         the message structure changes completely, removing all structural evidence
         for fuzzy matching. Clients must send explicit x-session-id header to
         continue the same session.
-        
+
         This test was updated to fix a critical bug where topic similarity alone
         (without structural evidence) incorrectly merged separate agent sessions.
         """
@@ -572,3 +572,111 @@ class TestIntelligentSessionResolver:
         assert session_id1 in session_ids
         assert session_id2 in session_ids
         assert len(session_ids) >= 2
+
+    @pytest.mark.asyncio
+    async def test_message_count_progression_must_not_match_even_when_topic_enabled(
+        self,
+        session_repository: InMemorySessionRepository,
+        fingerprint_service: ConversationFingerprintService,
+    ) -> None:
+        """Regression test: message count progression must NEVER be treated as continuity.
+
+        This protects against reintroducing the bug class where topic similarity
+        + "incoming has more messages" could merge two *independent* parallel sessions.
+
+        We explicitly enable topic similarity matching in config to ensure the only thing
+        preventing the merge is the lack of direct continuity evidence (rolling overlap or
+        identical last-user hash).
+        """
+        config = AppConfig(
+            {
+                "session": {
+                    "session_continuity": {
+                        "enable_topic_similarity_matching": True,
+                    }
+                }
+            }
+        )
+        resolver = IntelligentSessionResolver(
+            config=config,
+            session_repository=session_repository,
+            fingerprint_service=fingerprint_service,
+        )
+
+        # Session A: conversation about session resolver internals
+        base_messages = [
+            ChatMessage(
+                role="user",
+                content=(
+                    "Please investigate llm-interactive-proxy session continuity. "
+                    "Focus on intelligent_session_resolver and fingerprinting logic."
+                ),
+            ),
+            ChatMessage(
+                role="assistant",
+                content=(
+                    "Understood. I'll inspect how sessions are resolved and how fingerprints "
+                    "are computed and stored."
+                ),
+            ),
+        ]
+
+        request_a = ChatRequest(model="test-model", messages=base_messages)
+        context_a = self.create_context(
+            config,
+            headers={"user-agent": "opencode/1.1.34"},
+            client_host="127.0.0.1",
+            domain_request=request_a,
+        )
+        session_id_a = await resolver.resolve_session_id(context_a)
+
+        # Persist Session A fingerprints
+        session_a = Session(session_id=session_id_a)
+        await session_repository.add(session_a)
+        bundle_a = fingerprint_service.compute_fingerprint_bundle(base_messages)
+        await session_repository.update_fingerprint(
+            session_id_a, bundle_a.primary.fingerprint
+        )
+        await session_repository.update_fingerprint_bundle(session_id_a, bundle_a)
+
+        # Session B: topically similar, but different conversation and different messages.
+        # It has more messages (message count progressed), but must NOT match unless there is
+        # direct continuity evidence.
+        other_messages = [
+            ChatMessage(
+                role="user",
+                content=(
+                    "I need help with llm-interactive-proxy sessions and continuity heuristics. "
+                    "Review how the proxy decides a session id during request processing."
+                ),
+            ),
+            ChatMessage(
+                role="assistant",
+                content=(
+                    "I'll review the session matching heuristics and how they relate to the proxy's "
+                    "request lifecycle."
+                ),
+            ),
+            ChatMessage(
+                role="user",
+                content=(
+                    "Also, look at random model replacement while you are there (separate task)."
+                ),
+            ),
+            ChatMessage(
+                role="assistant", content="Ok, I'll also review model replacement."
+            ),
+        ]
+
+        request_b = ChatRequest(model="test-model", messages=other_messages)
+        context_b = self.create_context(
+            config,
+            headers={"user-agent": "opencode/1.1.34"},
+            client_host="127.0.0.1",
+            domain_request=request_b,
+        )
+
+        session_id_b = await resolver.resolve_session_id(context_b)
+
+        # Even with topic matching enabled, we must NOT merge based on message count.
+        assert session_id_b != session_id_a

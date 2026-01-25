@@ -82,6 +82,8 @@ This spec makes a strict distinction between:
 - 3.5 When a request includes multiple candidate client session identifiers, the LLM Proxy shall select the `client_session_id` using the following precedence order: `x-session-id` header, then request body `session_id`, then `extra_body.session_id`.
 - 3.6 If multiple candidate client session identifiers are present and they differ, the LLM Proxy shall record a diagnostic signal that a conflict occurred.
 - 3.7 If a candidate client session identifier is empty after trimming, the LLM Proxy shall treat it as absent.
+- 3.8 When B2BUA-like session handling is enabled for HTTP transports and no client session identifier is present, the LLM Proxy shall be able to mint a proxy-generated `client_session_id` and return it to the client using a cookie (see Requirement 4.11).
+- 3.9 The LLM Proxy shall treat a proxy-generated `client_session_id` cookie value as untrusted input on subsequent requests (subject to normal trimming/sanitization), but may use it for continuity mapping when combined with `auth_scope_id`.
 
 #### Technical Constraints
 - Client-provided identifiers shall be treated as untrusted input and validated/sanitized before logging.
@@ -171,6 +173,7 @@ This spec makes a strict distinction between:
 - 8.5 The LLM Proxy shall provide configuration to enable or disable persistent continuity mapping storage across process restarts.
 - 8.6 The LLM Proxy shall provide configuration to enable or disable A-leg session echo to clients.
 - 8.7 The LLM Proxy shall provide configuration to set the A-leg echo response header name, with default value `x-b2bua-session-id`.
+- 8.8 The LLM Proxy shall provide configuration to enable/disable proxy-issued `client_session_id` cookies (HTTP only), and configure the cookie name and security attributes (Secure/SameSite/Max-Age).
 
 ### Requirement 9: Session-Scoped State Consistency Across Legs
 **Objective:** As a developer, I want session-scoped variables to be set/read/updated reliably across A-leg and B-leg activity, so that session behavior is stable regardless of backend attempts and proxy-internal follow-ups.

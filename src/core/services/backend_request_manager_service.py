@@ -6,6 +6,7 @@ This module provides the implementation of the backend request manager interface
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Mapping
 from typing import Any
@@ -195,14 +196,12 @@ class BackendRequestManager(IBackendRequestManager):
     ) -> bool:
         """Determine whether request deduplication should be bypassed.
 
-        Streaming clients often retry aggressively and do not handle dedup 429s
-        gracefully. To prevent retry loops while remaining universal, bypass
-        deduplication for all streaming requests or when explicitly requested
-        via headers.
-        """
-        if getattr(request, "stream", False):
-            return True
+        Deduplication is now enabled for both streaming and non-streaming requests
+        with status-aware tracking that allows legitimate retries after 429/503 errors.
 
+        Bypass is only allowed via explicit header for compatibility with legacy
+        clients that implement their own deduplication.
+        """
         headers = getattr(context, "headers", {})
         if isinstance(headers, Mapping):
             dedup_override = headers.get("x-llmproxy-no-dedup")
@@ -260,7 +259,7 @@ class BackendRequestManager(IBackendRequestManager):
             if self._should_bypass_dedup(backend_request, context):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Request deduplication bypassed for streaming request "
+                        "Request deduplication bypassed (x-llmproxy-no-dedup header) "
                         "session=%s model=%s",
                         session_id,
                         backend_request.model,
@@ -296,61 +295,108 @@ class BackendRequestManager(IBackendRequestManager):
             backend_request, session_id, context
         )
 
-        # Execute backend request
-        backend_response = await self._backend_processor.process_backend_request(
-            request=backend_request, session_id=session_id, context=context
-        )
+        try:
+            # Execute backend request
+            backend_response = await self._backend_processor.process_backend_request(
+                request=backend_request, session_id=session_id, context=context
+            )
 
-        # Route to appropriate handler based on stream flag
-        if backend_request.stream:
-            if isinstance(backend_response, StreamingResponseEnvelope):
-                try:
-                    return await self._streaming_handler.handle(
-                        stream=backend_response,
-                        request=backend_request,
-                        context=context,
-                        processing_context=processing_context,
-                    )
-                except BackendError as e:
-                    # Re-raise BackendError from streaming handler to preserve error details
-                    # (Req 1.4, Task 6.2: empty-stream retry exhaustion raises BackendError with reason and session_id)
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "BackendError from streaming handler: %s (session_id=%s)",
-                            e.message,
-                            processing_context.session_id,
+            # Route to appropriate handler based on stream flag
+            if backend_request.stream:
+                if isinstance(backend_response, StreamingResponseEnvelope):
+                    try:
+                        streaming_result = await self._streaming_handler.handle(
+                            stream=backend_response,
+                            request=backend_request,
+                            context=context,
+                            processing_context=processing_context,
                         )
-                    raise
-            else:
-                # This case should ideally not be reached if the logic is correct
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Expected a StreamingResponseEnvelope but got a ResponseEnvelope for a streaming request."
-                    )
-                return backend_response
-        else:
-            if isinstance(backend_response, ResponseEnvelope):
-                try:
-                    return await self._non_streaming_handler.handle(
-                        response=backend_response,
-                        request=backend_request,
-                        context=context,
-                        processing_context=processing_context,
-                    )
-                except BackendError as e:
-                    # Re-raise BackendError from non-streaming handler to preserve error details
-                    # (Req 1.4: empty-response retry exhaustion raises BackendError with reason and session_id)
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "BackendError from non-streaming handler: %s (session_id=%s)",
-                            e.message,
-                            processing_context.session_id,
+                        # Mark as success (streaming completed)
+                        if self._dedup_service and content_hash:
+                            await self._dedup_service.mark_request_complete(
+                                content_hash, session_id, status_code=200
+                            )
+                        return streaming_result
+                    except BackendError as e:
+                        # Mark as retriable or non-retriable based on status code
+                        if self._dedup_service and content_hash:
+                            await self._dedup_service.mark_request_complete(
+                                content_hash, session_id, status_code=e.status_code
+                            )
+                        # Re-raise BackendError from streaming handler to preserve error details
+                        # (Req 1.4, Task 6.2: empty-stream retry exhaustion raises BackendError with reason and session_id)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "BackendError from streaming handler: %s (session_id=%s)",
+                                e.message,
+                                processing_context.session_id,
+                            )
+                        raise
+                else:
+                    # This case should ideally not be reached if the logic is correct
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Expected a StreamingResponseEnvelope but got a ResponseEnvelope for a streaming request."
                         )
-                    raise
+                    if self._dedup_service and content_hash:
+                        await self._dedup_service.mark_request_complete(
+                            content_hash, session_id, status_code=200
+                        )
+                    return backend_response
             else:
-                # This case should ideally not be reached if the logic is correct
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Expected a ResponseEnvelope but got a StreamingResponseEnvelope for a non-streaming request."
-                    )
-                return backend_response
+                if isinstance(backend_response, ResponseEnvelope):
+                    try:
+                        non_streaming_result = await self._non_streaming_handler.handle(
+                            response=backend_response,
+                            request=backend_request,
+                            context=context,
+                            processing_context=processing_context,
+                        )
+                        # Mark as success
+                        if self._dedup_service and content_hash:
+                            await self._dedup_service.mark_request_complete(
+                                content_hash, session_id, status_code=200
+                            )
+                        return non_streaming_result
+                    except BackendError as e:
+                        # Mark as retriable or non-retriable based on status code
+                        if self._dedup_service and content_hash:
+                            await self._dedup_service.mark_request_complete(
+                                content_hash, session_id, status_code=e.status_code
+                            )
+                        # Re-raise BackendError from non-streaming handler to preserve error details
+                        # (Req 1.4: empty-response retry exhaustion raises BackendError with reason and session_id)
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "BackendError from non-streaming handler: %s (session_id=%s)",
+                                e.message,
+                                processing_context.session_id,
+                            )
+                        raise
+                else:
+                    # This case should ideally not be reached if the logic is correct
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Expected a ResponseEnvelope but got a StreamingResponseEnvelope for a non-streaming request."
+                        )
+                    if self._dedup_service and content_hash:
+                        await self._dedup_service.mark_request_complete(
+                            content_hash, session_id, status_code=200
+                        )
+                    return backend_response
+
+        except asyncio.CancelledError:
+            # Client disconnected before completion - mark as zombie pattern
+            if self._dedup_service and content_hash:
+                await self._dedup_service.mark_request_complete(
+                    content_hash, session_id, client_disconnected=True
+                )
+            raise
+        except Exception as e:
+            # Unexpected error - mark based on exception type
+            status_code = getattr(e, "status_code", None)
+            if self._dedup_service and content_hash:
+                await self._dedup_service.mark_request_complete(
+                    content_hash, session_id, status_code=status_code
+                )
+            raise

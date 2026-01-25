@@ -12,6 +12,7 @@ import logging
 import time
 from uuid import uuid4
 
+from src.core.common.session_continuity_warnings import topic_similarity_enabled_warning
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.configuration_interface import IConfig
@@ -53,6 +54,7 @@ class IntelligentSessionResolver(ISessionResolver):
         self._topic_similarity_threshold = 0.3
         self._topic_overlap_min_tokens = 10
         self._recent_session_window_seconds = 900
+        self._enable_topic_similarity_matching = False
 
         if config and hasattr(config, "session"):
             session_config = getattr(config, "session", None)  # type: ignore[attr-defined]
@@ -77,6 +79,13 @@ class IntelligentSessionResolver(ISessionResolver):
                 self._recent_session_window_seconds = getattr(
                     continuity, "recent_session_window_seconds", 900
                 )
+                self._enable_topic_similarity_matching = getattr(
+                    continuity, "enable_topic_similarity_matching", False
+                )
+        if self._enable_topic_similarity_matching and logger.isEnabledFor(
+            logging.WARNING
+        ):
+            logger.warning(topic_similarity_enabled_warning())
 
     async def resolve_session_id(self, context: RequestContext) -> str:
         """Resolve session ID using intelligent fingerprinting.
@@ -305,9 +314,12 @@ class IntelligentSessionResolver(ISessionResolver):
                     )
                 return str(session.id)
 
-            # Topic similarity requires structural evidence to prevent cross-session contamination
+            # Topic similarity is a weak signal and is disabled by default.
+            # It can be enabled explicitly for niche workflows where clients do not
+            # provide session IDs and rolling overlap is insufficient.
             if (
-                stored_bundle
+                self._enable_topic_similarity_matching
+                and stored_bundle
                 and self._has_topic_similarity(bundle, stored_bundle)
                 and await self._is_recent_session(session.id)
                 and self._has_structural_evidence(bundle, stored_bundle)
@@ -409,13 +421,15 @@ class IntelligentSessionResolver(ISessionResolver):
         Returns:
             True if structural evidence exists, False otherwise
         """
-        # Evidence 1: Message count progression (actual continuation)
-        # Incoming should have MORE messages if it's a real continuation
-        if incoming.message_count > stored.message_count:
-            return True
+        # Topic similarity is a weak signal and MUST NOT be used to merge sessions
+        # unless we have direct evidence of content continuity.
+        #
+        # IMPORTANT: we deliberately do NOT treat "message count increased" as evidence.
+        # Two concurrent sessions can have different lengths while sharing topical tokens,
+        # which would reintroduce cross-session contamination.
 
-        # Evidence 2: Weak rolling fingerprint overlap
-        # Even a single shared rolling fingerprint indicates structural similarity
+        # Evidence 1: Rolling fingerprint overlap
+        # Even a single shared rolling fingerprint indicates shared message windows.
         if (
             incoming.rolling_fingerprints
             and stored.rolling_fingerprints
@@ -425,8 +439,8 @@ class IntelligentSessionResolver(ISessionResolver):
         ):
             return True
 
-        # Evidence 3: Same last user message
-        # If the most recent user message is identical, it's likely the same conversation
+        # Evidence 2: Same last user message
+        # If the most recent user message is identical, it's likely a retry/continuation.
         return bool(
             incoming.last_user_hash
             and stored.last_user_hash

@@ -141,6 +141,15 @@ class SessionContinuityConfig(DomainModel):
     fingerprint_message_count: int = 5
     client_key_includes_ip: bool = True
 
+    enable_topic_similarity_matching: bool = False
+    """Whether topic similarity matching may be used during fuzzy session resolution.
+
+    WARNING: Topic similarity is inherently weaker than content overlap and can
+    increase the risk of cross-session merges when multiple independent sessions
+    discuss the same codebase. Keep this disabled unless you fully understand the
+    trade-offs.
+    """
+
 
 class StreamingSamplerConfig(DomainModel):
     """Configuration for the streaming sampler (debugging/observability)."""

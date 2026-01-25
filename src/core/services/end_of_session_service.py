@@ -102,12 +102,23 @@ class EndOfSessionService(IEndOfSessionService):
 
         try:
             # Atomic update for session-level aggregates (turn count, etc.)
-            await self._session_repository.claim_eos_emission(
+            claim_succeeded = await self._session_repository.claim_eos_emission(
                 session_id=signal.session_id,
                 emitted_at=emitted_at,
                 signal_type=signal_type_str,
                 reason=reason,
             )
+
+            # Only emit event if claim succeeded (prevents duplicate emissions)
+            if not claim_succeeded:
+                logger.debug(
+                    "EoS claim failed for session %s request %s (already claimed), skipping emission",
+                    signal.session_id,
+                    signal.request_id,
+                )
+                # Still mark as ended in cache for fast subsequent checks
+                await self._mark_ended(dedupe_key)
+                return
 
             await self._mark_ended(dedupe_key)
 

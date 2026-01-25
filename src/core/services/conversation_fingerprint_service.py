@@ -162,7 +162,9 @@ class ConversationFingerprintService:
         if content is None:
             # Check for tool calls
             if message.tool_calls:
-                tool_names = [tc.function.name for tc in message.tool_calls if tc.function.name]
+                tool_names = [
+                    tc.function.name for tc in message.tool_calls if tc.function.name
+                ]
                 return f"tool_calls:{','.join(tool_names)}"
             return "empty"
 
@@ -245,10 +247,10 @@ class ConversationFingerprintService:
         self, messages: list[ChatMessage]
     ) -> frozenset[str]:
         """Collect rolling fingerprints across multiple window sizes."""
-        if len(messages) < 3:
+        if len(messages) < 2:
             return frozenset()
 
-        window_sizes = range(3, min(len(messages), self._fingerprint_message_count + 3))
+        window_sizes = range(2, min(len(messages), self._fingerprint_message_count + 3))
         fingerprints: set[str] = set()
 
         for window_size in window_sizes:
@@ -314,7 +316,9 @@ class ConversationFingerprintService:
 
         if content is None:
             if message.tool_calls:
-                tool_names = [tc.function.name for tc in message.tool_calls if tc.function.name]
+                tool_names = [
+                    tc.function.name for tc in message.tool_calls if tc.function.name
+                ]
                 return " ".join(tool_names)
             return ""
 

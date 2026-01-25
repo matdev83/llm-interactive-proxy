@@ -195,6 +195,30 @@ To avoid leaking `client_session_id` into connector-facing `extensions`, prefer 
 - **Multi-user (SSO) mode**: `auth_scope_id` is derived from the validated bearer token record identity (`TokenValidationResult.token_id`). The raw bearer token value is never used as an identifier.
 - **Localhost mode**: `auth_scope_id` is a single implicit constant scope (for example, `"localhost"`).
 
+
+### Proxy-issued `client_session_id` cookie (HTTP)
+To preserve continuity for "unmodified" HTTP clients that do not send a stable session identifier,
+B2BUA mode introduces an optional **proxy-issued client session cookie**.
+
+**Key rules**
+- The cookie value is an **opaque random token** representing `client_session_id`.
+- The proxy may set the cookie **only when `client_session_id` is absent** on the inbound request.
+- On subsequent requests, the cookie value participates in `client_session_id` extraction precedence
+  (after explicit `x-session-id` header, before body-derived values), but is still treated as
+  untrusted input (trim/sanitize).
+- The cookie value is never derived from `a_session_id`, `b_session_id`, `request_id`, token values,
+  or message contents.
+
+**Security defaults**
+- `HttpOnly=true`
+- `SameSite=Lax` (configurable)
+- `Path=/`
+- `Secure=true` when served over HTTPS (configurable override for localhost development)
+
+**Rationale**
+This provides deterministic continuity mapping without heuristic inference, while keeping the
+canonical session identity proxy-owned (`a_session_id`).
+
 ### Transport-to-domain injection contract
 The current SSO middleware gates requests but does not provide token identity to core services. This feature requires an explicit injection contract so `B2BUASessionResolver` can reliably scope continuity.
 
