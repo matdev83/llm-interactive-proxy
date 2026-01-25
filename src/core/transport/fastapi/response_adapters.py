@@ -8,8 +8,8 @@ All logic is delegated to focused layer modules under adapters/.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
+
 import threading
 from collections.abc import AsyncIterator, Callable
 from typing import Any, TypeVar
@@ -28,6 +28,8 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 
 # Import SSEAssembler for streaming conversion
 from src.core.ports.sse_assembler import SSEAssembler
+from src.core.ports.streaming_orchestrator import safe_aclose
+
 
 # Import layer implementations
 from src.core.transport.fastapi.adapters.capture.wire_capture_coordinator import (
@@ -621,10 +623,9 @@ def to_fastapi_streaming_response(
                     )
             except GeneratorExit:
                 # Close the source iterator if it supports aclose
-                if hasattr(source, "aclose"):
-                    with contextlib.suppress(Exception):
-                        await source.aclose()  # type: ignore[union-attr]
+                await safe_aclose(source)
                 raise
+
 
         async_stream = _ensure_async_iterator(content_iter)
 
@@ -648,9 +649,7 @@ def to_fastapi_streaming_response(
                 await asyncio.sleep(0)  # Yield to event loop
         except GeneratorExit:
             # Client disconnected - clean up the SSE iterator
-            if hasattr(sse_bytes_iter, "aclose"):
-                with contextlib.suppress(Exception):
-                    await sse_bytes_iter.aclose()  # type: ignore[attr-defined]
+            await safe_aclose(sse_bytes_iter)
             raise
 
 

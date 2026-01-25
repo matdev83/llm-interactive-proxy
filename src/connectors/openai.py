@@ -1724,8 +1724,9 @@ class OpenAIConnector(LLMBackend):
                     )
                 body = str(getattr(response, "text", ""))
             finally:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(BaseException):
                     await response.aclose()
+
 
             raise HTTPException(
                 status_code=status_code,
@@ -1777,8 +1778,9 @@ class OpenAIConnector(LLMBackend):
                 message=f"Streaming connection interrupted ({exc})"
             ) from exc
         finally:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(BaseException):
                 await response.aclose()
+
 
     def get_provider_name(self) -> str:
         """Return the provider name for logging/metrics.

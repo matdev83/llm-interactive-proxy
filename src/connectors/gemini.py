@@ -511,8 +511,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                     message=f"Gemini streaming connection error ({stream_error})"
                 ) from stream_error
             finally:
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(BaseException):
                     await response.aclose()
+
 
         try:
             response_headers = dict(response.headers)
@@ -1468,8 +1469,9 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 message=f"Gemini streaming connection error ({stream_error})"
             ) from stream_error
         finally:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(BaseException):
                 await response.aclose()
+
 
     def _get_base_url(self) -> str:
         """Get the base URL for Gemini API requests.

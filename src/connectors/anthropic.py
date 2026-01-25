@@ -1284,8 +1284,9 @@ class AnthropicBackend(LLMBackend):
                 message=f"Could not connect to Anthropic API: {e}"
             ) from e
         finally:
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(BaseException):
                 await response.aclose()
+
 
     def get_provider_name(self) -> str:
         """Return the provider name for logging/metrics.

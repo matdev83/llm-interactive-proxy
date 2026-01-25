@@ -7,8 +7,8 @@ with the new streaming pipeline orchestrator.
 
 from __future__ import annotations
 
-import contextlib
 import logging
+
 from collections.abc import AsyncIterator
 from typing import cast
 
@@ -16,7 +16,8 @@ from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.ports.streaming_contracts import IStreamProcessor, handle_streaming_error
-from src.core.ports.streaming_orchestrator import create_pipeline_for_provider
+from src.core.ports.streaming_orchestrator import create_pipeline_for_provider, safe_aclose
+
 from src.core.ports.streaming_processors import (
     LoopDetectionProcessor as PortsLoopDetectionProcessor,
 )
@@ -247,19 +248,13 @@ async def integrate_streaming_pipeline(
             )
             yield ProcessedResponse(content=normalized_content)
             return
-        finally:
-            # Ensure raw stream is closed
-            # Suppress errors for already-closed streams or streams that don't support aclose
-            if hasattr(raw_stream, "aclose"):
-                with contextlib.suppress(Exception):
-                    await raw_stream.aclose()  # type: ignore
 
     async def cancel_callback() -> None:
         """Cancel the raw stream if possible."""
-        if hasattr(raw_stream, "aclose"):
-            await raw_stream.aclose()  # type: ignore
+        await safe_aclose(raw_stream, provider, stream_id)
 
     return StreamingResponseEnvelope(
+
         content=processed_stream(),
         media_type="text/event-stream",
         headers={},
