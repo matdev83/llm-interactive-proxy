@@ -209,14 +209,23 @@ class TestIntelligentSessionResolver:
         assert session_id2 == session_id1
 
     @pytest.mark.asyncio
-    async def test_resolve_continuation_after_condensed_history(
+    async def test_resolve_continuation_after_condensed_history_with_explicit_id(
         self,
         resolver: IntelligentSessionResolver,
         session_repository: InMemorySessionRepository,
         fingerprint_service: ConversationFingerprintService,
         config: AppConfig,
     ) -> None:
-        """Ensure condensed history still matches the original session."""
+        """Condensed history should use explicit session ID for continuation.
+        
+        When clients condense/summarize history (e.g., Claude's context management),
+        the message structure changes completely, removing all structural evidence
+        for fuzzy matching. Clients must send explicit x-session-id header to
+        continue the same session.
+        
+        This test was updated to fix a critical bug where topic similarity alone
+        (without structural evidence) incorrectly merged separate agent sessions.
+        """
         original_messages = [
             ChatMessage(
                 role="user",
@@ -278,14 +287,29 @@ class TestIntelligentSessionResolver:
             ),
         ]
 
+        # With explicit session ID header - should match
         condensed_request = ChatRequest(model="test-model", messages=condensed_messages)
         condensed_context = self.create_context(
-            config, domain_request=condensed_request
+            config,
+            headers={"x-session-id": initial_session_id},
+            domain_request=condensed_request,
         )
 
         matched_session_id = await resolver.resolve_session_id(condensed_context)
 
+        # Should match via explicit session ID header
         assert matched_session_id == initial_session_id
+
+        # Without explicit header - should create NEW session
+        # (no structural evidence for fuzzy matching)
+        condensed_context_no_header = self.create_context(
+            config, domain_request=condensed_request
+        )
+
+        new_session_id = await resolver.resolve_session_id(condensed_context_no_header)
+
+        # Should NOT match - condensed history without explicit ID creates new session
+        assert new_session_id != initial_session_id
 
     @pytest.mark.asyncio
     async def test_resolve_new_session_different_client(
@@ -427,3 +451,124 @@ class TestIntelligentSessionResolver:
 
         # Without persisting the session, should create new ID each time
         assert session_id2 != session_id
+
+    @pytest.mark.asyncio
+    async def test_no_cross_session_contamination_via_topic_similarity(
+        self,
+        resolver: IntelligentSessionResolver,
+        session_repository: InMemorySessionRepository,
+        fingerprint_service: ConversationFingerprintService,
+        config: AppConfig,
+    ) -> None:
+        """Regression test: topic similarity should NOT merge separate conversations.
+
+        This reproduces the critical bug where two OpenCode agents working on
+        the same codebase were incorrectly merged into the same session via
+        topic similarity matching, despite being completely separate tasks.
+
+        Scenario from logs (2026-01-25):
+        - Agent 1: Working on "random model replacement" feature
+        - Agent 2: Working on "session already ended" warnings
+        - Both agents had overlapping topic tokens (proxy, session, test, etc.)
+        - Topic similarity incorrectly merged Agent 2 into Agent 1's session
+
+        The fix: Topic similarity requires structural evidence (message count
+        progression or rolling fingerprint overlap) to prevent contamination.
+        """
+        # Agent 1: Initial conversation about random model replacement
+        agent1_messages = [
+            ChatMessage(
+                role="user",
+                content=(
+                    "Fix issues in the random model replacement feature in "
+                    "llm-interactive-proxy. The proxy server is not activating "
+                    "replacement correctly for test sessions."
+                ),
+            ),
+            ChatMessage(
+                role="assistant",
+                content=(
+                    "I'll analyze the model_replacement_service.py to identify "
+                    "why the dice roll is not activating replacement in test mode."
+                ),
+            ),
+        ]
+
+        # Agent 2: Completely separate conversation about session warnings
+        agent2_messages = [
+            ChatMessage(
+                role="user",
+                content=(
+                    "Fix issues related to server log being spammed with "
+                    "'Session already ended' warnings in the proxy server. "
+                    "These warnings appear during streaming in llm-interactive-proxy."
+                ),
+            ),
+            ChatMessage(
+                role="assistant",
+                content=(
+                    "I'll examine the end_of_session_stream_processor.py to understand "
+                    "why the session state check is failing during streaming."
+                ),
+            ),
+        ]
+
+        # Create session for Agent 1
+        request1 = ChatRequest(model="test-model", messages=agent1_messages)
+        context1 = self.create_context(
+            config,
+            headers={"user-agent": "opencode/1.1.34"},
+            client_host="127.0.0.1",
+            domain_request=request1,
+        )
+
+        session_id1 = await resolver.resolve_session_id(context1)
+
+        # Persist Agent 1 session
+        session1 = Session(session_id=session_id1)
+        await session_repository.add(session1)
+        fp_bundle1 = fingerprint_service.compute_fingerprint_bundle(agent1_messages)
+        await session_repository.update_fingerprint(
+            session_id1, fp_bundle1.primary.fingerprint
+        )
+        await session_repository.update_fingerprint_bundle(session_id1, fp_bundle1)
+
+        # Create session for Agent 2 from SAME CLIENT (same IP + user-agent)
+        request2 = ChatRequest(model="test-model", messages=agent2_messages)
+        context2 = self.create_context(
+            config,
+            headers={"user-agent": "opencode/1.1.34"},
+            client_host="127.0.0.1",
+            domain_request=request2,
+        )
+
+        session_id2 = await resolver.resolve_session_id(context2)
+
+        # CRITICAL: Agent 2 should get a NEW session, NOT match Agent 1
+        # Topic similarity should NOT merge them without structural evidence
+        assert session_id2 != session_id1, (
+            "Cross-session contamination detected: Agent 2 was incorrectly matched "
+            "to Agent 1's session via topic similarity despite being separate tasks. "
+            f"session_id1={session_id1}, session_id2={session_id2}"
+        )
+
+        # Persist Agent 2 session
+        session2 = Session(session_id=session_id2)
+        await session_repository.add(session2)
+        fp_bundle2 = fingerprint_service.compute_fingerprint_bundle(agent2_messages)
+        await session_repository.update_fingerprint(
+            session_id2, fp_bundle2.primary.fingerprint
+        )
+        await session_repository.update_fingerprint_bundle(session_id2, fp_bundle2)
+
+        # Verify that both sessions are tracked separately for the same client
+        recent_sessions = await session_repository.find_recent_sessions_by_client(
+            resolver._compute_client_key(context1),
+            max_age_seconds=3600,
+        )
+
+        # Both sessions should exist for this client
+        session_ids = {s.id for s in recent_sessions}
+        assert session_id1 in session_ids
+        assert session_id2 in session_ids
+        assert len(session_ids) >= 2

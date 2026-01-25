@@ -305,14 +305,16 @@ class IntelligentSessionResolver(ISessionResolver):
                     )
                 return str(session.id)
 
+            # Topic similarity requires structural evidence to prevent cross-session contamination
             if (
                 stored_bundle
                 and self._has_topic_similarity(bundle, stored_bundle)
                 and await self._is_recent_session(session.id)
+                and self._has_structural_evidence(bundle, stored_bundle)
             ):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Fuzzy match: session %s matched via topic similarity",
+                        "Fuzzy match: session %s matched via topic similarity with structural evidence",
                         session.id,
                     )
                 return str(session.id)
@@ -387,6 +389,48 @@ class IntelligentSessionResolver(ISessionResolver):
             self._topic_overlap_min_tokens > 0
             and intersection_size >= self._topic_overlap_min_tokens
             and similarity >= 0.18
+        )
+
+    def _has_structural_evidence(
+        self,
+        incoming: ConversationFingerprintBundle,
+        stored: ConversationFingerprintBundle,
+    ) -> bool:
+        """Check for structural evidence that incoming is a continuation of stored.
+
+        Topic similarity alone can incorrectly merge separate conversations
+        on the same codebase. This method requires at least one form of
+        structural evidence before allowing topic-based matching.
+
+        Args:
+            incoming: Incoming fingerprint bundle
+            stored: Stored fingerprint bundle
+
+        Returns:
+            True if structural evidence exists, False otherwise
+        """
+        # Evidence 1: Message count progression (actual continuation)
+        # Incoming should have MORE messages if it's a real continuation
+        if incoming.message_count > stored.message_count:
+            return True
+
+        # Evidence 2: Weak rolling fingerprint overlap
+        # Even a single shared rolling fingerprint indicates structural similarity
+        if (
+            incoming.rolling_fingerprints
+            and stored.rolling_fingerprints
+            and bool(
+                incoming.rolling_fingerprints.intersection(stored.rolling_fingerprints)
+            )
+        ):
+            return True
+
+        # Evidence 3: Same last user message
+        # If the most recent user message is identical, it's likely the same conversation
+        return bool(
+            incoming.last_user_hash
+            and stored.last_user_hash
+            and incoming.last_user_hash == stored.last_user_hash
         )
 
     async def _is_recent_session(self, session_id: str) -> bool:

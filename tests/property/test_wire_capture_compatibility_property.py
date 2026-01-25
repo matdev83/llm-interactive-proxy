@@ -98,7 +98,10 @@ async def test_property_28_wire_capture_completeness(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
 
     # If replacement triggers, activate it
@@ -171,7 +174,10 @@ async def test_wire_capture_records_all_requests_in_window(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -241,7 +247,10 @@ async def test_wire_capture_disabled_does_not_break_replacement(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
 
     # If replacement triggers, activate it
@@ -297,7 +306,10 @@ async def test_wire_capture_records_responses(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
 
     # If replacement triggers, activate it

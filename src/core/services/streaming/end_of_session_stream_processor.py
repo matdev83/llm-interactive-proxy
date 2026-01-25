@@ -75,7 +75,7 @@ class EndOfSessionStreamProcessor(IStreamProcessor):
             return content
 
         # Early exit if session has already ended (hot-path dedupe)
-        if await self._eos_service.has_ended(session_id):
+        if await self._eos_service.has_ended(session_id, content.metadata.get("request_id") if content.metadata else None):
             return content
 
         # Detect completion markers

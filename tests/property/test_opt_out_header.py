@@ -154,8 +154,12 @@ def test_property_31_header_non_true_values(
     # Create context with non-opt-out header value
     context = create_test_context(headers={"x-disable-replacement": non_opt_out_value})
 
-    # Check that replacement proceeds normally (should trigger with probability=1.0)
     session_id = "test-session"
+
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger with probability=1.0
     should_replace = service.should_replace(session_id, context)
 
     # With probability=1.0, should always trigger unless opt-out
@@ -351,11 +355,14 @@ async def test_opt_out_header_with_active_replacement(turn_count: int) -> None:
     service = create_test_service(probability=1.0, turn_count=turn_count)
 
     session_id = "test-session"
-
-    # First request without opt-out - should activate
     context_no_opt_out = create_test_context()
+
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context_no_opt_out)
+
+    # Second request without opt-out - should activate
     should_replace = service.should_replace(session_id, context_no_opt_out)
-    assert should_replace, "Replacement should trigger on first request"
+    assert should_replace, "Replacement should trigger on second request"
 
     # Activate replacement
     await service.activate_replacement(session_id, "original-backend", "original-model")
@@ -364,7 +371,7 @@ async def test_opt_out_header_with_active_replacement(turn_count: int) -> None:
     state = service.get_state(session_id)
     assert state.active, "Replacement should be active"
 
-    # Second request with opt-out header - should not replace
+    # Third request with opt-out header - should not replace
     context_with_opt_out = create_test_context(
         headers={"x-disable-replacement": "true"}
     )

@@ -92,16 +92,24 @@ def test_property_7_probability_one_always_triggers(turn_count: int) -> None:
     For any session with replacement_probability=1.0 and replacement not
     currently active, replacement mode must activate on the next eligible turn.
 
+    Note: First turn is always skipped (guaranteed original model), so replacement
+    triggers on the second turn.
+
     Validates: Requirements 1.5
     """
     # Create service with probability=1.0
     service = create_test_service(probability=1.0, turn_count=turn_count)
     context = create_test_context()
 
-    # Check for a new session - should always trigger
     session_id = "test-session"
+
+    # First turn is skipped (guaranteed original model)
+    first_turn = service.should_replace(session_id, context)
+    assert not first_turn, "First turn should not trigger replacement"
+
+    # Second turn should always trigger with probability=1.0
     should_replace = service.should_replace(session_id, context)
-    assert should_replace, "Replacement did not trigger with probability=1.0"
+    assert should_replace, "Replacement did not trigger with probability=1.0 on second turn"
 
 
 @given(
@@ -165,6 +173,9 @@ def test_property_9_probability_threshold_activation(
     number is less than replacement_probability, then replacement mode must
     activate.
 
+    Note: First turn is always skipped (guaranteed original model), so the
+    probability check happens on the second turn.
+
     Validates: Requirements 3.2
     """
 
@@ -179,8 +190,13 @@ def test_property_9_probability_threshold_activation(
     )
     context = create_test_context()
 
-    # Check if replacement should trigger
     session_id = "test-session"
+
+    # First turn is skipped (guaranteed original model)
+    first_turn = service.should_replace(session_id, context)
+    assert not first_turn, "First turn should not trigger replacement"
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
 
     # Verify threshold logic

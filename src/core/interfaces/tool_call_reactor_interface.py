@@ -36,6 +36,9 @@ class ToolCallContext:
     tool_arguments: dict[str, Any]
     """The arguments passed to the tool call."""
 
+    request_id: str | None = None
+    """The request ID associated with the tool call (turn-scoped)."""
+
     calling_agent: str | None = None
     """The name of the agent making the tool call (if available)."""
 

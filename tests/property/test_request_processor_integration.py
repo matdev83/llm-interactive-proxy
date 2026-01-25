@@ -233,9 +233,13 @@ async def test_property_26_command_processing_order(
     # Track when replacement logic is called by wrapping should_replace
     original_should_replace = replacement_service.should_replace
 
-    def track_should_replace(session_id, request_context):
+    def track_should_replace(
+        session_id, request_context, original_backend=None, original_model=None
+    ):
         operation_order.append("replacement_check")
-        return original_should_replace(session_id, request_context)
+        return original_should_replace(
+            session_id, request_context, original_backend, original_model
+        )
 
     replacement_service.should_replace = track_should_replace
 
@@ -458,29 +462,36 @@ async def test_property_38_streaming_turn_completion(
     initial_state = replacement_service.get_state(session_id)
     assert not initial_state.active, "Replacement should not be active initially"
 
-    # Process the request - this should activate replacement and then complete the turn
+    # First request is always skipped (guaranteed original model)
     await processor.process_request(context, request_data)
 
-    # Check state after first request
-    # Note: The turn is completed in the finally block, so turns_remaining is decremented
+    # Check state after first request - first turn is skipped, replacement not activated
     state_after_first = replacement_service.get_state(session_id)
+    assert not state_after_first.active, "Replacement should not be active after first request (first turn skip)"
+
+    # Process second request - this should activate replacement and then complete the turn
+    await processor.process_request(context, request_data)
+
+    # Check state after second request (first replacement turn)
+    # Note: The turn is completed in the finally block, so turns_remaining is decremented
+    state_after_second = replacement_service.get_state(session_id)
 
     if turn_count == 1:
-        # With turn_count=1, replacement should be deactivated after first request
+        # With turn_count=1, replacement should be deactivated after first replacement turn
         assert (
-            not state_after_first.active
-        ), "Replacement should be deactivated after first request with turn_count=1"
-        assert state_after_first.turns_remaining == 0
+            not state_after_second.active
+        ), "Replacement should be deactivated after first replacement turn with turn_count=1"
+        assert state_after_second.turns_remaining == 0
         # No need to test further turns
         return
     else:
         # With turn_count>1, replacement should still be active
         assert (
-            state_after_first.active
-        ), "Replacement should be active after first request"
-        assert state_after_first.turns_remaining == turn_count - 1, (
-            f"Expected {turn_count - 1} turns remaining after first request, "
-            f"got {state_after_first.turns_remaining}"
+            state_after_second.active
+        ), "Replacement should be active after second request"
+        assert state_after_second.turns_remaining == turn_count - 1, (
+            f"Expected {turn_count - 1} turns remaining after first replacement turn, "
+            f"got {state_after_second.turns_remaining}"
         )
 
     # Process additional requests to verify turn counter decrements
@@ -602,9 +613,17 @@ async def test_turn_completion_on_error(
 
     session_id = "test-session"
 
-    # Process the request - should raise an error but still complete turn
+    # First request is always skipped (guaranteed original model)
     import contextlib
 
+    with contextlib.suppress(Exception):
+        await processor.process_request(context, request_data)
+
+    # Check that first turn was skipped, replacement not active
+    state = replacement_service.get_state(session_id)
+    assert not state.active, "Replacement should not be active after first request (first turn skip)"
+
+    # Process the second request - should raise an error but still complete turn
     with contextlib.suppress(Exception):
         await processor.process_request(context, request_data)
 

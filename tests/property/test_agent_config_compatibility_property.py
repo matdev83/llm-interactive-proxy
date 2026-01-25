@@ -124,7 +124,10 @@ async def test_property_30_agent_configuration_preservation(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
 
     # If replacement triggers, activate it
@@ -190,7 +193,10 @@ async def test_agent_config_preserved_across_replacement_window(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

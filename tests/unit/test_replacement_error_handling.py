@@ -259,16 +259,16 @@ class TestConfigurationErrorHandling:
         assert "probability" in str(exc_info.value).lower()
 
     def test_invalid_backend_model_format_raises_error(self):
-        """Test that invalid backend:model format raises ValidationError."""
+        """Test that missing replacement_rules raises ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
             ReplacementConfig(
                 enabled=True,
                 probability=0.5,
-                backend_model="invalid-format",  # Missing colon
+                backend_model="invalid-format",  # Missing colon, won't migrate
                 turn_count=3,
             )
 
-        assert "backend:model" in str(exc_info.value).lower()
+        assert "replacement_rules" in str(exc_info.value).lower()
 
     def test_invalid_turn_count_raises_error(self):
         """Test that invalid turn count raises ValidationError."""

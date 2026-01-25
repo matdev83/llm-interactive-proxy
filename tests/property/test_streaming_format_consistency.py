@@ -93,7 +93,10 @@ async def test_property_37_streaming_format_consistency(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
     expected_replace = random_value < probability
     assert should_replace == expected_replace
@@ -162,7 +165,10 @@ async def test_property_37_format_preserved_across_turns(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -231,7 +237,10 @@ async def test_property_37_format_with_different_backends(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -359,7 +368,10 @@ async def test_property_37_format_not_modified_by_service(
     # Store original format
     original_format_value = context.state["format"]
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

@@ -135,9 +135,19 @@ async def test_property_21_activation_logging(
     if ":" not in replacement_backend_model:
         replacement_backend_model = f"test-backend:{replacement_backend_model}"
 
-    backend_name = replacement_backend_model.split(":", 1)[0]
+    parts = replacement_backend_model.split(":", 1)
+    backend_name = parts[0]
+    model_name = parts[1] if len(parts) > 1 else ""
+
+    # Validate backend name
     if not backend_name or not backend_name.replace("-", "").replace("_", "").isalnum():
-        replacement_backend_model = "test-backend:test-model"
+        backend_name = "test-backend"
+
+    # Validate model name
+    if not model_name or not model_name.replace("-", "").replace("_", "").isalnum():
+        model_name = "test-model"
+
+    replacement_backend_model = f"{backend_name}:{model_name}"
 
     def mock_factory() -> None:
         pass

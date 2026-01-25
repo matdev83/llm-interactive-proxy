@@ -100,7 +100,10 @@ async def test_property_27_tool_filtering_preservation(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
 
     # If replacement triggers, activate it
@@ -172,9 +175,12 @@ async def test_tool_filtering_preserved_across_replacement_window(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
-    assert should_replace, "Replacement should trigger with probability=1.0"
+    assert should_replace, "Replacement should trigger with probability=1.0 on second turn"
 
     await service.activate_replacement(session_id, "original-backend", "original-model")
 

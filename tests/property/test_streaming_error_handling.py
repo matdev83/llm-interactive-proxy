@@ -92,7 +92,10 @@ async def test_property_39_streaming_error_handling(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
     expected_replace = random_value < probability
     assert should_replace == expected_replace
@@ -167,7 +170,10 @@ async def test_property_39_error_during_streaming_turn(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -225,8 +231,11 @@ async def test_property_39_error_at_specific_turn(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
     context = create_test_context(stream=True, simulate_error=False)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -357,7 +366,10 @@ async def test_property_39_state_consistency_after_error(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

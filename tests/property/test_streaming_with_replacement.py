@@ -90,7 +90,11 @@ async def test_property_36_streaming_with_replacement(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is always skipped (guaranteed original model)
+    first_turn_result = service.should_replace(session_id, context)
+    assert first_turn_result is False, "First turn should always return False"
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
 
     # Determine expected behavior based on probability
@@ -180,7 +184,10 @@ async def test_property_36_streaming_across_multiple_turns(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 
@@ -255,7 +262,10 @@ async def test_property_36_streaming_with_different_backends(
 
     session_id = "test-session"
 
-    # Check if replacement should trigger
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn checks probability
     should_replace = service.should_replace(session_id, context)
     expected_replace = random_value < probability
     assert should_replace == expected_replace
@@ -311,7 +321,10 @@ async def test_property_36_streaming_state_consistency(
 
     session_id = "test-session"
 
-    # Activate replacement
+    # First turn is skipped (guaranteed original model)
+    service.should_replace(session_id, context)
+
+    # Second turn should trigger replacement (probability=1.0)
     should_replace = service.should_replace(session_id, context)
     assert should_replace
 

@@ -95,11 +95,20 @@ def test_property_25_configuration_loading_logging(
     if ":" not in backend_model:
         backend_model = f"test-backend:{backend_model}"
 
-    # Split and validate backend name
-    backend_name = backend_model.split(":", 1)[0]
+    # Split and validate backend name and model name
+    parts = backend_model.split(":", 1)
+    backend_name = parts[0]
+    model_name = parts[1] if len(parts) > 1 else ""
+
+    # Validate backend name
     if not backend_name or not backend_name.replace("-", "").replace("_", "").isalnum():
         backend_name = "test-backend"
-        backend_model = f"{backend_name}:test-model"
+
+    # Validate model name
+    if not model_name or not model_name.replace("-", "").replace("_", "").isalnum():
+        model_name = "test-model"
+
+    backend_model = f"{backend_name}:{model_name}"
 
     # Create registry and register backend
     registry = BackendRegistry()
@@ -148,9 +157,10 @@ def test_property_25_configuration_loading_logging(
         assert (
             f"probability={probability}" in log_message
         ), f"Log message missing probability: {log_message}"
+        # The backend_model is now migrated to replacement_rules format
         assert (
-            f"backend_model={backend_model}" in log_message
-        ), f"Log message missing backend_model: {log_message}"
+            "replacement_rules=" in log_message
+        ), f"Log message missing replacement_rules: {log_message}"
         assert (
             f"turn_count={turn_count}" in log_message
         ), f"Log message missing turn_count: {log_message}"
@@ -210,8 +220,15 @@ def test_property_24_probability_check_logging(
     original_logger.debug = capture_debug
 
     try:
-        # Perform probability check
         session_id = "test-session"
+
+        # First turn is skipped (guaranteed original model) - no probability check logged
+        service.should_replace(session_id, context)
+
+        # Clear debug calls to capture only the second turn
+        debug_calls.clear()
+
+        # Second turn performs probability check and emits log
         service.should_replace(session_id, context)
 
         # Verify DEBUG log was emitted
@@ -298,10 +315,14 @@ def test_property_23_routing_logging(
     original_logger.debug = capture_debug
 
     try:
-        # Activate replacement
         session_id = "test-session"
+
+        # First turn is skipped (guaranteed original model)
+        service.should_replace(session_id, context)
+
+        # Second turn should trigger replacement
         should_replace = service.should_replace(session_id, context)
-        assert should_replace, "Replacement should activate with probability=1.0"
+        assert should_replace, "Replacement should activate with probability=1.0 on second turn"
 
         # Activate the replacement
         import asyncio

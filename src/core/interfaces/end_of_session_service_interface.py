@@ -50,16 +50,17 @@ class IEndOfSessionService(ABC):
         """
 
     @abstractmethod
-    async def has_ended(self, session_id: str) -> bool:
-        """Return True if EoS event has been emitted for session.
+    async def has_ended(self, session_id: str, request_id: str | None = None) -> bool:
+        """Return True if EoS event has been emitted for session or request.
 
-        This is a fast in-memory check for hot-path dedupe. The result may
-        be stale immediately after a concurrent emission, but provides a
-        quick filter before attempting atomic DB claim.
+        This is a fast in-memory check for hot-path dedupe. If request_id is
+        provided, it checks for that specific turn. Otherwise, it checks if
+        the session has already emitted an event (legacy behavior).
 
         Args:
-            session_id: Session identifier to check
+            session_id: Session identifier
+            request_id: Optional request identifier for turn-scoped check
 
         Returns:
-            True if session has ended (EoS event emitted), False otherwise
+            True if EoS event has been emitted, False otherwise
         """

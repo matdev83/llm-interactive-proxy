@@ -93,7 +93,7 @@ class StreamingContent:
         Raises:
             ValueError: If validation fails
         """
-        if not isinstance(cast(Any, self.content), (str, dict, bytes)):
+        if not isinstance(cast(Any, self.content), str | dict | bytes):
             raise ValueError(
                 f"content must be str, dict, or bytes, got {type(self.content).__name__}"
             )
@@ -346,7 +346,7 @@ class StreamingContent:
             if isinstance(tool_calls_raw, list):
                 tool_calls = []
                 for tc in tool_calls_raw:
-                    if isinstance(tc, (ToolCall, StreamingToolCall)):
+                    if isinstance(tc, ToolCall | StreamingToolCall):
                         tool_calls.append(tc)
                     elif isinstance(tc, dict):
                         # Try StreamingToolCall first as it's more suitable for streaming chunks
