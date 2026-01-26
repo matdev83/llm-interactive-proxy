@@ -441,7 +441,9 @@ async def _list_models_impl(
                         discovered_models.add(model_id)
                         
                         # Look up context window from capabilities
-                        from src.core.domain.model_capabilities import KNOWN_MODEL_CAPABILITIES
+                        from src.core.domain.model_capabilities import (
+                            KNOWN_MODEL_CAPABILITIES,
+                        )
                         
                         # Try to find capabilities by model_id or base model name
                         capabilities = KNOWN_MODEL_CAPABILITIES.get(model_id)

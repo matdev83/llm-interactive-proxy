@@ -1,8 +1,9 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 from src.core.app.controllers.models_controller import _list_models_impl
 from src.core.domain.models_listing import ModelsListingResponse
-from src.core.domain.model_capabilities import KNOWN_MODEL_CAPABILITIES
+
 
 @pytest.mark.asyncio
 async def test_list_models_populates_context_window():

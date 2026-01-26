@@ -106,7 +106,7 @@ def extract_prompt_text(messages: list[Any]) -> str:
                     parts.append(f"{role_label}: {p}")
         elif content is not None:
             # Fallback for unknown content types
-            parts.append(f"{role_label}: {str(content)}")
+            parts.append(f"{role_label}: {content!s}")
 
     result = "\n".join(parts)
     if not result and messages:

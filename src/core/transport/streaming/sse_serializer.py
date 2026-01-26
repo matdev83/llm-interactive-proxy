@@ -309,6 +309,32 @@ class SSESerializer:
                 return delta
         return None
 
+    def _inject_reasoning_content(
+        self, delta: dict[str, Any], reasoning: str | None
+    ) -> None:
+        """Inject reasoning content and alias into delta if present."""
+        if not reasoning:
+            return
+        if "reasoning_content" not in delta:
+            delta["reasoning_content"] = reasoning
+        if "reasoning" not in delta:
+            delta["reasoning"] = reasoning
+
+    def _inject_tool_calls(
+        self, delta: dict[str, Any], tool_calls: list[Any] | None
+    ) -> None:
+        """Inject sanitized tool calls into delta if present."""
+        if not tool_calls:
+            return
+        tool_calls_dicts: list[dict[str, Any]] = []
+        for tc in tool_calls:
+            if hasattr(tc, "model_dump"):
+                tool_calls_dicts.append(tc.model_dump(exclude_none=True))
+            elif isinstance(tc, dict):
+                tool_calls_dicts.append(tc)
+        if tool_calls_dicts:
+            delta["tool_calls"] = self._sanitize_tool_calls(tool_calls_dicts)
+
     def _serialize_openai_formatted_dict(
         self,
         working_content: dict[str, Any],
@@ -322,39 +348,20 @@ class SSESerializer:
         )
         self._sanitize_chunk_tool_calls_in_place(content_copy)
         delta = self._get_first_delta(content_copy)
-        if is_virtual_tc:
-            if delta and "tool_calls" in delta:
-                delta = {k: v for k, v in delta.items() if k != "tool_calls"}
-                if content_copy.get("choices") and isinstance(
-                    content_copy["choices"], list
-                ):
-                    content_copy["choices"][0]["delta"] = delta
-        else:
-            tool_calls_to_inject = chunk.metadata.tool_calls
-            if tool_calls_to_inject and delta:
-                tool_calls_dicts: list[dict[str, Any]] = []
-                for tc in tool_calls_to_inject:
-                    if hasattr(tc, "model_dump"):
-                        tool_calls_dicts.append(tc.model_dump(exclude_none=True))
-                    elif isinstance(tc, dict):
-                        tool_calls_dicts.append(tc)
-                if tool_calls_dicts:
-                    delta["tool_calls"] = self._sanitize_tool_calls(tool_calls_dicts)
-                    if content_copy.get("choices") and isinstance(
-                        content_copy["choices"], list
-                    ):
-                        content_copy["choices"][0]["delta"] = delta
 
-        # Inject reasoning content from metadata if present
-        reasoning = chunk.metadata.reasoning_content
-        if reasoning and delta is not None:
-            # Ensure reasoning_content field
-            if "reasoning_content" not in delta:
-                delta["reasoning_content"] = reasoning
-            # Ensure reasoning alias (compatibility)
-            if "reasoning" not in delta:
-                delta["reasoning"] = reasoning
-            # Update the delta in the content copy
+        if delta is not None:
+            if is_virtual_tc:
+                if "tool_calls" in delta:
+                    # Filter out tool_calls for virtual mode
+                    new_delta = {k: v for k, v in delta.items() if k != "tool_calls"}
+                    delta.clear()
+                    delta.update(new_delta)
+            else:
+                self._inject_tool_calls(delta, chunk.metadata.tool_calls)
+
+            self._inject_reasoning_content(delta, chunk.metadata.reasoning_content)
+
+            # Ensure the modified delta is reflected in content_copy
             if content_copy.get("choices") and isinstance(
                 content_copy["choices"], list
             ):
@@ -375,32 +382,11 @@ class SSESerializer:
         if isinstance(tool_call_id, str) and tool_call_id:
             delta["tool_call_id"] = tool_call_id
         is_virtual = content.metadata.get("_virtual_tool_calls", False)
-        tool_calls = chunk.metadata.tool_calls
-        if tool_calls and not is_virtual:
-            sanitized_calls = []
-            for idx, tc in enumerate(tool_calls):
-                if hasattr(tc, "model_dump"):
-                    tc_dict = tc.model_dump(exclude_none=True)
-                elif isinstance(tc, dict):
-                    tc_dict = tc
-                else:
-                    continue
-                sanitized_dict = {
-                    k: v
-                    for k, v in tc_dict.items()
-                    if not k.startswith("_") and k != "extra_content"
-                }
-                # Ensure index is present (required by OpenAI streaming spec)
-                if "index" not in sanitized_dict:
-                    sanitized_dict["index"] = idx
-                if sanitized_dict:
-                    sanitized_calls.append(sanitized_dict)
-            if sanitized_calls:
-                delta["tool_calls"] = sanitized_calls
-        reasoning_value = chunk.metadata.reasoning_content
-        if reasoning_value and reasoning_value.strip():
-            delta["reasoning_content"] = reasoning_value
-            delta.setdefault("reasoning", reasoning_value)
+
+        if not is_virtual:
+            self._inject_tool_calls(delta, chunk.metadata.tool_calls)
+
+        self._inject_reasoning_content(delta, chunk.metadata.reasoning_content)
 
     def _serialize_normal_chunk(
         self, chunk: StreamingChunk, content: StreamingContent

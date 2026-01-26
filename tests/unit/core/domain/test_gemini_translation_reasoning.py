@@ -4,6 +4,7 @@
 from src.core.domain.translators.gemini.response import gemini_to_domain_response
 from src.core.domain.translators.gemini.streaming import gemini_to_domain_stream_chunk
 
+
 class TestGeminiTranslationReasoning:
     """Tests for converting Gemini responses with reasoning to domain format."""
 

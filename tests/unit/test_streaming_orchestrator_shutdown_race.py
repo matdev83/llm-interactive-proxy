@@ -1,6 +1,9 @@
 import asyncio
+import contextlib
+
 import pytest
 from src.core.ports.streaming_orchestrator import safe_aclose
+
 
 async def slow_generator():
     """A generator that is slow to close."""
@@ -43,10 +46,8 @@ async def test_safe_aclose_blocks_on_cancellation() -> None:
     t.cancel()
     
     start_wait = asyncio.get_event_loop().time()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await t
-    except asyncio.CancelledError:
-        pass
     end_wait = asyncio.get_event_loop().time()
     
     # It should have waited at least another 0.1s (total 0.2s for the finally block)
@@ -104,8 +105,6 @@ async def test_safe_aclose_prevents_runtime_error_in_stack() -> None:
     
     # If safe_aclose is working, this should NOT raise RuntimeError
     # even though t is cancelled during cleanup.
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await t
-    except asyncio.CancelledError:
-        pass
     # If we got here without RuntimeError, the test passed.

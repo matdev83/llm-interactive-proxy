@@ -1,14 +1,14 @@
 
 """Regression tests for Gemini request translation bugs."""
 
-import json
 from src.core.domain.chat import (
     CanonicalChatRequest,
     ChatMessage,
-    ToolCall,
     FunctionCall,
+    ToolCall,
 )
 from src.core.domain.translators.gemini.request import from_domain_to_gemini_request
+
 
 class TestGeminiRequestRegression:
     """Regression tests for Gemini request translation."""

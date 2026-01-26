@@ -1,9 +1,13 @@
 
 """Tests for Code Assist translation of reasoning content."""
 
-import json
-from src.core.domain.translators.code_assist.streaming import code_assist_to_domain_stream_chunk
-from src.core.domain.translators.code_assist.response import code_assist_to_domain_response
+from src.core.domain.translators.code_assist.response import (
+    code_assist_to_domain_response,
+)
+from src.core.domain.translators.code_assist.streaming import (
+    code_assist_to_domain_stream_chunk,
+)
+
 
 class TestCodeAssistTranslationReasoning:
     """Tests for converting Code Assist responses with reasoning to domain format."""

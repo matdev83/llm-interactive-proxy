@@ -2,33 +2,25 @@
 """Regression tests for streaming reasoning content handling."""
 
 import json
-from unittest.mock import Mock
 
 import pytest
-
 from src.core.domain.chat import (
     CanonicalStreamChunk,
     StreamingChatCompletionChoice,
     StreamingChatCompletionChoiceDelta,
 )
-from src.core.domain.streaming.contracts import (
-    StreamingChunk,
-    StreamingMetadata,
-    StreamingPayload,
-)
 from src.core.domain.streaming.streaming_content import StreamingContent
-from src.core.ports.streaming_contracts import StopChunkWithUsage
+from src.core.domain.translators.anthropic.streaming import (
+    from_domain_to_anthropic_stream_chunk,
+)
+from src.core.domain.translators.openai.streaming import (
+    from_domain_to_openai_stream_chunk,
+)
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
 )
 from src.core.services.streaming.stream_context_registry import StreamingContextRegistry
 from src.core.transport.streaming.sse_serializer import SSESerializer
-from src.core.domain.translators.openai.streaming import (
-    from_domain_to_openai_stream_chunk,
-)
-from src.core.domain.translators.anthropic.streaming import (
-    from_domain_to_anthropic_stream_chunk,
-)
 
 
 class TestStreamingReasoningRegression:

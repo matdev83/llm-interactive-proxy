@@ -1,7 +1,6 @@
-import pytest
-from typing import Any
-from src.core.utils.token_count import extract_prompt_text
 from src.core.domain.chat import ChatMessage, MessageContentPartText
+from src.core.utils.token_count import extract_prompt_text
+
 
 def test_extract_prompt_text_with_dict_messages():
     messages = [

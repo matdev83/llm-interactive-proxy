@@ -239,6 +239,7 @@ properties:
           fuzzy_window_sizes: { type: array, items: { type: integer, minimum: 1 } }
           max_session_age_seconds: { type: integer, minimum: 0 }
           client_key_includes_ip: { type: boolean }
+          enable_topic_similarity_matching: { type: boolean }
       planning_phase:
         type: object
         additionalProperties: false
