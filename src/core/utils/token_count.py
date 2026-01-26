@@ -54,16 +54,35 @@ def count_tokens(text: str, model: str | None = None) -> int:
 
 def extract_prompt_text(messages: list[Any]) -> str:
     """Extract a flat prompt text from OpenAI-style messages."""
+    if not messages:
+        return ""
+
     parts: list[str] = []
     for m in messages:
-        role = getattr(m, "role", None)
-        content = getattr(m, "content", None)
+        role = None
+        content = None
+        reasoning = None
+
         if isinstance(m, dict):
-            role = m.get("role", role)
-            content = m.get("content", content)
+            role = m.get("role")
+            content = m.get("content")
+            reasoning = m.get("reasoning_content")
+        else:
+            role = getattr(m, "role", None)
+            content = getattr(m, "content", None)
+            reasoning = getattr(m, "reasoning_content", None)
+
+        # Basic role identification
+        role_label = str(role) if role else "unknown"
+
+        # Handle reasoning content if present
+        if reasoning and isinstance(reasoning, str):
+            parts.append(f"{role_label} (reasoning): {reasoning}")
+
+        # Handle primary content
         if isinstance(content, str):
-            parts.append(f"{role}: {content}")
-        elif isinstance(content, Sequence):
+            parts.append(f"{role_label}: {content}")
+        elif isinstance(content, Sequence) and not isinstance(content, (str, bytes)):
             # Concatenate text parts only
             for p in content:
                 p_type = None
@@ -76,7 +95,26 @@ def extract_prompt_text(messages: list[Any]) -> str:
                     # Handle Pydantic models or other objects
                     p_type = getattr(p, "type", None)
                     p_text = getattr(p, "text", None)
+                    # Fallback for models that might use 'content' key in parts
+                    if not p_text and p_type == "text":
+                        p_text = getattr(p, "content", None)
 
                 if p_type == "text" and isinstance(p_text, str):
-                    parts.append(f"{role}: {p_text}")
-    return "\n".join(parts)
+                    parts.append(f"{role_label}: {p_text}")
+                elif p_type is None and isinstance(p, str):
+                    # Direct string in a list of parts
+                    parts.append(f"{role_label}: {p}")
+        elif content is not None:
+            # Fallback for unknown content types
+            parts.append(f"{role_label}: {str(content)}")
+
+    result = "\n".join(parts)
+    if not result and messages:
+        # Final desperate attempt: stringify everything
+        try:
+            result = str(messages)
+            logger.debug("extract_prompt_text falling back to str(messages)")
+        except Exception:
+            pass
+            
+    return result

@@ -1,0 +1,22 @@
+<<<<<<< SEARCH
+        # Extract and count tokens from messages
+        prompt_text = extract_prompt_text(messages)
+        token_count = count_tokens(prompt_text, model=model)
+
+        if logger.isEnabledFor(logging.DEBUG):
+=======
+        # Extract and count tokens from messages
+        prompt_text = extract_prompt_text(messages)
+        token_count = count_tokens(prompt_text, model=model)
+        
+        # Log textual details to troubleshoot verbatim: 0 issues
+        if logger.isEnabledFor(logging.INFO) and token_count == 0 and len(messages) > 0:
+            logger.info(
+                f"DEBUG: calculate_outbound_tokens calculated 0 tokens for {len(messages)} messages. "
+                f"model={model}, type(request_data)={type(request_data).__name__}, "
+                f"type(messages)={type(messages).__name__}, "
+                f"first_msg_type={type(messages[0]).__name__ if messages else 'N/A'}"
+            )
+
+        if logger.isEnabledFor(logging.DEBUG):
+>>>>>>> REPLACE

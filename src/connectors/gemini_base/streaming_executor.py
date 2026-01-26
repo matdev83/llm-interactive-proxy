@@ -202,11 +202,7 @@ class SSELineProcessor:
                 rate_limit_error
             )
 
-        details: dict[str, Any] = (
-            rate_limit_error.details
-            if isinstance(rate_limit_error.details, dict)
-            else {"raw": rate_limit_error.details}
-        )
+        details: dict[str, Any] = rate_limit_error.details
         if retry_delay is not None:
             details["retry_after"] = float(retry_delay)  # type: ignore[assignment]
 

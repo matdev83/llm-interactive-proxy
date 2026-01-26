@@ -427,4 +427,65 @@ KNOWN_MODEL_CAPABILITIES = {
             context_window=128000,
         ),
     ),
+    "gemini-2.0-flash": ModelCapabilities(
+        model_id="gemini-2.0-flash",
+        backend_type="google",
+        metadata=ModelMetadata(
+            name="gemini-2.0-flash",
+            display_name="Gemini 2.0 Flash",
+            description="Google's fast and capable 2.0 model",
+            provider="Google",
+            tags=["general", "fast", "multimodal"],
+        ),
+        capabilities=[
+            ModelCapability.CHAT,
+            ModelCapability.VISION,
+            ModelCapability.STREAMING,
+        ],
+        limits=ModelLimits(
+            max_tokens=1048576,
+            context_window=1048576,
+        ),
+    ),
+    "gemini-2.5-pro": ModelCapabilities(
+        model_id="gemini-2.5-pro",
+        backend_type="google",
+        metadata=ModelMetadata(
+            name="gemini-2.5-pro",
+            display_name="Gemini 2.5 Pro",
+            description="Google's most capable model for complex tasks",
+            provider="Google",
+            tags=["general", "reasoning", "coding", "multimodal"],
+        ),
+        capabilities=[
+            ModelCapability.CHAT,
+            ModelCapability.VISION,
+            ModelCapability.STREAMING,
+            ModelCapability.REASONING,
+        ],
+        limits=ModelLimits(
+            max_tokens=2097152,
+            context_window=2097152,
+        ),
+    ),
+    "gemini-3-flash-preview": ModelCapabilities(
+        model_id="gemini-3-flash-preview",
+        backend_type="google",
+        metadata=ModelMetadata(
+            name="gemini-3-flash-preview",
+            display_name="Gemini 3 Flash Preview",
+            description="Google's next generation fast model (Preview)",
+            provider="Google",
+            tags=["general", "fast", "preview"],
+        ),
+        capabilities=[
+            ModelCapability.CHAT,
+            ModelCapability.VISION,
+            ModelCapability.STREAMING,
+        ],
+        limits=ModelLimits(
+            max_tokens=1048576,
+            context_window=1048576,
+        ),
+    ),
 }

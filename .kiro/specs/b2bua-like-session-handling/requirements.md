@@ -21,6 +21,17 @@ This spec makes a strict distinction between:
 - End-users consuming LLM responses through client applications
 - Security reviewers validating anti-spoofing and identifier isolation properties
 
+
+## Terminology and Identity Separation (HTTP vs SSE vs Chat Sessions)
+This specification uses the following terms with strict meaning:
+
+- **HTTP request**: a single inbound HTTP transaction. It has a `request_id` for correlation.
+- **SSE/stream**: a single streaming response connection for one HTTP request. Streams can end/reconnect and are not a chat session.
+- **HTTP "session"** (browser concept): cookie-based state managed by clients/servers. **Not assumed** in this project.
+- **Logical chat-completion session**: what users and agents perceive as a "conversation" spanning multiple requests. This spec models it as the **A-leg session** identified by `a_session_id`.
+
+**Critical rule**: `request_id` and stream/connection identifiers are never used as logical chat session identity.
+
 ## Discovered Constraints (from Gap Analysis)
 - The current codebase uses a single `session_id` across request processing, backend orchestration, usage tracking, and wire capture, and it is frequently sourced from client inputs (for example, `x-session-id`).
 - Some parts of the observability stack currently fall back to `request_id` as a session-like identifier; this must be eliminated for B2BUA session handling.
@@ -82,8 +93,6 @@ This spec makes a strict distinction between:
 - 3.5 When a request includes multiple candidate client session identifiers, the LLM Proxy shall select the `client_session_id` using the following precedence order: `x-session-id` header, then request body `session_id`, then `extra_body.session_id`.
 - 3.6 If multiple candidate client session identifiers are present and they differ, the LLM Proxy shall record a diagnostic signal that a conflict occurred.
 - 3.7 If a candidate client session identifier is empty after trimming, the LLM Proxy shall treat it as absent.
-- 3.8 When B2BUA-like session handling is enabled for HTTP transports and no client session identifier is present, the LLM Proxy shall be able to mint a proxy-generated `client_session_id` and return it to the client using a cookie (see Requirement 4.11).
-- 3.9 The LLM Proxy shall treat a proxy-generated `client_session_id` cookie value as untrusted input on subsequent requests (subject to normal trimming/sanitization), but may use it for continuity mapping when combined with `auth_scope_id`.
 
 #### Technical Constraints
 - Client-provided identifiers shall be treated as untrusted input and validated/sanitized before logging.
@@ -102,8 +111,20 @@ This spec makes a strict distinction between:
 - 4.6 When the mapping expires, the LLM Proxy shall assign a new `a_session_id` for subsequent requests with the same (`auth_scope_id`, `client_session_id`).
 - 4.7 While a mapping remains active, the LLM Proxy shall extend the mapping’s expiration based on observed activity (sliding expiration).
 - 4.8 Where persistent mapping storage is enabled, the LLM Proxy shall preserve continuity mappings across process restarts.
-- 4.9 If `client_session_id` is absent, the LLM Proxy shall assign a new internal `a_session_id` and shall not infer session continuity from request message contents unless explicitly configured.
+- 4.9 If `client_session_id` is absent, the LLM Proxy shall assign a new internal `a_session_id` (strict isolation) and shall not attempt to infer continuity across requests.
 - 4.10 If `client_session_id` is present but `auth_scope_id` is not available and the LLM Proxy is not configured for single-user localhost mode, the LLM Proxy shall not reuse continuity mappings and shall assign a new `a_session_id`.
+
+### Requirement 14: Unsafe Legacy Session Inference (Explicit Opt-In)
+**Objective:** As an operator, I want any heuristic session inference (for clients that do not provide stable IDs) to be an explicit opt-in, so that safety is preserved by default.
+
+**Priority:** P2 (Medium)
+
+#### Acceptance Criteria
+- 14.1 By default, B2BUA mode shall not use any heuristic session inference across requests when `client_session_id` is absent (no topic similarity, no message-count progression, no fuzzy matching).
+- 14.2 The LLM Proxy shall provide configuration to explicitly enable an **unsafe legacy session inference mode** for cases where operators accept the risk to preserve continuity.
+- 14.3 When unsafe legacy inference mode is enabled, the LLM Proxy shall emit a startup warning stating that cross-session merges may occur and recommending explicit client session identifiers where possible.
+- 14.4 When unsafe legacy inference mode is enabled, the LLM Proxy shall still scope any inferred reuse within the same `auth_scope_id` (never cross auth scopes).
+
 
 #### Technical Constraints
 - The mapping store shall enforce bounded growth (time-based expiration and capacity controls).
@@ -173,7 +194,7 @@ This spec makes a strict distinction between:
 - 8.5 The LLM Proxy shall provide configuration to enable or disable persistent continuity mapping storage across process restarts.
 - 8.6 The LLM Proxy shall provide configuration to enable or disable A-leg session echo to clients.
 - 8.7 The LLM Proxy shall provide configuration to set the A-leg echo response header name, with default value `x-b2bua-session-id`.
-- 8.8 The LLM Proxy shall provide configuration to enable/disable proxy-issued `client_session_id` cookies (HTTP only), and configure the cookie name and security attributes (Secure/SameSite/Max-Age).
+- 8.8 The LLM Proxy shall provide configuration to enable/disable unsafe legacy heuristic session inference when `client_session_id` is absent (default disabled).
 
 ### Requirement 9: Session-Scoped State Consistency Across Legs
 **Objective:** As a developer, I want session-scoped variables to be set/read/updated reliably across A-leg and B-leg activity, so that session behavior is stable regardless of backend attempts and proxy-internal follow-ups.
@@ -242,4 +263,5 @@ This spec makes a strict distinction between:
 | `b_session_id` | Internal B-leg session identifier generated by the LLM Proxy per backend attempt (format `llm-b2bua-b-<a-uuid>-<seq>`). |
 | `client_session_id` | Any client-provided session identifier accepted as untrusted metadata only (never canonical, never forwarded upstream). |
 | `request_id` | Per-request correlation identifier distinct from session identity. |
+| `stream_id` | Identifier for a single streaming response connection (SSE). Distinct from both `request_id` and chat session identity. |
 | `auth_scope_id` | An identifier representing the caller’s authentication scope used for session continuity mapping: derived from the validated bearer token record identity (`token_id`) in multi-user mode, or a single implicit scope in single-user localhost mode. Users may have multiple bearer tokens; by default continuity is token-scoped (the raw token value is never used as an identifier). |

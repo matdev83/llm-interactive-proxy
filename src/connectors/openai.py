@@ -438,15 +438,7 @@ class OpenAIConnector(LLMBackend):
         await self._ensure_healthy()
 
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
-        if not isinstance(domain_request, ChatRequest):
-            raise TypeError(
-                f"Expected ChatRequest or CanonicalChatRequest, got {type(domain_request).__name__}. "
-                "Backend connectors should only receive domain-format requests."
-            )
-        # Cast to CanonicalChatRequest for mypy compatibility with _prepare_payload signature
-        from typing import cast
-
-        domain_request = cast(CanonicalChatRequest, domain_request)
+        # Type check ensures we have the correct type at runtime
 
         # Prepare the payload using a helper so subclasses and tests can
         # override or patch payload construction logic easily.
@@ -1158,11 +1150,7 @@ class OpenAIConnector(LLMBackend):
                     alt_separator = "\r\n\r\n"
                     try:
                         async for chunk_bytes in response.aiter_bytes():
-                            chunk_text = (
-                                chunk_bytes.decode("utf-8", errors="replace")
-                                if isinstance(chunk_bytes, bytes | bytearray)
-                                else str(chunk_bytes)
-                            )
+                            chunk_text = chunk_bytes.decode("utf-8", errors="replace")
                             # DoS protection: Limit buffer size to prevent memory exhaustion
                             if len(buffer) + len(chunk_text) > MAX_SSE_BUFFER_SIZE:
                                 logger.warning(
@@ -1211,11 +1199,7 @@ class OpenAIConnector(LLMBackend):
                                         logger.debug(
                                             "Streaming chunk translation returned error=%s raw=%s",
                                             domain_chunk.get("error"),
-                                            (
-                                                message[:500]
-                                                if isinstance(message, str)
-                                                else str(message)
-                                            ),
+                                            message[:500],
                                             extra=log_extra if log_extra else None,
                                         )
                                 except (
@@ -1657,17 +1641,8 @@ class OpenAIConnector(LLMBackend):
         guarded_headers = ensure_loop_guard_header(headers)
 
         # Prepare payload
-        from typing import cast
-
-        from src.core.domain.chat import CanonicalChatRequest
-
-        if not isinstance(request, CanonicalChatRequest):
-            # Try to convert if possible
-            request = cast(CanonicalChatRequest, request)
-
-        # Get processed messages and effective model
-        processed_messages = getattr(request, "messages", [])
-        effective_model = getattr(request, "model", "gpt-3.5-turbo")
+        processed_messages = request.messages
+        effective_model = request.model
 
         # Note: stream_completion is a protocol method and doesn't have context access
         # Context correlation would require protocol change
@@ -1744,11 +1719,7 @@ class OpenAIConnector(LLMBackend):
             alt_separator = "\r\n\r\n"
 
             async for chunk_bytes in response.aiter_bytes():
-                chunk_text = (
-                    chunk_bytes.decode("utf-8", errors="replace")
-                    if isinstance(chunk_bytes, bytes | bytearray)
-                    else str(chunk_bytes)
-                )
+                chunk_text = chunk_bytes.decode("utf-8", errors="replace")
                 # DoS protection: Limit buffer size to prevent memory exhaustion
                 if len(buffer) + len(chunk_text) > MAX_SSE_BUFFER_SIZE:
                     logger.warning("SSE buffer overflow: truncating to prevent DoS")

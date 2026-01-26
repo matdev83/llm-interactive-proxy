@@ -37,16 +37,35 @@ async def safe_aclose(
         return
     try:
         if hasattr(stream, "aclose"):
-            await stream.aclose()
+            # Use shield to ensure aclose() finishes even if this task is cancelled.
+            # This is critical for nested async generators where multiple callbacks
+            # may attempt to close the same underlying stream sequentially.
+            # Without shielding, a cancellation during the first aclose() would
+            # allow the second aclose() to start while the first is still suspended,
+            # triggering "RuntimeError: aclose(): asynchronous generator is already running".
+            res = stream.aclose()
+            if asyncio.iscoroutine(res):
+                task = asyncio.create_task(res)
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    # Ensure the shielded task completes before propagating cancellation.
+                    # Re-awaiting the task is safe and ensures sequentiality.
+                    await task
+                    raise
+            elif res is not None:
+                await res
     except (RuntimeError, GeneratorExit, asyncio.CancelledError) as err:
         # Happens when aclose() is invoked while the generator is mid-execution
         # or already closing.
         err_str = str(err)
         if (
-            isinstance(err, RuntimeError) and
-            ("aclose(): asynchronous generator is already running" in err_str
-            or "async generator ignored GeneratorExit" in err_str)
-        ) or isinstance(err, (GeneratorExit, asyncio.CancelledError)):
+            isinstance(err, RuntimeError)
+            and (
+                "aclose(): asynchronous generator is already running" in err_str
+                or "async generator ignored GeneratorExit" in err_str
+            )
+        ) or isinstance(err, GeneratorExit | asyncio.CancelledError):
             if stream_id and logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Skipping stream aclose; generator already closing or ignored exit",
@@ -61,7 +80,6 @@ async def safe_aclose(
 
 
 class StreamingPipeline:
-
     """Orchestrates the complete streaming pipeline.
 
     This class coordinates the flow:
@@ -159,7 +177,6 @@ class StreamingPipeline:
                 stack.push_async_callback(
                     safe_aclose, assembled_stream, provider, stream_id
                 )
-
 
                 # Step 4: Yield formatted bytes
                 try:

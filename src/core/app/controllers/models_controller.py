@@ -439,11 +439,27 @@ async def _list_models_impl(
                     # Avoid duplicates
                     if model_id not in discovered_models:
                         discovered_models.add(model_id)
+                        
+                        # Look up context window from capabilities
+                        from src.core.domain.model_capabilities import KNOWN_MODEL_CAPABILITIES
+                        
+                        # Try to find capabilities by model_id or base model name
+                        capabilities = KNOWN_MODEL_CAPABILITIES.get(model_id)
+                        if not capabilities:
+                            # Try stripping backend prefix
+                            base_model = model_id.split(":", 1)[-1] if ":" in model_id else model_id
+                            capabilities = KNOWN_MODEL_CAPABILITIES.get(base_model)
+                            
+                        context_window = None
+                        if capabilities and capabilities.limits:
+                            context_window = capabilities.limits.context_window
+
                         all_models.append(
                             ModelInfo(
                                 id=model_id,
                                 object="model",
                                 owned_by=str(backend_type).lower(),
+                                context_window=context_window,
                             )
                         )
                 if logger.isEnabledFor(logging.DEBUG):
@@ -475,20 +491,22 @@ async def _list_models_impl(
             if logger.isEnabledFor(logging.INFO):
                 logger.info("No models discovered from backends, using default models")
             all_models = [
-                ModelInfo(id="gpt-4", object="model", owned_by="openai"),
-                ModelInfo(id="gpt-3.5-turbo", object="model", owned_by="openai"),
+                ModelInfo(id="gpt-4", object="model", owned_by="openai", context_window=8192),
+                ModelInfo(id="gpt-3.5-turbo", object="model", owned_by="openai", context_window=16385),
                 ModelInfo(
                     id="claude-3-opus-20240229",
                     object="model",
                     owned_by="anthropic",
+                    context_window=200000,
                 ),
                 ModelInfo(
                     id="claude-3-sonnet-20240229",
                     object="model",
                     owned_by="anthropic",
+                    context_window=200000,
                 ),
-                ModelInfo(id="gemini-1.5-pro", object="model", owned_by="google"),
-                ModelInfo(id="gemini-1.5-flash", object="model", owned_by="google"),
+                ModelInfo(id="gemini-1.5-pro", object="model", owned_by="google", context_window=1048576),
+                ModelInfo(id="gemini-1.5-flash", object="model", owned_by="google", context_window=1048576),
             ]
 
         if logger.isEnabledFor(logging.INFO):

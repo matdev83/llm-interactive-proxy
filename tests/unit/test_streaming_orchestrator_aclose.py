@@ -45,7 +45,7 @@ async def test_pipeline_closes_raw_stream() -> None:
     # Drain the pipeline
     chunks = []
     async for chunk_bytes in pipeline.process_stream(
-        raw_stream, provider="openai", output_format="sse"
+        raw_stream, provider="openai", output_format="sse"  # type: ignore[arg-type]
     ):
         chunks.append(chunk_bytes)
 

@@ -9,6 +9,7 @@ class ModelInfo(BaseModel):
     object: str = "model"
     created: int | None = None
     owned_by: str | None = None
+    context_window: int | None = None
 
     class Config:
         extra = "allow"

@@ -5,6 +5,8 @@
 The codebase has a mature notion of “session” (`session_id`) that flows through request processing, backend orchestration, usage tracking, and wire capture. However, it is a **single identifier** that is often sourced from client-provided inputs and is frequently propagated into backend-facing request payloads/headers. This is inconsistent with a B2BUA model that requires **strict A-leg/B-leg identity isolation**, per-backend-attempt B-legs, and stable internal mapping for observability and safety.
 
 Key gaps are:
+- B2BUA mode must default to **strict isolation** when `client_session_id` is absent (new `a_session_id` per request), because popular SSE agents are stateless and heuristic inference is unsafe by default.
+- Any heuristic continuity inference for missing `client_session_id` must be treated as **unsafe legacy behavior** behind explicit config (Requirement 14, config 8.8).
 - No explicit A-leg (`a_session_id`) vs B-leg (`b_session_id`) model or mapping store.
 - No per-A-leg atomic B-leg sequence allocation.
 - Session ID resolution currently treats client inputs as authoritative in multiple paths.
@@ -31,8 +33,8 @@ Key gaps are:
   - Session resolution is an injected seam (`ISessionResolver`) wired during staged init (`src/core/app/stages/core_services.py`).
 
 - **Session resolution implementations (current behavior conflicts with new requirements)**:
-  - `IntelligentSessionResolver` prioritizes explicit `x-session-id`/cookie as the resolved session ID and otherwise uses message-fingerprint continuity (`src/core/services/intelligent_session_resolver.py`).
-  - `DefaultSessionResolver` also uses `x-session-id`, request/session fields, cookies, and generates UUIDs as fallback (`src/core/services/session_resolver_service.py`).
+  - `IntelligentSessionResolver` prioritizes explicit `x-session-id` as the resolved session ID and otherwise uses message-fingerprint continuity (`src/core/services/intelligent_session_resolver.py`).
+  - `DefaultSessionResolver` also uses `x-session-id`, request/session fields,  and generates UUIDs as fallback (`src/core/services/session_resolver_service.py`).
   - `CustomHeaderMiddleware` copies `x-session-id` into `request.state.session_id` (`src/request_middleware.py`).
 
 - **Thin orchestrators + staged init**:
@@ -151,7 +153,7 @@ Legend: **Present** / **Missing** / **Constraint** (present but insufficient) / 
 
 1. **Auth scope identity source**: define how a stable `auth_scope_id` is derived from validated bearer tokens in multi-user mode (and how localhost mode is represented), and how it is injected into `RequestContext` for session continuity and mapping.
 2. **Multi-process correctness**: decide whether the proxy runs with multiple workers; if so, “atomic B-leg sequence allocation” cannot rely solely on in-memory counters and may require a shared store (DB/redis) or a different sequencing strategy.
-3. **Resolver strategy reconciliation**: decide what happens to `IntelligentSessionResolver` fingerprint-based continuity (keep, disable in B2BUA mode, or repurpose as a heuristic for selecting/creating internal A-leg IDs without trusting client IDs).
+3. **Resolver strategy reconciliation**: decide what happens to `IntelligentSessionResolver` fingerprint-based continuity when B2BUA is enabled. Default should be strict isolation when `client_session_id` is absent; any heuristic inference must be explicitly opt-in (Requirement 14 / config 8.8).
 4. **Connector inventory**: enumerate which connectors use `session_id`/conversation identifiers and define a consistent contract for passing `b_session_id` without leaking `a_session_id` or `client_session_id`.
 5. **Capture schema evolution**: plan CBOR capture metadata changes to include both A-leg and B-leg IDs while preserving backward compatibility for existing capture files and tooling (`scripts/inspect_cbor_capture.py`).
 6. **Usage schema evolution**: decide how to attribute usage to `a_session_id` while recording per-attempt B-leg metadata (new columns vs new table vs embedding in metadata), including migration strategy for existing DB data.

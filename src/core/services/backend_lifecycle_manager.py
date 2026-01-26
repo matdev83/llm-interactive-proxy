@@ -141,8 +141,6 @@ class BackendLifecycleManager(IBackendLifecycleManager):
 
                 if isinstance(provider_cfg, BackendConfig):
                     provider_backend_config = provider_cfg
-                elif isinstance(provider_cfg, AppConfig):
-                    app_config = provider_cfg
 
             if provider_backend_config is not None:
                 try:

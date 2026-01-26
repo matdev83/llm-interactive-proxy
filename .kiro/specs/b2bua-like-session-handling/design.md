@@ -23,6 +23,25 @@ The design enforces a strict separation between **session identifiers** (logical
 - Building a long-term conversation database beyond existing session state facilities.
 - Redefining cancellation keys (`SessionKey`) or request-level tracing semantics.
 
+
+## Strict Isolation Default (No Client Assumptions)
+Many popular coding agents use stateless HTTP/SSE flows and do not persist cookies or proxy-issued session tokens. Therefore, B2BUA mode adopts a **safety-first default**:
+
+- If `client_session_id` is absent, the proxy **creates a new `a_session_id` per request** and does not attempt to infer continuity.
+- Any heuristic continuity behavior is treated as an **unsafe legacy mode** behind an explicit opt-in configuration flag.
+
+This prevents accidental cross-session merges/leaks when multiple concurrent agent conversations share the same network fingerprint.
+### Unsafe legacy heuristic inference mode (config 8.8)
+In rare deployments where operators accept the risk of heuristic session inference to preserve continuity for clients that do not provide `client_session_id`, the proxy supports an explicit opt-in mode.
+
+**Design contract**
+- Default behavior remains strict isolation (4.9 / 14.1).
+- When `session.b2bua.enable_unsafe_heuristic_session_inference` (8.8) is enabled, any inference must still be scoped within the same `auth_scope_id` (14.4).
+- Unsafe inference mode never changes identifier isolation rules: it still results in a proxy-generated `a_session_id` as the canonical identity and never forwards `client_session_id` upstream.
+- Enabling this mode requires a startup warning (14.3).
+
+
+
 ## Architecture
 
 ### Existing Architecture Analysis (extension)
@@ -196,29 +215,6 @@ To avoid leaking `client_session_id` into connector-facing `extensions`, prefer 
 - **Localhost mode**: `auth_scope_id` is a single implicit constant scope (for example, `"localhost"`).
 
 
-### Proxy-issued `client_session_id` cookie (HTTP)
-To preserve continuity for "unmodified" HTTP clients that do not send a stable session identifier,
-B2BUA mode introduces an optional **proxy-issued client session cookie**.
-
-**Key rules**
-- The cookie value is an **opaque random token** representing `client_session_id`.
-- The proxy may set the cookie **only when `client_session_id` is absent** on the inbound request.
-- On subsequent requests, the cookie value participates in `client_session_id` extraction precedence
-  (after explicit `x-session-id` header, before body-derived values), but is still treated as
-  untrusted input (trim/sanitize).
-- The cookie value is never derived from `a_session_id`, `b_session_id`, `request_id`, token values,
-  or message contents.
-
-**Security defaults**
-- `HttpOnly=true`
-- `SameSite=Lax` (configurable)
-- `Path=/`
-- `Secure=true` when served over HTTPS (configurable override for localhost development)
-
-**Rationale**
-This provides deterministic continuity mapping without heuristic inference, while keeping the
-canonical session identity proxy-owned (`a_session_id`).
-
 ### Transport-to-domain injection contract
 The current SSO middleware gates requests but does not provide token identity to core services. This feature requires an explicit injection contract so `B2BUASessionResolver` can reliably scope continuity.
 
@@ -284,6 +280,10 @@ Canonical requirement ID format used in this design: `N.M` where `N` is the top-
 | 4.8 | Persistence across restarts when enabled | PersistentMappingStore | `IB2buaMappingStore` | F1 |
 | 4.9 | No client id means new A-leg by default | SessionResolver | `ISessionResolver` | F1 |
 | 4.10 | No auth scope means no reuse outside localhost | AuthScopeResolver, SessionResolver | `IAuthScopeResolver` | F1 |
+| 14.1 | No heuristic inference by default | SessionResolver | `ISessionResolver` | F1 |
+| 14.2 | Unsafe inference is explicit opt-in | Config, SessionResolver | `ISessionResolver` | F1 |
+| 14.3 | Startup warning when unsafe inference enabled | CLI/config validation | n/a | F1 |
+| 14.4 | Unsafe inference still scoped by auth_scope_id | SessionResolver | `ISessionResolver`, `IAuthScopeResolver` | F1 |
 | 5.1 | Create B-leg per attempt | BackendFlow, BlegAllocator | `IBlegAllocator` | F2 |
 | 5.2 | Failover creates new B-leg per attempt | BackendFlow | `IBackendCompletionFlow` | F3 |
 | 5.3 | Follow-up calls create new B-leg | BackendFlow | `IBackendCompletionFlow` | F2 |
@@ -312,6 +312,7 @@ Canonical requirement ID format used in this design: `N.M` where `N` is the top-
 | 8.5 | Config persistence across restarts | Config, PersistentMappingStore | n/a | F1 |
 | 8.6 | Config echo enable toggle | Config, EchoHeaderInjector | n/a | F1 |
 | 8.7 | Config echo header name | Config, EchoHeaderInjector | n/a | F1 |
+| 8.8 | Config unsafe inference toggle | Config, SessionResolver | n/a | F1 |
 | 9.1 | Session-scoped state keyed by a_session_id | SessionEnricher, SessionService | `ISessionService` | F1 |
 | 9.2 | Inbound processing uses a_session_id | SessionEnricher | `ISessionEnricher` | F1 |
 | 9.3 | Outbound attempts use a_session_id for state | BackendFlow | n/a | F2 |
@@ -337,7 +338,7 @@ Canonical requirement ID format used in this design: `N.M` where `N` is the top-
 | Field | Detail |
 |-------|--------|
 | Intent | Resolve internal `a_session_id` and store `client_session_id` metadata |
-| Requirements | 1.1, 1.8, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 9.1, 9.2, 9.7 |
+| Requirements | 1.1, 1.8, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 14.1, 14.2, 14.3, 14.4, 8.8, 9.1, 9.2, 9.7 |
 | Interface | `ISessionResolver` (`src/core/interfaces/session_resolver_interface.py`) |
 | DI Lifetime | Singleton |
 
@@ -480,6 +481,20 @@ Existing orchestration currently uses a single “session id” value for multip
   - Ensure `RequestContext.session_id` remains `a_session_id` and is never temporarily overwritten with `b_session_id`.
   - Emit structured logs containing both `a_session_id` and `b_session_id`.
 
+
+## Existing components to modify (request_id as session-like fallback)
+Several existing subsystems treat `request_id` as a session-like identifier for convenience. When B2BUA mode is enabled, this must be eliminated to preserve the strict separation between request correlation and chat session identity.
+
+**Design contract (B2BUA enabled)**
+- If `a_session_id` / `b_session_id` cannot be resolved for an observability event, omit the identifier rather than substituting `request_id`.
+
+**Known hotspots (non-exhaustive; validate during implementation)**
+- `src/core/services/stream_session_id_resolver.py` (`StreamSessionIdResolver`)
+- `src/core/transport/fastapi/adapters/capture/wire_capture_coordinator.py` (`WireCaptureCoordinator`)
+- `src/core/services/cbor_wire_capture_service.py` (capture metadata resolution)
+
+This change is gated behind `session.b2bua.enabled` to preserve legacy behavior when B2BUA is disabled.
+
 ## Ingress Ordering & Protocol Consistency
 
 In B2BUA mode, correct identity propagation depends on **consistent ordering**:
@@ -551,6 +566,17 @@ Extend capture metadata to store both IDs distinctly:
 Evolve usage persistence to attribute to A-leg while retaining per-attempt metadata:
 - Keep `session_id` as `a_session_id` for grouping and session metrics.
 - Add `b_session_id` (or `b_seq`) to usage records for backend-attempt legs (PTB/BTP).
+
+
+## Clarification: SessionKey vs `a_session_id`
+The codebase contains a `SessionKey` concept used for **request/stream lifecycle and cancellation scoping**. This is distinct from logical chat session identity.
+
+**Design contract**
+- `a_session_id` is the canonical identifier for logical chat-completion sessions and keys all session-scoped proxy state.
+- `SessionKey` remains request-scoped/stream-scoped and is used only where request lifecycle scoping is required (for example, cancellation and stream termination). It is never used as chat session identity.
+- When B2BUA is enabled, no subsystem may treat `SessionKey` (or its underlying `request_id`) as a substitute for `a_session_id` / `b_session_id` in logs, wire captures, or usage.
+
+This preserves the existing cancellation semantics while eliminating conceptual confusion between HTTP request correlation and logical conversation identity.
 
 ## Error Handling
 
