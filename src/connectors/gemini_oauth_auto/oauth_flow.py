@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 
 from src.connectors.gemini_oauth_auto.constants import (
+    ACCOUNT_ID_PATTERN,
     AUTH_URL,
     FAILURE_REDIRECT,
     OAUTH_CLIENT_ID,
@@ -26,6 +27,9 @@ from src.connectors.gemini_oauth_auto.constants import (
 from src.connectors.gemini_oauth_auto.errors import OAuthError
 from src.connectors.gemini_oauth_auto.interfaces import ITokenStorage
 from src.connectors.gemini_oauth_auto.models import StoredAccount
+
+# Compiled regex for account ID validation
+_ACCOUNT_ID_REGEX = re.compile(ACCOUNT_ID_PATTERN)
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +130,9 @@ class OAuthFlowService:
             logger.info("Opening browser for OAuth authorization...")
             webbrowser.open(auth_url)
         else:
-            logger.info(f"Please visit this URL to authorize the application:\n\n{auth_url}\n")
+            logger.info(
+                f"Please visit this URL to authorize the application:\n\n{auth_url}\n"
+            )
 
         try:
             # 3. Wait for code
@@ -142,6 +148,19 @@ class OAuthFlowService:
             # 6. Prepare StoredAccount
             if not account_id:
                 account_id = self._generate_account_id_from_email(email)
+            else:
+                # Validate and sanitize provided account_id if needed
+                if not _ACCOUNT_ID_REGEX.match(account_id):
+                    original_id = account_id
+                    account_id = self._sanitize_account_id(account_id)
+                    warning_msg = (
+                        f"\nWarning: Account ID '{original_id}' contains invalid characters. "
+                        f"Sanitized to '{account_id}'. "
+                        f"Account IDs must be alphanumeric with hyphens/underscores only.\n"
+                    )
+                    logger.warning(warning_msg.strip())
+                    # Also print to stdout for visibility in management script
+                    print(warning_msg, end="")
 
             # Check if account already exists
             existing = await self._storage.get_account(account_id)
@@ -257,11 +276,11 @@ class OAuthFlowService:
                 error_data = e.response.json()
 
             error_msg = (
-                error_data.get("error_description")
-                or error_data.get("error")
-                or str(e)
+                error_data.get("error_description") or error_data.get("error") or str(e)
             )
-            raise OAuthError(f"Failed to exchange authorization code: {error_msg}") from e
+            raise OAuthError(
+                f"Failed to exchange authorization code: {error_msg}"
+            ) from e
         except Exception as e:
             raise OAuthError(f"Network error during code exchange: {e}") from e
 
@@ -283,6 +302,26 @@ class OAuthFlowService:
                 error_code="state_mismatch",
             )
 
+    def _sanitize_account_id(self, account_id: str) -> str:
+        """Sanitize an account_id to match validation pattern.
+
+        Replaces invalid characters with underscores and ensures it starts
+        with alphanumeric character.
+
+        Args:
+            account_id: Account ID to sanitize
+
+        Returns:
+            Sanitized account_id that matches validation pattern
+        """
+        # Replace non-alphanumeric (except hyphens/underscores) with underscores
+        sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", account_id)
+        # Ensure it doesn't start with hyphen/underscore (per model validation)
+        if sanitized and sanitized[0] in ("-", "_"):
+            sanitized = "user_" + sanitized
+        # Truncate to max length
+        return sanitized[:64]
+
     def _generate_account_id_from_email(self, email: str) -> str:
         """Generate a valid account_id from an email address."""
         # Take local part of email and sanitize
@@ -293,5 +332,3 @@ class OAuthFlowService:
         if sanitized and sanitized[0] in ("-", "_"):
             sanitized = "user_" + sanitized
         return sanitized[:64]
-
-

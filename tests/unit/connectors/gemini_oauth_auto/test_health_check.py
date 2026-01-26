@@ -2,7 +2,7 @@
 Unit tests for GeminiOAuthAutoConnector health and functional state.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
@@ -21,28 +21,26 @@ def mock_dependencies():
 
 
 @pytest.fixture
-async def connector(mock_dependencies):
+async def connector(mock_dependencies, mocker):
     """Fixture providing an initialized GeminiOAuthAutoConnector."""
     client, config, translation_service = mock_dependencies
     
-    with patch(
-        "src.connectors.gemini_oauth_auto.connector.TokenStorageService"
-    ), patch(
-        "src.connectors.gemini_oauth_auto.connector.TokenRefreshService"
-    ), patch(
-        "src.connectors.gemini_oauth_auto.connector.AccountSelectorService"
-    ) as mock_selector_cls:
-        # Configure mock selector
-        mock_selector = mock_selector_cls.return_value
-        mock_selector.reload_accounts = AsyncMock()
-        mock_selector.get_next_account = AsyncMock()
-        mock_selector.get_available_count.return_value = 1
-        
-        conn = GeminiOAuthAutoConnector(client, config, translation_service)
-        # Ensure it uses the mock even before initialize
-        conn._account_selector = mock_selector
-        
-        yield conn
+    # Configure mock selector
+    mock_selector = MagicMock()
+    mock_selector.reload_accounts = AsyncMock()
+    mock_selector.get_next_account = AsyncMock()
+    mock_selector.get_available_count.return_value = 1
+    
+    # Patch services in the connector module
+    mocker.patch("src.connectors.gemini_oauth_auto.connector.TokenStorageService")
+    mocker.patch("src.connectors.gemini_oauth_auto.connector.TokenRefreshService")
+    mocker.patch("src.connectors.gemini_oauth_auto.connector.AccountSelectorService", return_value=mock_selector)
+    
+    conn = GeminiOAuthAutoConnector(client, config, translation_service)
+    # Ensure it uses the mock even before initialize
+    conn._account_selector = mock_selector
+    
+    return conn
 
 
 @pytest.mark.asyncio

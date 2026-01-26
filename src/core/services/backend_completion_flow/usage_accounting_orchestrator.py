@@ -147,16 +147,24 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             )
 
             # Calculate verbatim tokens (from original request)
-            verbatim_tokens = 0
-            if self._usage_tracking_service:
-                verbatim_tokens = calculate_outbound_tokens(
-                    request, model=effective_model
-                )
+            # Always calculate for logging/debugging purposes
+            verbatim_tokens = calculate_outbound_tokens(request, model=effective_model)
 
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens} (verbatim: {verbatim_tokens})"
-                )
+                # Log additional debug info if verbatim tokens are 0 (potential issue)
+                if verbatim_tokens == 0:
+                    # Extract message count for debugging
+                    message_count = 0
+                    if hasattr(request, "messages"):
+                        message_count = len(request.messages) if request.messages else 0
+                    logger.debug(
+                        f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens} (verbatim: {verbatim_tokens}, "
+                        f"verbatim_message_count: {message_count}, usage_tracking_enabled: {self._usage_tracking_service is not None})"
+                    )
+                else:
+                    logger.debug(
+                        f"Outbound tokens to {backend_type}/{effective_model}: {outbound_tokens} (verbatim: {verbatim_tokens})"
+                    )
 
             # Record request usage
             if self._usage_tracking_service:
