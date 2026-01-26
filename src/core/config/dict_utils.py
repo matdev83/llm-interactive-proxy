@@ -55,30 +55,41 @@ def _parse_path(path: str) -> list[str]:
             i += 1
             continue
         if path[i] == "[":
-            if not path.startswith('["', i):
-                raise ValueError(f"Unsupported path syntax near: {path[i:]}")
-            i += 2
-            buf: list[str] = []
-            while i < len(path):
-                ch = path[i]
-                if ch == "\\":
-                    if i + 1 >= len(path):
-                        raise ValueError(f"Invalid escape in path: {path}")
-                    buf.append(path[i + 1])
-                    i += 2
-                    continue
-                if ch == '"':
-                    break
-                buf.append(ch)
+            if path.startswith('["', i):
+                i += 2
+                buf: list[str] = []
+                while i < len(path):
+                    ch = path[i]
+                    if ch == "\\":
+                        if i + 1 >= len(path):
+                            raise ValueError(f"Invalid escape in path: {path}")
+                        buf.append(path[i + 1])
+                        i += 2
+                        continue
+                    if ch == '"':
+                        break
+                    buf.append(ch)
+                    i += 1
+                if i >= len(path) or path[i] != '"':
+                    raise ValueError(f"Unterminated bracket key in path: {path}")
                 i += 1
-            if i >= len(path) or path[i] != '"':
-                raise ValueError(f"Unterminated bracket key in path: {path}")
-            i += 1
-            if i >= len(path) or path[i] != "]":
-                raise ValueError(f"Unterminated bracket key in path: {path}")
-            i += 1
-            parts.append("".join(buf))
-            continue
+                if i >= len(path) or path[i] != "]":
+                    raise ValueError(f"Unterminated bracket key in path: {path}")
+                i += 1
+                parts.append("".join(buf))
+                continue
+
+            # Support numeric index like [0]
+            start = i + 1
+            i = start
+            while i < len(path) and path[i].isdigit():
+                i += 1
+            if i > start and i < len(path) and path[i] == "]":
+                parts.append(path[start:i])
+                i += 1
+                continue
+
+            raise ValueError(f"Unsupported path syntax near: {path[i:]}")
 
         start = i
         while i < len(path) and path[i] not in ".[":

@@ -7,14 +7,18 @@ replicating the constants and behavior from gemini-cli's loopDetectionService.ts
 Reference: dev/thrdparty/gemini-cli/packages/core/src/services/loopDetectionService.ts (lines 33-55)
 """
 
+from __future__ import annotations
+
 import contextlib
 import os
-from dataclasses import dataclass, field
 from typing import Any
 
+from pydantic import ConfigDict, Field
 
-@dataclass
-class AssessmentConfig:
+from src.core.interfaces.model_bases import DomainModel
+
+
+class AssessmentConfig(DomainModel):
     """
     Configuration for LLM assessment system, mirroring gemini-cli constants.
 
@@ -26,6 +30,8 @@ class AssessmentConfig:
     - MAX_LLM_CHECK_INTERVAL = 15
     """
 
+    model_config = ConfigDict(frozen=False, extra="allow")
+
     enabled: bool = False
     turn_threshold: int = 30  # LLM_CHECK_AFTER_TURNS
     confidence_threshold: float = 0.9
@@ -35,11 +41,11 @@ class AssessmentConfig:
     default_interval: int = 3  # DEFAULT_LLM_CHECK_INTERVAL
     backend: str = "openai"  # Default backend
     model: str = "gpt-4o-mini"  # Default model
-    disable_for_sessions: list[str] = field(default_factory=list)
-    _env_set_fields: set[str] = field(default_factory=set, init=False, repr=False)
+    disable_for_sessions: list[str] = Field(default_factory=list)
+    env_set_fields: set[str] = Field(default_factory=set, exclude=True)
 
     @classmethod
-    def from_cli_args(cls, args) -> "AssessmentConfig":
+    def from_cli_args(cls, args) -> AssessmentConfig:
         """Create configuration from CLI arguments with highest precedence."""
         config = cls()
 
@@ -145,67 +151,67 @@ class AssessmentConfig:
         return config
 
     @classmethod
-    def from_env_vars(cls) -> "AssessmentConfig":
+    def from_env_vars(cls) -> AssessmentConfig:
         """Create configuration from environment variables."""
         config = cls()
 
         # Track which values were actually set vs just defaults
-        config._env_set_fields = set()
+        config.env_set_fields = set()
 
         enabled = os.getenv("LLM_ASSESSMENT_ENABLED", "").lower()
         if enabled:
             if enabled in ("true", "1", "yes", "on"):
                 config.enabled = True
-                config._env_set_fields.add("enabled")
+                config.env_set_fields.add("enabled")
             elif enabled in ("false", "0", "no", "off"):
                 config.enabled = False
-                config._env_set_fields.add("enabled")
+                config.env_set_fields.add("enabled")
 
         if threshold := os.getenv("LLM_ASSESSMENT_TURN_THRESHOLD"):
             with contextlib.suppress(ValueError):
                 # Keep default value if env var is not a valid integer
                 config.turn_threshold = int(threshold)
-                config._env_set_fields.add("turn_threshold")
+                config.env_set_fields.add("turn_threshold")
 
         if confidence := os.getenv("LLM_ASSESSMENT_CONFIDENCE_THRESHOLD"):
             with contextlib.suppress(ValueError):
                 # Keep default value if env var is not a valid float
                 config.confidence_threshold = float(confidence)
-                config._env_set_fields.add("confidence_threshold")
+                config.env_set_fields.add("confidence_threshold")
 
         if backend := os.getenv("LLM_ASSESSMENT_BACKEND"):
             backend_value = backend.strip()
             # Only accept known valid backends
             if backend_value in ["openai", "anthropic", "gemini"]:
                 config.backend = backend_value
-                config._env_set_fields.add("backend")
+                config.env_set_fields.add("backend")
 
         if model := os.getenv("LLM_ASSESSMENT_MODEL"):
             config.model = model.strip()
-            config._env_set_fields.add("model")
+            config.env_set_fields.add("model")
 
         if window := os.getenv("LLM_ASSESSMENT_HISTORY_WINDOW"):
             with contextlib.suppress(ValueError):
                 # Keep default value if env var is not a valid integer
                 config.history_window = int(window)
-                config._env_set_fields.add("history_window")
+                config.env_set_fields.add("history_window")
 
         if min_interval := os.getenv("LLM_ASSESSMENT_MIN_INTERVAL"):
             with contextlib.suppress(ValueError):
                 # Keep default value if env var is not a valid integer
                 config.min_interval = int(min_interval)
-                config._env_set_fields.add("min_interval")
+                config.env_set_fields.add("min_interval")
 
         if max_interval := os.getenv("LLM_ASSESSMENT_MAX_INTERVAL"):
             with contextlib.suppress(ValueError):
                 # Keep default value if env var is not a valid integer
                 config.max_interval = int(max_interval)
-                config._env_set_fields.add("max_interval")
+                config.env_set_fields.add("max_interval")
 
         return config
 
     @classmethod
-    def from_yaml(cls, yaml_config: dict[str, Any]) -> "AssessmentConfig":
+    def from_yaml(cls, yaml_config: dict[str, Any]) -> AssessmentConfig:
         """Create configuration from YAML configuration."""
         config = cls()
 
@@ -277,10 +283,10 @@ class AssessmentConfig:
     @classmethod
     def merge_configs(
         cls,
-        cli_config: "AssessmentConfig",
-        env_config: "AssessmentConfig",
-        yaml_config: "AssessmentConfig",
-    ) -> "AssessmentConfig":
+        cli_config: AssessmentConfig,
+        env_config: AssessmentConfig,
+        yaml_config: AssessmentConfig,
+    ) -> AssessmentConfig:
         """
         Merge configurations with precedence: CLI > ENV > YAML > defaults.
 
@@ -323,42 +329,42 @@ class AssessmentConfig:
 
         # Override with ENV (medium precedence) - only if CLI wasn't set
         # Only override if the env config actually has the field set
-        if "enabled" in getattr(env_config, "_env_set_fields", set()) and (
+        if "enabled" in getattr(env_config, "env_set_fields", set()) and (
             cli_config.enabled == default_config.enabled
         ):  # Only use ENV if CLI didn't override
             merged.enabled = env_config.enabled
-        if "turn_threshold" in getattr(env_config, "_env_set_fields", set()) and (
+        if "turn_threshold" in getattr(env_config, "env_set_fields", set()) and (
             cli_config.turn_threshold == default_config.turn_threshold
         ):
             merged.turn_threshold = env_config.turn_threshold
-        if "confidence_threshold" in getattr(env_config, "_env_set_fields", set()) and (
+        if "confidence_threshold" in getattr(env_config, "env_set_fields", set()) and (
             cli_config.confidence_threshold == default_config.confidence_threshold
         ):
             merged.confidence_threshold = env_config.confidence_threshold
-        if "backend" in getattr(env_config, "_env_set_fields", set()) and (
+        if "backend" in getattr(env_config, "env_set_fields", set()) and (
             cli_config.backend == default_config.backend
         ):
             merged.backend = env_config.backend
-        if "model" in getattr(env_config, "_env_set_fields", set()) and (
+        if "model" in getattr(env_config, "env_set_fields", set()) and (
             cli_config.model == default_config.model
         ):
             merged.model = env_config.model
-        if "history_window" in getattr(env_config, "_env_set_fields", set()) and (
+        if "history_window" in getattr(env_config, "env_set_fields", set()) and (
             cli_config.history_window == default_config.history_window
         ):
             merged.history_window = env_config.history_window
-        if "min_interval" in getattr(env_config, "_env_set_fields", set()) and (
+        if "min_interval" in getattr(env_config, "env_set_fields", set()) and (
             cli_config.min_interval == default_config.min_interval
         ):
             merged.min_interval = env_config.min_interval
-        if "max_interval" in getattr(env_config, "_env_set_fields", set()) and (
+        if "max_interval" in getattr(env_config, "env_set_fields", set()) and (
             cli_config.max_interval == default_config.max_interval
         ):
             merged.max_interval = env_config.max_interval
 
         return merged
 
-    def validate(self) -> list[str]:
+    def validate_config(self) -> list[str]:
         """Validate configuration and return list of errors."""
         errors = []
 

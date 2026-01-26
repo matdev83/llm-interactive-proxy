@@ -30,6 +30,7 @@ Welcome to the LLM Interactive Proxy development guide. This section contains do
 ## Debugging & Troubleshooting
 
 - **[Debugging](./debugging.md)** - Debugging techniques, wire capture analysis, and troubleshooting tools
+- **[Zombie Request Fix](./zombie-request-fix.md)** - Fix for zombie request handling issues
 
 ## Related Documentation
 

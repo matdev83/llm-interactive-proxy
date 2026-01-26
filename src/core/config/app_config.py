@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, cast
 
+from pydantic import ConfigDict
+
 from src.core.config.models import (
     AuthConfig,
     BackendConfig,
@@ -43,6 +45,8 @@ class AppConfig(AppConfigModel):
     This class is a thin extension of the pure domain model (`AppConfigModel`)
     that retains legacy convenience methods and factories.
     """
+
+    model_config = ConfigDict(frozen=False, extra="allow", arbitrary_types_allowed=True)
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Backward-compatible initializer.

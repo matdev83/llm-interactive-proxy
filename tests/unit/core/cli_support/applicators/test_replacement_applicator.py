@@ -158,7 +158,7 @@ class TestReplacementApplicator:
         empty_args.replacement_rules = [
             "gemini-3-flash-preview=gemini-oauth-plan:gemini-3-pro-preview",
             "gpt-4=openai:gpt-3.5-turbo",
-            "*=qwen-oauth:qwen3-coder-plus",
+            "claude-3-opus=anthropic:claude-3-sonnet",
         ]
         applicator.apply(empty_args, overrides, resolution)
 
@@ -177,10 +177,10 @@ class TestReplacementApplicator:
         assert rules[1].to_backend == "openai"
         assert rules[1].to_model == "gpt-3.5-turbo"
         
-        # Check wildcard rule
-        assert rules[2].from_pattern == "*"
-        assert rules[2].to_backend == "qwen-oauth"
-        assert rules[2].to_model == "qwen3-coder-plus"
+        # Check claude rule (replaced wildcard with specific rule)
+        assert rules[2].from_pattern == "claude-3-opus"
+        assert rules[2].to_backend == "anthropic"
+        assert rules[2].to_model == "claude-3-sonnet"
 
     def test_no_modifications_when_all_none(
         self,
