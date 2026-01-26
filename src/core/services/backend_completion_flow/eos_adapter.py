@@ -112,20 +112,10 @@ class BackendCompletionFlowEosAdapter:
         )
 
         # Emit signal (fail-open on errors)
+        # Note: We don't log here because record_signal() may skip emission if claim fails.
+        # The EndOfSessionService logs when events are actually emitted.
         try:
             await self._eos_service.record_signal(signal)
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "EoS error termination signal emitted: session=%s, error_classification=%s",
-                    session_id,
-                    error_classification.value,
-                    extra={
-                        "session_id": session_id,
-                        "error_type": type(error).__name__,
-                        "error_classification": error_classification.value,
-                        "status_code": status_code,
-                    },
-                )
         except Exception as e:
             logger.warning(
                 "Failed to record EoS error termination signal: %s",

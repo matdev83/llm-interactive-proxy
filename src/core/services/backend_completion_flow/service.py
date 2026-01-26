@@ -265,7 +265,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     "Filtered non-forwardable messages from backend request",
                     extra=log_extra,
                 )
-            
+
             return canonical_request, domain_request
 
         except (NoForwardableContentError, NonForwardableEnforcementError) as e:
@@ -574,6 +574,10 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 canonical_request, backend_type, session, uri_params
             )
 
+            # Preserve original canonical_request for verbatim token calculation
+            # (before non-forwardable filtering modifies it)
+            original_canonical_request = canonical_request
+
             # Step 7.5: Apply non-forwardable message filtering
             # This happens after history compaction (if enabled) and before wire capture
             # to ensure filtered messages are used for both capture and backend calls
@@ -625,13 +629,15 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 )
 
                 # Calculate outbound tokens and record usage
+                # Use original_canonical_request for verbatim token calculation
+                # (before non-forwardable filtering was applied)
                 (
                     outbound_tokens,
                     ctp_record_id,
                     ptb_record_id,
                 ) = await self._usage_accounting.calculate_and_record_usage(
                     domain_request=domain_request,
-                    request=canonical_request,
+                    request=original_canonical_request,
                     backend_type=backend_type,
                     effective_model=effective_model,
                     session=session,
@@ -751,9 +757,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         session_id_for_backend=session_id_for_backend,
                         session_key=session_key,
                     )
-                
+
                 # Should be unreachable if result is not None and matches types
-                return result # type: ignore[return-value]
+                return result  # type: ignore[return-value]
 
             except asyncio.CancelledError:
                 raise
@@ -849,6 +855,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                             backend_type=current_backend,
                             context=context,
                         )
+                        # Mark as handled to prevent outer handler from calling record_error_termination again.
+                        # This marker is necessary because when allow_failover=False, we call
+                        # record_error_termination here and then raise, which will be caught by the outer
+                        # handler. Without this marker, record_error_termination would be called twice for
+                        # the same error.
+                        normalized_exc.__eos_recorded_by_inner_handler__ = True  # type: ignore[attr-defined]
                     except Exception as eos_error:
                         # Fail-open: log but don't interfere with error handling
                         logger.warning(
@@ -914,7 +926,14 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 self._record_failure(backend_type, effective_model, exc, context)
 
             # Record EoS error termination signal (fail-open)
-            if self._eos_adapter is not None:  # type: ignore[reportUnknownVariableType]
+            # Skip if already recorded in inner handler (when allow_failover=False)
+            # to avoid double-calling record_error_termination for the same error.
+            if (
+                self._eos_adapter is not None
+                and not getattr(  # type: ignore[reportUnknownVariableType]
+                    exc, "__eos_recorded_by_inner_handler__", False
+                )
+            ):
                 try:
                     await self._eos_adapter.record_error_termination(  # type: ignore[reportUnknownMemberType]
                         error=exc,
@@ -939,7 +958,14 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             normalized_exc = self._normalize_backend_exception(exc, backend_type)
 
             # Record EoS error termination signal (fail-open)
-            if self._eos_adapter is not None:  # type: ignore[reportUnknownVariableType]
+            # Skip if already recorded in inner handler (when allow_failover=False)
+            # to avoid double-calling record_error_termination for the same error.
+            if (
+                self._eos_adapter is not None
+                and not getattr(  # type: ignore[reportUnknownVariableType]
+                    normalized_exc, "__eos_recorded_by_inner_handler__", False
+                )
+            ):
                 try:
                     await self._eos_adapter.record_error_termination(  # type: ignore[reportUnknownMemberType]
                         error=normalized_exc,

@@ -24,6 +24,8 @@ from src.core.services.session_metrics_initializer import (
     SessionMetricsInitializer,
 )
 
+from tests.utils.fake_clock import FakeClock, FakeClockContext
+
 
 @pytest.fixture
 def mock_session_repository() -> SessionMetricsRepository:
@@ -41,6 +43,7 @@ def initializer(
     return SessionMetricsInitializer(
         session_repository=mock_session_repository,
         timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+        cache_ttl_seconds=0.0,  # Disable cache in tests to allow testing actual DB calls
     )
 
 
@@ -161,6 +164,7 @@ class TestTimeoutCase:
         initializer = SessionMetricsInitializer(
             session_repository=mock_session_repository,
             timeout_seconds=0.1,
+            cache_ttl_seconds=0.0,  # Disable cache in tests
         )
 
         # Execute: should not raise, should return after timeout
@@ -239,6 +243,7 @@ class TestDatabaseUnavailable:
         initializer = SessionMetricsInitializer(
             session_repository=mock_session_repository,
             timeout_seconds=0.05,
+            cache_ttl_seconds=0.0,  # Disable cache in tests
         )
 
         # Execute: should not raise
@@ -296,7 +301,9 @@ class TestConcurrentInitialization:
             ]
         )
 
-        # Verify: all calls completed (atomic upsert handles concurrency)
+        # Verify: all calls completed
+        # With cache disabled (cache_ttl_seconds=0), all 5 calls should reach the database
+        # With cache enabled, only 1 call would reach the database (others hit cache)
         assert mock_repo.upsert.await_count == 5
 
 
@@ -348,3 +355,108 @@ class TestSessionKeyMapping:
         )
         codebuff_call = mock_repo.upsert.call_args_list[1][0][0]
         assert codebuff_call.session_id == "codebuff:ws-456"
+
+
+class TestCachingBehavior:
+    """Test caching behavior to reduce redundant database queries."""
+
+    @pytest.mark.asyncio
+    async def test_cache_populated_after_successful_initialization(
+        self,
+        initializer: SessionMetricsInitializer,
+        mock_session_repository: SessionMetricsRepository,
+        sample_session_key: SessionKey,
+        sample_observed_at: datetime,
+    ):
+        """Test that cache is populated after successful initialization."""
+        # Setup: mock successful upsert
+        mock_metrics = SessionMetricsTable(
+            session_id="test-session-123",
+            start_time=sample_observed_at,
+            last_activity=sample_observed_at,
+            turn_count=0,
+            total_tokens=0,
+            total_tool_calls=0,
+            is_completed=False,
+        )
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(return_value=mock_metrics)
+
+        # Create initializer with caching enabled (but disabled in fixture, so enable it)
+        initializer_with_cache = SessionMetricsInitializer(
+            session_repository=mock_session_repository,
+            timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+            cache_ttl_seconds=5.0,
+        )
+
+        # Verify cache is initially empty
+        assert (
+            sample_session_key.primary_id
+            not in initializer_with_cache._initialization_cache
+        )
+
+        # First call: should populate cache
+        await initializer_with_cache.ensure_session_metrics(
+            sample_session_key, observed_at=sample_observed_at
+        )
+
+        # Verify cache was populated after successful call
+        assert (
+            sample_session_key.primary_id
+            in initializer_with_cache._initialization_cache
+        )
+        cached_time, cached_lock = initializer_with_cache._initialization_cache[
+            sample_session_key.primary_id
+        ]
+        assert isinstance(cached_time, float)
+        assert isinstance(cached_lock, asyncio.Lock)
+
+    @pytest.mark.asyncio
+    async def test_cache_disabled_when_ttl_is_zero(
+        self,
+        mock_session_repository: SessionMetricsRepository,
+        sample_session_key: SessionKey,
+        sample_observed_at: datetime,
+    ):
+        """Test that cache is effectively disabled when TTL is 0."""
+        # Setup: mock successful upsert
+        mock_metrics = SessionMetricsTable(
+            session_id="test-session-123",
+            start_time=sample_observed_at,
+            last_activity=sample_observed_at,
+            turn_count=0,
+            total_tokens=0,
+            total_tool_calls=0,
+            is_completed=False,
+        )
+        mock_repo = cast(Any, mock_session_repository)
+        mock_repo.upsert = AsyncMock(return_value=mock_metrics)
+
+        # Create initializer with cache disabled (TTL = 0)
+        initializer = SessionMetricsInitializer(
+            session_repository=mock_session_repository,
+            timeout_seconds=DEFAULT_TIMEOUT_SECONDS,
+            cache_ttl_seconds=0.0,
+        )
+
+        # Use FakeClockContext to control time safely
+        # Create clock with initial time to avoid "set time backwards" error
+        initial_clock = FakeClock(initial_time=1000.0)
+        async with FakeClockContext(clock=initial_clock) as clock:
+            # First call
+            await initializer.ensure_session_metrics(
+                sample_session_key, observed_at=sample_observed_at
+            )
+
+            assert mock_repo.upsert.await_count == 1
+
+            # Advance time slightly
+            clock.advance(0.1)
+
+            # Second call immediately after: should hit database (cache disabled)
+            await initializer.ensure_session_metrics(
+                sample_session_key, observed_at=sample_observed_at
+            )
+
+            # Verify: 2 database calls (cache disabled)
+            assert mock_repo.upsert.await_count == 2

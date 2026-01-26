@@ -274,14 +274,14 @@ class TestAssessmentConfig:
             confidence_threshold=0.9,
         )
 
-        errors = config.validate()
+        errors = config.validate_config()
         assert len(errors) == 0
 
     def test_validation_missing_backend(self):
         """Test validation failure when backend is missing."""
         config = AssessmentConfig(enabled=True, model="gpt-4o-mini", backend="")
 
-        errors = config.validate()
+        errors = config.validate_config()
         assert any(
             "backend must be specified when assessment is enabled" in error
             for error in errors
@@ -291,7 +291,7 @@ class TestAssessmentConfig:
         """Test validation failure with invalid confidence threshold."""
         config = AssessmentConfig(confidence_threshold=1.5)
 
-        errors = config.validate()
+        errors = config.validate_config()
         assert any(
             "confidence_threshold must be between 0.0 and 1.0" in error
             for error in errors
@@ -301,7 +301,7 @@ class TestAssessmentConfig:
         """Test validation failure with invalid intervals."""
         config = AssessmentConfig(min_interval=10, max_interval=5)
 
-        errors = config.validate()
+        errors = config.validate_config()
         assert any("max_interval must be >= min_interval" in error for error in errors)
 
 

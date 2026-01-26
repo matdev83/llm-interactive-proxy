@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Mapping
+from dataclasses import asdict
 from typing import Any
 
 from src.core.config.env.util import (
@@ -67,18 +68,20 @@ def _load_replacement_rules_from_env(
                     to_model=rule_data.get("to_model", ""),
                 )
                 rules.append(rule)
-                if resolution:
-                    resolution.record(
-                        f"replacement.replacement_rules[{i}]",
-                        rule,
-                        ParameterSource.ENVIRONMENT,
-                        origin="REPLACEMENT_RULES",
-                    )
             except (TypeError, ValueError) as e:
                 logger.warning(
                     f"Invalid replacement rule at index {i}: {e}. Skipping rule."
                 )
                 continue
+
+        # Record the whole list at once to avoid set_by_path creating a dict
+        if resolution and rules:
+            resolution.record(
+                "replacement.replacement_rules",
+                rules,
+                ParameterSource.ENVIRONMENT,
+                origin="REPLACEMENT_RULES",
+            )
 
         return rules
     except json.JSONDecodeError as e:
@@ -309,6 +312,12 @@ def apply_config_part3(
                 "Added test API key for default backend %s", default_backend_type
             )
 
+    # Load replacement rules and convert to dict format for config merging
+    replacement_rules_objects = _load_replacement_rules_from_env(
+        env, resolution=resolution
+    )
+    replacement_rules_dicts = [asdict(rule) for rule in replacement_rules_objects]
+
     config["replacement"] = {
         "enabled": _env_to_bool(
             "REPLACEMENT_ENABLED",
@@ -325,9 +334,7 @@ def apply_config_part3(
             resolution=resolution,
         ),
         # Handle new replacement_rules format (JSON array)
-        "replacement_rules": _load_replacement_rules_from_env(
-            env, resolution=resolution
-        ),
+        "replacement_rules": replacement_rules_dicts,
         # Legacy backend_model for backward compatibility
         "backend_model": _get_env_value(
             env,

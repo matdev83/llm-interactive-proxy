@@ -670,7 +670,7 @@ class SessionMetricsRepository(AsyncRepository[SessionMetricsTable]):
                 # Insert
                 session.add(metrics)
                 await session.flush()
-                await session.refresh(metrics)
+                # No refresh needed - we already have all the data we inserted
                 return metrics
 
     async def get_active_sessions(

@@ -591,10 +591,13 @@ class TestConfigurationErrorBehavior:
         """
         Given: Invalid configuration values
         When: Assessment system is initialized
-        Then: Should fall back to sensible defaults
+        Then: Should reject invalid values with clear validation errors
         """
-        # Given - Invalid configuration
-        invalid_configs = [
+        from pydantic import ValidationError
+
+        # Given - Invalid configuration values that Pydantic will reject
+        # Pydantic validates during construction, so invalid values will raise ValidationError
+        with pytest.raises(ValidationError) as exc_info:
             AssessmentConfig(
                 enabled=None,  # Invalid boolean
                 turn_threshold=-5,  # Invalid (negative)
@@ -602,22 +605,14 @@ class TestConfigurationErrorBehavior:
                 backend="",  # Invalid (empty)
                 model=None,  # Invalid (None)
                 history_window=0,  # Invalid (zero)
-            ),
-        ]
+            )
 
-        for config in invalid_configs:
-            # When - Try to create services with invalid config
-            try:
-                repository = InMemoryAssessmentRepository()
-                turn_counter = TurnCounterService(repository, config)
-
-                # Then - Should either work with defaults or fail gracefully
-                assert isinstance(turn_counter, TurnCounterService)
-
-            except Exception as e:
-                # If it fails, should be a clear, meaningful error
-                assert isinstance(e, ValueError | TypeError)
-                assert str(e)  # Should have an error message
+        # Then - Should have clear validation error messages
+        errors = exc_info.value.errors()
+        assert len(errors) > 0
+        # Verify that error messages are present and meaningful
+        error_messages = [str(e) for e in errors]
+        assert any("bool" in msg.lower() or "boolean" in msg.lower() for msg in error_messages)
 
     def test_missing_required_configuration(self):
         """

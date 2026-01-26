@@ -388,3 +388,42 @@ class TestFailOpen:
         )
 
         mock_eos_service.record_signal.assert_awaited_once()
+
+
+class TestRegressionBugs:
+    """Regression tests for fixed bugs."""
+
+    @pytest.mark.asyncio
+    async def test_no_misleading_log_when_claim_fails(
+        self,
+        adapter: BackendCompletionFlowEosAdapter,
+        mock_eos_service: MagicMock,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        """Regression test for bug: adapter should not log 'signal emitted' when claim fails.
+
+        Bug: The adapter was logging 'EoS error termination signal emitted' even when
+        the atomic claim failed and no event was actually emitted. This was misleading.
+
+        Fix: Removed the misleading log from the adapter. The EndOfSessionService
+        already logs when events are actually emitted.
+        """
+        import logging
+
+        # Simulate claim failure by making has_ended return True (session already ended)
+        mock_eos_service.has_ended.return_value = True
+        error = BackendError("Test error", backend_name="openai")
+
+        with caplog.at_level(logging.DEBUG):
+            await adapter.record_error_termination(
+                error=error, session_id="test-123", backend_type="openai"
+            )
+
+        # Verify record_signal was not called (early exit due to has_ended=True)
+        mock_eos_service.record_signal.assert_not_awaited()
+
+        # Verify no misleading "signal emitted" log appears
+        # (The adapter should only log "Session already ended" at DEBUG level)
+        log_messages = [record.message for record in caplog.records]
+        assert not any("signal emitted" in msg.lower() for msg in log_messages)
+        assert any("already ended" in msg.lower() for msg in log_messages)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -68,7 +69,10 @@ class ReplacementApplicator:
                 rule = self._parse_replacement_rule(rule_str)
                 parsed_rules.append(rule)
 
-            replacement_overrides["replacement_rules"] = parsed_rules
+            # Convert ReplacementRule objects to dicts for config merging
+            replacement_overrides["replacement_rules"] = [
+                asdict(rule) for rule in parsed_rules
+            ]
             # Store as JSON array in environment variable
             rules_json = json.dumps(
                 [
@@ -94,7 +98,7 @@ class ReplacementApplicator:
             if "replacement_rules" not in replacement_overrides:
                 rule_str = f"*={args.replacement_backend_model}"
                 rule = self._parse_replacement_rule(rule_str)
-                replacement_overrides["replacement_rules"] = [rule]
+                replacement_overrides["replacement_rules"] = [asdict(rule)]
             # Also set backend_model for backward compatibility
             replacement_overrides["backend_model"] = args.replacement_backend_model
             os.environ["REPLACEMENT_BACKEND_MODEL"] = args.replacement_backend_model
