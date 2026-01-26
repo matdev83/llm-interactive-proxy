@@ -104,6 +104,9 @@ def extract_prompt_text(messages: list[Any]) -> str:
                 elif p_type is None and isinstance(p, str):
                     # Direct string in a list of parts
                     parts.append(f"{role_label}: {p}")
+                elif p_type == "text" and p_text is None:
+                    # Case where type is text but text is missing, try to stringify
+                    parts.append(f"{role_label}: {p!s}")
         elif content is not None:
             # Fallback for unknown content types
             parts.append(f"{role_label}: {content!s}")

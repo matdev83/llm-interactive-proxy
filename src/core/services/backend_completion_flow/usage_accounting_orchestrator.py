@@ -135,6 +135,13 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         outbound_tokens = 0
 
         try:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Calculating usage: domain_request_type=%s, request_type=%s",
+                    type(domain_request).__name__,
+                    type(request).__name__,
+                )
+
             outbound_tokens = calculate_outbound_tokens(
                 domain_request, model=effective_model
             )

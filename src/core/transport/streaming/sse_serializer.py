@@ -312,13 +312,21 @@ class SSESerializer:
     def _inject_reasoning_content(
         self, delta: dict[str, Any], reasoning: str | None
     ) -> None:
-        """Inject reasoning content and alias into delta if present."""
+        """Inject reasoning content and aliases into delta if present."""
         if not reasoning:
             return
+        
+        # Standard field (DeepSeek, etc.)
         if "reasoning_content" not in delta:
             delta["reasoning_content"] = reasoning
+            
+        # Common aliases for compatibility with various clients
         if "reasoning" not in delta:
             delta["reasoning"] = reasoning
+        if "thinking" not in delta:
+            delta["thinking"] = reasoning
+        if "thought" not in delta:
+            delta["thought"] = reasoning
 
     def _inject_tool_calls(
         self, delta: dict[str, Any], tool_calls: list[Any] | None

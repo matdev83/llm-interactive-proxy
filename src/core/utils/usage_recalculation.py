@@ -190,6 +190,10 @@ def calculate_outbound_tokens(
         elif isinstance(request_data, dict):
             # Dict format
             messages = request_data.get("messages", [])
+        elif hasattr(request_data, "model_dump"):
+            messages = request_data.model_dump().get("messages", [])
+        elif hasattr(request_data, "dict"):
+            messages = request_data.dict().get("messages", [])
         else:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Unknown request format: %s", type(request_data))

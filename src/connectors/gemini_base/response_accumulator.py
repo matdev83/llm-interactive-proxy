@@ -385,8 +385,13 @@ class StreamingResponseAccumulator:
         # Add reasoning content if present
         if accumulated_reasoning:
             message_content["reasoning_content"] = accumulated_reasoning
+            # Add aliases for compatibility
+            message_content["reasoning"] = accumulated_reasoning
+            message_content["thinking"] = accumulated_reasoning
+            message_content["thought"] = accumulated_reasoning
 
         response_content: dict[str, Any] = {
+
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
             "created": int(time.time()),

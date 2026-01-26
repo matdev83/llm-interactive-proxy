@@ -152,9 +152,14 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         delta["thought_signature"] = thought_signature
 
     if reasoning_pieces:
-        delta["reasoning_content"] = "\n".join(
+        reasoning = "\n".join(
             segment for segment in reasoning_pieces if segment
         ).strip()
+        delta["reasoning_content"] = reasoning
+        # Add aliases for compatibility with various clients
+        delta["reasoning"] = reasoning
+        delta["thinking"] = reasoning
+        delta["thought"] = reasoning
 
     if tool_calls:
         delta["tool_calls"] = tool_calls

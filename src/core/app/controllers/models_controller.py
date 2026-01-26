@@ -447,20 +447,41 @@ async def _list_models_impl(
                         
                         # Try to find capabilities by model_id or base model name
                         capabilities = KNOWN_MODEL_CAPABILITIES.get(model_id)
+                        base_model = model_id.split(":", 1)[-1] if ":" in model_id else model_id
+                        
                         if not capabilities:
                             # Try stripping backend prefix
-                            base_model = model_id.split(":", 1)[-1] if ":" in model_id else model_id
                             capabilities = KNOWN_MODEL_CAPABILITIES.get(base_model)
                             
+                        if not capabilities:
+                            # Try with provider prefixes
+                            for prefix in ["google/", "openai/", "anthropic/"]:
+                                capabilities = KNOWN_MODEL_CAPABILITIES.get(f"{prefix}{base_model}")
+                                if capabilities:
+                                    break
+                                    
                         context_window = None
                         if capabilities and capabilities.limits:
                             context_window = capabilities.limits.context_window
+                        
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Model discovery: id=%s, base=%s, cap_found=%s, context=%s",
+                                model_id,
+                                base_model,
+                                capabilities is not None,
+                                context_window
+                            )
 
                         all_models.append(
                             ModelInfo(
                                 id=model_id,
                                 object="model",
-                                owned_by=str(backend_type).lower(),
+                                owned_by=(
+                                    capabilities.backend_type
+                                    if capabilities
+                                    else str(backend_type).lower()
+                                ),
                                 context_window=context_window,
                             )
                         )

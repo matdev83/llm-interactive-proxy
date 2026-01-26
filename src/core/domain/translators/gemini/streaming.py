@@ -122,9 +122,14 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
     if content_pieces:
         delta_dict["content"] = "".join(content_pieces)
     if reasoning_pieces:
-        delta_dict["reasoning_content"] = "\n".join(
+        reasoning = "\n".join(
             segment for segment in reasoning_pieces if segment
         ).strip()
+        delta_dict["reasoning_content"] = reasoning
+        # Add aliases for compatibility with various clients
+        delta_dict["reasoning"] = reasoning
+        delta_dict["thinking"] = reasoning
+        delta_dict["thought"] = reasoning
     if tool_calls:
         delta_dict["tool_calls"] = tool_calls
 

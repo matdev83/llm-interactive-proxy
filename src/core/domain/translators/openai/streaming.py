@@ -216,10 +216,15 @@ def from_domain_to_openai_stream_chunk(chunk: Any) -> dict[str, Any]:
         if tool_call_text is not None:
             delta["content"] = tool_call_text
 
-    # Ensure reasoning alias is present for compatibility
-    if delta.get("reasoning_content") and "reasoning" not in delta:
-        delta = dict(delta)
-        delta["reasoning"] = delta["reasoning_content"]
+    # Ensure reasoning aliases are present for compatibility
+    if delta.get("reasoning_content"):
+        reasoning = delta["reasoning_content"]
+        if "reasoning" not in delta:
+            delta["reasoning"] = reasoning
+        if "thinking" not in delta:
+            delta["thinking"] = reasoning
+        if "thought" not in delta:
+            delta["thought"] = reasoning
 
     normalized_choice = {
         "index": first_choice.get("index", 0),

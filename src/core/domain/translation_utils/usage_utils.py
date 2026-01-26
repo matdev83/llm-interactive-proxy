@@ -8,11 +8,22 @@ def _normalize_usage_metadata(
 ) -> dict[str, Any]:
     """Normalize usage metadata from different API formats to a standard structure."""
     if source_format == "gemini":
-        return {
-            "prompt_tokens": usage.get("promptTokenCount", 0),
-            "completion_tokens": usage.get("candidatesTokenCount", 0),
-            "total_tokens": usage.get("totalTokenCount", 0),
+        prompt_tokens = usage.get("promptTokenCount", 0)
+        completion_tokens = usage.get("candidatesTokenCount", 0)
+        total_tokens = usage.get("totalTokenCount", 0)
+        reasoning_tokens = usage.get("reasoningTokenCount", 0)
+
+        gemini_result: dict[str, Any] = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
         }
+
+        if reasoning_tokens > 0:
+            gemini_result["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+
+        return gemini_result
+
     if source_format == "anthropic":
         return {
             "prompt_tokens": usage.get("input_tokens", 0),

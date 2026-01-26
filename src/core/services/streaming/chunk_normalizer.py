@@ -56,8 +56,21 @@ def normalize_to_processed_chunk_content(content: Any) -> ProcessedChunkContent:
     if isinstance(content, bytes):
         return content
 
+    # Handle Pydantic models (ValueObject, DomainModel)
+    model_dump = getattr(content, "model_dump", None)
+    if model_dump and callable(model_dump):
+        try:
+            # Use exclude_none=True to keep payloads lean, but ensure extras are included
+            dumped = model_dump(exclude_none=True)
+            if isinstance(dumped, dict):
+                return dumped
+        except Exception:
+            # Fallback to string if dumping fails
+            pass
+
     # Handle bytearray (convert to bytes)
     if isinstance(content, bytearray):
+
         return bytes(content)
 
     # Handle dict - normalize to dict[str, JsonValue]

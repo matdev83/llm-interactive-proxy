@@ -127,8 +127,21 @@ class StreamingResponseEnvelope(InternalDTO):
                     else:
                         yield chunk
                 elif isinstance(chunk, dict):
+                    # Ensure reasoning aliases are present in the dict if reasoning_content is present
+                    choices = chunk.get("choices")
+                    if isinstance(choices, list) and choices:
+                        first_choice = choices[0]
+                        if isinstance(first_choice, dict):
+                            container = first_choice.get("delta") or first_choice.get("message")
+                            if isinstance(container, dict) and container.get("reasoning_content"):
+                                reasoning = container["reasoning_content"]
+                                for alias in ("reasoning", "thinking", "thought"):
+                                    if alias not in container:
+                                        container[alias] = reasoning
+
                     # Serialize dict content as JSON instead of Python repr
                     json_str = json.dumps(chunk)
+
                     if is_sse:
                         # Apply SSE framing for SSE media type
                         yield _frame_as_sse(json_str)

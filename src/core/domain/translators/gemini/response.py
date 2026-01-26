@@ -107,15 +107,22 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
                 segment for segment in reasoning_segments if segment
             ).strip()
 
+            message_content: dict[str, Any] = {
+                "role": "assistant",
+                "content": content or None,
+                "tool_calls": tool_calls,
+            }
+            if reasoning_text:
+                message_content["reasoning_content"] = reasoning_text
+                # Add aliases for compatibility
+                message_content["reasoning"] = reasoning_text
+                message_content["thinking"] = reasoning_text
+                message_content["thought"] = reasoning_text
+
             choices.append(
                 ChatCompletionChoice(
                     index=idx,
-                    message=ChatCompletionChoiceMessage(
-                        role="assistant",
-                        content=content or None,
-                        reasoning_content=reasoning_text or None,
-                        tool_calls=tool_calls,
-                    ),
+                    message=ChatCompletionChoiceMessage(**message_content),
                     finish_reason=finish_reason,
                 )
             )

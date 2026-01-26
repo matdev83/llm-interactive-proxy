@@ -163,6 +163,18 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
         segment for segment in reasoning_segments if segment
     ).strip()
 
+    message_content: dict[str, Any] = {
+        "role": "assistant",
+        "content": generated_text or None,
+        "tool_calls": tool_calls if tool_calls else None,
+    }
+    if reasoning_text:
+        message_content["reasoning_content"] = reasoning_text
+        # Add aliases for compatibility
+        message_content["reasoning"] = reasoning_text
+        message_content["thinking"] = reasoning_text
+        message_content["thought"] = reasoning_text
+
     return CanonicalChatResponse(
         id=f"chatcmpl-code-assist-{int(time.time())}",
         object="chat.completion",
@@ -171,12 +183,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
         choices=[
             ChatCompletionChoice(
                 index=0,
-                message=ChatCompletionChoiceMessage(
-                    role="assistant",
-                    content=generated_text or None,
-                    reasoning_content=reasoning_text or None,
-                    tool_calls=tool_calls if tool_calls else None,
-                ),
+                message=ChatCompletionChoiceMessage(**message_content),
                 finish_reason=finish_reason,
             )
         ],

@@ -211,9 +211,14 @@ class CodeAssistOrchestrator:
                         has_reasoning = bool(
                             delta.get("reasoning_content")
                             or delta.get("reasoning")
+                            or delta.get("thinking")
+                            or delta.get("thought")
                             or message.get("reasoning_content")
                             or message.get("reasoning")
+                            or message.get("thinking")
+                            or message.get("thought")
                         )
+
                         has_accumulated = bool(
                             metadata.get("accumulated_content")
                             or metadata.get("accumulated_reasoning")
