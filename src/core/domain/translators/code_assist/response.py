@@ -8,6 +8,10 @@ from src.core.domain.chat import (
     ChatCompletionChoice,
     ChatCompletionChoiceMessage,
 )
+from src.core.domain.translation_utils.content_utils import (
+    _coerce_reasoning_text,
+    _safe_string,
+)
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
 from src.core.domain.usage_summary import UsageSummary
 
@@ -65,6 +69,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
     generated_text = ""
     tool_calls: list[Any] = []
     finish_reason = "stop"
+    reasoning_segments: list[str] = []
 
     if candidates and len(candidates) > 0:
         candidate = candidates[0]
@@ -83,36 +88,67 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
 
             text_parts = []
             for part in parts:
-                if isinstance(part, dict):
-                    if "text" in part:
-                        text_parts.append(part.get("text", ""))
-                    elif "functionCall" in part:
-                        try:
-                            tool_calls.append(
-                                _process_gemini_function_call(
-                                    part["functionCall"],
-                                    part=part,
-                                    thought_signature=thought_signature,
-                                )
+                if not isinstance(part, dict):
+                    continue
+
+                # Prioritize explicit reasoning type
+                if part.get("type") in {"reasoning", "thinking"}:
+                    normalized_reasoning = _coerce_reasoning_text(
+                        part.get("text") or part.get("value")
+                    )
+                    if normalized_reasoning:
+                        reasoning_segments.append(normalized_reasoning)
+                    continue
+
+                if "text" in part and not part.get("functionCall"):
+                    safe_text = _safe_string(part.get("text"))
+                    if safe_text:
+                        text_parts.append(safe_text)
+                    
+                    # Check if metadata indicates this is also reasoning
+                    metadata = part.get("metadata", {})
+                    if isinstance(metadata, dict):
+                        meta_type = str(metadata.get("type", "")).lower()
+                        if meta_type in {"thinking", "thought"}:
+                            # Try to get reasoning from specific metadata fields first
+                            metadata_reasoning = _coerce_reasoning_text(
+                                metadata.get("thought")
+                                or metadata.get("thinking")
+                                or metadata.get("reasoning")
                             )
-                        except (KeyError, TypeError, AttributeError, ValueError) as e:
-                            # Expected data transformation errors - log and skip this tool call
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    "Failed to process function call in Code Assist response, skipping: %s",
-                                    e,
-                                    exc_info=True,
-                                )
-                            continue
-                        except Exception as e:
-                            # Unexpected errors - log with full context but still skip to avoid breaking the response
-                            if logger.isEnabledFor(logging.ERROR):
-                                logger.error(
-                                    "Unexpected error processing function call in Code Assist response, skipping: %s",
-                                    e,
-                                    exc_info=True,
-                                )
-                            continue
+                            
+                            # If not found in metadata fields, use the text content
+                            if metadata_reasoning:
+                                reasoning_segments.append(metadata_reasoning)
+                            elif safe_text:
+                                reasoning_segments.append(safe_text)
+                elif "functionCall" in part:
+                    try:
+                        tool_calls.append(
+                            _process_gemini_function_call(
+                                part["functionCall"],
+                                part=part,
+                                thought_signature=thought_signature,
+                            )
+                        )
+                    except (KeyError, TypeError, AttributeError, ValueError) as e:
+                        # Expected data transformation errors - log and skip this tool call
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to process function call in Code Assist response, skipping: %s",
+                                e,
+                                exc_info=True,
+                            )
+                        continue
+                    except Exception as e:
+                        # Unexpected errors - log with full context but still skip to avoid breaking the response
+                        if logger.isEnabledFor(logging.ERROR):
+                            logger.error(
+                                "Unexpected error processing function call in Code Assist response, skipping: %s",
+                                e,
+                                exc_info=True,
+                            )
+                        continue
             generated_text = "".join(text_parts)
 
         if "finishReason" in candidate:
@@ -122,6 +158,10 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
 
     if tool_calls:
         finish_reason = "tool_calls"
+
+    reasoning_text = "\n".join(
+        segment for segment in reasoning_segments if segment
+    ).strip()
 
     return CanonicalChatResponse(
         id=f"chatcmpl-code-assist-{int(time.time())}",
@@ -134,6 +174,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                 message=ChatCompletionChoiceMessage(
                     role="assistant",
                     content=generated_text or None,
+                    reasoning_content=reasoning_text or None,
                     tool_calls=tool_calls if tool_calls else None,
                 ),
                 finish_reason=finish_reason,

@@ -4,6 +4,10 @@ import logging
 from typing import Any
 
 from src.core.domain.chat import CanonicalStreamChunk
+from src.core.domain.translation_utils.content_utils import (
+    _coerce_reasoning_text,
+    _safe_string,
+)
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
 from src.core.domain.translators.openai.streaming import openai_to_domain_stream_chunk
 
@@ -54,6 +58,7 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     finish_reason = None
     tool_calls: list[dict[str, Any]] | None = None
     thought_signature: str | None = None
+    reasoning_pieces: list[str] = []
 
     response_wrapper = chunk.get("response", {})
     candidates = response_wrapper.get("candidates", [])
@@ -74,9 +79,41 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
 
             text_parts: list[str] = []
             for part in parts:
-                if isinstance(part, dict) and "text" in part:
-                    text_parts.append(part.get("text", ""))
-                elif isinstance(part, dict) and "functionCall" in part:
+                if not isinstance(part, dict):
+                    continue
+
+                # Prioritize explicit reasoning type
+                if part.get("type") in {"reasoning", "thinking"}:
+                    normalized_reasoning = _coerce_reasoning_text(
+                        part.get("text") or part.get("value")
+                    )
+                    if normalized_reasoning:
+                        reasoning_pieces.append(normalized_reasoning)
+                    continue
+
+                if "text" in part:
+                    safe_text = _safe_string(part.get("text"))
+                    if safe_text:
+                        text_parts.append(safe_text)
+                    
+                    # Check if metadata indicates this is also reasoning
+                    metadata = part.get("metadata", {})
+                    if isinstance(metadata, dict):
+                        meta_type = str(metadata.get("type", "")).lower()
+                        if meta_type in {"thinking", "thought"}:
+                            # Try to get reasoning from specific metadata fields first
+                            metadata_reasoning = _coerce_reasoning_text(
+                                metadata.get("thought")
+                                or metadata.get("thinking")
+                                or metadata.get("reasoning")
+                            )
+                            
+                            # If not found in metadata fields, use the text content
+                            if metadata_reasoning:
+                                reasoning_pieces.append(metadata_reasoning)
+                            elif safe_text:
+                                reasoning_pieces.append(safe_text)
+                elif "functionCall" in part:
                     try:
                         if tool_calls is None:
                             tool_calls = []
@@ -113,6 +150,11 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     delta: dict[str, Any] = {"role": "assistant"}
     if thought_signature:
         delta["thought_signature"] = thought_signature
+
+    if reasoning_pieces:
+        delta["reasoning_content"] = "\n".join(
+            segment for segment in reasoning_pieces if segment
+        ).strip()
 
     if tool_calls:
         delta["tool_calls"] = tool_calls

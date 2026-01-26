@@ -9,7 +9,10 @@ from src.core.domain.chat import (
     ChatCompletionChoiceMessage,
     ChatResponse,
 )
-from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
+from src.core.domain.translation_utils.content_utils import (
+    _coerce_reasoning_text,
+    _safe_string,
+)
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
 from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
 from src.core.domain.translators.gemini.finish_reason import map_gemini_finish_reason
@@ -48,22 +51,43 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
                 for part in parts:
                     if not isinstance(part, dict):
                         continue
+
+                    # Prioritize explicit reasoning type
+                    if part.get("type") in {"reasoning", "thinking"}:
+                        normalized_reasoning = _coerce_reasoning_text(
+                            part.get("text") or part.get("value")
+                        )
+                        if normalized_reasoning:
+                            reasoning_segments.append(normalized_reasoning)
+                        continue
+
                     if "text" in part and not part.get("functionCall"):
-                        text_parts.append(part["text"])
+                        safe_text = _safe_string(part.get("text"))
+                        
+                        # Check if metadata indicates this is also reasoning
                         metadata = part.get("metadata", {})
                         if isinstance(metadata, dict):
+                            # Try to get reasoning from specific metadata fields first
                             metadata_reasoning = _coerce_reasoning_text(
                                 metadata.get("thought")
                                 or metadata.get("thinking")
                                 or metadata.get("reasoning")
                             )
+                            
                             if metadata_reasoning:
                                 reasoning_segments.append(metadata_reasoning)
+                            
                             meta_type = str(metadata.get("type", "")).lower()
-                            if meta_type in {"thinking", "thought"} and isinstance(
-                                part.get("text"), str
-                            ):
-                                reasoning_segments.append(part["text"])
+                            if meta_type in {"thinking", "thought"} and safe_text:
+                                # Avoid adding the same text twice if it was already added from metadata fields
+                                if not metadata_reasoning or metadata_reasoning != safe_text:
+                                    reasoning_segments.append(safe_text)
+                                
+                                # If it's explicitly marked as thinking/thought, don't treat it as regular content
+                                continue
+
+                        if safe_text:
+                            text_parts.append(safe_text)
                     elif "functionCall" in part:
                         if tool_calls is None:
                             tool_calls = []
@@ -75,12 +99,6 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
                                 thought_signature=thought_signature,
                             )
                         )
-                    elif part.get("type") in {"reasoning", "thinking"}:
-                        normalized_reasoning = _coerce_reasoning_text(
-                            part.get("text") or part.get("value")
-                        )
-                        if normalized_reasoning:
-                            reasoning_segments.append(normalized_reasoning)
 
                 content = "".join(text_parts)
 

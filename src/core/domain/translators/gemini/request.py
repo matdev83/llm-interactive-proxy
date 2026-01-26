@@ -190,7 +190,11 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                         exc_info=True,
                     )
 
-        if not has_tool_calls and message.role != "tool":
+        if message.role != "tool":
+            # Include reasoning content if present (e.g. from thinking models)
+            if message.reasoning_content:
+                parts.append({"text": message.reasoning_content})
+
             if isinstance(message.content, str):
                 if message.content:
                     parts.append({"text": message.content})
