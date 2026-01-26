@@ -558,6 +558,7 @@ class TestHistoryCompactionTokenThreshold:
             enabled=True,
             token_threshold=1000,
             max_tokens=2000,
+            min_tool_output_tokens_to_compact=0,
         )
 
         service = HistoryCompactionService()
@@ -691,6 +692,7 @@ class TestHistoryCompactionRealService:
         config = CompactionConfig(
             enabled=True,
             redact_resource_identifiers=False,  # Redaction OFF
+            min_tool_output_tokens_to_compact=0,
         )
 
         messages = [
@@ -732,6 +734,7 @@ class TestHistoryCompactionRealService:
         config = CompactionConfig(
             enabled=True,
             redact_resource_identifiers=True,  # Redaction ON
+            min_tool_output_tokens_to_compact=0,
         )
 
         # Use a path with an API key that should be redacted
@@ -785,6 +788,7 @@ class TestHistoryCompactionRealService:
         config = CompactionConfig(
             enabled=True,
             redact_resource_identifiers=True,  # Redaction ON
+            min_tool_output_tokens_to_compact=0,
         )
 
         messages = [
@@ -833,7 +837,8 @@ class TestHistoryCompactionRealService:
         """Verify redaction defaults to OFF for debuggability (Req 4.5)."""
         service = HistoryCompactionService()
         config = CompactionConfig(
-            enabled=True
+            enabled=True,
+            min_tool_output_tokens_to_compact=0,
         )  # Default: redact_resource_identifiers=False
 
         messages = [
@@ -875,6 +880,7 @@ class TestHistoryCompactionRealService:
         config = CompactionConfig(
             enabled=True,
             redact_resource_identifiers=True,  # Redaction ON
+            min_tool_output_tokens_to_compact=0,
         )
 
         # Use paths with API keys to test redaction (use longer key that matches pattern \bak-(ant|sk|proj)[A-Za-z0-9_-]{17,}\b)

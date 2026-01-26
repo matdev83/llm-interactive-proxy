@@ -10,6 +10,7 @@ Welcome to the LLM Interactive Proxy development guide. This section contains do
 - **[Typed Contract Boundaries](./typed-contracts-boundaries.md)** - Strategy for hardening cross-layer data exchange using canonical typed contracts
 - **[God Objects Report](./god-objects-report.md)** - Snapshot report of oversized modules/classes
 - **[VTC Architecture](./vtc-architecture.md)** - Virtual Tool Calling subsystem for Cline-like clients
+- **[Critical Fixes (2026-01-25)](./2026-01-25-critical-fixes.md)** - Report on critical stability fixes implemented on 2026-01-25
 
 ## Building & Setup
 

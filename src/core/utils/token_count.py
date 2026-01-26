@@ -82,7 +82,7 @@ def extract_prompt_text(messages: list[Any]) -> str:
         # Handle primary content
         if isinstance(content, str):
             parts.append(f"{role_label}: {content}")
-        elif isinstance(content, Sequence) and not isinstance(content, (str, bytes)):
+        elif isinstance(content, Sequence) and not isinstance(content, str | bytes):
             # Concatenate text parts only
             for p in content:
                 p_type = None

@@ -1,5 +1,4 @@
-"""
-Configuration for context compaction feature.
+"""Configuration for context compaction feature.
 
 This module defines the configuration structure for intelligent context
 compaction of stale tool outputs before LLM backend dispatch.
@@ -27,6 +26,10 @@ class CompactionConfig:
         enabled: Master switch for compaction (Req 3.3)
         token_threshold: Estimated token count to trigger compaction (Req 3.1)
         max_tokens: Hard limit - emit warning if cannot reduce below (Req 3.2)
+        min_tool_output_tokens_to_compact: Minimum estimated tokens in a *single* tool
+            output before it is eligible for replacement with a stub. This avoids
+            unnecessary churn (e.g., remote write-cache invalidation) when savings are
+            negligible.
         allowed_tool_categories: Tool categories eligible for compaction (Req 3.4)
         denied_tool_categories: Tool categories never compacted (Req 3.4)
         max_stubs_per_resource: Maximum stub messages to keep per resource
@@ -36,8 +39,16 @@ class CompactionConfig:
     """
 
     enabled: bool = False
+
+    # Global budget-based gating (overall request size)
     token_threshold: int = 100_000  # Start compacting above this estimate
     max_tokens: int = 150_000  # Warn if cannot reduce below this
+
+    # Per-message gating (single stale tool output size)
+    # NOTE: We intentionally use the same rough heuristic as elsewhere in this feature
+    # (4 characters ~= 1 token). This does not require model-specific tokenizers.
+    min_tool_output_tokens_to_compact: int = 250
+
     redact_resource_identifiers: bool = (
         False  # Default: debuggability over security (Req 4.5)
     )
@@ -85,18 +96,14 @@ class CompactionConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "CompactionConfig":
-        """Create configuration from a dictionary.
-
-        Args:
-            data: Configuration dictionary
-
-        Returns:
-            CompactionConfig instance
-        """
+        """Create configuration from a dictionary."""
         return cls(
             enabled=data.get("enabled", False),
             token_threshold=data.get("token_threshold", 100_000),
             max_tokens=data.get("max_tokens", 150_000),
+            min_tool_output_tokens_to_compact=data.get(
+                "min_tool_output_tokens_to_compact", 250
+            ),
             allowed_tool_categories=data.get("allowed_tool_categories", []),
             denied_tool_categories=data.get("denied_tool_categories", []),
             max_stubs_per_resource=data.get("max_stubs_per_resource", 1),
@@ -107,30 +114,17 @@ class CompactionConfig:
 
     @classmethod
     def disabled(cls) -> "CompactionConfig":
-        """Create a disabled configuration.
-
-        Returns:
-            CompactionConfig with enabled=False
-        """
+        """Create a disabled configuration."""
         return cls(enabled=False)
 
     @classmethod
     def default(cls) -> "CompactionConfig":
-        """Create default configuration optimized for common use cases.
-
-        Default policy:
-        - Compact file read operations (view_file, read_file)
-        - Compact search results (grep_search, codebase_search)
-        - Compact test execution logs
-        - Preserve file write and command execution results
-
-        Returns:
-            CompactionConfig with sensible defaults
-        """
+        """Create default configuration optimized for common use cases."""
         return cls(
             enabled=False,
             token_threshold=100_000,
             max_tokens=150_000,
+            min_tool_output_tokens_to_compact=250,
             allowed_tool_categories=[
                 ToolCategory.FILE_READ.value,
                 ToolCategory.VIEW_FILE.value,
@@ -149,36 +143,14 @@ class CompactionConfig:
 
 @dataclass
 class CompactionPolicies:
-    """Runtime policy state for a compaction operation.
-
-    Encapsulates the evaluated policies for a specific compaction run,
-    including resolved configurations and resource states.
-
-    Attributes:
-        config: The base compaction configuration
-        tool_allowlist: Set of tool names explicitly allowed
-        tool_denylist: Set of tool names explicitly denied
-    """
+    """Runtime policy state for a compaction operation."""
 
     config: CompactionConfig
     tool_allowlist: frozenset[str] = field(default_factory=frozenset)
     tool_denylist: frozenset[str] = field(default_factory=frozenset)
 
     def should_compact_tool(self, tool_name: str, category: ToolCategory) -> bool:
-        """Determine if a specific tool should be compacted.
-
-        Evaluation order:
-        1. Tool-specific denylist (highest precedence)
-        2. Tool-specific allowlist
-        3. Category-based policy from config
-
-        Args:
-            tool_name: The tool name
-            category: The tool category
-
-        Returns:
-            True if the tool output should be compacted when stale
-        """
+        """Determine if a specific tool should be compacted."""
         normalized_name = tool_name.lower()
 
         # Tool-specific denylist
@@ -199,16 +171,7 @@ class CompactionPolicies:
         tool_allowlist: set[str] | None = None,
         tool_denylist: set[str] | None = None,
     ) -> "CompactionPolicies":
-        """Create policies from configuration.
-
-        Args:
-            config: Base configuration
-            tool_allowlist: Optional tool-specific allowlist
-            tool_denylist: Optional tool-specific denylist
-
-        Returns:
-            CompactionPolicies instance
-        """
+        """Create policies from configuration."""
         return cls(
             config=config,
             tool_allowlist=frozenset(t.lower() for t in (tool_allowlist or set())),
@@ -218,16 +181,7 @@ class CompactionPolicies:
 
 @dataclass
 class TokenBudgetConfig:
-    """Token budget configuration for compaction decisions.
-
-    Defines the thresholds that trigger and govern the compaction
-    process based on estimated token usage (Req 3.1, 3.2).
-
-    Attributes:
-        compaction_threshold: Token estimate that triggers compaction
-        max_tokens: Hard ceiling - warn if exceeded after compaction
-        current_estimate: Current estimated token count for the request
-    """
+    """Token budget configuration for compaction decisions."""
 
     compaction_threshold: int
     max_tokens: int
@@ -235,20 +189,12 @@ class TokenBudgetConfig:
 
     @property
     def needs_compaction(self) -> bool:
-        """Check if compaction should be triggered (Req 3.5).
-
-        Returns:
-            True if current estimate exceeds threshold
-        """
+        """Check if compaction should be triggered (Req 3.5)."""
         return self.current_estimate > self.compaction_threshold
 
     @property
     def exceeds_max(self) -> bool:
-        """Check if estimate exceeds hard limit (Req 3.2).
-
-        Returns:
-            True if current estimate exceeds max_tokens
-        """
+        """Check if estimate exceeds hard limit (Req 3.2)."""
         return self.current_estimate > self.max_tokens
 
     @classmethod
@@ -257,15 +203,7 @@ class TokenBudgetConfig:
         config: CompactionConfig,
         current_estimate: int = 0,
     ) -> "TokenBudgetConfig":
-        """Create token budget from compaction config.
-
-        Args:
-            config: Compaction configuration
-            current_estimate: Current token estimate
-
-        Returns:
-            TokenBudgetConfig instance
-        """
+        """Create token budget from compaction config."""
         return cls(
             compaction_threshold=config.token_threshold,
             max_tokens=config.max_tokens,

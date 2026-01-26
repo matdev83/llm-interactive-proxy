@@ -321,13 +321,15 @@ def test_property_transport_isolation() -> None:
         "stop_reason",  # Anthropic-specific
         "finish_reason",  # OpenAI-specific (but this is normalized, so it's OK)
         "function_call",  # Gemini-specific
-        "thinking",  # Anthropic-specific (but reasoning_content is normalized)
     ]
 
     # Allowed normalized keys (these are OK in transport)
     allowed_keys = [
         "finish_reason",  # This is normalized
         "reasoning_content",  # This is normalized
+        "reasoning",  # Alias for reasoning_content
+        "thinking",  # Alias for reasoning_content (Anthropic style)
+        "thought",  # Alias for reasoning_content (OpenAI style)
         "tool_calls",  # This is normalized
         "stream_id",
         "provider",

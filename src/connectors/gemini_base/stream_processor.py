@@ -159,9 +159,16 @@ def build_rate_limit_backend_error(
         return None
 
     message_val = error_body.get("message")
+    
+    # Treat "No capacity available" as a retryable rate limit error
+    is_capacity_error = (
+        isinstance(message_val, str)
+        and "no capacity available" in message_val.lower()
+    )
+    
     error_type = (
         "quota_exceeded"
-        if error_status == "RESOURCE_EXHAUSTED"
+        if error_status == "RESOURCE_EXHAUSTED" and not is_capacity_error
         else "rate_limit_exceeded"
     )
     message = (
@@ -170,9 +177,7 @@ def build_rate_limit_backend_error(
         else "Service temporarily unavailable due to rate limiting."
     )
 
-    details = (
-        error_payload if isinstance(error_payload, dict) else {"raw": error_payload}
-    )
+    details = error_payload
 
     return BackendError(
         message=message,

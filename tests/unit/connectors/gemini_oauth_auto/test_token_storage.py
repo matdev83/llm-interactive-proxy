@@ -367,9 +367,8 @@ class TestTokenStorageService:
     ) -> None:
         """Test save_account cleans up temp file on write error."""
         # Patch os.fdopen to fail
-        with patch("os.fdopen", side_effect=Exception("Write failed")):
-            with pytest.raises(Exception, match="Write failed"):
-                await storage_service.save_account(valid_account)
+        with patch("os.fdopen", side_effect=Exception("Write failed")), pytest.raises(Exception, match="Write failed"):
+            await storage_service.save_account(valid_account)
         
         # Temp file should be gone (cleaned up in finally block)
         temp_files = list(temp_storage_dir.glob("*.tmp"))

@@ -1163,11 +1163,29 @@ class StreamingExecutor:
                         retry_hint_seconds = parsed_retry
                         detail_payload["retry_after"] = parsed_retry
 
-                retryable = (
-                    retry_hint_seconds is not None
-                    and retry_hint_seconds <= self.MAX_RATE_LIMIT_RETRY_SECONDS
+                # Treat "No capacity available" as a retryable capacity error
+                # even if no specific retry delay is provided.
+                is_capacity_error = (
+                    error_message
+                    and "no capacity available" in error_message.lower()
                 )
+
+                retryable = (
+                    (
+                        retry_hint_seconds is not None
+                        and retry_hint_seconds <= self.MAX_RATE_LIMIT_RETRY_SECONDS
+                    )
+                    or is_capacity_error
+                )
+
+                # Assign a default retry delay for capacity errors if none provided
+                if is_capacity_error and retry_hint_seconds is None:
+                    # Use a moderate delay to allow capacity to recover
+                    retry_hint_seconds = 5.0
+                    detail_payload["retry_after"] = retry_hint_seconds
+
                 code = "rate_limit_exceeded" if retryable else "quota_exceeded"
+
             elif response.status_code == 429:
                 code = "rate_limit_exceeded"
             elif response.status_code == 401:

@@ -91,9 +91,7 @@ class HistoryCompactionService(IHistoryCompactionService):
 
         # Build policies and perform compaction
         policies = CompactionPolicies.from_config(config)
-        return await self.compact_with_policies(
-            messages, policies, current_token_estimate
-        )
+        return await self.compact_with_policies(messages, policies, current_token_estimate)
 
     async def compact_with_policies(
         self,
@@ -255,6 +253,21 @@ class HistoryCompactionService(IHistoryCompactionService):
 
             # Mark all but the last occurrence as stale
             for msg_idx, _, content in occurrences[:-1]:
+                # Avoid compacting very small tool outputs: savings are usually not worth
+                # the potential downstream downsides (e.g., remote cache invalidation).
+                min_tokens = policies.config.min_tool_output_tokens_to_compact
+                content_token_estimate = len(content) // 4
+                if min_tokens > 0 and content_token_estimate < min_tokens:
+                    if logger.isEnabledFor(TRACE_LEVEL):
+                        logger.log(
+                            TRACE_LEVEL,
+                            "Skipping compaction for message %d - tool output %d tokens below per-message minimum %d",
+                            msg_idx,
+                            content_token_estimate,
+                            min_tokens,
+                        )
+                    continue
+
                 # Pass redaction flag from config (Req 4.5)
                 stub = CompactionStub.create(
                     identity,
@@ -264,9 +277,7 @@ class HistoryCompactionService(IHistoryCompactionService):
                 )
                 stale_indices[msg_idx] = stub
                 stale_resources.add(str(identity))
-                bytes_saved += stub.original_byte_size - len(
-                    stub.stub_text.encode("utf-8")
-                )
+                bytes_saved += stub.original_byte_size - len(stub.stub_text.encode("utf-8"))
 
         if not stale_indices:
             # No stale messages found

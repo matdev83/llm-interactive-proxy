@@ -26,7 +26,7 @@ def service() -> HistoryCompactionService:
 
 @pytest.fixture
 def config() -> CompactionConfig:
-    return CompactionConfig(enabled=True)  # Explicitly enable for tests
+    return CompactionConfig(enabled=True, min_tool_output_tokens_to_compact=0)  # Explicitly enable for tests
 
 
 def _make_assistant_with_tool_call(
@@ -296,7 +296,7 @@ class TestFailOpen:
         messages = [ChatMessage(role="user", content="Test")]
 
         # Create config that will fail in policy evaluation
-        config = CompactionConfig(enabled=True)
+        config = CompactionConfig(enabled=True, min_tool_output_tokens_to_compact=0)
 
         # Even with unusual inputs, should not raise
         result = await service.compact_history(messages, config)
@@ -314,7 +314,7 @@ class TestTokenBudgetGovernance:
         self, service: HistoryCompactionService
     ) -> None:
         """Below token threshold, compaction is skipped (Req 3.5)."""
-        config = CompactionConfig(enabled=True, token_threshold=100_000)
+        config = CompactionConfig(enabled=True, token_threshold=100_000, min_tool_output_tokens_to_compact=0)
         messages = [
             _make_assistant_with_tool_call("c1", "view_file", '{"path": "/a.py"}'),
             _make_tool_result("c1", "Content", "view_file"),
@@ -334,7 +334,7 @@ class TestTokenBudgetGovernance:
         self, service: HistoryCompactionService
     ) -> None:
         """Above token threshold, compaction is triggered (Req 3.1)."""
-        config = CompactionConfig(enabled=True, token_threshold=100_000)
+        config = CompactionConfig(enabled=True, token_threshold=100_000, min_tool_output_tokens_to_compact=0)
         messages = [
             _make_assistant_with_tool_call("c1", "view_file", '{"path": "/a.py"}'),
             _make_tool_result("c1", "x" * 1000, "view_file"),
@@ -382,6 +382,7 @@ class TestPolicyEnforcement:
         config = CompactionConfig(
             enabled=True,
             allowed_tool_categories=["view_file"],
+            min_tool_output_tokens_to_compact=0,
         )
         messages = [
             _make_assistant_with_tool_call("c1", "view_file", '{"path": "/a.py"}'),

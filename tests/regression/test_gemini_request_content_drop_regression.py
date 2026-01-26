@@ -63,7 +63,10 @@ class TestGeminiRequestRegression:
     def test_regression_tool_calls_with_regular_content(self) -> None:
         """
         Regression test: Ensure that when an assistant message has both `tool_calls`
-        and regular `content`, the content is NOT dropped.
+        and regular `content`, the regular content IS excluded to prevent Gemini API errors.
+        
+        This prevents the error: "Please ensure that the number of function response parts
+        is equal to the number of function call parts"
         """
         messages = [
             ChatMessage(role="user", content="Do something"),
@@ -93,7 +96,6 @@ class TestGeminiRequestRegression:
         tool_call_parts = [p for p in parts if "functionCall" in p]
         assert len(tool_call_parts) == 1
         
-        # Verify content is present
+        # Verify regular content is excluded (to prevent API errors)
         text_parts = [p for p in parts if "text" in p]
-        assert len(text_parts) >= 1
-        assert any("Here is some text" in p["text"] for p in text_parts)
+        assert len(text_parts) == 0, "Regular content should be excluded when tool_calls are present"

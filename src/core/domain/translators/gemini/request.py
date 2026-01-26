@@ -192,30 +192,34 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
 
         if message.role != "tool":
             # Include reasoning content if present (e.g. from thinking models)
+            # Reasoning content should be included even when tool_calls are present
             if message.reasoning_content:
                 parts.append({"text": message.reasoning_content})
 
-            if isinstance(message.content, str):
-                if message.content:
-                    parts.append({"text": message.content})
-            elif isinstance(message.content, list):
-                for part in message.content:
-                    if hasattr(part, "type") and part.type == "image_url":
-                        processed_image = media_utils._process_gemini_image_part(part)
-                        if processed_image:
-                            parts.append(processed_image)
-                    elif hasattr(part, "type") and part.type == "text":
-                        from src.core.domain.chat import MessageContentPartText
+            # Regular content should be excluded when tool_calls are present
+            # to avoid Gemini API errors about function response parts matching
+            if not has_tool_calls:
+                if isinstance(message.content, str):
+                    if message.content:
+                        parts.append({"text": message.content})
+                elif isinstance(message.content, list):
+                    for part in message.content:
+                        if hasattr(part, "type") and part.type == "image_url":
+                            processed_image = media_utils._process_gemini_image_part(part)
+                            if processed_image:
+                                parts.append(processed_image)
+                        elif hasattr(part, "type") and part.type == "text":
+                            from src.core.domain.chat import MessageContentPartText
 
-                        if isinstance(part, MessageContentPartText) and hasattr(
-                            part, "text"
-                        ):
-                            parts.append({"text": part.text})
-                    else:
-                        if hasattr(part, "model_dump"):
-                            part_dict = part.model_dump()
-                            if "text" in part_dict:
-                                parts.append({"text": part_dict["text"]})
+                            if isinstance(part, MessageContentPartText) and hasattr(
+                                part, "text"
+                            ):
+                                parts.append({"text": part.text})
+                        else:
+                            if hasattr(part, "model_dump"):
+                                part_dict = part.model_dump()
+                                if "text" in part_dict:
+                                    parts.append({"text": part_dict["text"]})
 
         if message.role == "tool":
             tool_messages = [message]
