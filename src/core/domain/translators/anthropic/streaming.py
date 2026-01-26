@@ -87,6 +87,7 @@ def anthropic_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         output_delta["content"] = content
     if reasoning_content:
         output_delta["reasoning_content"] = reasoning_content
+        output_delta["reasoning"] = reasoning_content
 
     return {
         "id": response_id,
@@ -121,8 +122,34 @@ def _extract_content_from_domain_chunk(chunk: Any) -> str:
 def from_domain_to_anthropic_stream_chunk(chunk: Any) -> dict[str, Any]:
     """Translates a domain stream chunk to an Anthropic stream format."""
     content = _extract_content_from_domain_chunk(chunk)
-
+    
+    # Handle reasoning/thinking
+    reasoning = None
     choices = getattr(chunk, "choices", None)
+    if choices and isinstance(choices, list) and len(choices) > 0:
+        choice = choices[0]
+        delta = getattr(choice, "delta", None)
+        if delta:
+            reasoning = (
+                delta.get("reasoning_content")
+                if isinstance(delta, dict)
+                else getattr(delta, "reasoning_content", None)
+            )
+            if not reasoning:
+                reasoning = (
+                    delta.get("reasoning")
+                    if isinstance(delta, dict)
+                    else getattr(delta, "reasoning", None)
+                )
+
+    if reasoning:
+        return {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": reasoning},
+        }
+
+    # Handle tool calls
     if choices and isinstance(choices, list) and len(choices) > 0:
         choice = choices[0]
         delta = getattr(choice, "delta", None)

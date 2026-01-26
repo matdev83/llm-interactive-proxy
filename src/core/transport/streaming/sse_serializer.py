@@ -344,6 +344,22 @@ class SSESerializer:
                         content_copy["choices"], list
                     ):
                         content_copy["choices"][0]["delta"] = delta
+
+        # Inject reasoning content from metadata if present
+        reasoning = chunk.metadata.reasoning_content
+        if reasoning and delta is not None:
+            # Ensure reasoning_content field
+            if "reasoning_content" not in delta:
+                delta["reasoning_content"] = reasoning
+            # Ensure reasoning alias (compatibility)
+            if "reasoning" not in delta:
+                delta["reasoning"] = reasoning
+            # Update the delta in the content copy
+            if content_copy.get("choices") and isinstance(
+                content_copy["choices"], list
+            ):
+                content_copy["choices"][0]["delta"] = delta
+
         parts = [f"data: {json.dumps(content_copy)}\n\n"]
         if chunk.is_done:
             parts.append("data: [DONE]\n\n")

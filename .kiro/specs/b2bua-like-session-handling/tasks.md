@@ -9,7 +9,7 @@
   - Add configuration to enable/disable **unsafe legacy heuristic session inference** when `client_session_id` is absent (default disabled).
   - Add configuration for deployment mode expectations and enforce “multi-worker requires persistent mapping store” at startup when applicable.
   - Ensure the configuration participates in the established CLI > ENV > YAML precedence model.
-  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 14.3, 11.2, 12.2_
+  - _Requirements: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 14.2, 14.3, 11.2, 12.2_
 
 - [ ] 1.2 (P) Add a proxy-internal identity carrier to support A-leg/B-leg separation
   - Introduce a request-scoped, proxy-internal identity container that can carry `a_session_id`, `b_session_id`, `b_seq`, `auth_scope_id`, and `client_session_id`.
@@ -113,6 +113,11 @@
   - Ensure cancellation scoping remains stable across multiple B-legs under the same A-leg.
   - _Requirements: 5.6, 9.1, 9.6_
 
+
+- [ ] 6.4 Clarify and enforce `SessionKey` is request-scoped (cancellation) and never chat session identity
+  - Ensure cancellation/stream termination mechanisms continue to use request/stream-scoped keys (e.g., `SessionKey`) without treating them as logical chat session identity.
+  - Ensure no observability, capture, or usage code substitutes `SessionKey`/`request_id` for missing `a_session_id`/`b_session_id` when B2BUA is enabled.
+  - _Requirements: 1.7, 1.8, 7.7, 7.9_
 - [ ] 7. Observability and diagnostics
 - [ ] 7.1 Implement A-leg session echo header (diagnostic-only)
   - When echo is enabled, include a response header (default `x-b2bua-session-id`) with value equal to the internal `a_session_id`.
@@ -125,6 +130,14 @@
   - Emit structured logs for outbound backend attempts that include both `a_session_id` and `b_session_id` (and `b_seq` where available).
   - Ensure observability outputs never substitute `request_id` for missing session identifiers and omit identifiers on internal resolution errors.
   - _Requirements: 7.4, 7.7, 7.9, 12.1_
+
+
+- [ ] 7.3A Remove `request_id` as a session-like fallback in streaming/capture paths when B2BUA is enabled
+  - Update `StreamSessionIdResolver` to omit session identifiers rather than substituting `request_id` when B2BUA mode is enabled.
+  - Update `WireCaptureCoordinator` to avoid `request_id` fallback for capture "session" metadata when B2BUA mode is enabled.
+  - Update `CborWireCaptureService` metadata resolution to avoid `request_id` fallback when B2BUA mode is enabled.
+  - Preserve legacy fallback behavior only when B2BUA is disabled.
+  - _Requirements: 1.7, 7.7, 7.9, 7.5_
 
 - [ ] 7.3 Extend wire capture metadata to carry A-leg and B-leg identities (no request_id fallback)
   - Record `a_session_id` and `b_session_id` as distinct capture metadata values.
@@ -155,7 +168,8 @@
   - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.6_
 
 - [ ] 8.3 (P) Unit test: client session extraction and auth-scope-scoped continuity rules
-  - Include coverage that when `client_session_id` is absent, a new `a_session_id` is assigned per request (strict isolation), unless unsafe inference mode is explicitly enabled.
+  - Cover that strict isolation is the default when `client_session_id` is absent (new `a_session_id` per request).
+  - Cover that enabling the unsafe inference mode triggers the operator warning and remains auth-scope-scoped.
   - Cover precedence order, trimming/empty handling, and conflict diagnostics for client session identifiers.
   - Cover ignoring inbound echo headers for identity decisions.
   - Cover continuity scoping behavior for same vs different `auth_scope_id` and localhost implicit scope.
