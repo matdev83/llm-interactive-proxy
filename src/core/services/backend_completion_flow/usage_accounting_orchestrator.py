@@ -143,12 +143,14 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                 )
 
             outbound_tokens = calculate_outbound_tokens(
-                domain_request, model=effective_model
+                domain_request, model=effective_model, label="outbound"
             )
 
             # Calculate verbatim tokens (from original request)
             # Always calculate for logging/debugging purposes
-            verbatim_tokens = calculate_outbound_tokens(request, model=effective_model)
+            verbatim_tokens = calculate_outbound_tokens(
+                request, model=effective_model, label="verbatim"
+            )
 
             if logger.isEnabledFor(logging.DEBUG):
                 # Log additional debug info if verbatim tokens are 0 (potential issue)

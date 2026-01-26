@@ -185,7 +185,9 @@ class AccountSelectorService(IAccountSelector):
 
         available = self._get_available_accounts()
         if len(available) <= 1:
-            logger.warning("Cannot rotate: only %d account(s) available", len(available))
+            logger.warning(
+                "Cannot rotate: only %d account(s) available", len(available)
+            )
             return None
 
         logger.debug(
@@ -200,10 +202,41 @@ class AccountSelectorService(IAccountSelector):
         """Count of accounts not marked needs_reauth."""
         return len(self._get_available_accounts())
 
+    def update_account(self, account: StoredAccount) -> None:
+        """Update an account in the local cache and potentially current_account."""
+        self._update_account_in_list(account)
+        if (
+            self._current_account
+            and self._current_account.account_id == account.account_id
+        ):
+            self._current_account = account
+
     async def reload_accounts(self) -> None:
-        """Force reload accounts from storage."""
+        """Force reload accounts from storage.
+
+        Preserves rotation index and current account if possible.
+        """
         self._accounts = await self._storage.load_all_accounts()
-        self._rotation_index = 0
-        self._current_account = None
+        # Don't reset rotation index - preserve it across reloads
+        # Only reset if index is out of bounds
+        if self._rotation_index >= len(self._accounts):
+            self._rotation_index = 0
+        # Update current account if it still exists in reloaded accounts
+        if self._current_account:
+            updated_current = next(
+                (
+                    acc
+                    for acc in self._accounts
+                    if acc.account_id == self._current_account.account_id
+                ),
+                None,
+            )
+            if updated_current:
+                self._current_account = updated_current
+            # If current account no longer exists, clear it (will be selected on next call)
         self._initialized = True
-        logger.debug("Reloaded %d accounts", len(self._accounts))
+        logger.debug(
+            "Reloaded %d accounts (rotation_index=%d)",
+            len(self._accounts),
+            self._rotation_index,
+        )

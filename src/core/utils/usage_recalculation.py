@@ -166,6 +166,7 @@ def extract_content_text(content: dict[str, Any]) -> str:
 def calculate_outbound_tokens(
     request_data: Any,
     model: str | None = None,
+    label: str = "outbound",
 ) -> int:
     """Calculate tokens in outbound request AFTER all proxy transformations.
 
@@ -176,6 +177,7 @@ def calculate_outbound_tokens(
     Args:
         request_data: The request data being sent to backend (after transformations)
         model: Optional model name for encoding selection
+        label: Optional label for logging (e.g., "outbound", "verbatim")
 
     Returns:
         Number of tokens in the outbound request
@@ -205,7 +207,7 @@ def calculate_outbound_tokens(
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "Calculated outbound tokens for %s: %s tokens", model, token_count
+                "Calculated %s tokens for %s: %s tokens", label, model, token_count
             )
 
         return token_count

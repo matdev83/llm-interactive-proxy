@@ -184,3 +184,15 @@ class IAccountSelector(ABC):
             Number of usable accounts.
         """
         ...
+
+    @abstractmethod
+    def update_account(self, account: StoredAccount) -> None:
+        """Update an account in the selector's local cache.
+
+        Use this to synchronize updates made outside the selector (e.g. project discovery).
+
+        Args:
+            account: The updated account model.
+        """
+        ...
+

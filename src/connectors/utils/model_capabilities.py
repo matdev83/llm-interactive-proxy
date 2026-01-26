@@ -121,6 +121,7 @@ SYSTEM_MESSAGE_SUPPORT: dict[str, bool] = {
     "gemini-oauth-plan": False,
     "antigravity-oauth": False,
     "gemini-cloud-project": False,
+    "kiro-oauth-auto": False,  # Kiro uses a single prompt string, not role-based system messages
 }
 
 # Preferred reasoning tag format by backend
@@ -136,6 +137,7 @@ REASONING_TAG_FORMAT: dict[str, tuple[str, str]] = {
     "gemini-oauth-free": ("<thinking>", "</thinking>"),
     "antigravity-oauth": ("<thinking>", "</thinking>"),
     "gemini-cli-cloud-project": ("<thinking>", "</thinking>"),
+    "kiro-oauth-auto": ("<thinking>", "</thinking>"),
     # Default for others
     "_default": ("<reasoning>", "</reasoning>"),
 }

@@ -69,6 +69,10 @@ class StoredAccount(BaseModel):
         default=False,
         description="If True, account requires re-authorization",
     )
+    project_id: str | None = Field(
+        default=None,
+        description="Cached Google Cloud project ID for Code Assist API",
+    )
 
     @field_validator("account_id")
     @classmethod
@@ -103,15 +107,19 @@ class StoredAccount(BaseModel):
             "access_token": "...",
             "refresh_token": "...",
             "token_type": "Bearer",
-            "expiry_date": 1737417600000
+            "expiry_date": 1737417600000,
+            "project_id": "..." (if available)
         }
         """
-        return {
+        result = {
             "access_token": self.access_token,
             "refresh_token": self.refresh_token,
             "token_type": self.token_type,
             "expiry_date": self.expiry_date,
         }
+        if self.project_id:
+            result["project_id"] = self.project_id
+        return result
 
     @property
     def status(self) -> Literal["valid", "expired", "needs_reauth"]:
@@ -217,4 +225,3 @@ class GeminiOAuthAutoConfig(BaseModel):
         default="var/gemini_oauth_accounts",
         description="Path to directory where account credentials are stored.",
     )
-

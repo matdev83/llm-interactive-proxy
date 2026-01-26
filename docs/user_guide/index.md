@@ -108,6 +108,7 @@ Backend provider configuration and usage:
 - **[Gemini Backends](backends/gemini.md)** - Google Gemini API, OAuth, and GCP configurations
 - **[Gemini OAuth Auto Backend](backends/gemini-oauth-auto.md)** - Multi-account Google Gemini with automatic rotation
 - **[Antigravity OAuth Backend](backends/antigravity-oauth.md)** - Internal Antigravity OAuth configuration
+- **[Kiro OAuth Auto Backend](backends/kiro-oauth-auto.md)** - Amazon Kiro / Q Developer streaming via self-managed OAuth
 
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access
 - **[ZAI Backend](backends/zai.md)** - Zhipu/Z.ai configuration

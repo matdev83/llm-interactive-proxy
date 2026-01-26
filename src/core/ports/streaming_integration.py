@@ -156,6 +156,7 @@ async def integrate_streaming_pipeline(
     # Create pipeline for the provider - normalizer must be constructed explicitly
     from src.core.ports.anthropic_normalizer import AnthropicStreamNormalizer
     from src.core.ports.gemini_normalizer import GeminiStreamNormalizer
+    from src.core.ports.kiro_normalizer import KiroStreamNormalizer
     from src.core.ports.openai_normalizer import OpenAIStreamNormalizer
 
     # Select and construct normalizer based on provider (stateless adapter - no DI required)
@@ -163,6 +164,7 @@ async def integrate_streaming_pipeline(
         "openai": OpenAIStreamNormalizer,
         "anthropic": AnthropicStreamNormalizer,
         "gemini": GeminiStreamNormalizer,
+        "kiro": KiroStreamNormalizer,
     }
 
     normalizer_class = normalizer_map.get(provider.lower())
@@ -255,7 +257,6 @@ async def integrate_streaming_pipeline(
         await safe_aclose(raw_stream, provider, stream_id)
 
     return StreamingResponseEnvelope(
-
         content=processed_stream(),
         media_type="text/event-stream",
         headers={},
