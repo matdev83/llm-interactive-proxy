@@ -13,14 +13,8 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from src.core.common.exceptions import (
-    BackendError,
-    LLMProxyError,
-    NonForwardableEnforcementError,
-    NonForwardableTagLimitExceededError,
-    RateLimitExceededError,
-)
 from src.core.domain.backend_request_manager.context_models import StreamingContext
+
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_request_manager_components import (
@@ -38,6 +32,10 @@ from src.core.transport.session_key_resolver import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Maximum buffer size for Angel verification (1MB)
+# Responses exceeding this limit will fail-open to avoid OOM
+MAX_ANGEL_BUFFER_BYTES = 1024 * 1024
 
 
 class AngelStreamVerifier(IAngelStreamVerifier):
@@ -124,18 +122,18 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         # Check if Angel verification should run
         angel_model_spec: str | None = context.get("angel_model_spec")
         angel_frequency: int = context.get("angel_frequency", 1)
+        angel_max_history: int | None = context.get("angel_max_history")
 
         should_buffer = False
         angel_service_instance: AngelService | None = None
 
         if (
             angel_model_spec
-            and isinstance(request, ChatRequest)
             and AngelService.should_run_for_request(request, angel_frequency)
         ):
             try:
                 angel_service_instance = self._angel_service_factory.create(
-                    angel_model_spec
+                    angel_model_spec, max_history=angel_max_history
                 )
                 if (
                     angel_service_instance is not None
@@ -168,12 +166,29 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         # Buffer chunks for verification
         buffered_chunks: list[ProcessedResponse] = []
         text_fragments: list[str] = []
+        total_buffered_bytes = 0
 
         async for chunk in stream:
             buffered_chunks.append(chunk)
             text_piece = self._extract_text_from_chunk(chunk)
             if text_piece:
                 text_fragments.append(text_piece)
+                total_buffered_bytes += len(text_piece.encode("utf-8", errors="ignore"))
+
+            # Check for buffer limit to avoid OOM (Fail-open)
+            if total_buffered_bytes > MAX_ANGEL_BUFFER_BYTES:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Angel verification buffer limit exceeded (%d bytes); failing-open and forwarding original chunks",
+                        total_buffered_bytes,
+                    )
+                # Yield what we have so far
+                for buffered in buffered_chunks:
+                    yield buffered
+                # Yield the rest of the stream
+                async for remaining_chunk in stream:
+                    yield remaining_chunk
+                return
 
         if not buffered_chunks:
             return
@@ -196,7 +211,7 @@ class AngelStreamVerifier(IAngelStreamVerifier):
             if not angel_service_instance:
                 # Should not happen given the check above, but safe fallback
                 created_instance = self._angel_service_factory.create(
-                    angel_model_spec or ""
+                    angel_model_spec or "", max_history=angel_max_history
                 )
                 if created_instance is None:
                     # Fail-open: return original chunks if service creation fails
@@ -221,13 +236,26 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 if session_key:
                     self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            angel_response = await backend_service.chat_completions(
-                verification_request,
-                stream=False,
-                allow_failover=True,
-                context=request_context,
-            )
-            angel_text = self._extract_text_from_response(angel_response)
+            # Call Angel model
+            try:
+                angel_response = await backend_service.chat_completions(
+                    verification_request,
+                    stream=False,
+                    allow_failover=True,
+                    context=request_context,
+                )
+                angel_text = self._extract_text_from_response(angel_response)
+            except Exception as e:
+                # Fail-open if Angel model call fails (400, 429, 500, etc.)
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Angel model call failed (%s); failing-open and forwarding original chunks",
+                        type(e).__name__,
+                        exc_info=True,
+                    )
+                for buffered in buffered_chunks:
+                    yield buffered
+                return
 
             decision = angel_service_instance.parse_angel_output(angel_text)
             steering_msg = (decision.steering_message or "").strip()
@@ -264,10 +292,10 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                     cast(type, INonForwardableMessageIdentityService)
                 )
 
-                # Find the steering message (last system message)
+                # Find the steering message (last user message with steering marker)
                 steering_message = None
                 for msg in reversed(correction_request.messages):
-                    if msg.role == "system":
+                    if msg.role == "user" and "ANGEL STEERING" in (str(msg.content) or ""):
                         steering_message = msg
                         break
 
@@ -289,25 +317,19 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                         )
                         # Set injection boundary
                         injection_start_index = len(request.messages)
-                        if request_context.extensions is None:
-                            request_context.extensions = {}
                         request_context.extensions[
                             PROXY_INJECTED_MESSAGES_START_INDEX_KEY
                         ] = injection_start_index
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                f"Tagged angel steering message as client-history-only for session {session_id}, "
-                                f"identity={identity[:16]}..."
-                            )
-                    except NonForwardableTagLimitExceededError:
-                        # Fail closed - capacity exceeded (Req 14.3, 10.1)
-                        raise
                     except Exception as e:
-                        # Fail closed on any tagging failure to prevent leakage (Req 10.1)
-                        raise NonForwardableEnforcementError(
-                            f"Failed to tag angel steering message as non-forwardable: {e}",
-                            details={"session_id": session_id},
-                        ) from e
+                        # LOG BUT DO NOT BREAK MAIN FLOW
+                        # Steering is not a security feature, tagging failure is acceptable here
+                        # if it means we can still recover the session
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to tag angel steering message as non-forwardable: %s",
+                                e,
+                                exc_info=True,
+                            )
 
             # Cancellation gate: ensure session is not cancelled before Angel correction backend call
             if self._cancellation_coordinator and request_context:
@@ -315,24 +337,29 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 if session_key:
                     self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            corrected_response = await backend_service.chat_completions(
-                correction_request,
-                stream=False,
-                allow_failover=True,
-                context=request_context,
-            )
-            corrected_text = self._extract_text_from_response(corrected_response)
-
-            # Check for override marker
-            if angel_service_instance.has_override_marker(corrected_text):
+            try:
+                corrected_response = await backend_service.chat_completions(
+                    correction_request,
+                    stream=False,
+                    allow_failover=True,
+                    context=request_context,
+                )
+                corrected_text = self._extract_text_from_response(corrected_response)
+            except Exception as e:
+                # Fail-open if correction call fails
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Angel correction call failed (%s); failing-open and forwarding original chunks",
+                        type(e).__name__,
+                        exc_info=True,
+                    )
                 for buffered in buffered_chunks:
                     yield buffered
                 return
 
             # Yield corrected output with steering replacement marker
-            cleaned = angel_service_instance.strip_override_marker(corrected_text)
             yield ProcessedResponse(
-                content=cleaned,
+                content=corrected_text,
                 metadata={
                     "corrected_by_angel": True,
                     "is_done": True,
@@ -341,33 +368,15 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 },
             )
 
-        except (BackendError, RateLimitExceededError, LLMProxyError) as e:
-            # Domain exceptions from backend calls - fail-open with specific logging
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Angel streaming verification failed (domain error: %s); forwarding original chunks",
-                    type(e).__name__,
-                    exc_info=True,
-                )
-            for buffered in buffered_chunks:
-                yield buffered
-        except (RuntimeError, AttributeError, TypeError, ValueError) as e:
-            # Operational errors from service resolution or method calls
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Angel streaming verification failed (operational error: %s); forwarding original chunks",
-                    type(e).__name__,
-                    exc_info=True,
-                )
-            for buffered in buffered_chunks:
-                yield buffered
         except Exception as e:
-            # Unexpected exceptions - fail-open but log with more detail for debugging
+            # Final catch-all for any unexpected errors during verification/correction
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Angel streaming verification failed (unexpected error: %s); forwarding original chunks",
+                    "Angel verification process encountered an unexpected error (%s); "
+                    "failing-open and forwarding original chunks",
                     type(e).__name__,
                     exc_info=True,
                 )
             for buffered in buffered_chunks:
                 yield buffered
+

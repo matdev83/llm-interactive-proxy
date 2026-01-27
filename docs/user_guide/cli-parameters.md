@@ -282,7 +282,8 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--use-angel-model BACKEND:MODEL` | `ANGEL_MODEL` | Enable Angel verification with model. |
-| `--angel-frequency N` | `ANGEL_FREQUENCY` | Run verification every N turns. |
+| `--angel-frequency N` | `ANGEL_FREQUENCY` | Run verification every N user turns (default: 1). |
+| `--angel-max-history N` | `ANGEL_MAX_HISTORY` | Truncate history for Angel verification to last N messages (optional). |
 
 ### Tool Access Control
 

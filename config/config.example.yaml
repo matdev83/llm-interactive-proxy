@@ -106,6 +106,8 @@ session:
   angel_model: null
   # Angel verification frequency (1 = every user turn, 5 = every 5th user turn, etc.)
   angel_frequency: 1
+  # Truncate history for Angel verification to N messages (optional, default: unlimited)
+  angel_max_history: null
 
   # Tool call processing behavior
   # These settings control how tool calls are processed to prevent re-processing of historical messages

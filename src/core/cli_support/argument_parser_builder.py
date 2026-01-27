@@ -228,6 +228,13 @@ class ArgumentParserBuilder:
             metavar="N",
             help="Run Angel verification every N user turns (default: 1)",
         )
+        parser.add_argument(
+            "--angel-max-history",
+            dest="angel_max_history",
+            type=int,
+            metavar="N",
+            help="Truncate history for Angel verification to N messages (default: unlimited/disabled)",
+        )
 
     def _validate_model_alias(self, value: str) -> tuple[str, str]:
         """Validate model alias format: pattern=replacement."""

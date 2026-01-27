@@ -77,6 +77,8 @@ class AngelConfig:
 
     model_spec: str | None
     frequency: int
+    max_history: int | None
+
 
 
 class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
@@ -281,6 +283,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         # This follows the architectural pattern of using typed fields instead of direct app_state access
         angel_model_spec: str | None = None
         angel_frequency: int = 1
+        angel_max_history: int | None = None
 
         if hasattr(context, "extensions") and context.extensions:
             angel_model_spec_value = context.extensions.get("angel_model", None)
@@ -304,7 +307,25 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             else:
                 angel_frequency = 1  # default value
 
-        return AngelConfig(model_spec=angel_model_spec, frequency=angel_frequency)
+            angel_max_history_value = context.extensions.get("angel_max_history", None)
+            if angel_max_history_value is not None:
+                if isinstance(angel_max_history_value, int | float):
+                    angel_max_history = int(angel_max_history_value)
+                elif isinstance(angel_max_history_value, str):
+                    try:
+                        angel_max_history = int(angel_max_history_value)
+                    except (ValueError, TypeError):
+                        angel_max_history = None
+                else:
+                    angel_max_history = None
+            else:
+                angel_max_history = None
+
+        return AngelConfig(
+            model_spec=angel_model_spec,
+            frequency=angel_frequency,
+            max_history=angel_max_history,
+        )
 
     def _wrap_with_middleware(
         self,
@@ -404,6 +425,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         request_context: RequestContext,
         angel_model_spec: str | None,
         angel_frequency: int,
+        angel_max_history: int | None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Apply Angel verification with fail-open behavior."""
         # Extract stream_id from request_context
@@ -423,6 +445,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             "stream_id": stream_id,
             "angel_model_spec": angel_model_spec,
             "angel_frequency": angel_frequency,
+            "angel_max_history": angel_max_history,
         }
 
         try:
@@ -586,6 +609,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         angel_config = self._extract_angel_config(context)
         angel_model_spec = angel_config.model_spec
         angel_frequency = angel_config.frequency
+        angel_max_history = angel_config.max_history
 
         # Wrap stream with response processor middleware
         processed_stream = self._wrap_with_middleware(
@@ -603,6 +627,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             context,
             angel_model_spec,
             angel_frequency,
+            angel_max_history,
         )
 
         # Process stream with loop detection, tool-call retry, and empty-stream recovery

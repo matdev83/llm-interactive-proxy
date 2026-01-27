@@ -24,20 +24,6 @@ Use tool X instead of Y.
     assert "Use tool X" in (decision.steering_message or "")
 
 
-def test_strip_override_marker() -> None:
-    svc = AngelService("openai:gpt-4o-mini")
-    raw = "Result body... <override_angel>True</override_angel> trailing"
-    cleaned = svc.strip_override_marker(raw)
-    assert "override_angel" not in cleaned
-
-
-def test_strip_override_marker_is_case_insensitive() -> None:
-    svc = AngelService("openai:gpt-4o-mini")
-    raw = "Payload <override_angel> true </override_angel>"
-    cleaned = svc.strip_override_marker(raw)
-    assert "override_angel" not in cleaned.lower()
-
-
 def test_build_verification_messages_includes_prompt() -> None:
     svc = AngelService("openai:gpt-4o-mini")
     request = ChatRequest(
@@ -52,6 +38,36 @@ def test_build_verification_messages_includes_prompt() -> None:
     assert messages[0].content == get_prompt_loader().angel_prompt
     assert messages[-1].role == "assistant"
     assert messages[-1].content == "draft response"
+
+
+def test_build_verification_messages_truncates_history() -> None:
+    # Explicitly set max_history to 10
+    svc = AngelService("openai:gpt-4o-mini", max_history=10)
+    # Create 50 messages
+    history = [ChatMessage(role="user", content=str(i)) for i in range(50)]
+    request = ChatRequest(model="test", messages=history)
+    
+    messages = svc.build_verification_messages(request, "response")
+    # System prompt + MAX_HISTORY (10) + Assistant Response = 12
+    assert len(messages) == 12
+    assert messages[0].role == "system"
+    # The last history message should be the last 'user' message we added (49)
+    assert messages[-2].content == "49"
+
+
+def test_build_verification_messages_no_truncation_by_default() -> None:
+    # Default (no max_history)
+    svc = AngelService("openai:gpt-4o-mini")
+    # Create 50 messages
+    history = [ChatMessage(role="user", content=str(i)) for i in range(50)]
+    request = ChatRequest(model="test", messages=history)
+    
+    messages = svc.build_verification_messages(request, "response")
+    # System prompt + ALL HISTORY (50) + Assistant Response = 52
+    assert len(messages) == 52
+    assert messages[0].role == "system"
+    assert messages[-2].content == "49"
+
 
 
 @pytest.mark.parametrize(
@@ -135,5 +151,6 @@ def test_build_correction_request_includes_previous_response() -> None:
     assert correction.stream is False
     assert correction.messages[-2].role == "assistant"
     assert correction.messages[-2].content == "Bad output"
-    assert correction.messages[-1].role == "system"
+    assert correction.messages[-1].role == "user"
+    assert "VERIFICATION FEEDBACK" in str(correction.messages[-1].content)
     assert "Fix the solution" in str(correction.messages[-1].content)

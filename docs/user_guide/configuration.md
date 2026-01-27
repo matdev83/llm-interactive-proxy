@@ -217,6 +217,7 @@ session:
   # Angel Verification
   angel_model: null            # "backend:model"
   angel_frequency: 1
+  angel_max_history: null      # Optional history truncation (int)
   
   # Planning Phase
   planning_phase:

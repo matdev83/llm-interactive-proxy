@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import threading
 from typing import Any
@@ -14,6 +15,8 @@ from src.core.domain.model_utils import (
 from src.core.services.angel_prompt_loader import (
     AngelPromptLoader,
 )
+
+logger = logging.getLogger(__name__)
 
 # Global prompt loader instance with thread-safe initialization
 _prompt_loader: AngelPromptLoader | None = None
@@ -30,30 +33,28 @@ def get_prompt_loader() -> AngelPromptLoader:
         with _prompt_loader_lock:
             # Double-check after acquiring lock
             if _prompt_loader is None:
-                _prompt_loader = AngelPromptLoader()
-                _prompt_loader.load_prompts()
+                loader = AngelPromptLoader()
+                loader.load_prompts()
+                _prompt_loader = loader
     return _prompt_loader
-
-
-# Backward compatibility: ANGEL_PROMPT constant removed to avoid import-time I/O
-# Use get_prompt_loader().angel_prompt instead
 
 
 class AngelService:
     """Service orchestrating Angel verification and steering."""
 
-    _OVERRIDE_RE = re.compile(
-        r"<override_angel>\s*True\s*</override_angel>", re.IGNORECASE
-    )
     _PASS_DECISION_RE = re.compile(
         r"<angels_decision>\s*Pass\s*</angels_decision>", re.IGNORECASE
+    )
+    _STEER_DECISION_RE = re.compile(
+        r"<angels_decision>\s*Steer\s*</angels_decision>", re.IGNORECASE
     )
     _STEERING_MESSAGE_RE = re.compile(
         r"<angels_steering_message>([\s\S]*?)</angels_steering_message>", re.IGNORECASE
     )
 
-    def __init__(self, model_spec: str | None) -> None:
+    def __init__(self, model_spec: str | None, max_history: int | None = None) -> None:
         self._model_spec = (model_spec or "").strip()
+        self._max_history = max_history
 
     def is_enabled(self) -> bool:
         return bool(self._model_spec and self._model_spec.strip())
@@ -95,9 +96,6 @@ class AngelService:
                 parsed = parse_model_backend(original_request.model)
                 default_backend = parsed.backend_type
             except (ValueError, TypeError) as exc:
-                import logging
-
-                logger = logging.getLogger(__name__)
                 logger.debug(
                     "Failed to parse model backend for Angel verification: %s",
                     exc,
@@ -105,9 +103,6 @@ class AngelService:
                 )
                 default_backend = ""
             except Exception as exc:
-                import logging
-
-                logger = logging.getLogger(__name__)
                 logger.warning(
                     "Unexpected error parsing model backend for Angel verification: %s",
                     exc,
@@ -121,8 +116,22 @@ class AngelService:
     ) -> list[ChatMessage]:
         loader = get_prompt_loader()
         messages = [ChatMessage(role="system", content=loader.angel_prompt)]
-        # Include full context
-        messages.extend(list(request.messages))
+
+        history = list(request.messages)
+
+        # Truncate history for Angel verification if enabled
+        max_history = self._max_history
+        if max_history is not None and max_history > 0:
+            if len(history) > max_history:
+                # Always try to keep the original system prompt if it's the first message
+                if history and history[0].role == "system":
+                    truncated = [history[0]] + history[-(max_history - 1) :]
+                else:
+                    truncated = history[-max_history:]
+                history = truncated
+
+        # Include (potentially truncated) context
+        messages.extend(history)
         # Attach last assistant response
         normalized = self._normalize_assistant_content(assistant_response)
         messages.append(ChatMessage(role="assistant", content=normalized))
@@ -131,70 +140,84 @@ class AngelService:
     def build_verification_request(
         self, request: ChatRequest, assistant_response: Any
     ) -> ChatRequest:
-        parsed = self._resolve_model_for_request(request)
-        backend = parsed.backend_type
-        model = parsed.model_name
-        params = parsed.uri_params
         messages = self.build_verification_messages(request, assistant_response)
-        target_model = self._compose_model_identifier(backend, model)
+        model_info = self._resolve_model_for_request(request)
 
-        verification = request.model_copy(
-            update={
-                "model": target_model,
-                "messages": messages,
-                "stream": False,
-            }
+        def _to_float(val: Any) -> float | None:
+            if val is None or isinstance(val, (dict, list)):
+                return None
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return None
+
+        def _to_int(val: Any) -> int | None:
+            if val is None or isinstance(val, (dict, list)):
+                return None
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                return None
+
+        # Prepare verification request
+        return ChatRequest(
+            model=self._compose_model_identifier(
+                model_info.backend_type, model_info.model_name
+            ),
+            messages=messages,
+            stream=False,
+            # Pass through sampling parameters if provided in model spec
+            temperature=_to_float(model_info.uri_params.get("temperature")),
+            top_p=_to_float(model_info.uri_params.get("top_p")),
+            max_tokens=_to_int(model_info.uri_params.get("max_tokens")),
+            presence_penalty=_to_float(model_info.uri_params.get("presence_penalty")),
+            frequency_penalty=_to_float(model_info.uri_params.get("frequency_penalty")),
+            extra_body=dict(model_info.uri_params),
         )
-
-        if params:
-            verification = verification.model_copy(update={**params})
-
-        return verification
-
-    @staticmethod
-    def build_steering_payload(steering_message: str) -> str:
-        loader = get_prompt_loader()
-        steering_text = loader.steering_template.replace(
-            "{angels_steering_message}", steering_message
-        )
-        return steering_text
 
     def build_correction_request(
-        self,
-        request: ChatRequest,
-        assistant_response: Any,
-        steering_message: str,
+        self, request: ChatRequest, original_response: Any, steering_text: str
     ) -> ChatRequest:
-        normalized_response = self._normalize_assistant_content(assistant_response)
-        steering_text = self.build_steering_payload(steering_message)
+        normalized_response = self._normalize_assistant_content(original_response)
 
+        # Construct correction messages following Role Alternation (Assistant -> User)
         augmented_messages = [
             *list(request.messages),
             ChatMessage(role="assistant", content=normalized_response),
-            ChatMessage(role="system", content=steering_text),
+            ChatMessage(
+                role="user",
+                content=f"[SYSTEM MESSAGE: VERIFICATION FEEDBACK]\n\n{steering_text}",
+            ),
         ]
 
-        return request.model_copy(
-            update={
-                "messages": augmented_messages,
-                "stream": False,
-            }
-        )
+        return request.model_copy(update={"messages": augmented_messages, "stream": False})
 
     def parse_angel_output(self, text: str) -> AngelDecision:
-        # Pass decision
-        if self._PASS_DECISION_RE.search(text):
+        """Parse Angel model output for decisions and steering messages.
+
+        Returns:
+            AngelDecision with 'pass' or 'steer' and optional steering message.
+        """
+        try:
+            # Explicit Pass check
+            if self._PASS_DECISION_RE.search(text):
+                return AngelDecision(decision="pass")
+
+            # Explicit Steer check
+            steer_match = self._STEER_DECISION_RE.search(text)
+            message_match = self._STEERING_MESSAGE_RE.search(text)
+
+            if steer_match or message_match:
+                msg = (
+                    message_match.group(1).strip()
+                    if message_match
+                    else "Correction required."
+                )
+                return AngelDecision(decision="steer", steering_message=msg)
+
+            # Default to pass if output is ambiguous or fails to use tags
             return AngelDecision(decision="pass")
-        # Steering message
-        m = self._STEERING_MESSAGE_RE.search(text)
-        if m:
-            msg = m.group(1).strip()
-            return AngelDecision(decision="steer", steering_message=msg)
-        # Default to pass if no recognizable XML
-        return AngelDecision(decision="pass")
-
-    def has_override_marker(self, text: str) -> bool:
-        return bool(self._OVERRIDE_RE.search(text))
-
-    def strip_override_marker(self, text: str) -> str:
-        return self._OVERRIDE_RE.sub("", text)
+        except Exception as e:
+            # Absolute fail-open: return pass on any parsing error
+            logger.warning("Failed to parse Angel output: %s", e, exc_info=True)
+            return AngelDecision(decision="pass")

@@ -175,14 +175,14 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
                     "R",
                     (),
                     {
-                        "content": "\n<angels_steering_message>Be specific</angels_steering_message>\n"
+                        "content": "\n<angels_decision>Steer</angels_decision>\n<angels_steering_message>Be specific</angels_steering_message>\n"
                     },
                 )()
 
             self.calls.append("correction")
             assert request.messages[-2].role == "assistant"
             assert request.messages[-2].content == "Bad output"
-            assert request.messages[-1].role == "system"
+            assert request.messages[-1].role == "user"
             return type("R", (), {"content": "Corrected answer"})()
 
     backend_service = DummyBackendService()
@@ -223,7 +223,7 @@ async def test_streaming_angel_steer_replaces_with_correction(monkeypatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
+async def test_streaming_angel_override_logic_removed(monkeypatch) -> None:
     backend_processor = AsyncMock()
     response_processor = MagicMock()
     response_processor.process_streaming_response = (
@@ -253,21 +253,20 @@ async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
         async def chat_completions(self, request, *_, **__):
             if not self.calls:
                 self.calls.append("angel")
-                assert request.messages[-1].role == "assistant"
-                assert request.messages[-1].content == "Draft reply"
                 return type(
                     "R",
                     (),
                     {
-                        "content": "\n<angels_steering_message>Check again</angels_steering_message>\n"
+                        "content": "<angels_steering_message>Check again</angels_steering_message>"
                     },
                 )()
 
             self.calls.append("correction")
+            # Return text that used to trigger override
             return type(
                 "R",
                 (),
-                {"content": "<override_angel>True</override_angel>"},
+                {"content": "<override_angel>True</override_angel> but I corrected it anyway"},
             )()
 
     backend_service = DummyBackendService()
@@ -290,9 +289,9 @@ async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
     context = _make_context(_DummyAppState("openai:gpt-4o-mini"))
     context.original_request = original_request
 
-    # Use public API - Angel verification will run internally
+    # Use public API
     result = await manager.process_backend_request(
-        original_request, "session-override", context
+        original_request, "session-no-override", context
     )
 
     assert isinstance(result, StreamingResponseEnvelope)
@@ -301,9 +300,9 @@ async def test_streaming_angel_override_returns_original(monkeypatch) -> None:
     async for chunk in result.content:
         recovered.append(str(chunk.content))
 
-    # Should return original when Angel override fails
-    assert len(recovered) >= 2
-    assert "Draft" in "".join(recovered)
+    # Should NOT return original; should return the corrected text even if it contains the (now ignored) override tag
+    assert "Draft reply" not in "".join(recovered)
+    assert "<override_angel>True</override_angel>" in "".join(recovered)
     assert backend_service.calls == ["angel", "correction"]
 
 

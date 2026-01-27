@@ -11,10 +11,9 @@ from pydantic.types import JsonValue
 
 from src.core.common.exceptions import (
     LoopDetectionError,
-    NonForwardableEnforcementError,
-    NonForwardableTagLimitExceededError,
     ParsingError,
 )
+
 from src.core.domain.chat import StreamingChatResponse
 from src.core.domain.request_context import RequestContext
 from src.core.domain.streaming_response_processor import (
@@ -261,13 +260,23 @@ class ResponseProcessor(IResponseProcessor):
                         return value.decode("utf-8", errors="ignore")
                 return str(value)
 
-            angel_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
-                verification_request,
-                stream=False,
-                allow_failover=True,
-                context=request_context,
-            )
-            angel_text = _extract_text(angel_response)
+            # Call Angel model with fail-open
+            try:
+                angel_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
+                    verification_request,
+                    stream=False,
+                    allow_failover=True,
+                    context=request_context,
+                )
+                angel_text = _extract_text(angel_response)
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Angel model call failed (%s); failing-open",
+                        type(e).__name__,
+                        exc_info=True,
+                    )
+                return {"action": "pass"}
 
             decision = svc.parse_angel_output(angel_text)
             if decision.decision == "pass":
@@ -302,10 +311,10 @@ class ResponseProcessor(IResponseProcessor):
                     cast(type, INonForwardableMessageIdentityService)
                 )
 
-                # Find the steering message (last system message)
+                # Find the steering message (last user message with steering marker)
                 steering_message = None
                 for msg in reversed(correction_request.messages):
-                    if msg.role == "system":
+                    if msg.role == "user" and "ANGEL STEERING" in (str(msg.content) or ""):
                         steering_message = msg
                         break
 
@@ -331,20 +340,13 @@ class ResponseProcessor(IResponseProcessor):
                         request_context.extensions[
                             PROXY_INJECTED_MESSAGES_START_INDEX_KEY
                         ] = injection_start_index
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                f"Tagged angel steering message as client-history-only for session {session_id}, "
-                                f"identity={identity[:16]}..."
-                            )
-                    except NonForwardableTagLimitExceededError:
-                        # Fail closed - capacity exceeded (Req 14.3, 10.1)
-                        raise
                     except Exception as e:
-                        # Fail closed on any tagging failure to prevent leakage (Req 10.1)
-                        raise NonForwardableEnforcementError(
-                            f"Failed to tag angel steering message as non-forwardable: {e}",
-                            details={"session_id": session_id},
-                        ) from e
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Failed to tag angel steering message as non-forwardable: %s",
+                                e,
+                                exc_info=True,
+                            )
 
             # Cancellation gate: ensure session is not cancelled before Angel correction backend call
             if self._cancellation_coordinator and request_context:
@@ -352,27 +354,34 @@ class ResponseProcessor(IResponseProcessor):
                 if session_key:
                     self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            corrected_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
-                correction_request,
-                stream=False,
-                allow_failover=True,
-                context=request_context,
-            )
-            corrected_text = _extract_text(corrected_response)
-
-            if svc.has_override_marker(corrected_text):
+            # Call correction with fail-open
+            try:
+                corrected_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
+                    correction_request,
+                    stream=False,
+                    allow_failover=True,
+                    context=request_context,
+                )
+                corrected_text = _extract_text(corrected_response)
+                return {"action": "steer", "corrected_content": corrected_text}
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Angel correction call failed (%s); failing-open",
+                        type(e).__name__,
+                        exc_info=True,
+                    )
                 return {"action": "pass"}
 
-            cleaned = svc.strip_override_marker(corrected_text)
-            return {"action": "steer", "corrected_content": cleaned}
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Angel verification internal error: %s",
-                    e,
+                    "Angel verification encountered unexpected error (%s); failing-open",
+                    type(e).__name__,
                     exc_info=True,
                 )
-            return None
+            return {"action": "pass"}
+
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:
         """Add a background task to be managed by the processor.

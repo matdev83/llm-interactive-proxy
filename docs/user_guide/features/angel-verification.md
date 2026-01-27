@@ -12,8 +12,11 @@ Unlike the LLM Assessment System which monitors conversation patterns over time,
 - **Error Detection**: Identifies logical errors, wrong tool calls, and misbehaviors
 - **Automatic Correction**: Prompts the main model to fix detected issues transparently
 - **Configurable Frequency**: Control how often verification runs (every N user turns)
+- **Context Window Protection**: Truncate conversation history sent to Angel (opt-in)
+- **Memory Safety**: 1MB buffer limit for streaming verification to prevent OOM
 - **Model Flexibility**: Use any supported backend/model for verification
 - **User-Configurable Prompts**: Customize verification behavior by editing markdown files
+- **Fail-Open Design**: Automatically falls back to original response if Angel backend fails
 
 ## How It Works
 
@@ -56,6 +59,7 @@ sequenceDiagram
 ```bash
 --use-angel-model "backend:model"  # Enable Angel with specified model
 --angel-frequency 1                # Verify every N user turns (default: 1)
+--angel-max-history 10             # Truncate history to last N messages (optional)
 ```
 
 ### Environment Variables
@@ -63,6 +67,7 @@ sequenceDiagram
 ```bash
 export ANGEL_MODEL="openai:gpt-4o-mini"
 export ANGEL_FREQUENCY=1
+export ANGEL_MAX_HISTORY=10
 ```
 
 ### YAML Configuration
@@ -70,7 +75,8 @@ export ANGEL_FREQUENCY=1
 ```yaml
 session:
   angel_model: "anthropic:claude-3-5-haiku-20241022"
-  angel_frequency: 1  # Verify every turn (default)
+  angel_frequency: 1    # Verify every turn (default)
+  angel_max_history: 10 # Optional truncation
 ```
 
 ## Usage Examples
@@ -123,6 +129,15 @@ After editing the prompts, restart the proxy to load the updated configuration.
 - **Stop Dangerous Commands**: Block potentially destructive operations
 - **Maintain Focus**: Detect when the assistant loses track of the main goal
 - **Quality Control**: Ensure outputs meet quality standards before reaching users
+
+## Robustness & Security
+
+The Angel system is designed for high reliability and safety:
+
+- **Fail-Open**: If the Angel model errors, times out, or the proxy hits a 1MB buffer limit, the original assistant response is released immediately. Verification never breaks the user session.
+- **Atomic Loading**: Prompts are loaded once at startup with thread-safe mechanisms to prevent race conditions.
+- **Secure Steering**: Steering instructions are injected as `user` role messages with distinct markers, ensuring compatibility with all backends (like Claude/Gemini) and preventing internal prompt leakage.
+- **No Bypass**: The previous "Override" mechanism has been removed to prevent malfunctioning models from vetoing safety checks.
 
 ## When to Use Angel vs LLM Assessment
 
