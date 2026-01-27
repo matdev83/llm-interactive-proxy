@@ -202,9 +202,19 @@ class ResponseProcessor(IResponseProcessor):
                     frequency_value = 1
                 angel_svc = AngelService(model_spec or "")
 
-                if not angel_svc.is_enabled():
-                    return {"action": "pass"}
+                if not angel_svc.is_enabled() or not angel_svc.is_healthy():
+                    if not angel_svc.is_enabled():
+                        return {"action": "pass"}
+                    else:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Angel verification skipped due to circuit breaker for model %s",
+                                model_spec,
+                            )
+                        return {"action": "pass"}
+
                 self._angel_service = angel_svc
+
                 try:
                     freq_int = (
                         int(frequency_value) if frequency_value is not None else 1
@@ -269,7 +279,9 @@ class ResponseProcessor(IResponseProcessor):
                     context=request_context,
                 )
                 angel_text = _extract_text(angel_response)
+                svc.report_success()
             except Exception as e:
+                svc.report_failure()
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Angel model call failed (%s); failing-open",

@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 import re
 import threading
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from src.core.domain.angel import AngelDecision
@@ -21,6 +23,21 @@ logger = logging.getLogger(__name__)
 # Global prompt loader instance with thread-safe initialization
 _prompt_loader: AngelPromptLoader | None = None
 _prompt_loader_lock = threading.Lock()
+
+
+@dataclass
+class _ModelHealth:
+    consecutive_failures: int = 0
+    unhealthy_until: datetime | None = None
+
+
+# Health state for Angel models (model_spec -> _ModelHealth)
+_model_health: dict[str, _ModelHealth] = {}
+_health_lock = threading.Lock()
+
+# Circuit breaker settings
+_MAX_CONSECUTIVE_FAILURES = 3
+_COOL_DOWN_PERIOD = timedelta(minutes=5)
 
 
 def get_prompt_loader() -> AngelPromptLoader:
@@ -58,6 +75,68 @@ class AngelService:
 
     def is_enabled(self) -> bool:
         return bool(self._model_spec and self._model_spec.strip())
+
+    def is_healthy(self) -> bool:
+        """Check if the Angel model is currently healthy (circuit breaker)."""
+        if not self.is_enabled():
+            return False
+
+        with _health_lock:
+            health = _model_health.get(self._model_spec)
+            if health is None:
+                return True
+
+            if health.unhealthy_until is None:
+                return True
+
+            if datetime.now() > health.unhealthy_until:
+                # Cool-down expired, allow one probe
+                logger.info(
+                    "Angel model %s cool-down expired; allowing probe request",
+                    self._model_spec,
+                )
+                return True
+
+            return False
+
+    def report_success(self) -> None:
+        """Report a successful call to the Angel model to reset health state."""
+        if not self.is_enabled():
+            return
+
+        with _health_lock:
+            if self._model_spec in _model_health:
+                logger.debug("Resetting health state for Angel model %s", self._model_spec)
+                del _model_health[self._model_spec]
+
+    def report_failure(self) -> None:
+        """Report a failed call to the Angel model to update health state."""
+        if not self.is_enabled():
+            return
+
+        with _health_lock:
+            health = _model_health.get(self._model_spec)
+            if health is None:
+                health = _ModelHealth()
+                _model_health[self._model_spec] = health
+
+            health.consecutive_failures += 1
+            if health.consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                health.unhealthy_until = datetime.now() + _COOL_DOWN_PERIOD
+                logger.warning(
+                    "Angel model %s reached %d consecutive failures; "
+                    "tripping circuit breaker until %s",
+                    self._model_spec,
+                    health.consecutive_failures,
+                    health.unhealthy_until.isoformat(),
+                )
+            else:
+                logger.debug(
+                    "Angel model %s failure recorded (%d/%d)",
+                    self._model_spec,
+                    health.consecutive_failures,
+                    _MAX_CONSECUTIVE_FAILURES,
+                )
 
     @staticmethod
     def should_run_for_request(request: ChatRequest, frequency: int | None) -> bool:

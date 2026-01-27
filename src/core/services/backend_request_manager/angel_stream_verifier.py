@@ -138,8 +138,16 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 if (
                     angel_service_instance is not None
                     and angel_service_instance.is_enabled()
+                    and angel_service_instance.is_healthy()
                 ):
                     should_buffer = True
+                elif angel_service_instance and not angel_service_instance.is_healthy():
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Angel verification skipped due to circuit breaker for model %s",
+                            angel_model_spec,
+                        )
+
             except (RuntimeError, AttributeError, TypeError, ValueError) as e:
                 # Expected exceptions from service creation/factory calls
                 if logger.isEnabledFor(logging.WARNING):
@@ -245,8 +253,14 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                     context=request_context,
                 )
                 angel_text = self._extract_text_from_response(angel_response)
+                # Success!
+                if angel_service_instance:
+                    angel_service_instance.report_success()
             except Exception as e:
                 # Fail-open if Angel model call fails (400, 429, 500, etc.)
+                if angel_service_instance:
+                    angel_service_instance.report_failure()
+
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Angel model call failed (%s); failing-open and forwarding original chunks",
