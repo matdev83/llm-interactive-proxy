@@ -33,15 +33,20 @@ def mock_dependencies():
         "connector_invoker": MagicMock(),
     }
 
+
 @pytest.mark.asyncio
-async def test_call_completion_generates_and_syncs_session_id_on_error(mock_dependencies):
+async def test_call_completion_generates_and_syncs_session_id_on_error(
+    mock_dependencies,
+):
     """
     Test that session_id is generated and synchronized back to context on error.
-    
+
     This covers the fix for the "Missing session_id" log in EoS adapter.
     """
     # 1. Setup mocks
-    mock_dependencies["exception_normalizer"].normalize = MagicMock(side_effect=lambda e, b: e)
+    mock_dependencies["exception_normalizer"].normalize = MagicMock(
+        side_effect=lambda e, b: e
+    )
     mock_dependencies["request_preparer"].prepare_request = AsyncMock(
         return_value=MagicMock(backend="openai", model="gpt-4", uri_params={})
     )
@@ -51,23 +56,29 @@ async def test_call_completion_generates_and_syncs_session_id_on_error(mock_depe
     mock_dependencies["request_preparer"].prepare_backend_request = AsyncMock(
         side_effect=lambda r, b, s, u: r
     )
-    
+
     # Return (None, None) to simulate missing session
     mock_dependencies["session_resolver"].resolve_session = AsyncMock(
         return_value=(None, None)
     )
-    
+
     # Mock backend to fail
     mock_backend = MagicMock()
-    mock_backend.invoke = AsyncMock(side_effect=BackendError("Backend failure", "openai"))
-    mock_dependencies["backend_invoker"].acquire_backend = AsyncMock(return_value=mock_backend)
-    
+    mock_backend.invoke = AsyncMock(
+        side_effect=BackendError("Backend failure", "openai")
+    )
+    mock_dependencies["backend_invoker"].acquire_backend = AsyncMock(
+        return_value=mock_backend
+    )
+
     mock_dependencies["availability_checker"].check_backend_availability = AsyncMock()
-    mock_dependencies["failover_executor"].check_complex_failover = AsyncMock(return_value=False)
+    mock_dependencies["failover_executor"].check_complex_failover = AsyncMock(
+        return_value=False
+    )
     mock_dependencies["failover_executor"].apply_failure_recovery = AsyncMock(
         side_effect=lambda **kwargs: kwargs["error"]
     )
-    
+
     # EoS adapter mock
     mock_eos_adapter = MagicMock()
     mock_eos_adapter.record_error_termination = AsyncMock()
@@ -80,40 +91,48 @@ async def test_call_completion_generates_and_syncs_session_id_on_error(mock_depe
         cookies={},
         state=None,
         app_state=None,
-        session_id=None, # Missing session_id
+        session_id=None,  # Missing session_id
         processing_context=ProcessingContext(),
     )
-    
+
     request = CanonicalChatRequest(
-        model="gpt-4",
-        messages=[ChatMessage(role="user", content="test")]
+        model="gpt-4", messages=[ChatMessage(role="user", content="test")]
     )
 
     # 3. Execute - should raise BackendError
     with pytest.raises(BackendError):
-        await flow.call_completion(request=request, context=context, allow_failover=False)
+        await flow.call_completion(
+            request=request, context=context, allow_failover=False
+        )
 
     # 4. Verify EoS adapter was called with a generated session_id
     assert mock_eos_adapter.record_error_termination.called
     call_args = mock_eos_adapter.record_error_termination.call_args
     session_id_passed = call_args.kwargs["session_id"]
-    
+
     assert session_id_passed is not None
     assert len(session_id_passed) > 0
-    
+
     # 5. Verify context.session_id was synchronized
     assert context.session_id == session_id_passed
-    
+
     # 6. Verify backend acquisition used the same session_id
-    mock_dependencies["backend_invoker"].acquire_backend.assert_called_with("openai", session_id_passed)
+    mock_dependencies["backend_invoker"].acquire_backend.assert_called_with(
+        "openai", session_id_passed
+    )
+
 
 @pytest.mark.asyncio
-async def test_call_completion_preserves_existing_session_id_on_error(mock_dependencies):
+async def test_call_completion_preserves_existing_session_id_on_error(
+    mock_dependencies,
+):
     """
     Test that existing session_id is preserved and passed to EoS adapter.
     """
     # 1. Setup mocks
-    mock_dependencies["exception_normalizer"].normalize = MagicMock(side_effect=lambda e, b: e)
+    mock_dependencies["exception_normalizer"].normalize = MagicMock(
+        side_effect=lambda e, b: e
+    )
     mock_dependencies["request_preparer"].prepare_request = AsyncMock(
         return_value=MagicMock(backend="openai", model="gpt-4", uri_params={})
     )
@@ -123,20 +142,26 @@ async def test_call_completion_preserves_existing_session_id_on_error(mock_depen
     mock_dependencies["request_preparer"].prepare_backend_request = AsyncMock(
         side_effect=lambda r, b, s, u: r
     )
-    
+
     existing_session_id = "existing-session-123"
     mock_dependencies["session_resolver"].resolve_session = AsyncMock(
         return_value=(MagicMock(), existing_session_id)
     )
-    
+
     # Mock backend to fail
     mock_backend = MagicMock()
-    mock_backend.invoke = AsyncMock(side_effect=BackendError("Backend failure", "openai"))
-    mock_dependencies["backend_invoker"].acquire_backend = AsyncMock(return_value=mock_backend)
-    
+    mock_backend.invoke = AsyncMock(
+        side_effect=BackendError("Backend failure", "openai")
+    )
+    mock_dependencies["backend_invoker"].acquire_backend = AsyncMock(
+        return_value=mock_backend
+    )
+
     mock_dependencies["availability_checker"].check_backend_availability = AsyncMock()
-    mock_dependencies["failover_executor"].check_complex_failover = AsyncMock(return_value=False)
-    
+    mock_dependencies["failover_executor"].check_complex_failover = AsyncMock(
+        return_value=False
+    )
+
     # EoS adapter mock
     mock_eos_adapter = MagicMock()
     mock_eos_adapter.record_error_termination = AsyncMock()
@@ -152,20 +177,21 @@ async def test_call_completion_preserves_existing_session_id_on_error(mock_depen
         session_id=existing_session_id,
         processing_context=ProcessingContext(),
     )
-    
+
     request = CanonicalChatRequest(
-        model="gpt-4",
-        messages=[ChatMessage(role="user", content="test")]
+        model="gpt-4", messages=[ChatMessage(role="user", content="test")]
     )
 
     # 3. Execute - should raise BackendError
     with pytest.raises(BackendError):
-        await flow.call_completion(request=request, context=context, allow_failover=False)
+        await flow.call_completion(
+            request=request, context=context, allow_failover=False
+        )
 
     # 4. Verify EoS adapter was called with the existing session_id
     assert mock_eos_adapter.record_error_termination.called
     call_args = mock_eos_adapter.record_error_termination.call_args
     assert call_args.kwargs["session_id"] == existing_session_id
-    
+
     # 5. Verify context.session_id remains correct
     assert context.session_id == existing_session_id

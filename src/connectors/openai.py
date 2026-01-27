@@ -1702,7 +1702,6 @@ class OpenAIConnector(LLMBackend):
                 with contextlib.suppress(BaseException):
                     await response.aclose()
 
-
             raise HTTPException(
                 status_code=status_code,
                 detail={
@@ -1751,7 +1750,6 @@ class OpenAIConnector(LLMBackend):
         finally:
             with contextlib.suppress(BaseException):
                 await response.aclose()
-
 
     def get_provider_name(self) -> str:
         """Return the provider name for logging/metrics.

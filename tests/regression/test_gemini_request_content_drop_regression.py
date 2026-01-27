@@ -1,4 +1,3 @@
-
 """Regression tests for Gemini request translation bugs."""
 
 from src.core.domain.chat import (
@@ -17,7 +16,7 @@ class TestGeminiRequestRegression:
         """
         Regression test: Ensure that when an assistant message has both `tool_calls`
         and `reasoning_content`, the reasoning content is NOT dropped.
-        
+
         Previous behavior: If `tool_calls` were present, other content parts were skipped.
         Fixed behavior: Both tool calls and text content (including reasoning) are included.
         """
@@ -30,30 +29,27 @@ class TestGeminiRequestRegression:
                 tool_calls=[
                     ToolCall(
                         id="call_1",
-                        function=FunctionCall(name="my_tool", arguments="{}")
+                        function=FunctionCall(name="my_tool", arguments="{}"),
                     )
-                ]
-            )
+                ],
+            ),
         ]
-        
-        request = CanonicalChatRequest(
-            model="gemini-1.5-pro",
-            messages=messages
-        )
+
+        request = CanonicalChatRequest(model="gemini-1.5-pro", messages=messages)
 
         gemini_request = from_domain_to_gemini_request(request)
-        
+
         assert len(gemini_request["contents"]) == 2
         assistant_msg = gemini_request["contents"][1]
         assert assistant_msg["role"] == "model"
-        
+
         parts = assistant_msg["parts"]
-        
+
         # Verify tool call is present
         tool_call_parts = [p for p in parts if "functionCall" in p]
         assert len(tool_call_parts) == 1
         assert tool_call_parts[0]["functionCall"]["name"] == "my_tool"
-        
+
         # Verify reasoning/text content is present
         # The translator converts reasoning_content to a text part
         text_parts = [p for p in parts if "text" in p]
@@ -64,7 +60,7 @@ class TestGeminiRequestRegression:
         """
         Regression test: Ensure that when an assistant message has both `tool_calls`
         and regular `content`, the regular content IS excluded to prevent Gemini API errors.
-        
+
         This prevents the error: "Please ensure that the number of function response parts
         is equal to the number of function call parts"
         """
@@ -76,26 +72,25 @@ class TestGeminiRequestRegression:
                 tool_calls=[
                     ToolCall(
                         id="call_1",
-                        function=FunctionCall(name="my_tool", arguments="{}")
+                        function=FunctionCall(name="my_tool", arguments="{}"),
                     )
-                ]
-            )
+                ],
+            ),
         ]
-        
-        request = CanonicalChatRequest(
-            model="gemini-1.5-pro",
-            messages=messages
-        )
+
+        request = CanonicalChatRequest(model="gemini-1.5-pro", messages=messages)
 
         gemini_request = from_domain_to_gemini_request(request)
-        
+
         assistant_msg = gemini_request["contents"][1]
         parts = assistant_msg["parts"]
-        
+
         # Verify tool call is present
         tool_call_parts = [p for p in parts if "functionCall" in p]
         assert len(tool_call_parts) == 1
-        
+
         # Verify regular content is excluded (to prevent API errors)
         text_parts = [p for p in parts if "text" in p]
-        assert len(text_parts) == 0, "Regular content should be excluded when tool_calls are present"
+        assert (
+            len(text_parts) == 0
+        ), "Regular content should be excluded when tool_calls are present"

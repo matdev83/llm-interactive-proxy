@@ -132,8 +132,12 @@ class StreamingResponseEnvelope(InternalDTO):
                     if isinstance(choices, list) and choices:
                         first_choice = choices[0]
                         if isinstance(first_choice, dict):
-                            container = first_choice.get("delta") or first_choice.get("message")
-                            if isinstance(container, dict) and container.get("reasoning_content"):
+                            container = first_choice.get("delta") or first_choice.get(
+                                "message"
+                            )
+                            if isinstance(container, dict) and container.get(
+                                "reasoning_content"
+                            ):
                                 reasoning = container["reasoning_content"]
                                 for alias in ("reasoning", "thinking", "thought"):
                                     if alias not in container:

@@ -11,6 +11,19 @@ logger = logging.getLogger(__name__)
 
 
 class ContentRewritingMiddleware(BaseHTTPMiddleware):
+    """Middleware for rewriting request/response content.
+
+    WARNING: This middleware buffers entire streaming responses before rewriting.
+    Streaming responses will be delayed until the complete response is received.
+    This is intentional behavior for content rewriting but incompatible with
+    real-time streaming. Do not enable this middleware if streaming performance
+    is critical.
+
+    This middleware uses BaseHTTPMiddleware which buffers streaming responses.
+    For streaming-compatible middleware, see other middleware in this package
+    that use pure ASGI.
+    """
+
     # Maximum request body size (10 MB) to prevent DoS attacks
     MAX_BODY_SIZE = 10 * 1024 * 1024  # 10MB in bytes
 

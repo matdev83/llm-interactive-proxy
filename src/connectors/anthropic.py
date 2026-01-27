@@ -1287,7 +1287,6 @@ class AnthropicBackend(LLMBackend):
             with contextlib.suppress(BaseException):
                 await response.aclose()
 
-
     def get_provider_name(self) -> str:
         """Return the provider name for logging/metrics.
 

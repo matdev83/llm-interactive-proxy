@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import time
@@ -23,12 +24,11 @@ from src.core.transport.fastapi.request_adapters import (
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 
-class DomainExceptionMiddleware(BaseHTTPMiddleware):
-    """Translate domain exceptions to HTTP responses.
+class DomainExceptionMiddleware:
+    """Pure ASGI middleware that translates domain exceptions to HTTP responses.
 
     Centralized middleware that catches project-specific exceptions
     (LLMProxyError and subclasses) and renders consistent JSON error
@@ -40,19 +40,32 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
 
     Intentional behavior: keep transport concerns here so that core
     adapters/services remain domain-centric.
+
+    Avoids BaseHTTPMiddleware which buffers entire streaming responses.
     """
 
-    def __init__(self, app: Any) -> None:  # type: ignore[override]
-        super().__init__(app)
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
         self._logger = logging.getLogger(__name__)
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Process request and handle exceptions without buffering streams.
+
+        Args:
+            scope: ASGI scope
+            receive: ASGI receive channel
+            send: ASGI send channel
+        """
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         try:
-            return await call_next(request)
+            await self.app(scope, receive, send)
         except asyncio.CancelledError:
             # Requirement 1.2, 3.8: Report client cancellation as termination
+            # Create Request object temporarily for termination reporting
+            request = Request(scope, receive)
             await self._report_client_termination_if_applicable(
                 request, ClientTerminationReason.CLIENT_CANCELLED
             )
@@ -70,20 +83,53 @@ class DomainExceptionMiddleware(BaseHTTPMiddleware):
                 if isinstance(e, RateLimitExceededError)
                 else None
             )
-            return JSONResponse(
-                content=content, status_code=status_code, headers=headers
-            )
+            await self._send_error_response(send, status_code, content, headers)
         except Exception as e:  # Fallback for unexpected errors
             self._logger.error("Unhandled exception: %s", e, exc_info=True)
-            return JSONResponse(
-                content={
+            await self._send_error_response(
+                send,
+                500,
+                {
                     "error": {
                         "message": "Internal Server Error",
                         "type": "InternalError",
                     }
                 },
-                status_code=500,
+                None,
             )
+
+    async def _send_error_response(
+        self,
+        send: Send,
+        status_code: int,
+        content: dict[str, Any],
+        headers: dict[str, str] | None,
+    ) -> None:
+        """Send error response via ASGI messages.
+
+        Args:
+            send: ASGI send channel
+            status_code: HTTP status code
+            content: Response content dictionary
+            headers: Optional headers dictionary
+        """
+        response_headers = [(b"content-type", b"application/json")]
+        if headers:
+            for header_name, header_value in headers.items():
+                response_headers.append(
+                    (header_name.encode("latin-1"), header_value.encode("latin-1"))
+                )
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status_code,
+                "headers": response_headers,
+            }
+        )
+
+        body = json.dumps(content).encode("utf-8")
+        await send({"type": "http.response.body", "body": body})
 
     async def _report_client_termination_if_applicable(
         self, request: Request, reason: ClientTerminationReason

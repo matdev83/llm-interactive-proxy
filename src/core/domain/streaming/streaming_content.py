@@ -59,7 +59,6 @@ class StreamingContent:
         self._synchronize_stream_id()
         self._synchronize_completion_state()
 
-
     def _synchronize_stream_id(self) -> None:
         """Ensure stream_id is reflected in both attribute and metadata."""
         meta_stream_id = self.metadata.get("stream_id")
@@ -99,7 +98,9 @@ class StreamingContent:
             )
 
         if not isinstance(cast(Any, self.metadata), dict):
-            raise ValueError(f"metadata must be dict, got {type(self.metadata).__name__}")
+            raise ValueError(
+                f"metadata must be dict, got {type(self.metadata).__name__}"
+            )
 
         if not isinstance(cast(Any, self.is_done), bool):
             raise ValueError(f"is_done must be bool, got {type(self.is_done).__name__}")
@@ -154,7 +155,6 @@ class StreamingContent:
 
         reasoning = self.metadata.get("reasoning")
         return not (isinstance(reasoning, str) and reasoning.strip())
-
 
     def _is_empty_completion_payload(self) -> bool:
         """Detect terminal payloads that do not carry any assistant content."""
@@ -356,14 +356,17 @@ class StreamingContent:
                         except (pydantic.ValidationError, TypeError, ValueError) as e1:
                             try:
                                 tool_calls.append(ToolCall(**tc))
-                            except (pydantic.ValidationError, TypeError, ValueError) as e2:
+                            except (
+                                pydantic.ValidationError,
+                                TypeError,
+                                ValueError,
+                            ) as e2:
                                 # If both fail, skip this tool call
                                 logger.warning(
                                     f"Failed to convert tool call dict to StreamingToolCall (Error: {e1}) "
                                     f"or ToolCall (Error: {e2}): {tc}",
                                     exc_info=True,
                                 )
-
 
         error: StreamingErrorInfo | None = None
         if "error" in metadata_dict:

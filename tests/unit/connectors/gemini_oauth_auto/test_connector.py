@@ -42,13 +42,13 @@ def connector(
 ) -> Generator[GeminiOAuthAutoConnector, None, None]:
     """Fixture providing GeminiOAuthAutoConnector with mocked dependencies."""
     # Patch services during init and initialization
-    with patch(
-        "src.connectors.gemini_oauth_auto.connector.TokenStorageService"
-    ), patch(
-        "src.connectors.gemini_oauth_auto.connector.TokenRefreshService"
-    ), patch(
-        "src.connectors.gemini_oauth_auto.connector.AccountSelectorService"
-    ) as mock_selector_cls:
+    with (
+        patch("src.connectors.gemini_oauth_auto.connector.TokenStorageService"),
+        patch("src.connectors.gemini_oauth_auto.connector.TokenRefreshService"),
+        patch(
+            "src.connectors.gemini_oauth_auto.connector.AccountSelectorService"
+        ) as mock_selector_cls,
+    ):
         # Configure mock selector to be returned by constructor
         mock_selector = mock_selector_cls.return_value
         mock_selector.reload_accounts = AsyncMock()
@@ -62,13 +62,13 @@ def connector(
             config=mock_config,
             translation_service=mock_translation_service,
         )
-        
+
         # Inject the mock manually too for pre-initialization state
         conn._account_selector = mock_selector
-        
+
         # Mock base class methods we don't want to run in unit tests
         conn._ensure_models_loaded = AsyncMock()
-        
+
         yield conn
 
 
@@ -82,9 +82,9 @@ class TestGeminiOAuthAutoConnector:
         """Test initialize() calls reload_accounts and get_next_account."""
         selector = cast(MagicMock, connector._account_selector)
         selector.get_next_account.return_value = MagicMock(spec=StoredAccount)
-        
+
         await connector.initialize()
-        
+
         selector.reload_accounts.assert_called_once()
         selector.get_next_account.assert_called_once()
         assert connector.is_functional is True
@@ -96,9 +96,9 @@ class TestGeminiOAuthAutoConnector:
         """Test initialize() with no accounts sets functional state to False."""
         selector = cast(MagicMock, connector._account_selector)
         selector.get_next_account.return_value = None
-        
+
         await connector.initialize()
-        
+
         assert connector.is_functional is False
 
     def test_oauth_credentials_property(
@@ -109,9 +109,9 @@ class TestGeminiOAuthAutoConnector:
         mock_account = MagicMock(spec=StoredAccount)
         mock_account.to_credentials_dict.return_value = {"access_token": "test_token"}
         selector.get_current_account.return_value = mock_account
-        
+
         creds = connector._oauth_credentials
-        
+
         assert creds == {"access_token": "test_token"}
         selector.get_current_account.assert_called_once()
 
@@ -121,7 +121,7 @@ class TestGeminiOAuthAutoConnector:
         """Test _oauth_credentials property returns None if no account selected."""
         selector = cast(MagicMock, connector._account_selector)
         selector.get_current_account.return_value = None
-        
+
         assert connector._oauth_credentials is None
 
     @pytest.mark.asyncio
@@ -134,9 +134,9 @@ class TestGeminiOAuthAutoConnector:
         mock_account.is_expired.return_value = True
         selector.get_current_account.return_value = mock_account
         selector.get_next_account.return_value = mock_account
-        
+
         result = await connector._refresh_token_if_needed()
-        
+
         assert result is True
         selector.get_next_account.assert_called_once()
 
@@ -147,9 +147,9 @@ class TestGeminiOAuthAutoConnector:
         selector = cast(MagicMock, connector._account_selector)
         connector.is_functional = True
         selector.get_available_count.return_value = 5
-        
+
         assert connector.is_backend_functional() is True
-        
+
         selector.get_available_count.return_value = 0
         assert connector.is_backend_functional() is False
 
@@ -158,13 +158,20 @@ class TestGeminiOAuthAutoConnector:
         # String 'all'
         assert GeminiOAuthAutoConnector._parse_accounts_allowlist("all") is None
         assert GeminiOAuthAutoConnector._parse_accounts_allowlist("ALL") is None
-        
+
         # Comma-separated string
-        assert GeminiOAuthAutoConnector._parse_accounts_allowlist("a, b, c") == {"a", "b", "c"}
-        
+        assert GeminiOAuthAutoConnector._parse_accounts_allowlist("a, b, c") == {
+            "a",
+            "b",
+            "c",
+        }
+
         # List
-        assert GeminiOAuthAutoConnector._parse_accounts_allowlist(["a", "b"]) == {"a", "b"}
-        
+        assert GeminiOAuthAutoConnector._parse_accounts_allowlist(["a", "b"]) == {
+            "a",
+            "b",
+        }
+
         # None or empty
         assert GeminiOAuthAutoConnector._parse_accounts_allowlist(None) is None
         assert GeminiOAuthAutoConnector._parse_accounts_allowlist("") is None
@@ -176,9 +183,11 @@ class TestGeminiOAuthAutoConnector:
     ) -> None:
         """Test initialize handles invalid config by falling back to defaults."""
         mock_backend_settings = MagicMock()
-        mock_backend_settings.get.return_value = MagicMock(extra={"refresh_buffer_seconds": "invalid"})
+        mock_backend_settings.get.return_value = MagicMock(
+            extra={"refresh_buffer_seconds": "invalid"}
+        )
         connector.config.backends = mock_backend_settings
-        
+
         # Should not raise exception
         await connector.initialize()
         assert connector._account_selector is not None
@@ -189,10 +198,14 @@ class TestGeminiOAuthAutoConnector:
     ) -> None:
         """Test initialize correctly sets debug override flag from various sources."""
         # 1. From kwargs
-        await connector.initialize(enable_gemini_oauth_auto_backend_debugging_override=True)
+        await connector.initialize(
+            enable_gemini_oauth_auto_backend_debugging_override=True
+        )
         assert connector._enable_gemini_oauth_auto_backend_debugging_override is True
-        
-        await connector.initialize(enable_gemini_oauth_auto_backend_debugging_override=False)
+
+        await connector.initialize(
+            enable_gemini_oauth_auto_backend_debugging_override=False
+        )
         assert connector._enable_gemini_oauth_auto_backend_debugging_override is False
 
     def test_sync_selected_account_to_base_no_coordinator(
@@ -202,7 +215,7 @@ class TestGeminiOAuthAutoConnector:
         # Ensure it doesn't exist
         if hasattr(connector, "_credential_coordinator"):
             delattr(connector, "_credential_coordinator")
-        
+
         # Should not raise
         connector._sync_selected_account_to_base()
 
@@ -215,20 +228,34 @@ class TestGeminiOAuthAutoConnector:
         mock_account.to_credentials_dict.side_effect = Exception("Sync failed")
         selector = cast(MagicMock, connector._account_selector)
         selector.get_current_account.return_value = mock_account
-        
+
         connector._sync_selected_account_to_base()
-        
+
         assert "Failed to sync" in caplog.text
 
     @pytest.mark.asyncio
     async def test_refresh_token_force_reload(
         self, connector: GeminiOAuthAutoConnector
     ) -> None:
-        """Test _refresh_token_if_needed(force_reload=True) calls reload_accounts."""
+        """Test _refresh_token_if_needed(force_reload=True) rotates accounts on rate limit."""
         selector = cast(MagicMock, connector._account_selector)
-        selector.reload_accounts = AsyncMock()
-        await connector._refresh_token_if_needed(force_reload=True)
-        selector.reload_accounts.assert_called_once()
+
+        # Mock two different accounts to simulate successful rotation
+        old_account = MagicMock()
+        old_account.account_id = "account1"
+        new_account = MagicMock()
+        new_account.account_id = "account2"
+        new_account.to_credentials_dict.return_value = {}
+
+        selector.get_current_account.return_value = old_account
+        selector.rotate_on_quota = AsyncMock(return_value=new_account)
+
+        result = await connector._refresh_token_if_needed(force_reload=True)
+
+        # Should call rotate_on_quota, not reload_accounts
+        selector.rotate_on_quota.assert_called_once()
+        # Should return True indicating successful rotation
+        assert result is True
 
     def test_get_validation_errors_branches(
         self, connector: GeminiOAuthAutoConnector
@@ -239,23 +266,22 @@ class TestGeminiOAuthAutoConnector:
         connector._auth_valid = False
         connector._last_health_change_reason = "Expired"
         selector.get_available_count.return_value = 1
-        
+
         errors = connector.get_validation_errors()
         assert any("Credentials invalid: Expired" in e for e in errors)
-        
+
         connector._auth_valid = True
         connector._endpoint_healthy = False
         connector._last_health_change_reason = "Timeout"
         errors = connector.get_validation_errors()
         assert any("API endpoint unhealthy: Timeout" in e for e in errors)
-        
+
         connector._endpoint_healthy = True
         selector.get_available_count.return_value = 0
         errors = connector.get_validation_errors()
         assert any("No valid OAuth accounts" in e for e in errors)
-        
+
         selector.get_available_count.return_value = 1
         connector.is_functional = False
         errors = connector.get_validation_errors()
         assert any("initialization failed" in e for e in errors)
-

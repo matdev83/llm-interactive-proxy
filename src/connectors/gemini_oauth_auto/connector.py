@@ -16,6 +16,8 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
+from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
 from src.connectors.gemini_base.models import GeminiOAuthCredentials, TierScore
 from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.gemini_oauth_auto.token_refresh import TokenRefreshService
@@ -58,7 +60,14 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         name: str = "gemini-oauth-auto",
     ) -> None:
         """Initialize Gemini OAuth Auto-Connector."""
-        super().__init__(client, config, translation_service, name)
+        super().__init__(
+            client,
+            config,
+            translation_service,
+            name,
+            # Use FallbackModelDiscovery to avoid hitting non-existent fetchAvailableModels API
+            model_discovery=FallbackModelDiscovery(models=DEFAULT_AVAILABLE_MODELS),
+        )
 
         # Initialize self-managed services
         self._token_storage = TokenStorageService()
@@ -232,9 +241,52 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
         For round-robin strategy, rotates accounts before each request.
         For other strategies, only rotates when account expires or is missing.
+
+        When force_reload=True (typically from rate limit retry), performs account
+        rotation to switch to a different account that may not be rate-limited.
         """
         if force_reload:
-            await self._account_selector.reload_accounts()
+            # force_reload=True is called by streaming executor on 429 rate limits
+            # Rotate to next account to avoid rate limit on current account
+            old_account = self._account_selector.get_current_account()
+            total_accounts = len(self._account_selector._accounts)
+
+            logger.info(
+                "Rate limit detected, attempting account rotation (current: %s, total accounts: %d)",
+                old_account.account_id if old_account else "none",
+                total_accounts,
+            )
+
+            new_account = await self._account_selector.rotate_on_quota()
+
+            if (
+                new_account
+                and old_account
+                and new_account.account_id != old_account.account_id
+            ):
+                logger.info(
+                    "Successfully rotated from account %s to %s",
+                    old_account.account_id,
+                    new_account.account_id,
+                )
+                self._sync_selected_account_to_base()
+                return True  # Rotation succeeded
+            else:
+                # No rotation happened (single account or all accounts exhausted)
+                if not new_account:
+                    logger.warning(
+                        "Account rotation failed: no account available after rotation"
+                    )
+                elif not old_account:
+                    logger.warning("Account rotation skipped: no current account")
+                else:
+                    logger.warning(
+                        "Account rotation returned same account (likely all %d accounts are rate-limited)",
+                        total_accounts,
+                    )
+                await self._account_selector.reload_accounts()
+                self._sync_selected_account_to_base()
+                return False
 
         account = self._account_selector.get_current_account()
 

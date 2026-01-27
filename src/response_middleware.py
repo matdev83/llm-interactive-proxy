@@ -10,29 +10,27 @@ Note: For request processing (e.g., API key redaction), see
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Awaitable, Callable
-
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
-
-logger = logging.getLogger(__name__)
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 
-class RetryAfterMiddleware(BaseHTTPMiddleware):
-    """Middleware for handling retry-after headers."""
+class RetryAfterMiddleware:
+    """Pure ASGI middleware passthrough that doesn't buffer streaming responses.
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        """Process the request before and after the call to the next middleware or route handler.
+    This middleware is a no-op passthrough. It exists for potential future
+    retry-after header handling but currently does nothing.
+
+    Avoids BaseHTTPMiddleware which buffers entire streaming responses.
+    """
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Pass through request without modification.
 
         Args:
-            request: The request object
-            call_next: The next middleware or route handler
-
-        Returns:
-            The response object
+            scope: ASGI scope
+            receive: ASGI receive channel
+            send: ASGI send channel
         """
-        response = await call_next(request)
-        return response
+        await self.app(scope, receive, send)

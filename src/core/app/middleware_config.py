@@ -30,7 +30,6 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
 
     # CORS middleware
     app.add_middleware(
-
         CORSMiddleware,
         allow_origins=["*"],  # Allows all origins
         allow_credentials=True,

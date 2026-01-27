@@ -11,7 +11,5 @@ class DefaultAngelServiceFactory(IAngelServiceFactory):
     AngelService will no-op.
     """
 
-    def create(
-        self, model_spec: str, max_history: int | None = None
-    ) -> AngelService:
+    def create(self, model_spec: str, max_history: int | None = None) -> AngelService:
         return AngelService(model_spec, max_history)

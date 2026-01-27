@@ -10,9 +10,8 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 if TYPE_CHECKING:
     from src.core.interfaces.usage_recording_interface import IUsageRecordingService
@@ -20,19 +19,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class UsageTrackingMiddleware(BaseHTTPMiddleware):
-    """Middleware for tracking usage metrics at request/response boundaries.
+class UsageTrackingMiddleware:
+    """Pure ASGI middleware for tracking usage metrics that doesn't buffer streaming responses.
 
     This middleware:
     - Records request timing at entry point
     - Captures user-agent and proxy user context
     - Records response timing and status codes
     - Stores timing information in request state for downstream use
+
+    Avoids BaseHTTPMiddleware which buffers entire streaming responses.
     """
 
     def __init__(
         self,
-        app,
+        app: ASGIApp,
         usage_recording_service: IUsageRecordingService,
     ):
         """Initialize the usage tracking middleware.
@@ -41,48 +42,59 @@ class UsageTrackingMiddleware(BaseHTTPMiddleware):
             app: The ASGI application
             usage_recording_service: Service for recording usage metrics
         """
-        super().__init__(app)
+        self.app = app
         self._usage_service = usage_recording_service
 
-    async def dispatch(
-        self, request: Request, call_next: RequestResponseEndpoint
-    ) -> Response:
-        """Process request and record usage metrics.
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Process request and record usage metrics without buffering streams.
 
         Args:
-            request: The incoming request
-            call_next: The next middleware or route handler
-
-        Returns:
-            The response from downstream handlers
+            scope: ASGI scope
+            receive: ASGI receive channel
+            send: ASGI send channel
         """
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
         # Record request start time
         request_start_time = time.time()
 
-        # Store timing in request state for downstream use
-        request.state.request_start_time = request_start_time
-
-        # Extract user context
+        # Create request to extract headers
+        request = Request(scope, receive)
         user_agent = request.headers.get("user-agent")
         proxy_user = request.headers.get("x-proxy-user")
 
-        # Store user context in request state for downstream use
-        request.state.user_agent = user_agent
-        request.state.proxy_user = proxy_user
+        # Store timing and context in scope state for downstream use
+        if "state" not in scope:
+            scope["state"] = {}
 
-        # Call next middleware/handler
-        response = await call_next(request)
+        scope["state"]["request_start_time"] = request_start_time
+        scope["state"]["user_agent"] = user_agent
+        scope["state"]["proxy_user"] = proxy_user
 
-        # Record response completion time
-        response_end_time = time.time()
-        total_duration_ms = (response_end_time - request_start_time) * 1000
+        # Track response timing
+        response_started = False
+        response_end_time: float | None = None
 
-        # Store response timing in request state
-        request.state.response_end_time = response_end_time
-        request.state.total_duration_ms = total_duration_ms
+        async def send_wrapper(message: Message) -> None:
+            nonlocal response_started, response_end_time
+
+            if message["type"] == "http.response.start":
+                response_started = True
+            elif message["type"] == "http.response.body" and not message.get(
+                "more_body", False
+            ):
+                # Final chunk - record completion time
+                response_end_time = time.time()
+                total_duration_ms = (response_end_time - request_start_time) * 1000
+                scope["state"]["response_end_time"] = response_end_time
+                scope["state"]["total_duration_ms"] = total_duration_ms
+
+            await send(message)
 
         # Note: Actual usage recording happens in the route handlers where we have
         # access to session_id, backend_type, model, etc. This middleware just
         # captures timing and context information.
 
-        return response
+        await self.app(scope, receive, send_wrapper)

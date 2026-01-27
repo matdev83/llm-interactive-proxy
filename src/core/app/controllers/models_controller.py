@@ -285,18 +285,14 @@ def _check_opencode_zen_credentials(
         if sys.platform == "win32" or os.name == "nt":
             localappdata = os.environ.get("LOCALAPPDATA")
             if localappdata:
-                paths_to_check.append(
-                    Path(localappdata) / "opencode" / "auth.json"
-                )
+                paths_to_check.append(Path(localappdata) / "opencode" / "auth.json")
             paths_to_check.append(
                 Path.home() / ".local" / "share" / "opencode" / "auth.json"
             )
         else:
             xdg_data_home = os.environ.get("XDG_DATA_HOME")
             if xdg_data_home:
-                paths_to_check.append(
-                    Path(xdg_data_home) / "opencode" / "auth.json"
-                )
+                paths_to_check.append(Path(xdg_data_home) / "opencode" / "auth.json")
             paths_to_check.append(
                 Path.home() / ".local" / "share" / "opencode" / "auth.json"
             )
@@ -305,7 +301,9 @@ def _check_opencode_zen_credentials(
             paths_to_check.insert(0, Path(env_path))
         if any(p.exists() for p in paths_to_check):
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Detected opencode-zen credentials on disk, enabling backend")
+                logger.debug(
+                    "Detected opencode-zen credentials on disk, enabling backend"
+                )
             return True
     except Exception as e:
         if logger.isEnabledFor(logging.DEBUG):
@@ -400,6 +398,7 @@ async def _list_models_impl(
             if backend_type == "opencode-zen" and not has_credentials:
                 # Convert IConfig to AppConfig for the check
                 from src.core.config.app_config import AppConfig
+
                 app_config_for_check: AppConfig = (
                     config if isinstance(config, AppConfig) else AppConfig()
                 )
@@ -460,38 +459,42 @@ async def _list_models_impl(
                     # Avoid duplicates
                     if model_id not in discovered_models:
                         discovered_models.add(model_id)
-                        
+
                         # Look up context window from capabilities
                         from src.core.domain.model_capabilities import (
                             KNOWN_MODEL_CAPABILITIES,
                         )
-                        
+
                         # Try to find capabilities by model_id or base model name
                         capabilities = KNOWN_MODEL_CAPABILITIES.get(model_id)
-                        base_model = model_id.split(":", 1)[-1] if ":" in model_id else model_id
-                        
+                        base_model = (
+                            model_id.split(":", 1)[-1] if ":" in model_id else model_id
+                        )
+
                         if not capabilities:
                             # Try stripping backend prefix
                             capabilities = KNOWN_MODEL_CAPABILITIES.get(base_model)
-                            
+
                         if not capabilities:
                             # Try with provider prefixes
                             for prefix in ["google/", "openai/", "anthropic/"]:
-                                capabilities = KNOWN_MODEL_CAPABILITIES.get(f"{prefix}{base_model}")
+                                capabilities = KNOWN_MODEL_CAPABILITIES.get(
+                                    f"{prefix}{base_model}"
+                                )
                                 if capabilities:
                                     break
-                                    
+
                         context_window = None
                         if capabilities and capabilities.limits:
                             context_window = capabilities.limits.context_window
-                        
+
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 "Model discovery: id=%s, base=%s, cap_found=%s, context=%s",
                                 model_id,
                                 base_model,
                                 capabilities is not None,
-                                context_window
+                                context_window,
                             )
 
                         all_models.append(
@@ -535,8 +538,15 @@ async def _list_models_impl(
             if logger.isEnabledFor(logging.INFO):
                 logger.info("No models discovered from backends, using default models")
             all_models = [
-                ModelInfo(id="gpt-4", object="model", owned_by="openai", context_window=8192),
-                ModelInfo(id="gpt-3.5-turbo", object="model", owned_by="openai", context_window=16385),
+                ModelInfo(
+                    id="gpt-4", object="model", owned_by="openai", context_window=8192
+                ),
+                ModelInfo(
+                    id="gpt-3.5-turbo",
+                    object="model",
+                    owned_by="openai",
+                    context_window=16385,
+                ),
                 ModelInfo(
                     id="claude-3-opus-20240229",
                     object="model",
@@ -549,8 +559,18 @@ async def _list_models_impl(
                     owned_by="anthropic",
                     context_window=200000,
                 ),
-                ModelInfo(id="gemini-1.5-pro", object="model", owned_by="google", context_window=1048576),
-                ModelInfo(id="gemini-1.5-flash", object="model", owned_by="google", context_window=1048576),
+                ModelInfo(
+                    id="gemini-1.5-pro",
+                    object="model",
+                    owned_by="google",
+                    context_window=1048576,
+                ),
+                ModelInfo(
+                    id="gemini-1.5-flash",
+                    object="model",
+                    owned_by="google",
+                    context_window=1048576,
+                ),
             ]
 
         if logger.isEnabledFor(logging.INFO):

@@ -284,7 +284,6 @@ class ChatMessage(DomainModel):
         # content is Sequence[MessageContentPart]
         return [part.model_dump() for part in content]
 
-
         return content
 
 
@@ -513,7 +512,6 @@ class StreamingFunctionCall(DomainModel):
 
     name: str | None = None
     arguments: str | None = None
-
 
 
 class StreamingToolCall(DomainModel):

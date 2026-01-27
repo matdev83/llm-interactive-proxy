@@ -266,7 +266,9 @@ async def test_streaming_angel_override_logic_removed(monkeypatch) -> None:
             return type(
                 "R",
                 (),
-                {"content": "<override_angel>True</override_angel> but I corrected it anyway"},
+                {
+                    "content": "<override_angel>True</override_angel> but I corrected it anyway"
+                },
             )()
 
     backend_service = DummyBackendService()

@@ -205,7 +205,9 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                 elif isinstance(message.content, list):
                     for part in message.content:
                         if hasattr(part, "type") and part.type == "image_url":
-                            processed_image = media_utils._process_gemini_image_part(part)
+                            processed_image = media_utils._process_gemini_image_part(
+                                part
+                            )
                             if processed_image:
                                 parts.append(processed_image)
                         elif hasattr(part, "type") and part.type == "text":

@@ -391,7 +391,6 @@ class StreamingResponseAccumulator:
             message_content["thought"] = accumulated_reasoning
 
         response_content: dict[str, Any] = {
-
             "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
             "object": "chat.completion",
             "created": int(time.time()),

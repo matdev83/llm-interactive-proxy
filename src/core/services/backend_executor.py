@@ -157,4 +157,3 @@ class BackendExecutor(IBackendExecutor):
             # Complete turn after response (or error) to update replacement state (Req 1.7)
             if self._replacement_service is not None:
                 self._replacement_service.complete_turn(session_id)
-

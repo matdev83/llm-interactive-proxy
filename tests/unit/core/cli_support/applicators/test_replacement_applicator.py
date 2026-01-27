@@ -166,18 +166,18 @@ class TestReplacementApplicator:
         rules = overrides["replacement"].get("replacement_rules")
         assert rules is not None
         assert len(rules) == 3
-        
+
         # Rules are stored as dicts for config merging
         # Check gemini rule
         assert rules[0]["from_pattern"] == "gemini-3-flash-preview"
         assert rules[0]["to_backend"] == "gemini-oauth-plan"
         assert rules[0]["to_model"] == "gemini-3-pro-preview"
-        
+
         # Check gpt-4 rule
         assert rules[1]["from_pattern"] == "gpt-4"
         assert rules[1]["to_backend"] == "openai"
         assert rules[1]["to_model"] == "gpt-3.5-turbo"
-        
+
         # Check claude rule (replaced wildcard with specific rule)
         assert rules[2]["from_pattern"] == "claude-3-opus"
         assert rules[2]["to_backend"] == "anthropic"

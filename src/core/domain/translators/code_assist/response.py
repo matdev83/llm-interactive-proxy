@@ -104,7 +104,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                     safe_text = _safe_string(part.get("text"))
                     if safe_text:
                         text_parts.append(safe_text)
-                    
+
                     # Check if metadata indicates this is also reasoning
                     metadata = part.get("metadata", {})
                     if isinstance(metadata, dict):
@@ -116,7 +116,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                                 or metadata.get("thinking")
                                 or metadata.get("reasoning")
                             )
-                            
+
                             # If not found in metadata fields, use the text content
                             if metadata_reasoning:
                                 reasoning_segments.append(metadata_reasoning)

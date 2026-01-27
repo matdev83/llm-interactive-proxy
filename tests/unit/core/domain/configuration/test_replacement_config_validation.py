@@ -33,7 +33,9 @@ class TestWildcardExclusivityValidation:
             ),
         ]
 
-        with pytest.raises(ValueError, match="Wildcard.*cannot be combined with other rules"):
+        with pytest.raises(
+            ValueError, match="Wildcard.*cannot be combined with other rules"
+        ):
             ReplacementConfig(
                 enabled=True,
                 probability=0.5,
@@ -79,7 +81,9 @@ class TestWildcardExclusivityValidation:
             ),
         ]
 
-        with pytest.raises(ValueError, match="Wildcard.*cannot be combined with other rules"):
+        with pytest.raises(
+            ValueError, match="Wildcard.*cannot be combined with other rules"
+        ):
             ReplacementConfig(
                 enabled=True,
                 probability=0.5,
@@ -172,7 +176,9 @@ class TestCombinedValidationScenarios:
         ]
 
         # Should fail on wildcard exclusivity, not target validation
-        with pytest.raises(ValueError, match="Wildcard.*cannot be combined with other rules"):
+        with pytest.raises(
+            ValueError, match="Wildcard.*cannot be combined with other rules"
+        ):
             ReplacementConfig(
                 enabled=True,
                 probability=0.5,

@@ -1,7 +1,6 @@
-
 from src.core.domain.chat import ChatMessage, ChatRequest, FunctionCall, ToolCall
 from src.core.domain.translation import Translation
-import pytest
+
 
 def test_debug_gemini_request():
     request = ChatRequest(
@@ -40,6 +39,7 @@ def test_debug_gemini_request():
         if content["role"] == "model":
             print(f"\nModel parts: {content['parts']}")
             break
+
 
 if __name__ == "__main__":
     test_debug_gemini_request()

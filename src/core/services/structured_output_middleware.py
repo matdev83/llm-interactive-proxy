@@ -132,13 +132,11 @@ class StructuredOutputFeature(IResponseFeature):
     ) -> Any:
         """Shared validation logic for both paths."""
         try:
-            result = (
-                self._json_repair_service.process_structured_response(
-                    content=content,
-                    schema=schema,
-                    session_id=session_id,
-                    strict=strict,
-                )
+            result = self._json_repair_service.process_structured_response(
+                content=content,
+                schema=schema,
+                session_id=session_id,
+                strict=strict,
             )
             processed_content: str = result.content
             parsed_object: dict[str, Any] | None = result.parsed_object
@@ -402,13 +400,11 @@ class StructuredOutputMiddleware(IResponseMiddleware):
 
         try:
             # Process the structured response
-            result = (
-                self._json_repair_service.process_structured_response(
-                    content=content,
-                    schema=schema,
-                    session_id=session_id,
-                    strict=strict_validation,
-                )
+            result = self._json_repair_service.process_structured_response(
+                content=content,
+                schema=schema,
+                session_id=session_id,
+                strict=strict_validation,
             )
             processed_content: str = result.content
             parsed_object: dict[str, Any] | None = result.parsed_object

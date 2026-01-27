@@ -106,7 +106,9 @@ class AngelService:
 
         with _health_lock:
             if self._model_spec in _model_health:
-                logger.debug("Resetting health state for Angel model %s", self._model_spec)
+                logger.debug(
+                    "Resetting health state for Angel model %s", self._model_spec
+                )
                 del _model_health[self._model_spec]
 
     def report_failure(self) -> None:
@@ -269,7 +271,9 @@ class AngelService:
             ),
         ]
 
-        return request.model_copy(update={"messages": augmented_messages, "stream": False})
+        return request.model_copy(
+            update={"messages": augmented_messages, "stream": False}
+        )
 
     def parse_angel_output(self, text: str) -> AngelDecision:
         """Parse Angel model output for decisions and steering messages.

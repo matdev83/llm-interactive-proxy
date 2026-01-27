@@ -57,7 +57,9 @@ async def test_multiple_rules_exact_match_wins() -> None:
             from_pattern="gpt-4", to_backend="openai", to_model="gpt-3.5-turbo"
         ),
         ReplacementRule(
-            from_pattern="gemini", to_backend="gemini-oauth-plan", to_model="gemini-3-pro"
+            from_pattern="gemini",
+            to_backend="gemini-oauth-plan",
+            to_model="gemini-3-pro",
         ),
     ]
 
@@ -112,7 +114,9 @@ async def test_multiple_rules_partial_match_precedence() -> None:
     context = create_test_context()
 
     # Test partial match: gpt-4-turbo should match rule 0 (contains "gpt-4")
-    service.should_replace(session_id, context, "openai", "gpt-4-turbo")  # First turn skip
+    service.should_replace(
+        session_id, context, "openai", "gpt-4-turbo"
+    )  # First turn skip
     assert service.should_replace(session_id, context, "openai", "gpt-4-turbo") is True
     await service.activate_replacement(session_id, "openai", "gpt-4-turbo")
     effective_backend, effective_model = service.get_effective_backend_model(
@@ -157,7 +161,9 @@ async def test_gemini_flash_to_pro_replacement() -> None:
 
     for i, (orig_backend, orig_model) in enumerate(test_cases):
         session_id = f"test-session-{i}"
-        service.should_replace(session_id, context, orig_backend, orig_model)  # First turn skip
+        service.should_replace(
+            session_id, context, orig_backend, orig_model
+        )  # First turn skip
         assert (
             service.should_replace(session_id, context, orig_backend, orig_model)
             is True
@@ -265,7 +271,9 @@ async def test_multiple_rules_from_yaml_config() -> None:
         mock_random = MagicMock(return_value=0.0)
         service._random_generator = mock_random
 
-        service.should_replace(session_id, context, orig_backend, orig_model)  # First turn skip
+        service.should_replace(
+            session_id, context, orig_backend, orig_model
+        )  # First turn skip
         assert (
             service.should_replace(session_id, context, orig_backend, orig_model)
             is True
@@ -288,12 +296,16 @@ async def test_multiple_rules_from_yaml_config() -> None:
 @pytest.mark.asyncio
 async def test_rule_ordering_matters() -> None:
     """Test that rule order matters - first match wins."""
-    registry = create_mock_registry_with_backends("openai", "anthropic", "gemini-oauth-plan")
+    registry = create_mock_registry_with_backends(
+        "openai", "anthropic", "gemini-oauth-plan"
+    )
 
     # Put more specific rule first, then less specific
     rules = [
         ReplacementRule(
-            from_pattern="openai:gpt-4", to_backend="anthropic", to_model="claude-3-5-sonnet"
+            from_pattern="openai:gpt-4",
+            to_backend="anthropic",
+            to_model="claude-3-5-sonnet",
         ),
         ReplacementRule(
             from_pattern="gpt-4", to_backend="openai", to_model="gpt-3.5-turbo"

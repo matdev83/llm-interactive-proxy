@@ -175,7 +175,9 @@ def from_domain_to_openai_response(response: ChatResponse) -> dict[str, Any]:
         if not isinstance(choice, dict):
             continue
         message_payload = choice.get("message")
-        if isinstance(message_payload, dict) and message_payload.get("reasoning_content"):
+        if isinstance(message_payload, dict) and message_payload.get(
+            "reasoning_content"
+        ):
             reasoning = message_payload["reasoning_content"]
             if "reasoning" not in message_payload:
                 message_payload["reasoning"] = reasoning

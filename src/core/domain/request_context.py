@@ -227,7 +227,6 @@ class RequestContext(InternalDTO):
                 values=dict(self.processing_context)  # type: ignore[arg-type]
             )
 
-
     def get_header(self, key: str, default: str | None = None) -> str | None:
         return self.headers.get(key, default)
 

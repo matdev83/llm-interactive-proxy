@@ -117,7 +117,6 @@ class CoreServicesStage(InitializationStage):
             IToolCallRepairService,
         )
 
-
         def itool_call_repair_factory(
             provider: IServiceProvider,
         ) -> ToolCallRepairService:
@@ -188,7 +187,6 @@ class CoreServicesStage(InitializationStage):
             cast(type, ISessionRepository), InMemorySessionRepository
         )
 
-
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Registered session repository services")
 
@@ -204,7 +202,6 @@ class CoreServicesStage(InitializationStage):
                 cast(type, ISessionRepository)
             )
             return SessionService(repo)
-
 
         # Register concrete implementation with factory
         services.add_singleton(
@@ -232,7 +229,6 @@ class CoreServicesStage(InitializationStage):
         from src.core.services.conversation_fingerprint_service import (
             ConversationFingerprintService,
         )
-
 
         # Register ConversationFingerprintService as singleton
         services.add_singleton(ConversationFingerprintService)
@@ -459,7 +455,6 @@ class CoreServicesStage(InitializationStage):
                 event_bus=event_bus, wire_capture=wire_capture
             )
 
-
         from src.core.services.wire_capture_eos_subscriber import (
             WireCaptureEosSubscriber,
         )
@@ -578,7 +573,6 @@ class CoreServicesStage(InitializationStage):
             return UsageTrackingEosSubscriber(
                 event_bus=event_bus, session_repository=session_repo
             )
-
 
         from src.core.services.usage_tracking_eos_subscriber import (
             UsageTrackingEosSubscriber,

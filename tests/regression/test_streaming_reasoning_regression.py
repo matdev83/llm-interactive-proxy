@@ -1,4 +1,3 @@
-
 """Regression tests for streaming reasoning content handling."""
 
 import json
@@ -30,40 +29,40 @@ class TestStreamingReasoningRegression:
         """
         Regression test: Ensure SSESerializer injects reasoning_content from metadata
         into the delta when serializing OpenAI-formatted dict chunks.
-        
-        Bug fixed: SSESerializer was ignoring metadata.reasoning_content for 
+
+        Bug fixed: SSESerializer was ignoring metadata.reasoning_content for
         'opaque_json_dict' payloads that looked like OpenAI chunks.
         """
         serializer = SSESerializer()
-        
+
         # Create an OpenAI-style dict chunk (as produced by Gemini translator)
         openai_dict = {
             "id": "test-id",
             "choices": [{"index": 0, "delta": {"content": "Hello"}}],
         }
-        
+
         content = StreamingContent(
             content=openai_dict,
             metadata={
                 "reasoning_content": "I am thinking...",
                 "model": "gemini-2.0",
-                "id": "test-id"
-            }
+                "id": "test-id",
+            },
         )
-        
+
         # Serialize to SSE bytes
         sse_bytes = serializer.serialize(content)
         sse_str = sse_bytes.decode("utf-8")
-        
+
         # Verify reasoning is present in the output JSON
         # Format is data: {...}\n\n
         lines = sse_str.strip().split("\n")
         data_line = next(line for line in lines if line.startswith("data: "))
         json_str = data_line[6:]
         data = json.loads(json_str)
-        
+
         delta = data["choices"][0]["delta"]
-        
+
         assert "reasoning_content" in delta
         assert delta["reasoning_content"] == "I am thinking..."
         # Verify alias is also present for compatibility
@@ -75,40 +74,38 @@ class TestStreamingReasoningRegression:
         """
         Regression test: Ensure ContentAccumulationProcessor extracts and accumulates
         reasoning content from OpenAI-style chunks.
-        
+
         Bug fixed: Processor was only looking for 'content' in delta, ignoring 'reasoning_content'.
         """
         registry = StreamingContextRegistry()
         processor = ContentAccumulationProcessor(registry=registry)
-        
+
         # Chunk 1: Content only
         chunk1 = StreamingContent(
-            content={
-                "choices": [{"index": 0, "delta": {"content": "Hello"}}]
-            },
-            metadata={"stream_id": "stream-1"}
+            content={"choices": [{"index": 0, "delta": {"content": "Hello"}}]},
+            metadata={"stream_id": "stream-1"},
         )
-        
+
         # Chunk 2: Reasoning only
         chunk2 = StreamingContent(
             content={
                 "choices": [{"index": 0, "delta": {"reasoning_content": "Thinking..."}}]
             },
-            metadata={"stream_id": "stream-1"}
+            metadata={"stream_id": "stream-1"},
         )
-        
+
         # Chunk 3: Done/Stop
         chunk3 = StreamingContent(
             content="",
             is_done=True,
-            metadata={"stream_id": "stream-1", "finish_reason": "stop"}
+            metadata={"stream_id": "stream-1", "finish_reason": "stop"},
         )
-        
+
         # Process chunks
         await processor.process(chunk1)
         await processor.process(chunk2)
         final_result = await processor.process(chunk3)
-        
+
         # Verify accumulated metadata in final result
         assert final_result.metadata.get("accumulated_content") == "Hello"
         assert final_result.metadata.get("accumulated_reasoning") == "Thinking..."
@@ -119,20 +116,14 @@ class TestStreamingReasoningRegression:
         alongside 'reasoning_content'.
         """
         delta = StreamingChatCompletionChoiceDelta(
-            role="assistant",
-            content="Answer",
-            reasoning_content="Thought"
+            role="assistant", content="Answer", reasoning_content="Thought"
         )
         choice = StreamingChatCompletionChoice(index=0, delta=delta)
-        chunk = CanonicalStreamChunk(
-            id="test-id",
-            choices=[choice],
-            model="gpt-4o"
-        )
-        
+        chunk = CanonicalStreamChunk(id="test-id", choices=[choice], model="gpt-4o")
+
         openai_chunk = from_domain_to_openai_stream_chunk(chunk)
         output_delta = openai_chunk["choices"][0]["delta"]
-        
+
         assert output_delta["reasoning_content"] == "Thought"
         assert output_delta["reasoning"] == "Thought"
 
@@ -142,18 +133,15 @@ class TestStreamingReasoningRegression:
         """
         # Case 1: Reasoning in delta
         delta = StreamingChatCompletionChoiceDelta(
-            role="assistant",
-            reasoning_content="Thinking process"
+            role="assistant", reasoning_content="Thinking process"
         )
         choice = StreamingChatCompletionChoice(index=0, delta=delta)
         chunk = CanonicalStreamChunk(
-            id="test-id",
-            choices=[choice],
-            model="claude-3-5-sonnet"
+            id="test-id", choices=[choice], model="claude-3-5-sonnet"
         )
-        
+
         anthropic_chunk = from_domain_to_anthropic_stream_chunk(chunk)
-        
+
         # Should produce a thinking_delta block
         assert anthropic_chunk["type"] == "content_block_delta"
         assert anthropic_chunk["delta"]["type"] == "thinking_delta"

@@ -163,10 +163,10 @@ class URIParameterApplicator(IURIParameterApplicator):
 
         try:
             validator = URIParameterValidator()
-            normalized_params, validation_errors = validator.validate_and_normalize(uri_params)
-            if validation_errors and logger.isEnabledFor(
-                logging.WARNING
-            ):
+            normalized_params, validation_errors = validator.validate_and_normalize(
+                uri_params
+            )
+            if validation_errors and logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "URI parameter validation errors for %s: %s. Invalid parameters excluded.",
                     backend_type,

@@ -48,7 +48,7 @@ def create_valid_account(
     hours_until_expiry: float = 1.0,
 ) -> StoredAccount:
     """Helper to create a valid account with configurable expiry.
-    
+
     Uses a fixed base time to avoid direct time.time() calls flagged by linter.
     Base time matches @freeze_time("2026-01-19") used in tests.
     """
@@ -64,10 +64,8 @@ def create_valid_account(
     )
 
 
-
 @freeze_time("2026-01-19")
 class TestAccountSelectorService:
-
     """Tests for AccountSelectorService."""
 
     @pytest.mark.asyncio
@@ -118,28 +116,31 @@ class TestAccountSelectorService:
             TokenRefreshError as SelectorTokenRefreshError,
         )
         from src.connectors.gemini_oauth_auto.errors import TokenRefreshError
+
         print(f"DEBUG: Test TokenRefreshError id: {id(TokenRefreshError)}")
         print(f"DEBUG: Selector TokenRefreshError id: {id(SelectorTokenRefreshError)}")
-        
+
         accounts = [
             create_valid_account("account-1", hours_until_expiry=0),  # Expired
             create_valid_account("account-2"),
         ]
         mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-        
+
         # Mock first refresh to fail with needs_reauth
         mock_refresh_service.refresh_if_needed.side_effect = [
-            TokenRefreshError("Invalid grant", needs_reauth=True, account_id="account-1"),
-            accounts[1] # Second one succeeds
+            TokenRefreshError(
+                "Invalid grant", needs_reauth=True, account_id="account-1"
+            ),
+            accounts[1],  # Second one succeeds
         ]
-        
+
         result = await selector.get_next_account()
-        
+
         assert result is not None
         assert result.account_id == "account-2"
         # Verify account-1 was updated in list (needs_reauth=True)
         # We can't check internal list directly easily, but we can verify it was skipped
-        
+
     @pytest.mark.asyncio
     async def test_get_next_account_refresh_failure_other(
         self,
@@ -149,14 +150,16 @@ class TestAccountSelectorService:
     ) -> None:
         """Test get_next_account handles other refresh failures by using account anyway."""
         from src.connectors.gemini_oauth_auto.errors import TokenRefreshError
-        
+
         account = create_valid_account("account-1", hours_until_expiry=0)
         mock_storage.load_all_accounts = AsyncMock(return_value=[account])
-        
-        mock_refresh_service.refresh_if_needed.side_effect = TokenRefreshError("Transient error")
-        
+
+        mock_refresh_service.refresh_if_needed.side_effect = TokenRefreshError(
+            "Transient error"
+        )
+
         result = await selector.get_next_account()
-        
+
         assert result is not None
         assert result.account_id == "account-1"
 
@@ -168,9 +171,9 @@ class TestAccountSelectorService:
     ) -> None:
         """Test reload_accounts resets state and loads from storage."""
         mock_storage.load_all_accounts.return_value = [create_valid_account("acc")]
-        
+
         await selector.reload_accounts()
-        
+
         assert selector.get_available_count() == 1
         mock_storage.load_all_accounts.assert_called()
 
@@ -208,16 +211,16 @@ class TestAccountSelectorService:
             create_valid_account("acc-2"),
         ]
         mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-        
+
         selector = AccountSelectorService(
             storage=mock_storage,
             refresh_service=mock_refresh_service,
-            selection_strategy="random"
+            selection_strategy="random",
         )
-        
+
         first = await selector.get_next_account()
         assert first is not None
-        
+
         second = await selector.get_next_account()
         assert second is not None
         assert second.account_id != first.account_id
@@ -233,17 +236,17 @@ class TestAccountSelectorService:
             create_valid_account("acc-2"),
         ]
         mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-        
+
         selector = AccountSelectorService(
             storage=mock_storage,
             refresh_service=mock_refresh_service,
-            selection_strategy="first-available"
+            selection_strategy="first-available",
         )
-        
+
         first = await selector.get_next_account()
         assert first is not None
         assert first.account_id == "acc-1"
-        
+
         second = await selector.get_next_account()
         assert second is not None
         assert second.account_id == "acc-1"
@@ -256,19 +259,19 @@ class TestAccountSelectorService:
     ) -> None:
         account = create_valid_account("acc-1")
         mock_storage.load_all_accounts = AsyncMock(return_value=[account])
-        
+
         await selector.get_next_account()
         current = selector.get_current_account()
         assert current is not None
         assert current.last_used is None
-        
+
         await selector.mark_current_account_used()
-        
+
         updated = selector.get_current_account()
         assert updated is not None
         assert updated.last_used is not None
         mock_storage.save_account.assert_called()
-        
+
         assert selector._accounts[0].last_used is not None
 
     @pytest.mark.asyncio
@@ -279,9 +282,9 @@ class TestAccountSelectorService:
     ) -> None:
         """Test get_next_account returns None when no accounts available."""
         mock_storage.load_all_accounts = AsyncMock(return_value=[])
-        
+
         result = await selector.get_next_account()
-        
+
         assert result is None
 
     @pytest.mark.asyncio
@@ -295,9 +298,9 @@ class TestAccountSelectorService:
             create_valid_account("account-1", needs_reauth=True),
         ]
         mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-        
+
         result = await selector.get_next_account()
-        
+
         assert result is None
 
     @pytest.mark.asyncio
@@ -321,12 +324,12 @@ class TestAccountSelectorService:
             create_valid_account("account-1"),
         ]
         mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
-        
-        await selector.get_next_account() # Sets current
-        
+
+        await selector.get_next_account()  # Sets current
+
         with caplog.at_level(logging.WARNING):
             result = await selector.rotate_on_quota()
-            
+
         assert result is None
         assert "Cannot rotate: only 1 account(s) available" in caplog.text
 
@@ -337,4 +340,3 @@ class TestAccountSelectorService:
     ) -> None:
         """Test _select_account_from_available returns None for empty list."""
         assert selector._select_account_from_available([]) is None
-

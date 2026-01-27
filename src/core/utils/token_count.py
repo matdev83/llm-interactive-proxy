@@ -119,5 +119,5 @@ def extract_prompt_text(messages: list[Any]) -> str:
             logger.debug("extract_prompt_text falling back to str(messages)")
         except Exception:
             pass
-            
+
     return result

@@ -36,7 +36,6 @@ def _normalize_api_key_value(value: str | Sequence[str]) -> list[str]:
     return [item for item in value if item and item.strip()]
 
 
-
 class BackendApplicator:
     """Applies backend-related CLI arguments to configuration.
 

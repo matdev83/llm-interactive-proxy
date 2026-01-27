@@ -143,9 +143,9 @@ def _sanitize_list_for_json(
         sanitized: list[Any] = []
         for item in data:
             if item is None or isinstance(item, str | int | float | bool):
-                 sanitized.append(item)
-                 continue
-                 
+                sanitized.append(item)
+                continue
+
             if isinstance(item, dict):
                 sanitized.append(
                     _sanitize_dict_for_json(
@@ -156,7 +156,7 @@ def _sanitize_list_for_json(
                     )
                 )
                 continue
-                
+
             if isinstance(item, list | tuple):
                 sanitized.append(
                     _sanitize_list_for_json(
@@ -167,7 +167,7 @@ def _sanitize_list_for_json(
                     )
                 )
                 continue
-                
+
             # Try basic serialization check as fallback
             if _is_json_serializable(
                 item,

@@ -195,4 +195,3 @@ class IAccountSelector(ABC):
             account: The updated account model.
         """
         ...
-

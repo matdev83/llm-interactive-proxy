@@ -352,7 +352,7 @@ class ChatRequestPreparer:
             tools_val = code_assist_request["tools"]
             if not tools_val:  # Handles None, [], {}
                 del code_assist_request["tools"]
-        
+
         if "toolConfig" in code_assist_request:
             tool_config_val = code_assist_request["toolConfig"]
             if not tool_config_val:  # Handles None, [], {}

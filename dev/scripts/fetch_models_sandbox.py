@@ -20,11 +20,11 @@ async def main():
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
-        "User-Agent": "antigravity/1.11.5 windows/amd64"
+        "User-Agent": "antigravity/1.11.5 windows/amd64",
     }
 
     base_url = "https://daily-cloudcode-pa.sandbox.googleapis.com"
-    
+
     async with httpx.AsyncClient() as client:
         print("\nCalling fetchAvailableModels on Sandbox...")
         models_url = f"{base_url}/v1internal:fetchAvailableModels"
@@ -38,6 +38,7 @@ async def main():
                 print(f"- {name}")
         else:
             print(f"Response: {resp.text}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

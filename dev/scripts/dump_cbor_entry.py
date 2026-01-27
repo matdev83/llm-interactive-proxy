@@ -18,14 +18,14 @@ def dump_cbor(path, entry_index):
                 entries.append(entry)
             except (EOFError, cbor2.CBORDecodeEOF):
                 break
-    
+
     if entry_index >= len(entries):
         print(f"Entry {entry_index} not found. Total entries: {len(entries)}")
         return
 
     entry = entries[entry_index]
     print(f"Entry {entry_index} Direction: {entry.get('dir')}")
-    
+
     try:
         content_bytes = entry.get("data")
         if isinstance(content_bytes, bytes):
@@ -43,6 +43,7 @@ def dump_cbor(path, entry_index):
             print(json.dumps(content_bytes, indent=2))
     except Exception as e:
         print(f"Error dumping content: {e}")
+
 
 if __name__ == "__main__":
     dump_cbor(sys.argv[1], int(sys.argv[2]))

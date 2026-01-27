@@ -25,4 +25,3 @@ for p in paths:
                 print("No auth status found in DB.")
         except Exception as e:
             print(f"Error reading from DB: {e}")
-

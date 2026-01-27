@@ -2,25 +2,41 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import json
 
-from fastapi import Request, status
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 
-class LoopPreventionMiddleware(BaseHTTPMiddleware):
-    """Reject requests that originate from backend connectors."""
+class LoopPreventionMiddleware:
+    """Pure ASGI middleware that rejects loop requests without buffering streams."""
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next: Callable[[Request], Awaitable[Response]],
-    ) -> Response:
-        if request.headers.get(LOOP_GUARD_HEADER):
-            return JSONResponse(
-                status_code=status.HTTP_508_LOOP_DETECTED,
-                content={"detail": "Request loop detected"},
-            )
-        return await call_next(request)
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Check for loop guard header
+        for header_name_bytes, _header_value_bytes in scope.get("headers", []):
+            if header_name_bytes.decode("latin-1").lower() == LOOP_GUARD_HEADER.lower():
+                # Loop detected - send 508 error response
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 508,
+                        "headers": [(b"content-type", b"application/json")],
+                    }
+                )
+                body = json.dumps({"detail": "Request loop detected"}).encode("utf-8")
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": body,
+                    }
+                )
+                return
+
+        await self.app(scope, receive, send)

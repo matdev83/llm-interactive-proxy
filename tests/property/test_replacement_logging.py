@@ -322,7 +322,9 @@ def test_property_23_routing_logging(
 
         # Second turn should trigger replacement
         should_replace = service.should_replace(session_id, context)
-        assert should_replace, "Replacement should activate with probability=1.0 on second turn"
+        assert (
+            should_replace
+        ), "Replacement should activate with probability=1.0 on second turn"
 
         # Activate the replacement
         import asyncio

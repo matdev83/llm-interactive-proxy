@@ -612,7 +612,9 @@ class TestConfigurationErrorBehavior:
         assert len(errors) > 0
         # Verify that error messages are present and meaningful
         error_messages = [str(e) for e in errors]
-        assert any("bool" in msg.lower() or "boolean" in msg.lower() for msg in error_messages)
+        assert any(
+            "bool" in msg.lower() or "boolean" in msg.lower() for msg in error_messages
+        )
 
     def test_missing_required_configuration(self):
         """

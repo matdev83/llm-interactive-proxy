@@ -59,7 +59,7 @@ class AuxiliaryRoutingApplicator:
                 backend, model = model_val.split(":", 1)
                 aux_routing_overrides["backend"] = backend
                 aux_routing_overrides["model"] = model
-                
+
                 resolution.record(
                     "auxiliary_routing.backend",
                     backend,

@@ -26,7 +26,9 @@ def service() -> HistoryCompactionService:
 
 @pytest.fixture
 def config() -> CompactionConfig:
-    return CompactionConfig(enabled=True, min_tool_output_tokens_to_compact=0)  # Explicitly enable for tests
+    return CompactionConfig(
+        enabled=True, min_tool_output_tokens_to_compact=0
+    )  # Explicitly enable for tests
 
 
 def _make_assistant_with_tool_call(
@@ -314,7 +316,9 @@ class TestTokenBudgetGovernance:
         self, service: HistoryCompactionService
     ) -> None:
         """Below token threshold, compaction is skipped (Req 3.5)."""
-        config = CompactionConfig(enabled=True, token_threshold=100_000, min_tool_output_tokens_to_compact=0)
+        config = CompactionConfig(
+            enabled=True, token_threshold=100_000, min_tool_output_tokens_to_compact=0
+        )
         messages = [
             _make_assistant_with_tool_call("c1", "view_file", '{"path": "/a.py"}'),
             _make_tool_result("c1", "Content", "view_file"),
@@ -334,7 +338,9 @@ class TestTokenBudgetGovernance:
         self, service: HistoryCompactionService
     ) -> None:
         """Above token threshold, compaction is triggered (Req 3.1)."""
-        config = CompactionConfig(enabled=True, token_threshold=100_000, min_tool_output_tokens_to_compact=0)
+        config = CompactionConfig(
+            enabled=True, token_threshold=100_000, min_tool_output_tokens_to_compact=0
+        )
         messages = [
             _make_assistant_with_tool_call("c1", "view_file", '{"path": "/a.py"}'),
             _make_tool_result("c1", "x" * 1000, "view_file"),
@@ -394,6 +400,47 @@ class TestPolicyEnforcement:
         result = await service.compact_history(messages, config)
 
         # view_file is allowed - compaction occurs
+        assert result.compacted_count == 1
+
+
+class TestMinimumToolOutputSizeThreshold:
+    """Tests for per-message minimum tool output size threshold."""
+
+    @pytest.mark.asyncio
+    async def test_small_stale_tool_output_not_compacted_by_default(
+        self, service: HistoryCompactionService
+    ) -> None:
+        config = CompactionConfig(enabled=True)
+        config.allowed_tool_categories = ["view_file"]
+        # Leave min_tool_output_tokens_to_compact at default (250)
+
+        messages = [
+            _make_assistant_with_tool_call("c1", "view_file", '{"path": "/a.py"}'),
+            _make_tool_result("c1", "tiny", "view_file"),
+            _make_assistant_with_tool_call("c2", "view_file", '{"path": "/a.py"}'),
+            _make_tool_result("c2", "new", "view_file"),
+        ]
+
+        result = await service.compact_history(messages, config)
+        assert result.compacted_count == 0
+
+    @pytest.mark.asyncio
+    async def test_large_stale_tool_output_compacted_when_over_minimum(
+        self, service: HistoryCompactionService
+    ) -> None:
+        config = CompactionConfig(enabled=True)
+        config.allowed_tool_categories = ["view_file"]
+        # Default minimum is 250 tokens ~ 1000 chars.
+        big = "x" * 2000
+
+        messages = [
+            _make_assistant_with_tool_call("c1", "view_file", '{"path": "/a.py"}'),
+            _make_tool_result("c1", big, "view_file"),
+            _make_assistant_with_tool_call("c2", "view_file", '{"path": "/a.py"}'),
+            _make_tool_result("c2", "new", "view_file"),
+        ]
+
+        result = await service.compact_history(messages, config)
         assert result.compacted_count == 1
 
 

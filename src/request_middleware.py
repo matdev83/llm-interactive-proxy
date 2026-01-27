@@ -12,38 +12,48 @@ before they are sent to any backend without coupling the redaction logic to indi
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
 
-from fastapi import Request, Response
-from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
 
-class CustomHeaderMiddleware(BaseHTTPMiddleware):
-    """Middleware for handling custom headers."""
+class CustomHeaderMiddleware:
+    """Pure ASGI middleware for handling custom headers without buffering streaming responses.
 
-    async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
-    ) -> Response:
-        """Process the request before and after the call to the next middleware or route handler.
+    Extracts x-session-id header and stores it in scope state for downstream handlers.
+    Avoids BaseHTTPMiddleware which buffers entire streaming responses.
+    """
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        """Process request and extract custom headers without buffering streams.
 
         Args:
-            request: The request object
-            call_next: The next middleware or route handler
-
-        Returns:
-            The response object
+            scope: ASGI scope
+            receive: ASGI receive channel
+            send: ASGI send channel
         """
-        # Get the session ID from the request headers
-        session_id = request.headers.get("x-session-id")
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        # Extract x-session-id from headers
+        session_id = None
+        for header_name_bytes, header_value_bytes in scope.get("headers", []):
+            if header_name_bytes.decode("latin-1").lower() == "x-session-id":
+                session_id = header_value_bytes.decode("latin-1")
+                break
+
         if session_id:
-            # Store the session ID in the request state
-            request.state.session_id = session_id
+            # Store in scope state for downstream handlers
+            if "state" not in scope:
+                scope["state"] = {}
+            scope["state"]["session_id"] = session_id
+
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Session ID from headers: %s", session_id)
 
-        # Call the next middleware or route handler
-        response = await call_next(request)
-
-        return response
+        await self.app(scope, receive, send)

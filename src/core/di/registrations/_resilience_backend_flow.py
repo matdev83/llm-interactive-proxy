@@ -244,9 +244,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                         domain_config.model,
                     )
             except Exception as e:
-                logger.warning(
-                    "Failed to initialize auxiliary request router: %s", e
-                )
+                logger.warning("Failed to initialize auxiliary request router: %s", e)
 
             return BackendRequestPreparer(
                 backend_model_resolver=backend_model_resolver,

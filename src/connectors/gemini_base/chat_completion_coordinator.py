@@ -171,10 +171,9 @@ class GeminiChatCompletionCoordinator(IChatCompletionCoordinator):
                     key_name=self._key_name,
                 )
 
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Successfully received and processed response from Code Assist API"
-                )
+            # Note: Response envelope may contain error chunks (504, 429, etc.)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Received response envelope from Code Assist API")
 
             return response
 

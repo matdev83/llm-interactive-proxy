@@ -315,11 +315,11 @@ class SSESerializer:
         """Inject reasoning content and aliases into delta if present."""
         if not reasoning:
             return
-        
+
         # Standard field (DeepSeek, etc.)
         if "reasoning_content" not in delta:
             delta["reasoning_content"] = reasoning
-            
+
         # Common aliases for compatibility with various clients
         if "reasoning" not in delta:
             delta["reasoning"] = reasoning

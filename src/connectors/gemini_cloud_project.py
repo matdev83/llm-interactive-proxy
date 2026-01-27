@@ -432,7 +432,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         self._initialization_failed = True
         self.is_functional = False
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(f"Gemini Cloud Project initialization failed: {'; '.join(errors)}")
+            logger.debug(
+                f"Gemini Cloud Project initialization failed: {'; '.join(errors)}"
+            )
 
     def _degrade(self, errors: list[str]) -> None:
         """Degrade backend functionality due to credential issues."""

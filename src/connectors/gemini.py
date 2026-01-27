@@ -514,7 +514,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 with contextlib.suppress(BaseException):
                     await response.aclose()
 
-
         try:
             response_headers = dict(response.headers)
         except (TypeError, AttributeError) as e:
@@ -1471,7 +1470,6 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
         finally:
             with contextlib.suppress(BaseException):
                 await response.aclose()
-
 
     def _get_base_url(self) -> str:
         """Get the base URL for Gemini API requests.

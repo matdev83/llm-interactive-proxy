@@ -327,7 +327,6 @@ class TestConfigurationApplicatorCommandPrefixValidation:
         assert result.command_prefix == "!/"
 
 
-
 class TestConfigurationApplicatorDefaultApplicators:
     """Tests for default applicator list."""
 
@@ -360,7 +359,6 @@ class TestConfigurationApplicatorDefaultApplicators:
             "CompactionApplicator",
             "SandboxingApplicator",
         ]
-
 
         for expected in expected_applicators:
             assert expected in applicator_names, f"Missing applicator: {expected}"

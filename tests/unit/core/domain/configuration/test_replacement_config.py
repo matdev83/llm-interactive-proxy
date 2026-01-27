@@ -21,7 +21,9 @@ class TestReplacementConfigValidation:
 
     def test_enabled_requires_rules(self) -> None:
         """Enabled replacement config must have at least one rule."""
-        with pytest.raises(ValueError, match="replacement_rules must be provided when enabled"):
+        with pytest.raises(
+            ValueError, match="replacement_rules must be provided when enabled"
+        ):
             ReplacementConfig(
                 enabled=True,
                 probability=0.3,
@@ -31,9 +33,7 @@ class TestReplacementConfigValidation:
 
     def test_probability_must_be_in_range(self) -> None:
         """Probability must be between 0.0 and 1.0."""
-        rule = ReplacementRule(
-            from_pattern="*", to_backend="openai", to_model="gpt-4"
-        )
+        rule = ReplacementRule(from_pattern="*", to_backend="openai", to_model="gpt-4")
 
         # Too low
         with pytest.raises(ValueError, match="replacement_probability must be between"):
@@ -72,11 +72,11 @@ class TestReplacementConfigValidation:
 
     def test_turn_count_must_be_positive(self) -> None:
         """Turn count must be at least 1."""
-        rule = ReplacementRule(
-            from_pattern="*", to_backend="openai", to_model="gpt-4"
-        )
+        rule = ReplacementRule(from_pattern="*", to_backend="openai", to_model="gpt-4")
 
-        with pytest.raises(ValueError, match="replacement_turn_count must be at least 1"):
+        with pytest.raises(
+            ValueError, match="replacement_turn_count must be at least 1"
+        ):
             ReplacementConfig(
                 enabled=True,
                 probability=0.3,
@@ -84,7 +84,9 @@ class TestReplacementConfigValidation:
                 turn_count=0,
             )
 
-        with pytest.raises(ValueError, match="replacement_turn_count must be at least 1"):
+        with pytest.raises(
+            ValueError, match="replacement_turn_count must be at least 1"
+        ):
             ReplacementConfig(
                 enabled=True,
                 probability=0.3,
@@ -98,7 +100,9 @@ class TestReplacementConfigValidation:
         rule_empty_backend = ReplacementRule(
             from_pattern="*", to_backend="", to_model="gpt-4"
         )
-        with pytest.raises(ValueError, match="to_backend and to_model must be provided"):
+        with pytest.raises(
+            ValueError, match="to_backend and to_model must be provided"
+        ):
             ReplacementConfig(
                 enabled=True,
                 probability=0.3,
@@ -110,7 +114,9 @@ class TestReplacementConfigValidation:
         rule_empty_model = ReplacementRule(
             from_pattern="*", to_backend="openai", to_model=""
         )
-        with pytest.raises(ValueError, match="to_backend and to_model must be provided"):
+        with pytest.raises(
+            ValueError, match="to_backend and to_model must be provided"
+        ):
             ReplacementConfig(
                 enabled=True,
                 probability=0.3,
@@ -245,7 +251,9 @@ class TestReplacementConfigFindMatchingRule:
             turn_count=1,
         )
 
-        matched = config.find_matching_rule("gemini-oauth-free", "gemini-3-flash-preview")
+        matched = config.find_matching_rule(
+            "gemini-oauth-free", "gemini-3-flash-preview"
+        )
         assert matched is None
 
     def test_gemini_flash_to_pro_example(self) -> None:
@@ -263,7 +271,9 @@ class TestReplacementConfigFindMatchingRule:
         )
 
         # Should match regardless of backend
-        matched = config.find_matching_rule("some-backend-name", "gemini-3-flash-preview")
+        matched = config.find_matching_rule(
+            "some-backend-name", "gemini-3-flash-preview"
+        )
         assert matched is not None
         assert matched.to_backend == "gemini-oauth-plan"
         assert matched.to_model == "gemini-3-pro-preview"

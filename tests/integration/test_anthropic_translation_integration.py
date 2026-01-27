@@ -90,7 +90,6 @@ class _ProxyServer:
             time.sleep(0.25)
         raise RuntimeError("Proxy server failed to start within timeout")
 
-
     def stop(self) -> None:
         if self.server:
             self.server.should_exit = True  # type: ignore[attr-defined]

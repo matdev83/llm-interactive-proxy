@@ -138,7 +138,6 @@ class TestAttemptFailoverPlan:
         assert request_arg is not None
         assert request_arg.extra_body["backend_type"] == "anthropic"
 
-
     @pytest.mark.asyncio
     async def test_attempt_failover_tries_all_backends(self, failover_executor):
         """Test that failover tries all backends before failing."""
@@ -240,7 +239,6 @@ class TestApplyFailureStrategy:
         assert decision == FailureDecision.SURFACE_ERROR
         assert wait is None
 
-
     @pytest.mark.asyncio
     async def test_strategy_delegates_to_failure_handler(self, mock_dependencies):
         """Test that failure strategy delegates to handler."""
@@ -275,4 +273,3 @@ class TestApplyFailureStrategy:
         assert decision == FailureDecision.WAIT_AND_RETRY
         assert wait == 1.0
         assert strategy.decide.called
-

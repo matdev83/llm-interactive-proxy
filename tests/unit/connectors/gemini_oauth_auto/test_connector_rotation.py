@@ -19,20 +19,27 @@ def mock_config():
     config.backends = MagicMock()
     return config
 
+
 @pytest.fixture
 def mock_client():
     return MagicMock()
+
 
 @pytest.fixture
 def mock_translation_service():
     return MagicMock()
 
+
 @pytest.fixture
 def connector(mock_client, mock_config, mock_translation_service):
-    with patch("src.connectors.gemini_oauth_auto.connector.TokenStorageService"), \
-         patch("src.connectors.gemini_oauth_auto.connector.TokenRefreshService"), \
-         patch("src.connectors.gemini_oauth_auto.connector.AccountSelectorService") as mock_selector_cls:
-        
+    with (
+        patch("src.connectors.gemini_oauth_auto.connector.TokenStorageService"),
+        patch("src.connectors.gemini_oauth_auto.connector.TokenRefreshService"),
+        patch(
+            "src.connectors.gemini_oauth_auto.connector.AccountSelectorService"
+        ) as mock_selector_cls,
+    ):
+
         mock_selector = mock_selector_cls.return_value
         mock_selector.rotate_on_quota = AsyncMock()
         mock_selector.mark_current_account_used = AsyncMock()
@@ -40,7 +47,7 @@ def connector(mock_client, mock_config, mock_translation_service):
         mock_selector.reload_accounts = AsyncMock()
         mock_selector.get_current_account = MagicMock()
         mock_selector.get_available_count = MagicMock(return_value=1)
-        
+
         conn = GeminiOAuthAutoConnector(
             client=mock_client,
             config=mock_config,
@@ -49,14 +56,15 @@ def connector(mock_client, mock_config, mock_translation_service):
         conn._account_selector = mock_selector
         conn._enable_gemini_oauth_auto_backend_debugging_override = True
         conn.is_functional = True
-        
+
         # Mock coordinator to avoid real execution and control results
         mock_coordinator = AsyncMock()
         conn._chat_completion_coordinator = mock_coordinator
-        
+
         conn._mark_backend_unusable = MagicMock(wraps=conn._mark_backend_unusable)
-        
+
         yield conn
+
 
 @pytest.mark.asyncio
 async def test_chat_completions_triggers_rotation_on_backend_error(connector):
@@ -64,14 +72,13 @@ async def test_chat_completions_triggers_rotation_on_backend_error(connector):
     # Setup
     error = BackendError(message="Quota exceeded", code="quota_exceeded")
     connector._chat_completion_coordinator.execute.side_effect = error
-    
+
     # Create a real request object instead of MagicMock to avoid attribute errors in base class
     from src.connectors.contracts import ConnectorChatCompletionsRequest
     from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-    
+
     inner_request = CanonicalChatRequest(
-        model="gemini-pro", 
-        messages=[ChatMessage(role="user", content="hello")]
+        model="gemini-pro", messages=[ChatMessage(role="user", content="hello")]
     )
     request = ConnectorChatCompletionsRequest(
         request=inner_request,
@@ -81,7 +88,7 @@ async def test_chat_completions_triggers_rotation_on_backend_error(connector):
         cancellation_token=None,
         cancellation_coordinator=None,
         context=None,
-        options={}
+        options={},
     )
 
     # Execute
@@ -94,37 +101,37 @@ async def test_chat_completions_triggers_rotation_on_backend_error(connector):
     await asyncio.sleep(0.01)
     connector._account_selector.rotate_on_quota.assert_called_once()
 
+
 @pytest.mark.asyncio
 async def test_streaming_triggers_rotation_on_error_chunk(connector):
     """Test that streaming response wrapper triggers rotation on quota error chunk."""
+
     # Setup streaming response
     async def stream_content():
         # Yield normal chunk
         yield ProcessedResponse(content="Hello", metadata={})
         # Yield error chunk
         yield ProcessedResponse(
-            content="", 
+            content="",
             metadata={
                 "error": {
                     "type": "quota_exceeded",
                     "code": 503,
-                    "message": "Quota exceeded"
+                    "message": "Quota exceeded",
                 }
-            }
+            },
         )
-    
+
     envelope = StreamingResponseEnvelope(
-        content=stream_content(),
-        media_type="text/event-stream"
+        content=stream_content(), media_type="text/event-stream"
     )
     connector._chat_completion_coordinator.execute.return_value = envelope
-    
+
     from src.connectors.contracts import ConnectorChatCompletionsRequest
     from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-    
+
     inner_request = CanonicalChatRequest(
-        model="gemini-pro", 
-        messages=[ChatMessage(role="user", content="hello")]
+        model="gemini-pro", messages=[ChatMessage(role="user", content="hello")]
     )
     request = ConnectorChatCompletionsRequest(
         request=inner_request,
@@ -134,12 +141,12 @@ async def test_streaming_triggers_rotation_on_error_chunk(connector):
         cancellation_token=None,
         cancellation_coordinator=None,
         context=None,
-        options={}
+        options={},
     )
 
     # Execute
     result = await connector.chat_completions(request)
-    
+
     # Consume the stream
     async for _ in result.content:
         pass

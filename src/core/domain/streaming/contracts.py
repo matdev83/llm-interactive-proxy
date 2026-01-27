@@ -16,7 +16,6 @@ from src.core.domain.chat import StreamingToolCall, ToolCall
 
 
 class StreamingErrorInfo(BaseModel):
-
     """Error envelope for streaming chunks."""
 
     model_config = ConfigDict(extra="forbid")

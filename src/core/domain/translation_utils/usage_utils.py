@@ -20,7 +20,9 @@ def _normalize_usage_metadata(
         }
 
         if reasoning_tokens > 0:
-            gemini_result["completion_tokens_details"] = {"reasoning_tokens": reasoning_tokens}
+            gemini_result["completion_tokens_details"] = {
+                "reasoning_tokens": reasoning_tokens
+            }
 
         return gemini_result
 

@@ -109,7 +109,9 @@ def test_property_7_probability_one_always_triggers(turn_count: int) -> None:
 
     # Second turn should always trigger with probability=1.0
     should_replace = service.should_replace(session_id, context)
-    assert should_replace, "Replacement did not trigger with probability=1.0 on second turn"
+    assert (
+        should_replace
+    ), "Replacement did not trigger with probability=1.0 on second turn"
 
 
 @given(

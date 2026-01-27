@@ -7,7 +7,7 @@ The `kiro-oauth-auto` backend provides a self-managed OAuth flow for Amazon Kiro
 Run:
 
 ```powershell
-./.venv/Scripts/python.exe scripts/kiro_oauth_login.py builderid-login
+./.venv/Scripts/python.exe scripts/manage_kiro_accounts.py add
 ```
 
 This prints a verification URL and user code. Complete the login in your browser; the script then stores credentials under `var/kiro_oauth_accounts/`.
@@ -15,7 +15,7 @@ This prints a verification URL and user code. Complete the login in your browser
 To list stored accounts:
 
 ```powershell
-./.venv/Scripts/python.exe scripts/kiro_oauth_login.py list
+./.venv/Scripts/python.exe scripts/manage_kiro_accounts.py list
 ```
 
 ## 2) Configure the backend

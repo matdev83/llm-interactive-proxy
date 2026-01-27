@@ -14,7 +14,6 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from src.core.domain.backend_request_manager.context_models import StreamingContext
-
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_request_manager_components import (
@@ -127,9 +126,8 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         should_buffer = False
         angel_service_instance: AngelService | None = None
 
-        if (
-            angel_model_spec
-            and AngelService.should_run_for_request(request, angel_frequency)
+        if angel_model_spec and AngelService.should_run_for_request(
+            request, angel_frequency
         ):
             try:
                 angel_service_instance = self._angel_service_factory.create(
@@ -309,7 +307,9 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 # Find the steering message (last user message with steering marker)
                 steering_message = None
                 for msg in reversed(correction_request.messages):
-                    if msg.role == "user" and "ANGEL STEERING" in (str(msg.content) or ""):
+                    if msg.role == "user" and "ANGEL STEERING" in (
+                        str(msg.content) or ""
+                    ):
                         steering_message = msg
                         break
 
@@ -393,4 +393,3 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 )
             for buffered in buffered_chunks:
                 yield buffered
-

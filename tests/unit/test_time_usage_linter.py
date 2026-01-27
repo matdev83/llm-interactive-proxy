@@ -213,7 +213,6 @@ class _TimeUsageScanner(ast.NodeVisitor):
         self._current_class = old_class
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:  # noqa: N802
-
         """Track test functions and check for real_time markers and freeze_time decorators."""
         old_test = self._current_test_function
         if node.name.startswith("test_"):
@@ -275,7 +274,6 @@ class _TimeUsageScanner(ast.NodeVisitor):
         if guard_type:
             self._guard_stack.pop()
 
-
     def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
         """Detect real-time read calls."""
         # Check for datetime.now(), datetime.utcnow()
@@ -300,7 +298,6 @@ class _TimeUsageScanner(ast.NodeVisitor):
             self._add_time_violation(node)
 
         self.generic_visit(node)
-
 
     def _detect_freezegun_guard(self, node: ast.With) -> GuardType | None:
         """Detect if a With node is a freeze_time guard."""
@@ -361,7 +358,6 @@ class _TimeUsageScanner(ast.NodeVisitor):
                 if name == "TimeOverride":
                     return GuardType.TIME_OVERRIDE
         return None
-
 
     def _has_freezegun_decorator(
         self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef
@@ -465,7 +461,6 @@ class _TimeUsageScanner(ast.NodeVisitor):
                 continue
 
             func_node = decorator.func
-
 
             # Check for @real_time(...) - direct import from markers module
             if (

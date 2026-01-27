@@ -49,6 +49,16 @@ DEFAULT_AVAILABLE_MODELS = [
     "gemini-embedding-001",
 ]
 
+# Standard models for gemini-oauth-* backends (auto, free, plan)
+# This is a curated list of actively supported models for OAuth authentication flows.
+GEMINI_OAUTH_STANDARD_MODELS = [
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.5-pro",
+    "gemini-3-flash-preview",
+    "gemini-3-pro-preview",
+]
+
 
 @dataclass
 class GracefulDegradationConfig:
@@ -177,6 +187,7 @@ __all__ = [
     "DEFAULT_CODE_ASSIST_PROMPT_LIMIT",
     "CODE_ASSIST_PROMPT_LIMIT_MARGIN",
     "DEFAULT_AVAILABLE_MODELS",
+    "GEMINI_OAUTH_STANDARD_MODELS",
     "GracefulDegradationConfig",
     "GracefulDegradationMetrics",
     "ModelRetryState",

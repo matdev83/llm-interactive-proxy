@@ -91,7 +91,9 @@ class HistoryCompactionService(IHistoryCompactionService):
 
         # Build policies and perform compaction
         policies = CompactionPolicies.from_config(config)
-        return await self.compact_with_policies(messages, policies, current_token_estimate)
+        return await self.compact_with_policies(
+            messages, policies, current_token_estimate
+        )
 
     async def compact_with_policies(
         self,
@@ -277,7 +279,9 @@ class HistoryCompactionService(IHistoryCompactionService):
                 )
                 stale_indices[msg_idx] = stub
                 stale_resources.add(str(identity))
-                bytes_saved += stub.original_byte_size - len(stub.stub_text.encode("utf-8"))
+                bytes_saved += stub.original_byte_size - len(
+                    stub.stub_text.encode("utf-8")
+                )
 
         if not stale_indices:
             # No stale messages found

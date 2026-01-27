@@ -36,7 +36,7 @@ FALLBACK_ANGEL_PROMPT = (
     "Your mission: Audit this draft for technical errors, logic failures, or stagnation.\\n\\n"
     "### Auditing Rules:\\n"
     "1. **Be Conservative**: Only steer if there is a CLEAR error, logical failure, or obvious laziness. Avoid nitpicking style, wording, or harmless preferences if the technical content is correct and functional.\\n"
-    "2. **Detect \"Soft\" Failures**: Look for \"I can't do that\" when the assistant actually HAS the tools to do it, or \"Code goes here...\" placeholders.\\n"
+    '2. **Detect "Soft" Failures**: Look for "I can\'t do that" when the assistant actually HAS the tools to do it, or "Code goes here..." placeholders.\\n'
     "3. **Logic & Truthfulness**: Flag code that won't run as intended or reasoning that contradicts the user's requirements or the previously discovered state.\\n\\n"
     "### Decision Protocol:\\n"
     "- If the response is acceptable: Output ONLY \u003cangels_decision\u003ePass\u003c/angels_decision\u003e.\\n"

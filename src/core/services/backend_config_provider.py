@@ -35,8 +35,6 @@ class BackendConfigProvider(IBackendConfigProvider):
         # Remove duplicates while preserving order
         possible_names = list(dict.fromkeys(possible_names))
 
-
-
         found_configs: list[BackendConfig] = []
 
         lookup_method = getattr(self._app_config.backends, "lookup", None)

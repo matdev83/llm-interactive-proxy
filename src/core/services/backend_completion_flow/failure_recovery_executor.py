@@ -109,7 +109,12 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             ]
 
             return await self.attempt_failover_plan(
-                request, normalized_plan, stream, backend_type, call_completion_callback, context
+                request,
+                normalized_plan,
+                stream,
+                backend_type,
+                call_completion_callback,
+                context,
             )
         except BackendError:
             raise

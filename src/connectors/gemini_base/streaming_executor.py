@@ -397,6 +397,7 @@ class StreamingExecutor:
         without_tools: bool = False,
         _auth_retry_attempted: bool = False,
         _rate_limit_retry_attempted: bool = False,
+        _timeout_retry_attempted: bool = False,
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Internal generator that handles the streaming loop."""
         response = None
@@ -455,6 +456,74 @@ class StreamingExecutor:
                     )
 
             except requests.exceptions.Timeout as te:
+                # For oauth-auto backends with multiple accounts, try rotation once
+                # before giving up - another account may not be timing out
+                if (
+                    token_refresher
+                    and "oauth-auto"
+                    in str(getattr(token_refresher, "backend_type", ""))
+                    and not _timeout_retry_attempted
+                ):
+                    logger.warning(
+                        "Streaming timeout (%.1fs) calling %s, attempting account rotation and retry",
+                        DEFAULT_READ_TIMEOUT,
+                        url,
+                    )
+
+                    rotated = False
+                    try:
+                        rotated = await token_refresher.refresh_token_if_needed(
+                            force_reload=True
+                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Account rotation on timeout: rotated=%s", rotated
+                            )
+                    except Exception as rotation_err:
+                        logger.warning(
+                            "Failed to rotate account on timeout: %s",
+                            str(rotation_err),
+                            exc_info=True,
+                        )
+
+                    if rotated:
+                        # Update auth header and retry with new account
+                        creds = getattr(token_refresher, "_oauth_credentials", None)
+                        if isinstance(creds, dict):
+                            access_token = creds.get("access_token")
+                            if (
+                                isinstance(access_token, str)
+                                and access_token
+                                and hasattr(prepared.auth_session, "headers")
+                            ):
+                                prepared.auth_session.headers["Authorization"] = (
+                                    f"Bearer {access_token}"
+                                )
+
+                        # Retry immediately with new account (no sleep needed)
+                        logger.info(
+                            "Retrying streaming request immediately after account rotation due to timeout"
+                        )
+                        async for chunk in self._stream_generator(
+                            prepared=prepared,
+                            url=url,
+                            processor=processor,
+                            prompt_tokens=prompt_tokens,
+                            retry_policy=retry_policy,
+                            token_refresher=token_refresher,
+                            thought_signature_callback=thought_signature_callback,
+                            key_name=key_name,
+                            auth_refresh_policy=auth_refresh_policy,
+                            _allow_tool_retry=_allow_tool_retry,
+                            without_tools=without_tools,
+                            _auth_retry_attempted=_auth_retry_attempted,
+                            _rate_limit_retry_attempted=_rate_limit_retry_attempted,
+                            _timeout_retry_attempted=True,  # Prevent infinite loop
+                        ):
+                            yield chunk
+                        return
+
+                # No rotation or rotation failed - return timeout error
                 logger.error(f"Streaming timeout calling {url}: {te}", exc_info=True)
                 error_chunk = processor.build_error_chunk(
                     "Gateway timeout reaching Code Assist streaming endpoint.",
@@ -998,17 +1067,80 @@ class StreamingExecutor:
                     and decision.sleep_seconds is not None
                     and not _rate_limit_retry_attempted
                 ):
+                    # Try account rotation for oauth-auto backends before sleeping
+                    rotated_credentials = False
+                    sleep_seconds = decision.sleep_seconds
+                    backend_type = (
+                        getattr(token_refresher, "backend_type", "")
+                        if token_refresher
+                        else ""
+                    )
+                    if token_refresher and "oauth-auto" in str(backend_type):
+                        try:
+                            rotated_credentials = (
+                                await token_refresher.refresh_token_if_needed(
+                                    force_reload=True
+                                )
+                            )
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Account rotation on 429 (early path): rotated=%s",
+                                    rotated_credentials,
+                                )
+                        except Exception as e:
+                            logger.warning(
+                                "Failed to rotate account on 429 rate limit (early path): %s",
+                                str(e),
+                                exc_info=True,
+                            )
+                            rotated_credentials = False
+
+                        if rotated_credentials:
+                            creds = getattr(token_refresher, "_oauth_credentials", None)
+                            if isinstance(creds, dict):
+                                access_token = creds.get("access_token")
+                                if (
+                                    isinstance(access_token, str)
+                                    and access_token
+                                    and hasattr(prepared.auth_session, "headers")
+                                ):
+                                    prepared.auth_session.headers["Authorization"] = (
+                                        f"Bearer {access_token}"
+                                    )
+
+                    if rotated_credentials:
+                        sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+                    else:
+                        sleep_seconds = max(
+                            sleep_seconds,
+                            self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
+                        )
+
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
                             "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
-                            decision.sleep_seconds,
+                            sleep_seconds,
                             attempt + 1,
                         )
-                    sleep_seconds = max(
-                        decision.sleep_seconds,
-                        self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
-                    )
-                    await asyncio.sleep(sleep_seconds)
+
+                    # Log progress during long waits (every 10 seconds)
+                    if sleep_seconds > 10.0:
+                        elapsed = 0.0
+                        log_interval = 10.0
+                        while elapsed < sleep_seconds:
+                            wait_time = min(log_interval, sleep_seconds - elapsed)
+                            await asyncio.sleep(wait_time)
+                            elapsed += wait_time
+
+                            remaining = sleep_seconds - elapsed
+                            if remaining > 0 and logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "Rate limit wait in progress: %.1fs elapsed, %.1fs remaining",
+                                    elapsed,
+                                    remaining,
+                                )
+                    else:
+                        await asyncio.sleep(sleep_seconds)
                     async for retry_chunk in self._stream_generator(
                         prepared=prepared,
                         url=url,
@@ -1166,17 +1298,13 @@ class StreamingExecutor:
                 # Treat "No capacity available" as a retryable capacity error
                 # even if no specific retry delay is provided.
                 is_capacity_error = (
-                    error_message
-                    and "no capacity available" in error_message.lower()
+                    error_message and "no capacity available" in error_message.lower()
                 )
 
                 retryable = (
-                    (
-                        retry_hint_seconds is not None
-                        and retry_hint_seconds <= self.MAX_RATE_LIMIT_RETRY_SECONDS
-                    )
-                    or is_capacity_error
-                )
+                    retry_hint_seconds is not None
+                    and retry_hint_seconds <= self.MAX_RATE_LIMIT_RETRY_SECONDS
+                ) or is_capacity_error
 
                 # Assign a default retry delay for capacity errors if none provided
                 if is_capacity_error and retry_hint_seconds is None:
@@ -1300,10 +1428,57 @@ class StreamingExecutor:
             ):
                 with contextlib.suppress(Exception):
                     response.close()
-                sleep_seconds = max(
-                    sleep_seconds,
-                    self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
+
+                # For multi-account OAuth backends (e.g., gemini-oauth-auto), a 429 can
+                # often be mitigated by rotating to a different account rather than
+                # waiting out the full retry-after window.
+                rotated_credentials = False
+                backend_type = (
+                    getattr(token_refresher, "backend_type", "")
+                    if token_refresher
+                    else ""
                 )
+                if token_refresher and "oauth-auto" in str(backend_type):
+                    try:
+                        rotated_credentials = (
+                            await token_refresher.refresh_token_if_needed(
+                                force_reload=True
+                            )
+                        )
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Account rotation on 429: rotated=%s",
+                                rotated_credentials,
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Failed to rotate account on 429 rate limit: %s",
+                            str(e),
+                            exc_info=True,
+                        )
+                        rotated_credentials = False
+
+                    if rotated_credentials:
+                        creds = getattr(token_refresher, "_oauth_credentials", None)
+                        if isinstance(creds, dict):
+                            access_token = creds.get("access_token")
+                            if (
+                                isinstance(access_token, str)
+                                and access_token
+                                and hasattr(prepared.auth_session, "headers")
+                            ):
+                                prepared.auth_session.headers["Authorization"] = (
+                                    f"Bearer {access_token}"
+                                )
+
+                if rotated_credentials:
+                    sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+                else:
+                    sleep_seconds = max(
+                        sleep_seconds,
+                        self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
+                    )
+
                 logger.info(
                     "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",
                     sleep_seconds,
@@ -1317,6 +1492,7 @@ class StreamingExecutor:
                 elapsed = 0.0
                 keepalive_id = f"chatcmpl-keepalive-{uuid.uuid4().hex}"
                 created = int(time.time())
+                next_log_at = 10.0  # Log every 10 seconds during wait
 
                 while elapsed < sleep_seconds:
                     yield ProcessedResponse(
@@ -1334,6 +1510,17 @@ class StreamingExecutor:
                     step = min(interval_seconds, remaining)
                     await asyncio.sleep(step)
                     elapsed += step
+
+                    # Log progress every 10 seconds so it's clear we're waiting, not hung
+                    if elapsed >= next_log_at or (remaining <= 0.1 and elapsed >= 10.0):
+                        if logger.isEnabledFor(logging.INFO):
+                            logger.info(
+                                "Rate limit wait in progress: %.1fs elapsed, %.1fs remaining (total: %.1fs)",
+                                elapsed,
+                                max(0, remaining),
+                                sleep_seconds,
+                            )
+                        next_log_at = elapsed + 10.0
                 async for retry_chunk in self._stream_generator(
                     prepared=prepared,
                     url=url,

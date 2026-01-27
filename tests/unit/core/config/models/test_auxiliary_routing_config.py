@@ -10,19 +10,13 @@ class TestAuxiliaryRoutingConfig:
 
     def test_valid_backend_config(self):
         """Backend explicitly provided."""
-        config = AuxiliaryRoutingConfig(
-            enabled=True,
-            backend="openrouter"
-        )
+        config = AuxiliaryRoutingConfig(enabled=True, backend="openrouter")
         assert config.enabled is True
         assert config.backend == "openrouter"
 
     def test_valid_fqn_model_config(self):
         """Model with FQN provided, backend is None."""
-        config = AuxiliaryRoutingConfig(
-            enabled=True,
-            model="openrouter:gemini-flash"
-        )
+        config = AuxiliaryRoutingConfig(enabled=True, model="openrouter:gemini-flash")
         assert config.enabled is True
         assert config.backend is None
         assert config.model == "openrouter:gemini-flash"
@@ -30,9 +24,7 @@ class TestAuxiliaryRoutingConfig:
     def test_valid_both_config(self):
         """Both provided."""
         config = AuxiliaryRoutingConfig(
-            enabled=True,
-            backend="openrouter",
-            model="gemini-flash"
+            enabled=True, backend="openrouter", model="gemini-flash"
         )
         assert config.enabled is True
 
@@ -40,8 +32,7 @@ class TestAuxiliaryRoutingConfig:
         """Enabled but no backend and no FQN model."""
         with pytest.raises(ValidationError) as exc:
             AuxiliaryRoutingConfig(
-                enabled=True,
-                model="gemini-flash"  # No backend part
+                enabled=True, model="gemini-flash"  # No backend part
             )
         assert "target is configured" in str(exc.value)
 

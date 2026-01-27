@@ -624,7 +624,6 @@ def to_fastapi_streaming_response(
                 await safe_aclose(source)
                 raise
 
-
         async_stream = _ensure_async_iterator(content_iter)
 
         # Convert to StreamingContent (async generator returns iterator directly)
@@ -650,7 +649,6 @@ def to_fastapi_streaming_response(
             await safe_aclose(sse_bytes_iter)
             raise
 
-
     # Inject canonical usage headers if available (Requirement 5.5)
     # Note: StreamingResponseEnvelope doesn't have a usage field, only canonical_usage
     headers = domain_response.headers or {}
@@ -661,13 +659,11 @@ def to_fastapi_streaming_response(
 
     # Build streaming response
     return StreamingResponse(
-
         content=_convert_and_assemble(),
         media_type=getattr(domain_response, "media_type", "text/event-stream"),
         status_code=domain_response.status_code or 200,
         headers=headers,
     )
-
 
 
 def domain_response_to_fastapi(

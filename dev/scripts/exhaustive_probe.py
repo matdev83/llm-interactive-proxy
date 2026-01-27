@@ -19,15 +19,15 @@ async def probe_model(client, base_url, headers, project, model, request_type="a
     request_body = {
         "project": project,
         "requestId": f"probe_{int(__import__('time').time()*1000)}",
-        "request": {
-            "contents": [{"role": "user", "parts": [{"text": "OK"}]}]
-        },
+        "request": {"contents": [{"role": "user", "parts": [{"text": "OK"}]}]},
         "model": model,
         "userAgent": "antigravity",
         "requestType": request_type,
     }
     try:
-        resp = await client.post(stream_url, headers=headers, json=request_body, timeout=10)
+        resp = await client.post(
+            stream_url, headers=headers, json=request_body, timeout=10
+        )
         print(f"Status: {resp.status_code}")
         if resp.status_code == 200:
             print("SUCCESS!")
@@ -39,6 +39,7 @@ async def probe_model(client, base_url, headers, project, model, request_type="a
         print(f"Exception: {e}")
         return False
 
+
 async def main():
     provider = AntigravitySQLiteCredentialProvider()
     creds = await provider.load()
@@ -46,15 +47,19 @@ async def main():
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
-        "User-Agent": "antigravity/1.11.5 windows/amd64"
+        "User-Agent": "antigravity/1.11.5 windows/amd64",
     }
 
     prod_url = "https://cloudcode-pa.googleapis.com"
     sandbox_url = "https://daily-cloudcode-pa.sandbox.googleapis.com"
-    
+
     async with httpx.AsyncClient() as client:
         # Get project from PROD
-        resp = await client.post(f"{prod_url}/v1internal:loadCodeAssist", headers=headers, json={"metadata":{}})
+        resp = await client.post(
+            f"{prod_url}/v1internal:loadCodeAssist",
+            headers=headers,
+            json={"metadata": {}},
+        )
         project = resp.json().get("cloudaicompanionProject", "default")
         print(f"Project: {project}")
 
@@ -64,11 +69,12 @@ async def main():
             "gemini-3-flash",
             "gemini-flash-3",
         ]
-        
+
         for model in models:
             for rtype in ["agent", "chat"]:
                 await probe_model(client, prod_url, headers, project, model, rtype)
                 await probe_model(client, sandbox_url, headers, project, model, rtype)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -61,6 +61,7 @@ async def generate_report(config_path: str | None = None) -> None:
         import cbor2
 
         from scripts.inspect_cbor_capture import load_capture_file, parse_all_sse_events
+
         cbor_available = True
     except ImportError:
         cbor_available = False
@@ -72,8 +73,12 @@ async def generate_report(config_path: str | None = None) -> None:
                 UsageRecordTable.backend_type,  # type: ignore[arg-type]
                 UsageRecordTable.model,  # type: ignore[arg-type]
                 func.count().label("request_count"),
-                func.sum(UsageRecordTable.mutated_prompt_tokens).label("tokens_submitted"),
-                func.sum(UsageRecordTable.verbatim_completion_tokens).label("tokens_received"),
+                func.sum(UsageRecordTable.mutated_prompt_tokens).label(
+                    "tokens_submitted"
+                ),
+                func.sum(UsageRecordTable.verbatim_completion_tokens).label(
+                    "tokens_received"
+                ),
             )
             .where(UsageRecordTable.leg == TrafficLeg.PROXY_TO_BACKEND.value)
             .where(UsageRecordTable.timestamp >= start_of_day)
@@ -107,19 +112,29 @@ async def generate_report(config_path: str | None = None) -> None:
             has_tokens = any((row.total_tokens or 0) > 0 for row in rows_sessions)
 
             if rows_sessions and has_tokens:
-                console.print("[yellow]Detailed usage records not found. Falling back to session metrics.[/yellow]")
-                console.print("[dim](Note: Prompt/Completion breakdown is not available in session metrics)[/dim]")
+                console.print(
+                    "[yellow]Detailed usage records not found. Falling back to session metrics.[/yellow]"
+                )
+                console.print(
+                    "[dim](Note: Prompt/Completion breakdown is not available in session metrics)[/dim]"
+                )
                 console.print()
                 _print_session_table(console, rows_sessions)
             elif cbor_available:
                 # Fallback to CBOR analysis
-                console.print("[yellow]No usage data found in database. Analyzing wire captures...[/yellow]")
+                console.print(
+                    "[yellow]No usage data found in database. Analyzing wire captures...[/yellow]"
+                )
                 console.print()
                 await _analyze_cbor_captures(console, start_of_day)
             else:
-                console.print("[yellow]No usage recorded for today (database empty).[/yellow]")
+                console.print(
+                    "[yellow]No usage recorded for today (database empty).[/yellow]"
+                )
                 if not cbor_available:
-                    console.print("[dim]Install 'cbor2' to enable wire capture analysis fallback.[/dim]")
+                    console.print(
+                        "[dim]Install 'cbor2' to enable wire capture analysis fallback.[/dim]"
+                    )
 
     await engine.close()
 
@@ -127,7 +142,7 @@ async def generate_report(config_path: str | None = None) -> None:
 async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None:
     """Analyze CBOR capture files for usage data."""
     from pathlib import Path
-    
+
     # Import here to ensure they are available
     from scripts.inspect_cbor_capture import load_capture_file, parse_all_sse_events
 
@@ -139,7 +154,7 @@ async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None
     # Find files modified today
     files = []
     start_ts = start_time.timestamp()
-    
+
     for file_path in capture_dir.glob("*.cbor"):
         try:
             mtime = file_path.stat().st_mtime
@@ -152,15 +167,17 @@ async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None
         console.print("[yellow]No wire captures found for today.[/yellow]")
         return
 
-    console.print(f"Scanning [bold]{len(files)}[/bold] capture file(s) for usage events...")
-    
+    console.print(
+        f"Scanning [bold]{len(files)}[/bold] capture file(s) for usage events..."
+    )
+
     # Stats aggregation
     stats: dict[tuple[str, str], dict[str, int]] = {}
-    
+
     for file_path in files:
         try:
             header, entries = load_capture_file(file_path)
-            
+
             # Group entries by session to correlate request/response
             sessions: dict[str, dict[str, Any]] = {}
 
@@ -168,7 +185,7 @@ async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None
                 ts = entry.get("ts", 0)
                 if ts < start_ts:
                     continue
-                
+
                 meta = entry.get("meta", {})
                 sid = meta.get("sid")
                 if not sid:
@@ -180,33 +197,35 @@ async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None
                         "model": "unknown",
                         "prompt_tokens": 0,
                         "completion_tokens": 0,
-                        "requests": 0
+                        "requests": 0,
                     }
 
                 direction = entry.get("dir")
                 data = entry.get("data", b"")
 
-                if direction == 2: # PROXY_TO_BACKEND
+                if direction == 2:  # PROXY_TO_BACKEND
                     sessions[sid]["requests"] += 1
                     # Estimate prompt tokens if not already known
                     # (Will be overwritten by explicit usage from backend if available)
                     if sessions[sid]["prompt_tokens"] == 0:
                         sessions[sid]["prompt_tokens"] = len(data) // 4
 
-                elif direction == 3: # BACKEND_TO_PROXY
+                elif direction == 3:  # BACKEND_TO_PROXY
                     # Try to extract usage from SSE events
                     events = parse_all_sse_events(data)
                     for event in events:
                         if "model" in event:
                             sessions[sid]["model"] = event["model"]
-                        
+
                         usage = event.get("usage")
                         if usage:
                             p = usage.get("prompt_tokens")
                             c = usage.get("completion_tokens")
-                            if p is not None: sessions[sid]["prompt_tokens"] = p
-                            if c is not None: sessions[sid]["completion_tokens"] = c
-                    
+                            if p is not None:
+                                sessions[sid]["prompt_tokens"] = p
+                            if c is not None:
+                                sessions[sid]["completion_tokens"] = c
+
                     if not events and sessions[sid]["completion_tokens"] == 0:
                         sessions[sid]["completion_tokens"] += len(data) // 4
 
@@ -214,11 +233,11 @@ async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None
             for s_data in sessions.values():
                 if s_data["requests"] == 0:
                     continue
-                    
+
                 key = (s_data["backend"], s_data["model"])
                 if key not in stats:
                     stats[key] = {"requests": 0, "p": 0, "c": 0}
-                
+
                 stats[key]["requests"] += s_data["requests"]
                 stats[key]["p"] += s_data["prompt_tokens"]
                 stats[key]["c"] += s_data["completion_tokens"]
@@ -233,6 +252,7 @@ async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None
     # Convert to list for display
     rows = []
     for (backend, model), data in stats.items():
+
         class Row:
             def __init__(self, b, m, r, p, c):
                 self.backend_type = b
@@ -240,7 +260,7 @@ async def _analyze_cbor_captures(console: Console, start_time: datetime) -> None
                 self.request_count = r
                 self.tokens_submitted = p
                 self.tokens_received = c
-        
+
         rows.append(Row(backend, model, data["requests"], data["p"], data["c"]))
 
     _print_detailed_table(console, rows)

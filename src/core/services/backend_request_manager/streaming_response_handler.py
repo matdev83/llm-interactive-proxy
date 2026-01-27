@@ -80,7 +80,6 @@ class AngelConfig:
     max_history: int | None
 
 
-
 class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
     """Service for handling streaming backend responses."""
 

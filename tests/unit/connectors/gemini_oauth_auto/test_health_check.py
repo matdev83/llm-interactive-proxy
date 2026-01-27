@@ -24,22 +24,25 @@ def mock_dependencies():
 async def connector(mock_dependencies, mocker):
     """Fixture providing an initialized GeminiOAuthAutoConnector."""
     client, config, translation_service = mock_dependencies
-    
+
     # Configure mock selector
     mock_selector = MagicMock()
     mock_selector.reload_accounts = AsyncMock()
     mock_selector.get_next_account = AsyncMock()
     mock_selector.get_available_count.return_value = 1
-    
+
     # Patch services in the connector module
     mocker.patch("src.connectors.gemini_oauth_auto.connector.TokenStorageService")
     mocker.patch("src.connectors.gemini_oauth_auto.connector.TokenRefreshService")
-    mocker.patch("src.connectors.gemini_oauth_auto.connector.AccountSelectorService", return_value=mock_selector)
-    
+    mocker.patch(
+        "src.connectors.gemini_oauth_auto.connector.AccountSelectorService",
+        return_value=mock_selector,
+    )
+
     conn = GeminiOAuthAutoConnector(client, config, translation_service)
     # Ensure it uses the mock even before initialize
     conn._account_selector = mock_selector
-    
+
     return conn
 
 
@@ -55,7 +58,7 @@ class TestGeminiOAuthAutoHealth:
     async def test_is_backend_functional_combined_logic(self, connector):
         """Test is_backend_functional combines base logic and account count."""
         await connector.initialize()
-        
+
         # 1. Healthy state
         connector.is_functional = True
         connector._account_selector.get_available_count.return_value = 2
@@ -66,7 +69,7 @@ class TestGeminiOAuthAutoHealth:
         # 2. No accounts -> Unfunctional
         connector._account_selector.get_available_count.return_value = 0
         assert connector.is_backend_functional() is False
-        
+
         # 3. Endpoint unhealthy -> Unfunctional
         connector._account_selector.get_available_count.return_value = 2
         connector._endpoint_healthy = False
@@ -80,7 +83,7 @@ class TestGeminiOAuthAutoHealth:
     async def test_get_validation_errors_includes_account_info(self, connector):
         """Test get_validation_errors reports missing accounts."""
         await connector.initialize()
-        
+
         # Scenario: No accounts
         connector._account_selector.get_available_count.return_value = 0
         errors = connector.get_validation_errors()

@@ -111,7 +111,6 @@ class UsageRecord(DomainModel):
     app_title: str | None = None
     proxy_user: str | None = None
 
-
     def to_dict(self) -> dict[str, Any]:
         """Serialize the usage record to a dictionary.
 

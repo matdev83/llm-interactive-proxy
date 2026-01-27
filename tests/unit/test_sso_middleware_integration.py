@@ -32,59 +32,60 @@ def mock_sso_middleware():
     return middleware
 
 
-@pytest.fixture
-def mock_request():
-    """Create a mock FastAPI request."""
-    request = MagicMock()
-    request.url.path = "/v1/chat/completions"
-    request.method = "POST"
-    request.headers = {"authorization": "Bearer test-token"}
-    request.body = AsyncMock(return_value=b'{"messages": []}')
-    return request
-
-
 @pytest.mark.asyncio
 async def test_sso_middleware_adapter_skips_auth_endpoints(mock_sso_middleware):
     """Test that SSO middleware skips /auth/ endpoints."""
-    app = MagicMock()
+    app = AsyncMock()
     adapter = SSOMiddlewareAdapter(app, mock_sso_middleware)
 
-    request = MagicMock()
-    request.url.path = "/auth/login"
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/auth/login",
+        "headers": [],
+    }
+    receive = AsyncMock(
+        return_value={"type": "http.request", "body": b"", "more_body": False}
+    )
+    send = AsyncMock()
 
-    call_next = AsyncMock(return_value=MagicMock(status_code=200))
+    await adapter(scope, receive, send)
 
-    await adapter.dispatch(request, call_next)
-
-    # Should call next middleware without checking SSO
-    call_next.assert_called_once()
+    # Should call app without checking SSO
+    app.assert_called_once()
     mock_sso_middleware.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_sso_middleware_adapter_skips_health_endpoints(mock_sso_middleware):
     """Test that SSO middleware skips /health endpoint."""
-    app = MagicMock()
+    app = AsyncMock()
     adapter = SSOMiddlewareAdapter(app, mock_sso_middleware)
 
-    request = MagicMock()
-    request.url.path = "/health"
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/health",
+        "headers": [],
+    }
+    receive = AsyncMock(
+        return_value={"type": "http.request", "body": b"", "more_body": False}
+    )
+    send = AsyncMock()
 
-    call_next = AsyncMock(return_value=MagicMock(status_code=200))
+    await adapter(scope, receive, send)
 
-    await adapter.dispatch(request, call_next)
-
-    # Should call next middleware without checking SSO
-    call_next.assert_called_once()
+    # Should call app without checking SSO
+    app.assert_called_once()
     mock_sso_middleware.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_sso_middleware_adapter_returns_sandbox_when_unauthenticated(
-    mock_sso_middleware, mock_request
+    mock_sso_middleware,
 ):
     """Test that adapter returns sandbox response when user is unauthenticated."""
-    app = MagicMock()
+    app = AsyncMock()
     adapter = SSOMiddlewareAdapter(app, mock_sso_middleware)
 
     # Mock SSO middleware to return sandbox response
@@ -104,53 +105,88 @@ async def test_sso_middleware_adapter_returns_sandbox_when_unauthenticated(
     }
     mock_sso_middleware.return_value = sandbox_response
 
-    call_next = AsyncMock()
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": [(b"authorization", b"Bearer test-token")],
+    }
+    receive = AsyncMock(
+        return_value={
+            "type": "http.request",
+            "body": b'{"messages": []}',
+            "more_body": False,
+        }
+    )
+    send = AsyncMock()
 
-    response = await adapter.dispatch(mock_request, call_next)
+    await adapter(scope, receive, send)
 
-    # Should return sandbox response
-    assert response.status_code == 200
-    # Should not call next middleware
-    call_next.assert_not_called()
+    # Should send sandbox response
+    assert send.call_count >= 2  # response.start and response.body
+    # Should not call app
+    app.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_sso_middleware_adapter_continues_when_authenticated(
-    mock_sso_middleware, mock_request
-):
+async def test_sso_middleware_adapter_continues_when_authenticated(mock_sso_middleware):
     """Test that adapter continues to next middleware when user is authenticated."""
-    app = MagicMock()
+    app = AsyncMock()
     adapter = SSOMiddlewareAdapter(app, mock_sso_middleware)
 
     # Mock SSO middleware to return None (authenticated)
     mock_sso_middleware.return_value = None
 
-    call_next = AsyncMock(return_value=MagicMock(status_code=200))
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": [(b"authorization", b"Bearer test-token")],
+    }
+    receive = AsyncMock(
+        return_value={
+            "type": "http.request",
+            "body": b'{"messages": []}',
+            "more_body": False,
+        }
+    )
+    send = AsyncMock()
 
-    await adapter.dispatch(mock_request, call_next)
+    await adapter(scope, receive, send)
 
-    # Should call next middleware
-    call_next.assert_called_once()
+    # Should call app
+    app.assert_called_once()
     # Should call SSO middleware
     mock_sso_middleware.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_sso_middleware_adapter_handles_errors_gracefully(
-    mock_sso_middleware, mock_request
-):
+async def test_sso_middleware_adapter_handles_errors_gracefully(mock_sso_middleware):
     """Test that adapter handles SSO middleware errors gracefully."""
-    app = MagicMock()
+    app = AsyncMock()
     adapter = SSOMiddlewareAdapter(app, mock_sso_middleware)
 
     # Mock SSO middleware to raise an exception
     mock_sso_middleware.side_effect = Exception("SSO error")
 
-    call_next = AsyncMock()
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": [(b"authorization", b"Bearer test-token")],
+    }
+    receive = AsyncMock(
+        return_value={
+            "type": "http.request",
+            "body": b'{"messages": []}',
+            "more_body": False,
+        }
+    )
+    send = AsyncMock()
 
-    response = await adapter.dispatch(mock_request, call_next)
+    await adapter(scope, receive, send)
 
-    # Should return sandbox response on error
-    assert response.status_code == 200
-    # Should not call next middleware
-    call_next.assert_not_called()
+    # Should send sandbox response on error
+    assert send.call_count >= 2  # response.start and response.body
+    # Should not call app
+    app.assert_not_called()

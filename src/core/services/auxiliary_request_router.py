@@ -40,14 +40,16 @@ class AuxiliaryRoutingConfig:
     enabled: bool = False
     backend: str | None = None
     model: str | None = None
-    detection_patterns: list[str] = field(default_factory=lambda: [
-        r"The following is the text to summarize",
-        r"Generate a (?:short |brief )?(?:title|summary|heading)",
-        r"Summarize (?:the|this|my) (?:conversation|text|content|task)",
-        r"Create a (?:title|heading) for",
-        r"Generate a title for the (?:session|conversation)",
-        r"Provide a summary of (?:the|this|my) (?:task|conversation|session)",
-    ])
+    detection_patterns: list[str] = field(
+        default_factory=lambda: [
+            r"The following is the text to summarize",
+            r"Generate a (?:short |brief )?(?:title|summary|heading)",
+            r"Summarize (?:the|this|my) (?:conversation|text|content|task)",
+            r"Create a (?:title|heading) for",
+            r"Generate a title for the (?:session|conversation)",
+            r"Provide a summary of (?:the|this|my) (?:task|conversation|session)",
+        ]
+    )
     max_message_count: int = 3  # Auxiliary requests typically have few messages
 
 
@@ -71,9 +73,7 @@ class AuxiliaryRequestDetector:
         if config.enabled:
             for pattern in config.detection_patterns:
                 try:
-                    self._compiled_patterns.append(
-                        re.compile(pattern, re.IGNORECASE)
-                    )
+                    self._compiled_patterns.append(re.compile(pattern, re.IGNORECASE))
                 except re.error as e:
                     logger.warning(
                         "Invalid auxiliary detection pattern '%s': %s",
@@ -94,7 +94,9 @@ class AuxiliaryRequestDetector:
             return False
 
         # Check if we have a valid routing target (explicit backend or FQN model)
-        if not self._config.backend and (not self._config.model or ":" not in self._config.model):
+        if not self._config.backend and (
+            not self._config.model or ":" not in self._config.model
+        ):
             return False
 
         messages = getattr(request, "messages", None)

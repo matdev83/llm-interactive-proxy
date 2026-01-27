@@ -17,14 +17,12 @@ BASE_TIME = 1768780800.0  # 2026-01-19 00:00:00 UTC
 
 @freeze_time("2026-01-19")
 class TestStoredAccount:
-
-
     """Tests for StoredAccount model."""
 
     @pytest.fixture
     def valid_account_data(self) -> dict:
         """Fixture providing valid account data.
-        
+
         Uses fixed base time to avoid direct BASE_TIME calls flagged by linter.
         """
         return {
@@ -38,7 +36,6 @@ class TestStoredAccount:
             "created_at": "2026-01-20T10:00:00+00:00",
             "updated_at": "2026-01-20T10:00:00+00:00",
         }
-
 
     def test_create_valid_account(self, valid_account_data: dict) -> None:
         """Test creating a valid StoredAccount."""
@@ -152,7 +149,6 @@ class TestStoredAccount:
     def test_is_expired_with_future_expiry(self, valid_account_data: dict) -> None:
         """Test is_expired returns False for future expiry."""
         # Set expiry 1 hour from now
-
 
         valid_account_data["expiry_date"] = int((BASE_TIME + 3600) * 1000)
         account = StoredAccount(**valid_account_data)
@@ -359,7 +355,6 @@ class TestStoredAccount:
 
 @freeze_time("2026-01-19")
 class TestAccountSummary:
-
     """Tests for AccountSummary model."""
 
     @pytest.fixture

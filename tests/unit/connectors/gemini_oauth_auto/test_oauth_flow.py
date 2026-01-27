@@ -131,9 +131,10 @@ class TestOAuthFlowService:
         with pytest.raises(OAuthError) as exc_info:
             await oauth_service._exchange_code("bad_code", "http://localhost/callback")
 
-        assert "invalid_grant" in str(exc_info.value) or "failed" in str(
-            exc_info.value
-        ).lower()
+        assert (
+            "invalid_grant" in str(exc_info.value)
+            or "failed" in str(exc_info.value).lower()
+        )
 
     @pytest.mark.asyncio
     async def test_fetch_userinfo_returns_email(
@@ -208,9 +209,11 @@ class TestOAuthFlowService:
         mock_http_client: MagicMock,
     ) -> None:
         """Test code exchange raises OAuthError on network error."""
-        mock_http_client.post = AsyncMock(side_effect=httpx.RequestError("Network down"))
+        mock_http_client.post = AsyncMock(
+            side_effect=httpx.RequestError("Network down")
+        )
         oauth_service._http_client = mock_http_client
-        
+
         with pytest.raises(OAuthError, match="Network error during code exchange"):
             await oauth_service._exchange_code("code", "http://callback")
 
@@ -223,7 +226,7 @@ class TestOAuthFlowService:
         """Test fetch_userinfo raises OAuthError on failure."""
         mock_http_client.get = AsyncMock(side_effect=Exception("API error"))
         oauth_service._http_client = mock_http_client
-        
+
         with pytest.raises(OAuthError, match="Failed to fetch user information"):
             await oauth_service._fetch_userinfo("token")
 
@@ -237,7 +240,6 @@ class TestOAuthFlowService:
         with pytest.raises(OAuthError, match="State parameter mismatch"):
             oauth_service._validate_state("expected", None)
 
-
     def test_generate_account_id_leading_chars(
         self, oauth_service: OAuthFlowService
     ) -> None:
@@ -246,7 +248,7 @@ class TestOAuthFlowService:
         # Should be prefixed with "user_" if sanitized local part starts with - or _
         account_id = oauth_service._generate_account_id_from_email("._test@gmail.com")
         assert account_id.startswith("user_")
-        
+
         account_id2 = oauth_service._generate_account_id_from_email("-test@gmail.com")
         assert account_id2.startswith("user_")
 
@@ -271,7 +273,7 @@ class TestOAuthFlowService:
             pytest.raises(OAuthError, match="Authorization timed out"),
         ):
             await oauth_service.authorize(timeout=1, open_browser=False)
-            
+
         mock_open.assert_not_called()
         assert "Please visit this URL" in caplog.text
 
@@ -287,6 +289,5 @@ class TestOAuthFlowService:
             pytest.raises(OAuthError, match="Authorization timed out"),
         ):
             await oauth_service.authorize(timeout=1, open_browser=True)
-            
-        mock_open.assert_called_once()
 
+        mock_open.assert_called_once()

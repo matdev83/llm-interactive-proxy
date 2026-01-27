@@ -224,9 +224,11 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 delta_content = delta.get("content")
                 if isinstance(delta_content, str):
                     extracted_content += delta_content
-                
+
                 # Extract and accumulate reasoning content
-                delta_reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                delta_reasoning = delta.get("reasoning_content") or delta.get(
+                    "reasoning"
+                )
                 if isinstance(delta_reasoning, str):
                     extracted_reasoning += delta_reasoning
 
@@ -247,7 +249,6 @@ class ContentAccumulationProcessor(IStreamProcessor):
 
         if extracted_reasoning:
             state.append_reasoning_chunk(extracted_reasoning)
-
 
         if content.metadata:
             merged_metadata = dict(state.metadata_snapshot)

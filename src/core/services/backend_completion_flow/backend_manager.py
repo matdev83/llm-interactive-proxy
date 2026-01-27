@@ -80,7 +80,6 @@ class BackendManager(IBackendInvoker):
                     reset_at=time.time() + retry_after_remaining,
                 )
 
-
         # Check if backend is functional, with recovery attempt
         if (
             hasattr(backend, "is_backend_functional")

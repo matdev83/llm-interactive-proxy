@@ -101,7 +101,9 @@ async def cmd_remove(storage: TokenStorageService, args: argparse.Namespace) -> 
     if deleted:
         print(f"Removed account: {args.account_id}")
         print("\nNote: This only removes the local credentials file.")
-        print("You may also want to revoke access in your Google Account security settings:")
+        print(
+            "You may also want to revoke access in your Google Account security settings:"
+        )
         print("https://myaccount.google.com/permissions")
     else:
         print(f"Error: Account '{args.account_id}' not found.")
@@ -125,7 +127,9 @@ async def cmd_show(storage: TokenStorageService, args: argparse.Namespace) -> No
     print(f"Created At:    {account.created_at}")
     print(f"Updated At:    {account.updated_at}")
     print(f"Last Used:     {account.last_used or 'Never'}")
-    print(f"Expiry Date:   {account.expiry_date} ({datetime.fromtimestamp(account.expiry_date / 1000, tz=timezone.utc).isoformat()})")
+    print(
+        f"Expiry Date:   {account.expiry_date} ({datetime.fromtimestamp(account.expiry_date / 1000, tz=timezone.utc).isoformat()})"
+    )
     print(f"Needs Reauth:  {account.needs_reauth}")
     print(f"Scopes:        {account.scope}")
 
@@ -143,11 +147,17 @@ def main() -> None:
 
     # List command
     list_parser = subparsers.add_parser("list", help="List registered accounts")
-    list_parser.add_argument("--json", action="store_true", help="Output in JSON format")
+    list_parser.add_argument(
+        "--json", action="store_true", help="Output in JSON format"
+    )
 
-    show_parser = subparsers.add_parser("show", help="Show detailed account information")
+    show_parser = subparsers.add_parser(
+        "show", help="Show detailed account information"
+    )
     show_parser.add_argument("account_id", help="Identifier of the account to show")
-    show_parser.add_argument("--json", action="store_true", help="Output in JSON format")
+    show_parser.add_argument(
+        "--json", action="store_true", help="Output in JSON format"
+    )
 
     # Add command
     add_parser = subparsers.add_parser("add", help="Add a new Google account")
@@ -165,7 +175,9 @@ def main() -> None:
         "update", help="Update (re-authorize) an existing account"
     )
     update_parser.add_argument("account_id", help="Identifier of the account to update")
-    update_parser.add_argument("--port", type=int, help="Fixed port for callback server")
+    update_parser.add_argument(
+        "--port", type=int, help="Fixed port for callback server"
+    )
     update_parser.add_argument(
         "--timeout", type=int, default=120, help="Authorization timeout in seconds"
     )

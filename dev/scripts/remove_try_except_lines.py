@@ -1,6 +1,5 @@
 """Script to remove try/except blocks from test_stages.py using line-by-line processing."""
 
-
 # Read the file
 with open("src/core/app/stages/test_stages.py", encoding="utf-8") as f:
     lines = f.readlines()

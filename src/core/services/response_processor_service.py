@@ -13,7 +13,6 @@ from src.core.common.exceptions import (
     LoopDetectionError,
     ParsingError,
 )
-
 from src.core.domain.chat import StreamingChatResponse
 from src.core.domain.request_context import RequestContext
 from src.core.domain.streaming_response_processor import (
@@ -326,7 +325,9 @@ class ResponseProcessor(IResponseProcessor):
                 # Find the steering message (last user message with steering marker)
                 steering_message = None
                 for msg in reversed(correction_request.messages):
-                    if msg.role == "user" and "ANGEL STEERING" in (str(msg.content) or ""):
+                    if msg.role == "user" and "ANGEL STEERING" in (
+                        str(msg.content) or ""
+                    ):
                         steering_message = msg
                         break
 
@@ -393,7 +394,6 @@ class ResponseProcessor(IResponseProcessor):
                     exc_info=True,
                 )
             return {"action": "pass"}
-
 
     def add_background_task(self, task: asyncio.Task[Any]) -> None:
         """Add a background task to be managed by the processor.
@@ -963,19 +963,19 @@ class ResponseProcessor(IResponseProcessor):
 
         # Sanitize metadata to ensure all values are JSON-serializable
         sanitized = sanitize_dict_for_json(metadata)
-        
+
         # FIX: Restore tool_calls if lost during sanitization (e.g. recursion limits or bug)
         if "tool_calls" in metadata and not sanitized.get("tool_calls"):
-             # Manually sanitize tool_calls list to ensure it survives
-             raw_tools = metadata["tool_calls"]
-             if isinstance(raw_tools, list):
-                 sanitized_tools = []
-                 for tool in raw_tools:
-                     if isinstance(tool, dict) or type(tool) is dict:
-                         # Create new dict to avoid reference issues
-                         sanitized_tools.append(dict(tool))
-                 if sanitized_tools:
-                     sanitized["tool_calls"] = sanitized_tools
+            # Manually sanitize tool_calls list to ensure it survives
+            raw_tools = metadata["tool_calls"]
+            if isinstance(raw_tools, list):
+                sanitized_tools = []
+                for tool in raw_tools:
+                    if isinstance(tool, dict) or type(tool) is dict:
+                        # Create new dict to avoid reference issues
+                        sanitized_tools.append(dict(tool))
+                if sanitized_tools:
+                    sanitized["tool_calls"] = sanitized_tools
         return sanitized
 
     @staticmethod

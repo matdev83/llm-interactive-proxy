@@ -63,7 +63,6 @@ def _sanitize_parameters(params: Any) -> dict[str, Any]:
     return result
 
 
-
 logger = logging.getLogger(__name__)
 
 _FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,63}$")

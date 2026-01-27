@@ -182,6 +182,17 @@ class ModelReplacementService:
             self._metrics.record_opt_out(session_id, "header")
             return False
 
+        # Do not apply random model replacement to multi-account oauth-auto backends.
+        # Those backends implement their own quota/rate-limit mitigation via account rotation,
+        # and replacement can unintentionally route traffic back to single-account backends.
+        if original_backend and "oauth-auto" in original_backend:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Replacement disabled for oauth-auto backend %s", original_backend
+                )
+            self._metrics.record_opt_out(session_id, "backend")
+            return False
+
         # Get state, but don't create it yet
         state = self._session_states.get(session_id)
 

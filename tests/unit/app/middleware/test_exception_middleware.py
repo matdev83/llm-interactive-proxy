@@ -7,6 +7,7 @@ from src.core.common.exceptions import RateLimitExceededError
 
 
 def test_domain_exception_middleware_sets_retry_after_header(monkeypatch):
+    """Test that DomainExceptionMiddleware converts RateLimitExceededError to 429 with Retry-After header."""
     app = FastAPI()
     app.add_middleware(DomainExceptionMiddleware)
 

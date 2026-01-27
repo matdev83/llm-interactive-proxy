@@ -46,7 +46,7 @@ def test_build_verification_messages_truncates_history() -> None:
     # Create 50 messages
     history = [ChatMessage(role="user", content=str(i)) for i in range(50)]
     request = ChatRequest(model="test", messages=history)
-    
+
     messages = svc.build_verification_messages(request, "response")
     # System prompt + MAX_HISTORY (10) + Assistant Response = 12
     assert len(messages) == 12
@@ -61,13 +61,12 @@ def test_build_verification_messages_no_truncation_by_default() -> None:
     # Create 50 messages
     history = [ChatMessage(role="user", content=str(i)) for i in range(50)]
     request = ChatRequest(model="test", messages=history)
-    
+
     messages = svc.build_verification_messages(request, "response")
     # System prompt + ALL HISTORY (50) + Assistant Response = 52
     assert len(messages) == 52
     assert messages[0].role == "system"
     assert messages[-2].content == "49"
-
 
 
 @pytest.mark.parametrize(

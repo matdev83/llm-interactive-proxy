@@ -56,9 +56,7 @@ class PytestCompressionService:
         tool_name = tool_call.function.name
         if not tool_name:
             return None
-        detection_result = self.scan_for_pytest(
-            tool_name, tool_call.function.arguments
-        )
+        detection_result = self.scan_for_pytest(tool_name, tool_call.function.arguments)
         if detection_result:
             return detection_result
         return None

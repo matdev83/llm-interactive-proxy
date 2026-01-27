@@ -129,7 +129,7 @@ async def test_request_processor_populates_requested_model() -> None:
     session_manager = AsyncMock()
     backend_request_manager = AsyncMock()
     response_manager = AsyncMock()
-    
+
     session_manager.resolve_session_id.return_value = "test-session"
     session_manager.get_session.return_value = AsyncMock(id="test-session")
 
@@ -179,24 +179,26 @@ async def test_request_processor_populates_requested_model() -> None:
     # Assert
     # 1. requested_model should correspond to the original request
     assert context.requested_model == original_model
-    
+
     # 2. effective_model should correspond to the replacement
     assert context.effective_model == "replacement-model"
     assert context.backend == "replacement-backend"
-    
+
     # 3. Context propagation check (ensure with_processing_context copies it)
     new_context = context.with_processing_context(foo="bar")
     assert new_context.requested_model == original_model
 
 
 @pytest.mark.asyncio
-async def test_request_processor_populates_requested_model_without_replacement() -> None:
+async def test_request_processor_populates_requested_model_without_replacement() -> (
+    None
+):
     """Test that requested_model is populated even when no replacement occurs."""
     command_processor = MockCommandProcessor()
     session_manager = AsyncMock()
     backend_request_manager = AsyncMock()
     response_manager = AsyncMock()
-    
+
     session_manager.resolve_session_id.return_value = "test-session"
     session_manager.get_session.return_value = AsyncMock(id="test-session")
 

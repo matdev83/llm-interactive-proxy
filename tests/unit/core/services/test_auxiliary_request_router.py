@@ -1,6 +1,5 @@
 """Tests for auxiliary request router."""
 
-
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.services.auxiliary_request_router import (
     AuxiliaryRequestDetector,
@@ -16,35 +15,39 @@ class TestAuxiliaryRequestDetector:
         """When disabled, always returns False."""
         config = AuxiliaryRoutingConfig(enabled=False, backend="test-backend")
         detector = AuxiliaryRequestDetector(config)
-        
+
         request = ChatRequest(
             model="test-model",
             messages=[
-                ChatMessage(role="user", content="The following is the text to summarize: hello"),
+                ChatMessage(
+                    role="user", content="The following is the text to summarize: hello"
+                ),
             ],
         )
-        
+
         assert detector.is_auxiliary_request(request) is False
 
     def test_no_backend_returns_false(self) -> None:
         """When no backend configured, returns False."""
         config = AuxiliaryRoutingConfig(enabled=True, backend=None)
         detector = AuxiliaryRequestDetector(config)
-        
+
         request = ChatRequest(
             model="test-model",
             messages=[
-                ChatMessage(role="user", content="The following is the text to summarize: hello"),
+                ChatMessage(
+                    role="user", content="The following is the text to summarize: hello"
+                ),
             ],
         )
-        
+
         assert detector.is_auxiliary_request(request) is False
 
     def test_detects_summarize_pattern(self) -> None:
         """Detects 'The following is the text to summarize' pattern."""
         config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")
         detector = AuxiliaryRequestDetector(config)
-        
+
         request = ChatRequest(
             model="test-model",
             messages=[
@@ -55,35 +58,37 @@ class TestAuxiliaryRequestDetector:
                 ),
             ],
         )
-        
+
         assert detector.is_auxiliary_request(request) is True
 
     def test_detects_title_generation_pattern(self) -> None:
         """Detects 'Generate a title' pattern."""
         config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")
         detector = AuxiliaryRequestDetector(config)
-        
+
         request = ChatRequest(
             model="test-model",
             messages=[
-                ChatMessage(role="user", content="Generate a short title for this conversation"),
+                ChatMessage(
+                    role="user", content="Generate a short title for this conversation"
+                ),
             ],
         )
-        
+
         assert detector.is_auxiliary_request(request) is True
 
     def test_does_not_detect_normal_conversation(self) -> None:
         """Does not detect normal conversation as auxiliary."""
         config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")
         detector = AuxiliaryRequestDetector(config)
-        
+
         request = ChatRequest(
             model="test-model",
             messages=[
                 ChatMessage(role="user", content="How can I fix this bug?"),
             ],
         )
-        
+
         assert detector.is_auxiliary_request(request) is False
 
     def test_respects_max_message_count(self) -> None:
@@ -94,7 +99,7 @@ class TestAuxiliaryRequestDetector:
             max_message_count=2,
         )
         detector = AuxiliaryRequestDetector(config)
-        
+
         # 4 messages - exceeds max_message_count of 2
         request = ChatRequest(
             model="test-model",
@@ -108,7 +113,7 @@ class TestAuxiliaryRequestDetector:
                 ),
             ],
         )
-        
+
         assert detector.is_auxiliary_request(request) is False
 
 
@@ -120,11 +125,11 @@ class TestAuxiliaryRequestRouter:
         config_disabled = AuxiliaryRoutingConfig(enabled=False)
         router_disabled = AuxiliaryRequestRouter(config_disabled)
         assert router_disabled.enabled is False
-        
+
         config_enabled_no_backend = AuxiliaryRoutingConfig(enabled=True, backend=None)
         router_no_backend = AuxiliaryRequestRouter(config_enabled_no_backend)
         assert router_no_backend.enabled is False
-        
+
         config_enabled = AuxiliaryRoutingConfig(enabled=True, backend="test")
         router_enabled = AuxiliaryRequestRouter(config_enabled)
         assert router_enabled.enabled is True
@@ -133,7 +138,7 @@ class TestAuxiliaryRequestRouter:
         """get_auxiliary_backend returns configured backend."""
         config = AuxiliaryRoutingConfig(enabled=True, backend="openrouter")
         router = AuxiliaryRequestRouter(config)
-        
+
         assert router.get_auxiliary_backend() == "openrouter"
 
     def test_get_auxiliary_model(self) -> None:
@@ -144,21 +149,21 @@ class TestAuxiliaryRequestRouter:
             model="google/gemini-flash-1.5",
         )
         router = AuxiliaryRequestRouter(config)
-        
+
         assert router.get_auxiliary_model() == "google/gemini-flash-1.5"
 
     def test_stats_tracking(self) -> None:
         """Router tracks request statistics."""
         config = AuxiliaryRoutingConfig(enabled=True, backend="aux")
         router = AuxiliaryRequestRouter(config)
-        
+
         # Normal request
         normal_request = ChatRequest(
             model="test",
             messages=[ChatMessage(role="user", content="Hello")],
         )
         router.should_route_to_auxiliary(normal_request)
-        
+
         # Auxiliary request
         aux_request = ChatRequest(
             model="test",
@@ -170,7 +175,7 @@ class TestAuxiliaryRequestRouter:
             ],
         )
         router.should_route_to_auxiliary(aux_request)
-        
+
         stats = router.get_stats()
         assert stats["total_request_count"] == 2
         assert stats["auxiliary_request_count"] == 1

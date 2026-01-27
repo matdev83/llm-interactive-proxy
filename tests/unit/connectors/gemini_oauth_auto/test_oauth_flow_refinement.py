@@ -32,9 +32,9 @@ class TestOAuthFlowRefinement:
             code=None,
             error="access_denied",
             expected_state="state",
-            code_received_future=future
+            code_received_future=future,
         )
-        
+
         assert response.headers["location"] == FAILURE_REDIRECT
         assert future.done()
         with pytest.raises(OAuthError, match="access_denied"):
@@ -48,9 +48,9 @@ class TestOAuthFlowRefinement:
             code="code",
             error=None,
             expected_state="expected_state",
-            code_received_future=future
+            code_received_future=future,
         )
-        
+
         assert response.headers["location"] == FAILURE_REDIRECT
         assert future.done()
         with pytest.raises(OAuthError, match="State parameter mismatch"):
@@ -64,9 +64,9 @@ class TestOAuthFlowRefinement:
             code=None,
             error=None,
             expected_state="state",
-            code_received_future=future
+            code_received_future=future,
         )
-        
+
         assert response.headers["location"] == FAILURE_REDIRECT
         assert future.done()
         with pytest.raises(OAuthError, match="No authorization code received"):
@@ -80,9 +80,9 @@ class TestOAuthFlowRefinement:
             code="good_code",
             error=None,
             expected_state="state",
-            code_received_future=future
+            code_received_future=future,
         )
-        
+
         assert response.headers["location"] == SUCCESS_REDIRECT
         assert future.done()
         assert future.result() == "good_code"
@@ -92,38 +92,44 @@ class TestOAuthFlowRefinement:
         """Test authorize when account already exists (update flow)."""
         mock_account = MagicMock()
         mock_account.with_updated_tokens.return_value = MagicMock()
-        
+
         oauth_service._storage.get_account = AsyncMock(return_value=mock_account)
         oauth_service._storage.save_account = AsyncMock()
         oauth_service._http_client = MagicMock()
-        
+
         # Mock internal methods to simulate a successful flow
-        oauth_service._exchange_code = AsyncMock(return_value={
-            "access_token": "new_access",
-            "expires_in": 3600,
-            "refresh_token": "new_refresh",
-            "scope": "scope"
-        })
-        oauth_service._fetch_userinfo = AsyncMock(return_value={"email": "test@gmail.com"})
-        
+        oauth_service._exchange_code = AsyncMock(
+            return_value={
+                "access_token": "new_access",
+                "expires_in": 3600,
+                "refresh_token": "new_refresh",
+                "scope": "scope",
+            }
+        )
+        oauth_service._fetch_userinfo = AsyncMock(
+            return_value={"email": "test@gmail.com"}
+        )
+
         # Mock uvicorn and webbrowser
-        with patch("webbrowser.open"), \
-             patch("uvicorn.Server.serve", new_callable=AsyncMock):
-            
+        with (
+            patch("webbrowser.open"),
+            patch("uvicorn.Server.serve", new_callable=AsyncMock),
+        ):
+
             # Simulate code received
             async def simulate_code(*args, **kwargs):
                 # We need to find the code_received future and set it
-                # This is a bit complex due to scoping, let's just mock the whole authorize 
+                # This is a bit complex due to scoping, let's just mock the whole authorize
                 # or parts of it.
                 pass
 
-            # Instead of mocking everything, let's just test the logic after code exchange 
+            # Instead of mocking everything, let's just test the logic after code exchange
             # in a separate test if needed, but here we want to cover line 171.
-            
+
             # Let's use a simpler approach: test the logic inside authorize by patching wait_for
             with patch("asyncio.wait_for", AsyncMock(return_value="code123")):
                 await oauth_service.authorize(open_browser=False)
-                
+
                 # Verify get_account was called
                 oauth_service._storage.get_account.assert_called()
                 # Verify with_updated_tokens was called
@@ -132,5 +138,6 @@ class TestOAuthFlowRefinement:
                 oauth_service._storage.save_account.assert_called_with(
                     mock_account.with_updated_tokens.return_value
                 )
+
 
 from unittest.mock import patch

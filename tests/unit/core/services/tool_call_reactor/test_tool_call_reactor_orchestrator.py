@@ -726,9 +726,7 @@ class TestEndOfSessionCheck:
         )
         context = ToolCallReactorContext(stream_key="test-stream")
 
-        await orchestrator.handle(
-            response, "test-session", context, is_streaming=False
-        )
+        await orchestrator.handle(response, "test-session", context, is_streaming=False)
 
         # Should process tool calls normally (no EoS check)
         mock_reactor.process_tool_call.assert_called_once()

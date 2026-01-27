@@ -202,7 +202,9 @@ class DangerousCommandCheck(ISecurityCheck):
                 except re.error:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Failed to compile built-in pattern: %s", name, exc_info=True
+                            "Failed to compile built-in pattern: %s",
+                            name,
+                            exc_info=True,
                         )
 
         # Add custom rules

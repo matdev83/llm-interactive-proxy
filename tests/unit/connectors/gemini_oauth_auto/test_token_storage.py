@@ -353,8 +353,10 @@ class TestTokenStorageService:
         """Test load_all_accounts skips files with validation errors."""
         temp_storage_dir.mkdir(parents=True, exist_ok=True)
         account_file = temp_storage_dir / "invalid_model.json"
-        account_file.write_text('{"account_id": "test"}', encoding="utf-8") # Missing required fields
-        
+        account_file.write_text(
+            '{"account_id": "test"}', encoding="utf-8"
+        )  # Missing required fields
+
         accounts = await storage_service.load_all_accounts()
         assert len(accounts) == 0
 
@@ -367,9 +369,12 @@ class TestTokenStorageService:
     ) -> None:
         """Test save_account cleans up temp file on write error."""
         # Patch os.fdopen to fail
-        with patch("os.fdopen", side_effect=Exception("Write failed")), pytest.raises(Exception, match="Write failed"):
+        with (
+            patch("os.fdopen", side_effect=Exception("Write failed")),
+            pytest.raises(Exception, match="Write failed"),
+        ):
             await storage_service.save_account(valid_account)
-        
+
         # Temp file should be gone (cleaned up in finally block)
         temp_files = list(temp_storage_dir.glob("*.tmp"))
         assert len(temp_files) == 0
@@ -384,8 +389,9 @@ class TestTokenStorageService:
         # Ensure directory does not exist
         if temp_storage_dir.exists():
             import shutil
+
             shutil.rmtree(temp_storage_dir)
-            
+
         accounts = await storage_service.load_all_accounts()
         assert accounts == []
 

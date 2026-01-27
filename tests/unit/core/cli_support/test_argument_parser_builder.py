@@ -727,7 +727,6 @@ class TestRandomModelReplacementFlags:
 # =============================================================================
 
 
-
 class TestArgumentGroups:
     """Tests for argument group organization."""
 
@@ -792,7 +791,6 @@ class TestArgumentGroups:
         """Parser has a Random Model Replacement argument group."""
         group_names = [g.title for g in parser._action_groups]
         assert "Random Model Replacement" in group_names
-
 
 
 # =============================================================================

@@ -467,7 +467,9 @@ async def test_property_38_streaming_turn_completion(
 
     # Check state after first request - first turn is skipped, replacement not activated
     state_after_first = replacement_service.get_state(session_id)
-    assert not state_after_first.active, "Replacement should not be active after first request (first turn skip)"
+    assert (
+        not state_after_first.active
+    ), "Replacement should not be active after first request (first turn skip)"
 
     # Process second request - this should activate replacement and then complete the turn
     await processor.process_request(context, request_data)
@@ -621,7 +623,9 @@ async def test_turn_completion_on_error(
 
     # Check that first turn was skipped, replacement not active
     state = replacement_service.get_state(session_id)
-    assert not state.active, "Replacement should not be active after first request (first turn skip)"
+    assert (
+        not state.active
+    ), "Replacement should not be active after first request (first turn skip)"
 
     # Process the second request - should raise an error but still complete turn
     with contextlib.suppress(Exception):

@@ -119,3 +119,10 @@ var/*.json
 var/*.jsonl
 var/*.py
 pyright_output.json
+
+# OAuth account credentials (never commit!)
+var/gemini_oauth_accounts/
+var/kiro_oauth_accounts/
+
+# LevelDB test data (may contain sensitive data)
+leveldb_test/

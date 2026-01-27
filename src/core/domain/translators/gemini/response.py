@@ -42,7 +42,9 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
                 thought_signature = None
                 for part in parts:
                     if isinstance(part, dict):
-                        sig = part.get("thoughtSignature") or part.get("thought_signature")
+                        sig = part.get("thoughtSignature") or part.get(
+                            "thought_signature"
+                        )
                         if sig:
                             thought_signature = sig
                             break
@@ -63,7 +65,7 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
 
                     if "text" in part and not part.get("functionCall"):
                         safe_text = _safe_string(part.get("text"))
-                        
+
                         # Check if metadata indicates this is also reasoning
                         metadata = part.get("metadata", {})
                         if isinstance(metadata, dict):
@@ -73,16 +75,19 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
                                 or metadata.get("thinking")
                                 or metadata.get("reasoning")
                             )
-                            
+
                             if metadata_reasoning:
                                 reasoning_segments.append(metadata_reasoning)
-                            
+
                             meta_type = str(metadata.get("type", "")).lower()
                             if meta_type in {"thinking", "thought"} and safe_text:
                                 # Avoid adding the same text twice if it was already added from metadata fields
-                                if not metadata_reasoning or metadata_reasoning != safe_text:
+                                if (
+                                    not metadata_reasoning
+                                    or metadata_reasoning != safe_text
+                                ):
                                     reasoning_segments.append(safe_text)
-                                
+
                                 # If it's explicitly marked as thinking/thought, don't treat it as regular content
                                 continue
 

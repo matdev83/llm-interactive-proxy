@@ -167,7 +167,6 @@ class TestRandomModelReplacementValidation:
         validator.validate(args)  # type: ignore[union-attr]
 
 
-
 class TestLlmAssessmentValidation:
     """Tests for LLM assessment configuration validation."""
 
