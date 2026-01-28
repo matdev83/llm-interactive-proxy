@@ -9,7 +9,11 @@ enabling testing with mock implementations and avoiding coupling to concrete
 connector classes.
 """
 
+# pyright: reportPrivateUsage=false, reportPrivateImportUsage=false
+
 import asyncio
+import contextlib
+import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -33,6 +37,7 @@ from src.connectors.gemini_base.thought_signature_service import (
 )
 from src.core.common.exceptions import AuthenticationError
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
+from src.core.utils.token_count import extract_prompt_text
 
 if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
@@ -319,6 +324,27 @@ class ChatRequestPreparer:
             canonical_request, session_id, effective_model
         )
 
+        # If the prompt contains tool calls without thought signatures, Vertex will reject
+        # the request (400 INVALID_ARGUMENT). This commonly happens when a client switches
+        # from a non-Gemini backend mid-session: those tool_calls cannot have valid
+        # Google thought signatures.
+        #
+        # Best-effort mitigation: downgrade such tool calls to plain text transcript and
+        # convert `role=tool` messages into normal user text, so the session can continue.
+        missing_signatures = self._count_tool_calls_missing_thought_signature(
+            canonical_request
+        )
+        if missing_signatures:
+            logger.warning(
+                "Downgrading tool calls to plain text due to missing Gemini thought signatures",
+                extra={
+                    "missing_signatures": missing_signatures,
+                    "effective_model": effective_model,
+                    "session_id": session_id[:8] if session_id else "none",
+                },
+            )
+            canonical_request = self._downgrade_tool_calls_to_text(canonical_request)
+
         # Convert from canonical/domain format to Gemini API format
         if self._translation_service is None:
             raise ValueError("translation_service is required")
@@ -407,6 +433,168 @@ class ChatRequestPreparer:
             session_id=session_id,
             build_request_body=build_request_body,
         )
+
+    def _has_tool_calls_missing_thought_signature(self, canonical_request: Any) -> bool:
+        return self._count_tool_calls_missing_thought_signature(canonical_request) > 0
+
+    def _count_tool_calls_missing_thought_signature(
+        self, canonical_request: Any
+    ) -> int:
+        messages = getattr(canonical_request, "messages", None)
+        if not isinstance(messages, list) or not messages:
+            return 0
+
+        missing = 0
+        for msg in messages:
+            if isinstance(msg, dict):
+                role = msg.get("role")
+                tool_calls = msg.get("tool_calls")
+            else:
+                role = getattr(msg, "role", None)
+                tool_calls = getattr(msg, "tool_calls", None)
+
+            if role != "assistant" or not tool_calls:
+                continue
+            if not isinstance(tool_calls, list):
+                continue
+
+            for tc in tool_calls:
+                sig = self._extract_thought_signature(tc)
+                if not sig:
+                    missing += 1
+
+        return missing
+
+    def _extract_thought_signature(self, tc: Any) -> str | None:
+        extra_content: Any | None = None
+        if isinstance(tc, dict):
+            extra_content = tc.get("extra_content")
+        else:
+            extra_content = getattr(tc, "extra_content", None)
+
+        if not isinstance(extra_content, dict):
+            return None
+
+        google_extra = extra_content.get("google")
+        if isinstance(google_extra, dict):
+            sig = google_extra.get("thought_signature")
+            if isinstance(sig, str) and sig:
+                return sig
+
+        # Some older paths may store the signature at the top-level extra_content.
+        sig2 = extra_content.get("thought_signature")
+        if isinstance(sig2, str) and sig2:
+            return sig2
+
+        return None
+
+    def _downgrade_tool_calls_to_text(self, canonical_request: Any) -> Any:
+        """Downgrade tool calls/results to plain text for signature-required backends.
+
+        Vertex Code Assist requires thought signatures on functionCall parts.
+        When we don't have them (e.g., backend switch from a non-Gemini model),
+        we convert tool calls/results into regular text so the request is still valid.
+        """
+
+        from src.core.domain.chat import ChatMessage, MessageContentPartText
+
+        messages = getattr(canonical_request, "messages", None)
+        if not isinstance(messages, list) or not messages:
+            return
+
+        downgraded: list[ChatMessage] = []
+
+        for msg in messages:
+            if isinstance(msg, dict):
+                msg = ChatMessage(
+                    role=str(msg.get("role", "user")),
+                    content=msg.get("content"),
+                    tool_calls=msg.get("tool_calls"),
+                    tool_call_id=msg.get("tool_call_id"),
+                )
+
+            if not isinstance(msg, ChatMessage):
+                continue
+
+            if msg.role == "assistant" and msg.tool_calls:
+                tool_lines: list[str] = []
+                for tc in msg.tool_calls:
+                    if isinstance(tc, dict):
+                        fn = tc.get("function")
+                        fn_name = fn.get("name") if isinstance(fn, dict) else None
+                        fn_args = fn.get("arguments") if isinstance(fn, dict) else None
+                    else:
+                        fn = getattr(tc, "function", None)
+                        fn_name = getattr(fn, "name", None)
+                        fn_args = getattr(fn, "arguments", None)
+
+                    if not isinstance(fn_name, str) or not fn_name:
+                        continue
+                    if fn_args is None:
+                        fn_args = "{}"
+                    if not isinstance(fn_args, str):
+                        fn_args = json.dumps(fn_args)
+
+                    # IMPORTANT: Do not use protocol-like prefixes such as "tool_call:".
+                    # Some clients treat that as an actual tool invocation.
+                    tool_lines.append(f"[TOOL INVOCATION] {fn_name}({fn_args})")
+
+                new_content = msg.content
+                if tool_lines:
+                    appendix = "\n".join(tool_lines)
+                    if new_content is None:
+                        new_content = appendix
+                    elif isinstance(new_content, str):
+                        if new_content:
+                            new_content = f"{new_content}\n{appendix}"
+                        else:
+                            new_content = appendix
+                    else:
+                        try:
+                            new_parts = list(new_content)
+                        except TypeError:
+                            new_parts = [MessageContentPartText(text=str(new_content))]
+                        new_parts.append(MessageContentPartText(text=appendix))
+                        new_content = new_parts
+
+                downgraded.append(
+                    ChatMessage(
+                        role="assistant",
+                        content=new_content,
+                        reasoning_content=msg.reasoning_content,
+                        name=msg.name,
+                    )
+                )
+                continue
+
+            if msg.role == "tool":
+                tool_text = extract_prompt_text([msg])
+                if tool_text.startswith("tool:"):
+                    tool_text = tool_text[len("tool:") :].lstrip()
+                prefix = "Tool result"
+                if msg.tool_call_id:
+                    prefix = f"{prefix} (tool_call_id={msg.tool_call_id})"
+                downgraded.append(
+                    ChatMessage(
+                        role="user",
+                        content=f"{prefix}: {tool_text}",
+                    )
+                )
+                continue
+
+            downgraded.append(msg)
+
+        # CanonicalChatRequest is typically frozen (ValueObject). Prefer model_copy.
+        if hasattr(canonical_request, "model_copy"):
+            try:
+                return canonical_request.model_copy(update={"messages": downgraded})
+            except Exception:
+                # Fall back to best-effort attribute assignment for legacy callers/tests.
+                pass
+
+        with contextlib.suppress(Exception):
+            canonical_request.messages = downgraded
+        return canonical_request
 
 
 __all__ = [

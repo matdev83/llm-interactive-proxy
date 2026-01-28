@@ -165,6 +165,30 @@ class SessionApplicator:
                 origin="--angel-frequency",
             )
 
+        if getattr(args, "angel_max_history", None) is not None:
+            max_history: int | None
+            try:
+                max_history = int(args.angel_max_history)
+            except (TypeError, ValueError):
+                max_history = None
+
+            # Normalize: treat non-positive as disabled
+            if max_history is not None and max_history <= 0:
+                max_history = None
+
+            session = overrides.setdefault("session", {})
+            session["angel_max_history"] = max_history
+            if max_history is None:
+                os.environ.pop("ANGEL_MAX_HISTORY", None)
+            else:
+                os.environ["ANGEL_MAX_HISTORY"] = str(max_history)
+            resolution.record(
+                "session.angel_max_history",
+                max_history,
+                ParameterSource.CLI,
+                origin="--angel-max-history",
+            )
+
     def _apply_planning_phase(
         self,
         args: CliArgs,

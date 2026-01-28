@@ -31,6 +31,12 @@ def apply_config_part1b(
     resolution: ParameterResolution | None,
     planning_overrides: dict[str, Any],
 ) -> None:
+    def _optional_int(value: str) -> int | None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
     config["session"] = {
         "cleanup_enabled": _env_to_bool(
             "SESSION_CLEANUP_ENABLED",
@@ -250,10 +256,18 @@ def apply_config_part1b(
         ),
         "angel_frequency": _env_to_int(
             "ANGEL_FREQUENCY",
-            1,
+            10,
             env,
             path="session.angel_frequency",
             resolution=resolution,
+        ),
+        "angel_max_history": _get_env_value(
+            env,
+            "ANGEL_MAX_HISTORY",
+            None,
+            path="session.angel_max_history",
+            resolution=resolution,
+            transform=_optional_int,
         ),
         "streaming_sampler": {
             "enabled": _env_to_bool(

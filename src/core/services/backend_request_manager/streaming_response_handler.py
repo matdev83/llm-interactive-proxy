@@ -78,6 +78,8 @@ class AngelConfig:
     model_spec: str | None
     frequency: int
     max_history: int | None
+    eligible_turn_count: int | None
+    skip_verification: bool
 
 
 class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
@@ -281,8 +283,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         # Extract from RequestContext extensions if available
         # This follows the architectural pattern of using typed fields instead of direct app_state access
         angel_model_spec: str | None = None
-        angel_frequency: int = 1
+        angel_frequency: int = 10
         angel_max_history: int | None = None
+        eligible_turn_count: int | None = None
+        skip_verification = False
 
         if hasattr(context, "extensions") and context.extensions:
             angel_model_spec_value = context.extensions.get("angel_model", None)
@@ -291,7 +295,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 if angel_model_spec_value is not None
                 else None
             )
-            angel_frequency_value = context.extensions.get("angel_frequency", 1)
+            angel_frequency_value = context.extensions.get("angel_frequency", 10)
             # Convert JsonValue to int safely
             if angel_frequency_value is not None:
                 if isinstance(angel_frequency_value, int | float):
@@ -300,11 +304,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     try:
                         angel_frequency = int(angel_frequency_value)
                     except (ValueError, TypeError):
-                        angel_frequency = 1  # default value
+                        angel_frequency = 10  # default value
                 else:
-                    angel_frequency = 1  # default value
+                    angel_frequency = 10  # default value
             else:
-                angel_frequency = 1  # default value
+                angel_frequency = 10  # default value
 
             angel_max_history_value = context.extensions.get("angel_max_history", None)
             if angel_max_history_value is not None:
@@ -320,10 +324,34 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             else:
                 angel_max_history = None
 
+            # Optional per-request eligible turn counter and skip flag
+            eligible_turn_value = context.extensions.get(
+                "angel_eligible_turn_count", None
+            )
+            if eligible_turn_value is not None:
+                try:
+                    if isinstance(eligible_turn_value, int | float | str):
+                        eligible_turn_count = int(eligible_turn_value)
+                except (TypeError, ValueError):
+                    eligible_turn_count = None
+
+            skip_value = context.extensions.get("angel_skip_verification", None)
+            if isinstance(skip_value, bool):
+                skip_verification = skip_value
+            elif isinstance(skip_value, str):
+                skip_verification = skip_value.strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                    "on",
+                }
+
         return AngelConfig(
             model_spec=angel_model_spec,
             frequency=angel_frequency,
             max_history=angel_max_history,
+            eligible_turn_count=eligible_turn_count,
+            skip_verification=skip_verification,
         )
 
     def _wrap_with_middleware(
@@ -425,6 +453,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         angel_model_spec: str | None,
         angel_frequency: int,
         angel_max_history: int | None,
+        angel_eligible_turn_count: int | None,
+        angel_skip_verification: bool,
     ) -> AsyncIterator[ProcessedResponse]:
         """Apply Angel verification with fail-open behavior."""
         # Extract stream_id from request_context
@@ -445,6 +475,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             "angel_model_spec": angel_model_spec,
             "angel_frequency": angel_frequency,
             "angel_max_history": angel_max_history,
+            "angel_eligible_turn_count": angel_eligible_turn_count,
+            "angel_skip_verification": angel_skip_verification,
         }
 
         try:
@@ -627,6 +659,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             angel_model_spec,
             angel_frequency,
             angel_max_history,
+            angel_config.eligible_turn_count,
+            angel_config.skip_verification,
         )
 
         # Process stream with loop detection, tool-call retry, and empty-stream recovery

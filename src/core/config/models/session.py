@@ -213,7 +213,14 @@ class SessionConfig(DomainModel):
     force_reprocess_tool_calls: bool = False
     log_skipped_tool_calls: bool = False
     angel_model: str | None = None
-    angel_frequency: int = 1
+    # Angel verification frequency (every N eligible turns)
+    # Default intentionally conservative to limit latency/cost.
+    angel_frequency: int = 10
+
+    # Optional history truncation for Angel verification.
+    # Note: This is separate from model context-window settings and is applied only
+    # for the Angel verification request payload.
+    angel_max_history: int | None = None
 
     @field_validator("angel_frequency")
     @classmethod
@@ -221,7 +228,7 @@ class SessionConfig(DomainModel):
         try:
             freq = int(value)
         except (TypeError, ValueError):
-            return 1
+            return 10
         return freq if freq > 0 else 1
 
     @model_validator(mode="before")
@@ -314,11 +321,11 @@ class SessionConfig(DomainModel):
                     )
                 values["angel_model"] = None
 
-        freq_value = values.get("angel_frequency", 1)
+        freq_value = values.get("angel_frequency", 10)
         try:
             freq_int = int(freq_value)
         except (TypeError, ValueError):
-            freq_int = 1
+            freq_int = 10
         values["angel_frequency"] = freq_int if freq_int > 0 else 1
 
         return values

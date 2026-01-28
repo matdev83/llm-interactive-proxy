@@ -24,6 +24,7 @@ from src.core.transport.fastapi.request_adapters import (
 from src.core.transport.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 
@@ -47,6 +48,53 @@ class DomainExceptionMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
         self._logger = logging.getLogger(__name__)
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        """Compatibility path for call sites expecting BaseHTTPMiddleware.
+
+        The project intentionally avoids BaseHTTPMiddleware to prevent buffering
+        streaming responses, but some tests/legacy code call `dispatch()`
+        directly. This method mirrors the exception semantics of `__call__`.
+        """
+
+        try:
+            response = await call_next(request)
+            if isinstance(response, Response):
+                return response
+            # Defensive: some callers/tests use call_next returning None.
+            return JSONResponse(status_code=204, content=None)
+        except asyncio.CancelledError:
+            await self._report_client_termination_if_applicable(
+                request, ClientTerminationReason.CLIENT_CANCELLED
+            )
+            raise
+        except LLMProxyError as e:
+            if 400 <= int(getattr(e, "status_code", 500)) < 500:
+                self._logger.warning("Domain error: %s", e, exc_info=True)
+            else:
+                self._logger.error("Domain error: %s", e, exc_info=True)
+
+            headers = _build_retry_after_header(
+                getattr(e, "reset_at", None)
+                if isinstance(e, RateLimitExceededError)
+                else None
+            )
+            return JSONResponse(
+                status_code=int(getattr(e, "status_code", 500)),
+                content=e.to_dict(),
+                headers=headers,
+            )
+        except Exception as e:
+            self._logger.error("Unhandled exception: %s", e, exc_info=True)
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "message": "Internal Server Error",
+                        "type": "InternalError",
+                    }
+                },
+            )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process request and handle exceptions without buffering streams.

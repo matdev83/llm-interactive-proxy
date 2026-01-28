@@ -216,7 +216,7 @@ session:
   
   # Angel Verification
   angel_model: null            # "backend:model"
-  angel_frequency: 1
+  angel_frequency: 10          # Every N eligible turns (main-model turns)
   angel_max_history: null      # Optional history truncation (int)
   
   # Planning Phase

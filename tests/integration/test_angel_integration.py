@@ -207,7 +207,10 @@ def _make_mock_provider(backend_service: _FakeBackendService) -> Any:
 async def test_angel_integration_non_streaming_correction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = AppConfig(session=SessionConfig(angel_model="fake_backend:guardian"))
+    # Force Angel to run on this single-turn request.
+    config = AppConfig(
+        session=SessionConfig(angel_model="fake_backend:guardian", angel_frequency=1)
+    )
 
     def _response_factory() -> ResponseEnvelope:
         return ResponseEnvelope(content={"content": "initial output"})
@@ -258,7 +261,10 @@ async def test_angel_integration_non_streaming_correction(
 
 @pytest.mark.asyncio
 async def test_angel_integration_streaming_override() -> None:
-    config = AppConfig(session=SessionConfig(angel_model="fake_backend:guardian"))
+    # Force Angel to run on this single-turn request.
+    config = AppConfig(
+        session=SessionConfig(angel_model="fake_backend:guardian", angel_frequency=1)
+    )
 
     async def _stream() -> AsyncIterator[ProcessedResponse]:
         yield ProcessedResponse(content="Draft", metadata={})

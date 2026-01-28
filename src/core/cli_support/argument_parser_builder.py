@@ -226,7 +226,7 @@ class ArgumentParserBuilder:
             dest="angel_frequency",
             type=int,
             metavar="N",
-            help="Run Angel verification every N user turns (default: 1)",
+            help="Run Angel verification every N eligible turns (default: 10)",
         )
         parser.add_argument(
             "--angel-max-history",

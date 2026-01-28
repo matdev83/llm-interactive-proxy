@@ -143,15 +143,48 @@ class AngelService:
     @staticmethod
     def should_run_for_request(request: ChatRequest, frequency: int | None) -> bool:
         try:
-            freq = int(frequency) if frequency is not None else 1
+            freq = int(frequency) if frequency is not None else 10
         except (TypeError, ValueError):
-            freq = 1
+            freq = 10
         if freq <= 1:
             freq = 1
         user_turns = sum(1 for message in request.messages if message.role == "user")
         if user_turns <= 0:
             return False
         return user_turns % freq == 0
+
+    @staticmethod
+    def is_tool_result_followup_request(request: ChatRequest) -> bool:
+        """Return True when the request is a tool-result continuation.
+
+        Tool-result continuation requests typically contain one or more `tool` role
+        messages after the most recent `user` message. Verifying the *completion*
+        for such requests can lead to surprising behavior because the request payload
+        is largely produced by the tool execution environment rather than the user.
+
+        This is intentionally conservative: it only flags a request as a tool-followup
+        when the most recent tool message appears after the most recent user message.
+        """
+
+        try:
+            last_user_idx = -1
+            last_tool_idx = -1
+
+            for idx, msg in enumerate(getattr(request, "messages", []) or []):
+                role = getattr(msg, "role", None)
+                # Some call sites may provide dict-like messages.
+                if role is None and isinstance(msg, dict):
+                    role = msg.get("role")
+
+                if role == "user":
+                    last_user_idx = idx
+                elif role == "tool":
+                    last_tool_idx = idx
+
+            return last_tool_idx > last_user_idx and last_user_idx >= 0
+        except Exception:
+            # Fail-open: if we cannot reliably detect, do not classify as tool-followup.
+            return False
 
     def parse_model(self, default_backend: str = "") -> ParsedModelWithParams:
         return parse_model_with_params(self._model_spec, default_backend)
@@ -202,14 +235,13 @@ class AngelService:
 
         # Truncate history for Angel verification if enabled
         max_history = self._max_history
-        if max_history is not None and max_history > 0:
-            if len(history) > max_history:
-                # Always try to keep the original system prompt if it's the first message
-                if history and history[0].role == "system":
-                    truncated = [history[0]] + history[-(max_history - 1) :]
-                else:
-                    truncated = history[-max_history:]
-                history = truncated
+        if max_history is not None and max_history > 0 and len(history) > max_history:
+            # Always try to keep the original system prompt if it's the first message
+            if history and history[0].role == "system":
+                truncated = [history[0]] + history[-(max_history - 1) :]
+            else:
+                truncated = history[-max_history:]
+            history = truncated
 
         # Include (potentially truncated) context
         messages.extend(history)
@@ -225,7 +257,7 @@ class AngelService:
         model_info = self._resolve_model_for_request(request)
 
         def _to_float(val: Any) -> float | None:
-            if val is None or isinstance(val, (dict, list)):
+            if val is None or isinstance(val, dict | list):
                 return None
             try:
                 return float(val)
@@ -233,7 +265,7 @@ class AngelService:
                 return None
 
         def _to_int(val: Any) -> int | None:
-            if val is None or isinstance(val, (dict, list)):
+            if val is None or isinstance(val, dict | list):
                 return None
             try:
                 return int(val)

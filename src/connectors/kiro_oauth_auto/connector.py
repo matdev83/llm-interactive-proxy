@@ -18,7 +18,7 @@ from typing import Any, cast
 import httpx
 from fastapi import HTTPException
 
-from src.connectors.base import LLMBackend, add_vendor_prefix, strip_vendor_prefix
+from src.connectors.base import LLMBackend, add_vendor_prefix
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.kiro_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.kiro_oauth_auto.constants import (
@@ -123,15 +123,28 @@ class KiroOAuthAutoConnector(LLMBackend):
             self._available_models = await self._fetch_available_models()
 
     def get_available_models(self) -> list[str]:
-        models = self._available_models or [
+        # Implementation Note: Claude Opus 4.5 is functional but often hidden from the
+        # backend's ListAvailableModels response. We ensure it's always available
+        # in the returned list.
+        base_models = {
             "claude-sonnet-4.5",
             "claude-haiku-4.5",
             "claude-opus-4.5",
             "auto",
-        ]
+        }
+        
+        fetched_models = set(self._available_models)
+        
+        # Merge fetched models with our core known-good models
+        all_models = sorted(list(base_models.union(fetched_models)))
+        
+        # Explicitly remove models known to be unsupported/legacy if they show up
+        legacy_models = {"claude-sonnet-4"}
+        all_models = [m for m in all_models if m not in legacy_models]
+
         if self.VENDOR_PREFIX is None:
-            return list(models)
-        return [add_vendor_prefix(m, self.VENDOR_PREFIX) for m in models]
+            return all_models
+        return [add_vendor_prefix(m, self.VENDOR_PREFIX) for m in all_models]
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -176,11 +189,23 @@ class KiroOAuthAutoConnector(LLMBackend):
 
         # Effective model may include backend prefix and vendor prefix
         effective_model = request.effective_model
-        prefix = f"{self.backend_type}:"
-        if effective_model.startswith(prefix):
-            effective_model = effective_model[len(prefix) :]
+        if ":" in effective_model:
+            effective_model = effective_model.split(":", 1)[-1]
+
         if self.VENDOR_PREFIX is not None:
-            effective_model = strip_vendor_prefix(effective_model, self.VENDOR_PREFIX)
+            # Aggressive strip: handles both "amazon/" and "amazon:" if it somehow got there
+            for sep in ("/", ":"):
+                v_prefix = f"{self.VENDOR_PREFIX}{sep}"
+                if effective_model.startswith(v_prefix):
+                    effective_model = effective_model[len(v_prefix) :]
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Kiro completions: backend=%s, requested=%s, stripped=%s",
+                self.backend_type,
+                request.effective_model,
+                effective_model,
+            )
 
         if domain_request.stream:
             prompt_tokens = 0
@@ -274,6 +299,15 @@ class KiroOAuthAutoConnector(LLMBackend):
         created = created or int(time.time())
 
         payload = self._build_payload(request, effective_model=effective_model)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Kiro payload: modelId=%s, conversationId=%s",
+                payload.get("conversationState", {})
+                .get("currentMessage", {})
+                .get("userInputMessage", {})
+                .get("modelId"),
+                payload.get("conversationState", {}).get("conversationId"),
+            )
         preferred = self._config.preferred_endpoint or "codewhisperer"
 
         urls: list[tuple[str, str]] = []
@@ -300,7 +334,8 @@ class KiroOAuthAutoConnector(LLMBackend):
                 return
             except BackendError as exc:
                 last_exc = exc
-                if exc.status_code == 429 or exc.code == "quota_exceeded":
+                # Fallback on quota or invalid model (might be supported on the other endpoint)
+                if exc.status_code in (400, 429) or exc.code == "quota_exceeded":
                     continue
                 raise
             except Exception as exc:
@@ -575,38 +610,13 @@ class KiroOAuthAutoConnector(LLMBackend):
                     }
                 )
 
-        # Tool results: ONLY take the ones that follow the last assistant message
-        # (the ones produced for the current turn)
-        tool_results: list[dict[str, Any]] = []
-        messages_reversed = list(request.processed_messages)[::-1]
-        for msg in messages_reversed:
-            if isinstance(msg, dict):
-                role = msg.get("role")
-                tool_call_id = msg.get("tool_call_id")
-                content = msg.get("content")
-            else:
-                role = getattr(msg, "role", None)
-                tool_call_id = getattr(msg, "tool_call_id", None)
-                content = getattr(msg, "content", None)
-
-            if role == "assistant":
-                break
-            if role == "tool":
-                if not isinstance(tool_call_id, str) or not tool_call_id:
-                    continue
-                text = content if isinstance(content, str) else json.dumps(content)
-                tool_results.append(
-                    {
-                        "toolUseId": tool_call_id,
-                        "status": "success",
-                        "content": [{"text": text}],
-                    }
-                )
-
-        # We iterated newest-to-oldest; restore original order.
-        tool_results.reverse()
-
-        # Flatten prompt content (skip tool messages; tool results are passed separately).
+        # IMPORTANT: Do not send structured toolResults to Kiro/AWS.
+        # In real-world KiloCode sessions, the follow-up request after a tool call
+        # includes role=tool messages, and sending them as userInputMessageContext.toolResults
+        # triggers AWS 400 "Improperly formed request".
+        #
+        # Instead, embed tool outputs into the flattened text prompt.
+        # Flatten prompt content (include tool messages).
         # request.processed_messages often contains ChatMessage objects with multimodal
         # content parts (Pydantic models). Use extract_prompt_text() to reliably flatten
         # them, then inject tool call markers so the backend can validate toolResults.
@@ -615,14 +625,25 @@ class KiroOAuthAutoConnector(LLMBackend):
             if isinstance(m, dict):
                 role = m.get("role")
                 tool_calls = m.get("tool_calls")
+                tool_call_id = m.get("tool_call_id")
             else:
                 role = getattr(m, "role", None)
                 tool_calls = getattr(m, "tool_calls", None)
-
-            if role == "tool":
-                continue
+                tool_call_id = getattr(m, "tool_call_id", None)
 
             text = extract_prompt_text([m])
+            if (
+                text
+                and role == "tool"
+                and isinstance(tool_call_id, str)
+                and tool_call_id
+                and text.startswith("tool:")
+            ):
+                text = text.replace(
+                    "tool:",
+                    f"tool (tool_call_id={tool_call_id}):",
+                    1,
+                )
             if text:
                 prompt_parts.append(text)
 
@@ -662,15 +683,16 @@ class KiroOAuthAutoConnector(LLMBackend):
         current_message: dict[str, Any] = {
             "content": prompt_text,
             "modelId": effective_model or "auto",
-            "origin": self._config.origin,
         }
+        # Only send origin if it's not the default AI_EDITOR, or if explicitly requested.
+        # Observation: AI_EDITOR origin might restrict available models (like Opus).
+        if self._config.origin != "AI_EDITOR":
+            current_message["origin"] = self._config.origin
 
-        if tools or tool_results:
+        if tools:
             current_message["userInputMessageContext"] = {}
             if tools:
                 current_message["userInputMessageContext"]["tools"] = tools
-            if tool_results:
-                current_message["userInputMessageContext"]["toolResults"] = tool_results
 
         inference_config: dict[str, Any] = {}
         max_tokens = canonical.max_completion_tokens or canonical.max_tokens
@@ -680,6 +702,7 @@ class KiroOAuthAutoConnector(LLMBackend):
             inference_config["temperature"] = float(canonical.temperature)
         if isinstance(canonical.top_p, int | float):
             inference_config["topP"] = float(canonical.top_p)
+        inference_config["reasoningEffort"] = canonical.reasoning_effort or "high"
 
         conversation_id = str(
             uuid.uuid5(uuid.NAMESPACE_OID, canonical.session_id or uuid.uuid4().hex)

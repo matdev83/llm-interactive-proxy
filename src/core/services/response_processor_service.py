@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -92,7 +93,7 @@ class ResponseProcessor(IResponseProcessor):
 
         # Angel feature wiring
         self._angel_service: Any | None = None
-        self._angel_frequency: int = 1
+        self._angel_frequency: int = 10
 
         # Stream normalizer is typically provided via DI.
         # For testability and graceful degradation, if it is not provided but
@@ -186,7 +187,8 @@ class ResponseProcessor(IResponseProcessor):
             if not self._angel_service:
                 # Resolve angel model spec from app_state config
                 model_spec = None
-                frequency_value: int | None = 1
+                frequency_value: int | None = 10
+                max_history_value: int | None = None
                 try:
                     cfg = (
                         self._app_state.get_setting("app_config")
@@ -195,11 +197,15 @@ class ResponseProcessor(IResponseProcessor):
                     )
                     session_cfg = getattr(cfg, "session", None)
                     model_spec = getattr(session_cfg, "angel_model", None)
-                    frequency_value = getattr(session_cfg, "angel_frequency", 1)
+                    frequency_value = getattr(session_cfg, "angel_frequency", 10)
+                    max_history_value = getattr(session_cfg, "angel_max_history", None)
                 except (AttributeError, TypeError, KeyError):
                     model_spec = None
-                    frequency_value = 1
-                angel_svc = AngelService(model_spec or "")
+                    frequency_value = 10
+                    max_history_value = None
+                angel_svc = AngelService(
+                    model_spec or "", max_history=max_history_value
+                )
 
                 if not angel_svc.is_enabled() or not angel_svc.is_healthy():
                     if not angel_svc.is_enabled():
@@ -216,10 +222,10 @@ class ResponseProcessor(IResponseProcessor):
 
                 try:
                     freq_int = (
-                        int(frequency_value) if frequency_value is not None else 1
+                        int(frequency_value) if frequency_value is not None else 10
                     )
                 except (TypeError, ValueError):
-                    freq_int = 1
+                    freq_int = 10
                 self._angel_frequency = freq_int if freq_int > 0 else 1
 
             svc: AngelService = self._angel_service
@@ -227,21 +233,57 @@ class ResponseProcessor(IResponseProcessor):
             if not isinstance(original_request, ChatRequest):
                 return {"action": "pass"}
 
-            frequency = getattr(self, "_angel_frequency", 1)
-            if not AngelService.should_run_for_request(original_request, frequency):
-                return {"action": "pass"}
+            # Resolve RequestContext from context dict (used for cancellation and Angel gating)
+            request_context: RequestContext | None = None
+            if context:
+                candidate = context.get("request_context")
+                if isinstance(candidate, RequestContext):
+                    request_context = candidate
+
+            # Never run Angel for tool-result continuation requests.
+            try:
+                if AngelService.is_tool_result_followup_request(original_request):
+                    return {"action": "pass"}
+            except Exception:
+                # Fail-open: if detection fails, continue.
+                pass
+
+            # Never run Angel when a random replacement model is active.
+            try:
+                if request_context and request_context.extensions.get(
+                    "model_replacement_active"
+                ):
+                    return {"action": "pass"}
+            except Exception:
+                pass
+
+            frequency = getattr(self, "_angel_frequency", 10)
+
+            # Prefer explicit per-request eligible turn counter (computed upstream).
+            eligible_turn_count: int | None = None
+            if request_context is not None:
+                raw_count = request_context.extensions.get("angel_eligible_turn_count")
+                try:
+                    if isinstance(raw_count, int):
+                        eligible_turn_count = raw_count
+                    elif isinstance(raw_count, float | str):
+                        eligible_turn_count = int(raw_count)
+                except Exception:
+                    eligible_turn_count = None
+
+            if eligible_turn_count is not None:
+                freq_int = int(frequency) if int(frequency) > 0 else 1
+                if eligible_turn_count <= 0 or (eligible_turn_count % freq_int) != 0:
+                    return {"action": "pass"}
+            else:
+                if not AngelService.should_run_for_request(original_request, frequency):
+                    return {"action": "pass"}
 
             verification_request = svc.build_verification_request(
                 original_request, content
             )
 
-            # Resolve RequestContext from context dict for cancellation gate
-            request_context: RequestContext | None = None
-            if context:
-                request_context = context.get("request_context")
-                if not isinstance(request_context, RequestContext):
-
-                    request_context = None
+            # request_context already resolved above
 
             # Cancellation gate: ensure session is not cancelled before Angel verification backend call
             if self._cancellation_coordinator and request_context:
@@ -315,11 +357,16 @@ class ResponseProcessor(IResponseProcessor):
                 )
 
                 # Get registry and identity service from provider
-                non_forwardable_registry = provider.get_service(  # type: ignore[reportUnknownVariableType]
-                    cast(type, INonForwardableMessageRegistry)
+                get_service = getattr(provider, "get_service", None)
+                non_forwardable_registry = (
+                    get_service(cast(type, INonForwardableMessageRegistry))
+                    if callable(get_service)
+                    else None
                 )
-                non_forwardable_identity_service = provider.get_service(  # type: ignore[reportUnknownVariableType]
-                    cast(type, INonForwardableMessageIdentityService)
+                non_forwardable_identity_service = (
+                    get_service(cast(type, INonForwardableMessageIdentityService))
+                    if callable(get_service)
+                    else None
                 )
 
                 # Find the steering message (last user message with steering marker)
@@ -376,7 +423,27 @@ class ResponseProcessor(IResponseProcessor):
                     context=request_context,
                 )
                 corrected_text = _extract_text(corrected_response)
-                return {"action": "steer", "corrected_content": corrected_text}
+
+                # Prevent internal override markers from reaching the client.
+                # If the correction is *only* an override marker (or becomes empty after stripping),
+                # fail-open to the original response content.
+                cleaned = re.sub(
+                    r"<override_angel>[\s\S]*?</override_angel>",
+                    "",
+                    str(corrected_text or ""),
+                    flags=re.IGNORECASE,
+                )
+                cleaned = re.sub(
+                    r"<override_angel\s*/\s*>",
+                    "",
+                    cleaned,
+                    flags=re.IGNORECASE,
+                ).strip()
+
+                if not cleaned:
+                    return {"action": "pass"}
+
+                return {"action": "steer", "corrected_content": cleaned}
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -563,6 +630,8 @@ class ResponseProcessor(IResponseProcessor):
                             processing_values = context.processing_context.values
                             # ProcessingContext.values is dict[str, Any], no isinstance check needed
                             angel_context.update(processing_values)
+                        # Provide RequestContext for cancellation and Angel gating.
+                        angel_context["request_context"] = context
                     decision = await self._apply_angel_verification(
                         original_request,
                         processed_response.content or "",

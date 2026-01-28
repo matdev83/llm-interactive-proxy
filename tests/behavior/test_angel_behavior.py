@@ -90,7 +90,7 @@ async def test_angel_disabled_does_not_call_backend(
 async def test_override_marker_never_reaches_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    config = AppConfig(session=SessionConfig(angel_model="demo"))
+    config = AppConfig(session=SessionConfig(angel_model="demo", angel_frequency=1))
     processor = _make_processor(config)
 
     class DummyBackendService:
@@ -131,14 +131,15 @@ async def test_override_marker_never_reaches_client(
         context=context,
     )
 
-    assert "<override_angel>" not in (result.content or "")
-    assert result.content == "Initial"
+    content_str = str(result.content or "")
+    assert "<override_angel>" not in content_str
+    assert content_str == "Initial"
     assert service.calls == 2
 
 
 @pytest.mark.asyncio
 async def test_client_never_sees_angel_xml(monkeypatch: pytest.MonkeyPatch) -> None:
-    config = AppConfig(session=SessionConfig(angel_model="demo"))
+    config = AppConfig(session=SessionConfig(angel_model="demo", angel_frequency=1))
     processor = _make_processor(config)
 
     class DummyBackendService:
@@ -179,9 +180,10 @@ async def test_client_never_sees_angel_xml(monkeypatch: pytest.MonkeyPatch) -> N
         context=context,
     )
 
-    assert "<angels_steering_message>" not in (result.content or "")
-    assert "<angels_decision>" not in (result.content or "")
-    assert result.content == "Final answer"
+    content_str = str(result.content or "")
+    assert "<angels_steering_message>" not in content_str
+    assert "<angels_decision>" not in content_str
+    assert content_str == "Final answer"
 
 
 @pytest.mark.asyncio

@@ -33,6 +33,8 @@ class TestBackendCompatibility:
         # Personal OAuth group
         assert are_backends_compatible("gemini-oauth-free", "gemini-oauth-plan")
         assert are_backends_compatible("gemini-oauth-plan", "gemini-oauth-free")
+        assert are_backends_compatible("gemini-oauth-auto", "gemini-oauth-plan")
+        assert are_backends_compatible("gemini-oauth-plan", "gemini-oauth-auto")
 
     def test_different_groups_not_compatible(self) -> None:
         """Backends in different groups should NOT be compatible."""
@@ -63,6 +65,7 @@ class TestBackendCompatibility:
         """Test thought signature detection for backends."""
         assert uses_thought_signatures("gemini-oauth-plan")
         assert uses_thought_signatures("gemini-oauth-free")
+        assert uses_thought_signatures("gemini-oauth-auto")
         assert uses_thought_signatures("antigravity-oauth")
         assert not uses_thought_signatures("openai")
         assert not uses_thought_signatures(None)
@@ -142,6 +145,7 @@ class TestSessionSanitizer:
 
         # Verify signature removed
         assert len(sanitized) == 1
+        assert sanitized[0].tool_calls is not None
         sanitized_tc = sanitized[0].tool_calls[0]
         assert (
             sanitized_tc.extra_content is None
@@ -182,6 +186,7 @@ class TestSessionSanitizer:
 
         sanitized = sanitizer.sanitize_messages([message])
 
+        assert sanitized[0].tool_calls is not None
         sanitized_tc = sanitized[0].tool_calls[0]
         assert sanitized_tc.id == "call_abc"
         assert sanitized_tc.function.name == "my_func"
@@ -225,6 +230,7 @@ class TestSessionSanitizer:
         # Cache should be cleared
         assert f"{session_id}:call_1" not in manager._cache
         # Signature should be stripped from message
+        assert sanitized_messages[1].tool_calls is not None
         sanitized_tc = sanitized_messages[1].tool_calls[0]
         assert (
             sanitized_tc.extra_content is None
@@ -252,6 +258,7 @@ class TestSessionSanitizer:
 
         assert was_sanitized is False
         # Original message should be returned (signature intact)
+        assert sanitized_messages[0].tool_calls is not None
         assert sanitized_messages[0].tool_calls[0].extra_content is not None
 
 
@@ -381,7 +388,8 @@ class TestMultiSwitchScenarios:
         assert "call_plan_1" not in manager._by_tool_call
         assert "call_plan_2" not in manager._by_tool_call
         # Signatures stripped from messages
-        for tc in sanitized[1].tool_calls:
+        tool_calls = sanitized[1].tool_calls or []
+        for tc in tool_calls:
             assert tc.extra_content is None or "google" not in tc.extra_content
 
     def test_signatures_a_to_b_back_to_a(self) -> None:
@@ -484,7 +492,7 @@ class TestMultiSwitchScenarios:
             ),
         ]
 
-        sanitized, was_sanitized = sanitizer.sanitize_session(
+        sanitized_messages, was_sanitized = sanitizer.sanitize_session(
             messages=messages,
             session_id=session_id,
             previous_backend="gemini-oauth-plan",  # Different backend
@@ -493,4 +501,5 @@ class TestMultiSwitchScenarios:
 
         # Even with same model, different backends = incompatible
         assert was_sanitized is True
+        assert len(sanitized_messages) == 1
         assert f"{session_id}:call_1" not in manager._cache

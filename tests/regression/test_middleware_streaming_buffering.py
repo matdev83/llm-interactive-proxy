@@ -22,6 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from httpx import ASGITransport, AsyncClient
+from tests.unit.fixtures.markers import real_time
 
 
 async def slow_streaming_generator(
@@ -40,6 +41,7 @@ async def slow_streaming_generator(
 
 
 @pytest.mark.asyncio
+@real_time(reason="Measures real-time chunk timing to detect streaming buffering.")
 async def test_streaming_response_not_buffered():
     """Verify middleware doesn't buffer by testing chunk-by-chunk reception.
 
@@ -53,19 +55,24 @@ async def test_streaming_response_not_buffered():
 
     # Track when each chunk is yielded from the endpoint
     chunk_yield_times = []
-    start_time_ref = [None]  # Use list to allow modification in closure
+    start_time_ref: list[float | None] = [None]  # Mutable reference for closure
 
     @app.get("/stream")
     async def stream_endpoint():
         async def tracked_gen():
             start_time_ref[0] = time.time()
+            start_time = start_time_ref[0]
+            assert start_time is not None
             for i in range(3):
-                chunk_yield_times.append(time.time() - start_time_ref[0])
+                chunk_yield_times.append(time.time() - start_time)
                 yield f"chunk-{i}\n".encode()
                 if i < 2:
                     await asyncio.sleep(0.05)  # 50ms delay between chunks
 
         return StreamingResponse(tracked_gen(), media_type="text/plain")
+
+    # FastAPI registers the endpoint via decorator; keep a direct reference for linters.
+    _ = stream_endpoint
 
     # Add our actual middleware
     app.add_middleware(LoggingMiddleware, log_requests=True, log_responses=True)
@@ -73,13 +80,14 @@ async def test_streaming_response_not_buffered():
     # Collect chunks as they arrive
     chunk_receive_times = []
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
-        async with client.stream("GET", "/stream") as response:
-            async for chunk in response.aiter_bytes():
-                if start_time_ref[0]:
-                    chunk_receive_times.append(time.time() - start_time_ref[0])
+    async with (
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+        client.stream("GET", "/stream") as response,
+    ):
+        async for _chunk in response.aiter_bytes():
+            start_time = start_time_ref[0]
+            if start_time is not None:
+                chunk_receive_times.append(time.time() - start_time)
 
     # Key assertion: If middleware buffers, chunks arrive much later than they're yielded
     # If streaming works, reception times should track yield times closely
@@ -94,6 +102,7 @@ async def test_streaming_response_not_buffered():
 
 
 @pytest.mark.asyncio
+@real_time(reason="Measures real-time TTFB to detect middleware buffering.")
 async def test_middleware_can_inspect_response_without_buffering():
     """Verify production middleware can inspect status/headers without consuming body."""
     from unittest.mock import MagicMock
@@ -113,6 +122,8 @@ async def test_middleware_can_inspect_response_without_buffering():
                 await asyncio.sleep(0.01)
 
         return StreamingResponse(gen(), status_code=200, headers={"X-Custom": "value"})
+
+    _ = stream_endpoint
 
     # Add our production middleware
     mock_service = MagicMock()
@@ -138,6 +149,9 @@ async def test_middleware_can_inspect_response_without_buffering():
 
 
 @pytest.mark.asyncio
+@real_time(
+    reason="Measures real-time first-chunk TTFB across multiple middleware layers."
+)
 async def test_multiple_middleware_layers_dont_buffer():
     """Verify multiple production middleware layers don't compound buffering."""
     from unittest.mock import MagicMock
@@ -162,6 +176,8 @@ async def test_multiple_middleware_layers_dont_buffer():
 
         return StreamingResponse(gen())
 
+    _ = stream_endpoint
+
     # Add multiple production middleware layers
     mock_service = MagicMock()
     app.add_middleware(UsageTrackingMiddleware, usage_recording_service=mock_service)
@@ -169,18 +185,19 @@ async def test_multiple_middleware_layers_dont_buffer():
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(LoopPreventionMiddleware)
 
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as client:
+    async with (
+        AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client,
+        client.stream("GET", "/stream") as response,
+    ):
         start_time = time.time()
         first_chunk_time = None
 
-        async with client.stream("GET", "/stream") as response:
-            async for chunk in response.aiter_bytes():
-                if first_chunk_time is None:
-                    first_chunk_time = time.time()
-                    break  # Just check first chunk
+        async for _chunk in response.aiter_bytes():
+            if first_chunk_time is None:
+                first_chunk_time = time.time()
+                break  # Just check first chunk
 
+        assert first_chunk_time is not None
         ttfb = (first_chunk_time - start_time) * 1000
 
     # With 4 middleware layers, TTFB should still be fast if no buffering
@@ -210,6 +227,8 @@ async def test_chunks_arrive_incrementally_not_all_at_once():
 
         return StreamingResponse(gen())
 
+    _ = stream_endpoint
+
     # Add production middleware stack
     app.add_middleware(LoggingMiddleware, log_requests=True, log_responses=True)
     app.add_middleware(RequestIDMiddleware)
@@ -238,6 +257,9 @@ async def test_basehttpmiddleware_not_used_in_production():
     Mentions in comments/docstrings are OK, but not imports or inheritance.
     """
     # Check that our fixed middleware don't import or inherit BaseHTTPMiddleware
+    # Import request/response middleware modules
+    import importlib
+
     from src.core.app.middleware import (
         exception_middleware,
         logging_middleware,
@@ -246,10 +268,6 @@ async def test_basehttpmiddleware_not_used_in_production():
         usage_tracking_middleware,
     )
     from src.core.security import middleware as security_middleware
-
-    # Import request/response middleware modules
-    import importlib.util
-    import sys
 
     request_middleware_path = "src.request_middleware"
     response_middleware_path = "src.response_middleware"

@@ -302,9 +302,10 @@ async def test_streaming_angel_override_logic_removed(monkeypatch) -> None:
     async for chunk in result.content:
         recovered.append(str(chunk.content))
 
-    # Should NOT return original; should return the corrected text even if it contains the (now ignored) override tag
+    # Should NOT return original; should return corrected text and strip internal override markers
     assert "Draft reply" not in "".join(recovered)
-    assert "<override_angel>True</override_angel>" in "".join(recovered)
+    assert "<override_angel>True</override_angel>" not in "".join(recovered)
+    assert "but I corrected it anyway" in "".join(recovered)
     assert backend_service.calls == ["angel", "correction"]
 
 

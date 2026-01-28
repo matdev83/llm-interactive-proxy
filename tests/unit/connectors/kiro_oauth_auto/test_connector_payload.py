@@ -13,7 +13,7 @@ from src.core.domain.chat import (
 from src.core.services.translation_service import TranslationService
 
 
-def test_build_payload_includes_tools_and_tool_results() -> None:
+def test_build_payload_includes_tools_and_embeds_tool_result() -> None:
     connector = KiroOAuthAutoConnector(
         client=None,  # type: ignore[arg-type]
         config=AppConfig({}),
@@ -78,12 +78,95 @@ def test_build_payload_includes_tools_and_tool_results() -> None:
     ctx = current["userInputMessageContext"]
     assert len(ctx["tools"]) == 1
     assert ctx["tools"][0]["toolSpecification"]["name"] == "do_thing"
-    assert len(ctx["toolResults"]) == 1
-    assert ctx["toolResults"][0]["toolUseId"] == "t1"
     assert "assistant (tool_call): do_thing" in current["content"]
+    assert "tool (tool_call_id=t1): ok" in current["content"]
     assert payload["inferenceConfig"]["maxTokens"] == 123
     assert payload["inferenceConfig"]["temperature"] == 0.7
     assert payload["inferenceConfig"]["topP"] == 0.9
+
+
+def test_build_payload_includes_reasoning_effort() -> None:
+    connector = KiroOAuthAutoConnector(
+        client=None,  # type: ignore[arg-type]
+        config=AppConfig({}),
+        translation_service=TranslationService(),
+    )
+
+    messages = [ChatMessage(role="user", content="Hello")]
+    canonical = CanonicalChatRequest(
+        model="claude-sonnet-4.5",
+        messages=messages,
+        reasoning_effort="high",
+    )
+
+    request = ConnectorChatCompletionsRequest(
+        request=canonical,
+        processed_messages=messages,
+        effective_model="claude-sonnet-4.5",
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+    )
+
+    payload = connector._build_payload(request, effective_model="claude-sonnet-4.5")  # type: ignore[attr-defined]
+    assert payload["inferenceConfig"]["reasoningEffort"] == "high"
+
+
+def test_build_payload_defaults_to_high_reasoning_effort() -> None:
+    connector = KiroOAuthAutoConnector(
+        client=None,  # type: ignore[arg-type]
+        config=AppConfig({}),
+        translation_service=TranslationService(),
+    )
+
+    messages = [ChatMessage(role="user", content="Hello")]
+    canonical = CanonicalChatRequest(
+        model="claude-sonnet-4.5",
+        messages=messages,
+        reasoning_effort=None,
+    )
+
+    request = ConnectorChatCompletionsRequest(
+        request=canonical,
+        processed_messages=messages,
+        effective_model="claude-sonnet-4.5",
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+    )
+
+    payload = connector._build_payload(request, effective_model="claude-sonnet-4.5")  # type: ignore[attr-defined]
+    assert payload["inferenceConfig"]["reasoningEffort"] == "high"
+
+
+def test_build_payload_respects_explicit_low_reasoning_effort() -> None:
+    connector = KiroOAuthAutoConnector(
+        client=None,  # type: ignore[arg-type]
+        config=AppConfig({}),
+        translation_service=TranslationService(),
+    )
+
+    messages = [ChatMessage(role="user", content="Hello")]
+    canonical = CanonicalChatRequest(
+        model="claude-sonnet-4.5",
+        messages=messages,
+        reasoning_effort="low",
+    )
+
+    request = ConnectorChatCompletionsRequest(
+        request=canonical,
+        processed_messages=messages,
+        effective_model="claude-sonnet-4.5",
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
+    )
+
+    payload = connector._build_payload(request, effective_model="claude-sonnet-4.5")  # type: ignore[attr-defined]
+    assert payload["inferenceConfig"]["reasoningEffort"] == "low"
 
 
 def test_build_payload_flattens_multimodal_text_parts() -> None:

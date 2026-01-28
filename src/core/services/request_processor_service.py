@@ -7,6 +7,7 @@ Refactored to use decomposed services following SOLID principles.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from src.core.domain.chat import ChatRequest
@@ -80,15 +81,34 @@ class RequestProcessor(IRequestProcessor):
         self._app_state = app_state
         self._replacement_service = replacement_service
 
+    @staticmethod
+    def _is_tool_result_followup_request(request: ChatRequest) -> bool:
+        """Return True when this request is a tool-result continuation.
+
+        Tool-result continuation requests include one or more `tool` role messages
+        after the most recent `user` message.
+        """
+        try:
+            last_user_idx = -1
+            last_tool_idx = -1
+            for idx, msg in enumerate(getattr(request, "messages", []) or []):
+                role = getattr(msg, "role", None)
+                if role is None and isinstance(msg, dict):
+                    role = msg.get("role")
+                if role == "user":
+                    last_user_idx = idx
+                elif role == "tool":
+                    last_tool_idx = idx
+            return last_tool_idx > last_user_idx and last_user_idx >= 0
+        except Exception:
+            return False
+
     async def process_request(
         self,
         context: RequestContext,
         request_data: ChatRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request using decomposed services."""
-        if not isinstance(request_data, ChatRequest):
-            raise TypeError("request_data must be of type ChatRequest")
-
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 f"RequestProcessor.process_request called with session_id: {getattr(context, 'session_id', 'unknown')}"
@@ -136,6 +156,53 @@ class RequestProcessor(IRequestProcessor):
         # Otherwise, it's a ProcessedResult and we continue with backend flow
         command_result = result
 
+        # --- Angel gating state (per request) ---
+        # Angel verification runs only on remote backend completions, but its scheduling and
+        # skip conditions are derived from the client-submitted request.
+        is_tool_followup = self._is_tool_result_followup_request(request_data)
+
+        angel_model_spec: str | None = None
+        angel_frequency: int = 10
+        angel_max_history: int | None = None
+
+        try:
+            if self._app_state is not None:
+                cfg = self._app_state.get_setting("app_config")
+                session_cfg = getattr(cfg, "session", None)
+                angel_model_spec = getattr(session_cfg, "angel_model", None)
+                angel_frequency = int(getattr(session_cfg, "angel_frequency", 10) or 10)
+                angel_max_history = getattr(session_cfg, "angel_max_history", None)
+        except Exception:
+            angel_model_spec = None
+            angel_frequency = 10
+            angel_max_history = None
+
+        angel_enabled = bool(angel_model_spec)
+        if angel_enabled:
+            # Provide Angel config to downstream layers via RequestContext.extensions.
+            context.extensions["angel_model"] = str(angel_model_spec)
+            context.extensions["angel_frequency"] = max(1, angel_frequency)
+            if angel_max_history is not None:
+                # Ignore invalid values; the verifier will treat it as disabled.
+                with contextlib.suppress(TypeError, ValueError):
+                    context.extensions["angel_max_history"] = int(angel_max_history)
+
+        # Tool-result continuations should never trigger Angel.
+        if is_tool_followup:
+            context.extensions["angel_skip_verification"] = True
+
+        angel_turn_incremented = False
+        current_eligible_turn_count = 0
+        try:
+            state_dict = session.state.to_dict() if hasattr(session, "state") else {}
+            raw_count = state_dict.get("angel_eligible_turn_count", 0)
+            if isinstance(raw_count, int):
+                current_eligible_turn_count = raw_count
+            elif isinstance(raw_count, float | str):
+                current_eligible_turn_count = int(raw_count)
+        except Exception:
+            current_eligible_turn_count = 0
+
         # Apply model replacement if enabled
         # Note: Model replacement logic remains in RequestProcessor orchestrator rather than
         # being extracted to a dedicated component. This is intentional per research.md:
@@ -180,19 +247,36 @@ class RequestProcessor(IRequestProcessor):
                 f"replacement_service_present={self._replacement_service is not None}"
             )
 
+        replacement_active_for_request = False
+
         if (
             self._replacement_service is not None
             and original_backend
             and original_model
         ):
-            # Check if replacement should be triggered
-            should_replace = self._replacement_service.should_replace(
-                session_id, context, original_backend, original_model
-            )
+            # Avoid initiating a replacement on turns that are scheduled for Angel
+            # verification. This prevents the replacement model from being implicated
+            # in Angel verification/correction flow.
+            suppress_replacement_for_angel = False
+            state = self._replacement_service.get_state(session_id)
+            if angel_enabled and not is_tool_followup and not state.active:
+                try:
+                    freq = max(1, int(angel_frequency))
+                except (TypeError, ValueError):
+                    freq = 10
+                next_eligible = max(0, int(current_eligible_turn_count)) + 1
+                if freq > 0 and (next_eligible % freq) == 0:
+                    suppress_replacement_for_angel = True
+                    context.extensions["replacement_suppressed_for_angel"] = True
+
+            should_replace = False
+            if not suppress_replacement_for_angel:
+                should_replace = self._replacement_service.should_replace(
+                    session_id, context, original_backend, original_model
+                )
 
             if should_replace:
                 # Activate replacement if not already active
-                state = self._replacement_service.get_state(session_id)
                 if not state.active:
                     await self._replacement_service.activate_replacement(
                         session_id, original_backend, original_model
@@ -212,6 +296,7 @@ class RequestProcessor(IRequestProcessor):
                 request_data = request_data.model_copy(
                     update={"model": f"{effective_backend}:{effective_model}"}
                 )
+                replacement_active_for_request = True
 
         # Prepare and validate backend request
 
@@ -239,8 +324,56 @@ class RequestProcessor(IRequestProcessor):
             context, session, session_id, backend_request
         )
 
+        def _prepare_angel_extensions_for_backend_call(
+            *, replacement_active: bool
+        ) -> None:
+            """Populate RequestContext.extensions for downstream Angel verification.
+
+            This function is called immediately before each backend execution attempt
+            (including fallback retries).
+            """
+
+            nonlocal angel_turn_incremented
+            nonlocal current_eligible_turn_count
+
+            # Make replacement status explicit for the verifier.
+            context.extensions["model_replacement_active"] = bool(replacement_active)
+
+            # Skip verification for tool-result followups and replacement-model turns.
+            skip = bool(is_tool_followup or replacement_active)
+            context.extensions["angel_skip_verification"] = skip
+
+            if skip:
+                context.extensions.pop("angel_eligible_turn_count", None)
+                return
+
+            if not angel_enabled:
+                context.extensions.pop("angel_eligible_turn_count", None)
+                return
+
+            # Increment eligible counter exactly once per client request.
+            if not angel_turn_incremented:
+                new_count = max(0, int(current_eligible_turn_count)) + 1
+                try:
+                    new_state = session.state.with_multiple_updates(
+                        angel_eligible_turn_count=new_count
+                    )
+                    session.update_state(new_state)
+                except Exception:
+                    # Fail-open: still track the count in the request context for scheduling.
+                    pass
+                current_eligible_turn_count = new_count
+                angel_turn_incremented = True
+
+            context.extensions["angel_eligible_turn_count"] = int(
+                current_eligible_turn_count
+            )
+
         # Execute backend and perform persistence side effects
         try:
+            _prepare_angel_extensions_for_backend_call(
+                replacement_active=replacement_active_for_request
+            )
             return await self._backend_executor.execute(
                 context, session, session_id, backend_request, request_data
             )
@@ -299,6 +432,9 @@ class RequestProcessor(IRequestProcessor):
                             )
 
                         # Retry execution with original model
+                        _prepare_angel_extensions_for_backend_call(
+                            replacement_active=False
+                        )
                         return await self._backend_executor.execute(
                             context,
                             session,

@@ -10,6 +10,7 @@ Requirements: 4.5, 5.5
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -101,7 +102,7 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 return value.decode("utf-8", errors="ignore")
         return str(value)
 
-    async def verify_or_passthrough(  # type: ignore[override, misc]
+    async def verify_or_passthrough(  # type: ignore[override, misc]  # noqa: C901
         self,
         request: ChatRequest,
         stream: AsyncIterator[ProcessedResponse],
@@ -120,15 +121,44 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         """
         # Check if Angel verification should run
         angel_model_spec: str | None = context.get("angel_model_spec")
-        angel_frequency: int = context.get("angel_frequency", 1)
+        angel_frequency: int = context.get("angel_frequency", 10)
         angel_max_history: int | None = context.get("angel_max_history")
+        eligible_turn_count: int | None = context.get("angel_eligible_turn_count")
+        skip_verification: bool = bool(context.get("angel_skip_verification"))
 
         should_buffer = False
         angel_service_instance: AngelService | None = None
 
-        if angel_model_spec and AngelService.should_run_for_request(
-            request, angel_frequency
-        ):
+        # Never run Angel for tool-result continuation requests.
+        if AngelService.is_tool_result_followup_request(request):
+            skip_verification = True
+
+        # Never run Angel when a random replacement model is active.
+        try:
+            if request_context and request_context.extensions.get(
+                "model_replacement_active"
+            ):
+                skip_verification = True
+        except Exception:
+            # Fail-open
+            pass
+
+        should_run = False
+        if not skip_verification and angel_model_spec:
+            try:
+                freq_int = int(angel_frequency) if int(angel_frequency) > 0 else 1
+            except Exception:
+                freq_int = 10
+            if eligible_turn_count is not None:
+                try:
+                    eligible_int = int(eligible_turn_count)
+                except Exception:
+                    eligible_int = 0
+                should_run = eligible_int > 0 and (eligible_int % max(1, freq_int) == 0)
+            else:
+                should_run = AngelService.should_run_for_request(request, freq_int)
+
+        if should_run:
             try:
                 angel_service_instance = self._angel_service_factory.create(
                     angel_model_spec, max_history=angel_max_history
@@ -139,12 +169,15 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                     and angel_service_instance.is_healthy()
                 ):
                     should_buffer = True
-                elif angel_service_instance and not angel_service_instance.is_healthy():
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Angel verification skipped due to circuit breaker for model %s",
-                            angel_model_spec,
-                        )
+                elif (
+                    angel_service_instance
+                    and not angel_service_instance.is_healthy()
+                    and logger.isEnabledFor(logging.DEBUG)
+                ):
+                    logger.debug(
+                        "Angel verification skipped due to circuit breaker for model %s",
+                        angel_model_spec,
+                    )
 
             except (RuntimeError, AttributeError, TypeError, ValueError) as e:
                 # Expected exceptions from service creation/factory calls
@@ -371,9 +404,29 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                     yield buffered
                 return
 
+            # Prevent internal override markers from reaching the client.
+            cleaned = re.sub(
+                r"<override_angel>[\s\S]*?</override_angel>",
+                "",
+                str(corrected_text or ""),
+                flags=re.IGNORECASE,
+            )
+            cleaned = re.sub(
+                r"<override_angel\s*/\s*>",
+                "",
+                cleaned,
+                flags=re.IGNORECASE,
+            ).strip()
+
+            if not cleaned:
+                # Fail-open: forward original chunks if the correction contains no usable content.
+                for buffered in buffered_chunks:
+                    yield buffered
+                return
+
             # Yield corrected output with steering replacement marker
             yield ProcessedResponse(
-                content=corrected_text,
+                content=cleaned,
                 metadata={
                     "corrected_by_angel": True,
                     "is_done": True,

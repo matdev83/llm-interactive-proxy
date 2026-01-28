@@ -324,6 +324,31 @@ def _check_opencode_zen_credentials(
     return False
 
 
+def _check_kiro_oauth_auto_credentials(config: Any) -> bool:
+    """Check if kiro-oauth-auto has credentials on disk."""
+    from pathlib import Path
+
+    # Default path from KiroOAuthAutoConfig
+    storage_path = "var/kiro_oauth_accounts"
+
+    # Try to get from config if available
+    backends = getattr(config, "backends", None)
+    if backends:
+        kiro_config = getattr(backends, "kiro-oauth-auto", None)
+        if kiro_config and hasattr(kiro_config, "extra") and kiro_config.extra:
+            storage_path = kiro_config.extra.get("storage_path", storage_path)
+
+    p = Path(storage_path)
+    if not p.is_dir():
+        return False
+
+    # Check for any .json files in the directory
+    try:
+        return any(f.suffix == ".json" for f in p.iterdir() if f.is_file())
+    except Exception:
+        return False
+
+
 async def _get_backend_models(backend_instance: Any) -> list[str]:
     """Get available models from a backend instance."""
     get_models_async = getattr(backend_instance, "get_available_models_async", None)
@@ -392,19 +417,21 @@ async def _list_models_impl(
 
             has_credentials = _check_backend_credentials(backend_config)
 
-            # Special case for opencode-zen: verify credentials file existence
-            # This backend doesn't require explicit configuration in config file,
-            # but relies on the presence of the credentials file.
-            if backend_type == "opencode-zen" and not has_credentials:
-                # Convert IConfig to AppConfig for the check
+            # Special case for backends that rely on disk-based credentials
+            if (
+                backend_type in ("opencode-zen", "kiro-oauth-auto")
+                and not has_credentials
+            ):
                 from src.core.config.app_config import AppConfig
 
-                app_config_for_check: AppConfig = (
-                    config if isinstance(config, AppConfig) else AppConfig()
-                )
-                has_credentials = _check_opencode_zen_credentials(
-                    backend_factory, app_config_for_check
-                )
+                # Use the provided config directly if it has the required structure
+                if backend_type == "opencode-zen":
+                    # opencode-zen check needs a proper AppConfig for create_backend
+                    has_credentials = _check_opencode_zen_credentials(
+                        backend_factory, config
+                    )
+                elif backend_type == "kiro-oauth-auto":
+                    has_credentials = _check_kiro_oauth_auto_credentials(config)
 
             should_try_backend = backend_type in functional_backends or has_credentials
 

@@ -58,7 +58,7 @@ sequenceDiagram
 
 ```bash
 --use-angel-model "backend:model"  # Enable Angel with specified model
---angel-frequency 1                # Verify every N user turns (default: 1)
+--angel-frequency 10               # Verify every N eligible turns (default: 10)
 --angel-max-history 10             # Truncate history to last N messages (optional)
 ```
 
@@ -66,7 +66,7 @@ sequenceDiagram
 
 ```bash
 export ANGEL_MODEL="openai:gpt-4o-mini"
-export ANGEL_FREQUENCY=1
+export ANGEL_FREQUENCY=10
 export ANGEL_MAX_HISTORY=10
 ```
 
@@ -75,7 +75,7 @@ export ANGEL_MAX_HISTORY=10
 ```yaml
 session:
   angel_model: "anthropic:claude-3-5-haiku-20241022"
-  angel_frequency: 1    # Verify every turn (default)
+  angel_frequency: 10   # Verify every 10 eligible turns (default)
   angel_max_history: 10 # Optional truncation
 ```
 

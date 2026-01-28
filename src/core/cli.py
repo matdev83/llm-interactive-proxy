@@ -299,6 +299,37 @@ def _warn_if_topic_similarity_matching_enabled(cfg: AppConfig) -> AppConfig:
     return cfg
 
 
+def _warn_if_angel_frequency_too_low(cfg: AppConfig) -> AppConfig:
+    """Warn if Angel verification frequency is configured very aggressively.
+
+    Very low frequencies can significantly increase latency and usage cost because
+    Angel verification adds at least one extra backend call (and sometimes a second
+    correction call). Overly frequent steering can also degrade quality by causing
+    the execution model to chase verifier preferences rather than the task.
+
+    Returns cfg unchanged.
+    """
+    try:
+        session_cfg = cfg.session
+        angel_model = getattr(session_cfg, "angel_model", None)
+        angel_frequency = int(getattr(session_cfg, "angel_frequency", 10) or 10)
+    except Exception:
+        return cfg
+
+    if not angel_model:
+        return cfg
+
+    if angel_frequency < 5:
+        logging.warning(
+            "Angel verification frequency is set to %s (< 5). This can noticeably increase latency "
+            "and usage cost due to extra verification/correction calls. It can also cause 'oversteering' "
+            "of the execution model, which may reduce (not improve) overall output quality.",
+            angel_frequency,
+        )
+
+    return cfg
+
+
 def _handle_application_build_error(error_msg: str) -> None:
     """Handle application build errors with user-friendly messages.
 
@@ -333,6 +364,7 @@ async def main(
         cfg_result = apply_cli_args(args, return_resolution=True)
         cfg, resolution = cfg_result
         cfg = _warn_if_topic_similarity_matching_enabled(cfg)
+        cfg = _warn_if_angel_frequency_too_low(cfg)
 
         server_manager = ServerLifecycleManager(
             privilege_checker=PrivilegeChecker(),

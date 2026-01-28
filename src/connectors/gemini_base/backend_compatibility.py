@@ -13,8 +13,10 @@ logger = logging.getLogger(__name__)
 # Backends within the same group can reuse thought signatures
 _GEMINI_OAUTH_PERSONAL_GROUP: frozenset[str] = frozenset(
     {
+        # OAuth-backed Code Assist (personal accounts)
         "gemini-oauth-free",
         "gemini-oauth-plan",
+        "gemini-oauth-auto",
     }
 )
 

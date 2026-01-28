@@ -86,6 +86,11 @@ class SessionState(ValueObject):
     replacement_disabled: bool = False
     client_os: str | None = None
 
+    # Angel verification turn accounting
+    # Counts only "eligible" turns (i.e., turns handled by the main model, excluding
+    # tool-result continuation requests and random replacement-model turns).
+    angel_eligible_turn_count: int = 0
+
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""
         return self.model_copy(update={"backend_config": backend_config})
@@ -790,8 +795,7 @@ class Session(ISession):
             state_value: SessionState = cast(
                 SessionState, SessionState.from_dict(data["state"])
             )
-            if isinstance(state_value, SessionState):
-                state = state_value
+            state = state_value
 
         history: list[SessionInteraction] = []
         if data.get("history"):
