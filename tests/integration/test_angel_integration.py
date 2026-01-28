@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from pydantic.types import JsonValue
 from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -168,7 +169,7 @@ def _make_response_processor(config: AppConfig) -> ResponseProcessor:
 
 
 def _make_context(config: AppConfig) -> RequestContext:
-    extensions = {}
+    extensions: dict[str, JsonValue] = {}
     if (
         config.session
         and hasattr(config.session, "angel_model")

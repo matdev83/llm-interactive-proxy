@@ -169,9 +169,19 @@ class RequestProcessor(IRequestProcessor):
             if self._app_state is not None:
                 cfg = self._app_state.get_setting("app_config")
                 session_cfg = getattr(cfg, "session", None)
-                angel_model_spec = getattr(session_cfg, "angel_model", None)
-                angel_frequency = int(getattr(session_cfg, "angel_frequency", 10) or 10)
-                angel_max_history = getattr(session_cfg, "angel_max_history", None)
+                raw_model = getattr(session_cfg, "angel_model", None)
+                angel_model_spec = raw_model if isinstance(raw_model, str) else None
+
+                raw_freq = getattr(session_cfg, "angel_frequency", 10)
+                try:
+                    angel_frequency = int(raw_freq) if raw_freq is not None else 10
+                except (TypeError, ValueError):
+                    angel_frequency = 10
+
+                raw_max_history = getattr(session_cfg, "angel_max_history", None)
+                angel_max_history = (
+                    int(raw_max_history) if isinstance(raw_max_history, int) else None
+                )
         except Exception:
             angel_model_spec = None
             angel_frequency = 10

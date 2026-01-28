@@ -37,7 +37,7 @@ class BackendRegistry:
             name: The unique name of the backend (e.g., "openai", "gemini").
             factory: A callable that can create an instance of LLMBackend.
         """
-        if not isinstance(name, str) or not name:
+        if not name:
             raise ValueError("Backend name must be a non-empty string.")
         if not callable(factory):
             raise TypeError("Backend factory must be a callable.")

@@ -326,8 +326,6 @@ class BackendService(IBackendService):
             return active_backends[backend_type]
 
         # For testing, create a simple backend instance
-        from src.core.config.app_config import AppConfig
-
         app_config = cast(AppConfig, self._config)
 
         # Create backend using factory

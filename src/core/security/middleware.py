@@ -7,11 +7,13 @@ import json
 import logging
 import math
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs
 
 from fastapi import Request
+from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 # Import HTTP status constants
@@ -73,6 +75,161 @@ class APIKeyMiddleware:
         self._attempts: dict[str, _BruteForceRecord] = {}
         self._attempts_lock = asyncio.Lock()
         self._last_cleanup = 0.0
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Compatibility path for call sites expecting BaseHTTPMiddleware.
+
+        The project intentionally uses pure ASGI middleware to avoid buffering
+        streaming responses, but some integration tests patch `dispatch()`.
+        This method preserves the same authentication semantics as `__call__`.
+        """
+
+        path = getattr(getattr(request, "url", None), "path", None) or ""
+        if path in self.bypass_paths:
+            return await call_next(request)
+
+        client_ip: str | None = None
+        try:
+            if request.client:
+                client_ip = request.client.host
+        except Exception:
+            client_ip = None
+
+        if client_ip and client_ip in self.trusted_ips:
+            logger.info("Bypassing authentication for trusted IP: %s", client_ip)
+            return await call_next(request)
+
+        # Check if auth is disabled for tests or development using DI when available
+        app_state_service: IApplicationState | None = None
+        injected_service = getattr(self, "app_state_service", None)
+        if injected_service is not None:
+            try:
+                if hasattr(injected_service, "get_setting"):
+                    app_state_service = injected_service  # type: ignore[assignment]
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to access injected app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
+                app_state_service = None
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error accessing injected app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
+                app_state_service = None
+
+        if app_state_service is None:
+            try:
+                provider = getattr(request.app.state, "service_provider", None)
+                if provider is not None:
+                    app_state_service = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to get app_state_service from provider: %s",
+                    e,
+                    exc_info=True,
+                )
+                app_state_service = None
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error getting app_state_service from provider: %s",
+                    e,
+                    exc_info=True,
+                )
+                app_state_service = None
+
+        disable_auth = (
+            app_state_service.get_setting("disable_auth", False)
+            if app_state_service is not None
+            else getattr(request.app.state, "disable_auth", False)
+        )
+        if disable_auth:
+            return await call_next(request)
+
+        app_config = (
+            app_state_service.get_setting("app_config")
+            if app_state_service is not None
+            else getattr(request.app.state, "app_config", None)
+        )
+        if (
+            app_config
+            and hasattr(app_config, "auth")
+            and getattr(app_config.auth, "disable_auth", False)
+        ):
+            logger.info("Skipping auth - disabled in app_config")
+            return await call_next(request)
+
+        if client_ip:
+            blocked_response = await self._maybe_reject_for_bruteforce(client_ip)
+            if blocked_response is not None:
+                status_code, content, headers = blocked_response
+                return JSONResponse(
+                    status_code=status_code, content=content, headers=headers
+                )
+
+        api_key: str | None = None
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            api_key = auth_header.replace("Bearer ", "", 1)
+
+        if not api_key:
+            api_key = request.headers.get("x-goog-api-key")
+
+        if not api_key:
+            try:
+                api_key = request.query_params.get("api_key")
+            except Exception:
+                api_key = None
+
+        app_state_keys: set[str] = set()
+        client_api_key: str | None = None
+        if app_state_service is not None:
+            try:
+                client_api_key = app_state_service.get_setting("client_api_key")
+            except (AttributeError, TypeError) as e:
+                logger.debug(
+                    "Failed to get client_api_key from app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
+                client_api_key = None
+            except Exception as e:
+                logger.warning(
+                    "Unexpected error getting client_api_key from app_state_service: %s",
+                    e,
+                    exc_info=True,
+                )
+                client_api_key = None
+        if not client_api_key:
+            client_api_key = getattr(request.app.state, "client_api_key", None)
+        if client_api_key:
+            app_state_keys.add(client_api_key)
+
+        all_valid_keys: set[str] = self.valid_keys | app_state_keys
+
+        method = request.method
+        if not api_key or api_key not in all_valid_keys:
+            logger.warning(
+                "Invalid or missing API key for %s %s from client %s",
+                method,
+                path,
+                client_ip or "unknown",
+            )
+            if client_ip:
+                await self._register_failed_attempt(client_ip)
+            return JSONResponse(
+                status_code=401,
+                content={"detail": HTTP_401_UNAUTHORIZED_MESSAGE},
+            )
+
+        if client_ip:
+            await self._register_successful_attempt(client_ip)
+        return await call_next(request)
 
     async def _maybe_reject_for_bruteforce(
         self, client_ip: str

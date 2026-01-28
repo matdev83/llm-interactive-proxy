@@ -307,6 +307,13 @@ class AngelService:
             update={"messages": augmented_messages, "stream": False}
         )
 
+    def build_steering_payload(
+        self, request: ChatRequest, original_response: Any, steering_text: str
+    ) -> ChatRequest:
+        """Backward-compatible alias for building a correction request."""
+
+        return self.build_correction_request(request, original_response, steering_text)
+
     def parse_angel_output(self, text: str) -> AngelDecision:
         """Parse Angel model output for decisions and steering messages.
 
