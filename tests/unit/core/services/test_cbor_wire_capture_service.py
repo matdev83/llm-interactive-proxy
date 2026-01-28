@@ -16,6 +16,7 @@ from src.core.domain.cbor_capture import (
     CaptureMetadata,
     CaptureSession,
 )
+from src.core.domain.request_context import RequestContext
 from src.core.services.cbor_wire_capture_service import CborWireCaptureService
 
 from tests.utils.fake_clock import FakeClockContext
@@ -449,12 +450,22 @@ class TestCborWireCaptureService:
         """Test streaming capture from backend."""
         chunks = [b"chunk1", b"chunk2", b"chunk3"]
 
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            client_host="127.0.0.1",
+            request_id="req-test-1",
+            agent="pytest",
+        )
+
         async def mock_stream():
             for chunk in chunks:
                 yield chunk
 
         wrapped = capture_service.wrap_inbound_stream(
-            context=None,
+            context=context,
             session_id="stream-test",
             backend="openai",
             model="gpt-4",
@@ -488,18 +499,39 @@ class TestCborWireCaptureService:
         assert end_entry["meta"].get("se") is True
         assert end_entry["meta"].get("tc") == 3
         assert end_entry["meta"].get("tb") == sum(len(c) for c in chunks)
+        assert end_entry["meta"].get("rid") == "req-test-1"
+
+        # Check chunk entries include request id
+        chunk_entries = [
+            e
+            for e in stream_entries
+            if e.get("dir") == CaptureDirection.BACKEND_TO_PROXY and e.get("data")
+        ]
+        assert len(chunk_entries) == 3
+        for entry in chunk_entries:
+            assert entry["meta"].get("rid") == "req-test-1"
 
     @pytest.mark.asyncio
     async def test_wrap_outbound_stream(self, capture_service):
         """Test streaming capture to client."""
         chunks = [b"data: test\n\n", b"data: done\n\n"]
 
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            client_host="127.0.0.1",
+            request_id="req-test-2",
+            agent="pytest",
+        )
+
         async def mock_stream():
             for chunk in chunks:
                 yield chunk
 
         wrapped = capture_service.wrap_outbound_stream(
-            context=None,
+            context=context,
             session_id="outbound-stream",
             backend="anthropic",
             model="claude-3",
@@ -525,6 +557,12 @@ class TestCborWireCaptureService:
             if isinstance(e, dict) and e.get("dir") == CaptureDirection.PROXY_TO_CLIENT
         ]
         assert len(stream_entries) >= 2
+
+        # Chunk entries should carry rid
+        chunk_entries = [e for e in stream_entries if e.get("data")]
+        assert chunk_entries
+        for entry in chunk_entries:
+            assert entry["meta"].get("rid") == "req-test-2"
 
     @pytest.mark.asyncio
     @pytest.mark.xdist_group(name="fake_clock")
@@ -603,6 +641,7 @@ class TestCborWireCaptureService:
         await service.shutdown()
 
         file_path = service.get_capture_file_path()
+        assert file_path is not None
         entries = list(_read_cbor_entries(file_path))
         data_entries = [
             e

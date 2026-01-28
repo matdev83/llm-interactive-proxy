@@ -562,6 +562,7 @@ class CborWireCaptureService(IWireCapture):
                 chunk_metadata = CaptureMetadata(
                     session_id=stream_session_id,
                     chunk_index=chunk_count,
+                    request_id=base_metadata.request_id,
                 )
                 chunk_entry = CaptureEntry(
                     timestamp=_get_timestamp(),
@@ -580,6 +581,7 @@ class CborWireCaptureService(IWireCapture):
                 backend=backend,
                 model=model,
                 key_name=key_name,
+                request_id=base_metadata.request_id,
                 is_stream_end=True,
                 total_chunks=chunk_count,
                 total_bytes=total_bytes,
@@ -698,6 +700,7 @@ class CborWireCaptureService(IWireCapture):
                 chunk_metadata = CaptureMetadata(
                     session_id=stream_session_id,
                     chunk_index=chunk_count,
+                    request_id=base_metadata.request_id,
                 )
                 chunk_entry = CaptureEntry(
                     timestamp=_get_timestamp(),
@@ -716,6 +719,7 @@ class CborWireCaptureService(IWireCapture):
                 backend=backend,
                 model=model,
                 key_name=key_name,
+                request_id=base_metadata.request_id,
                 is_stream_end=True,
                 total_chunks=chunk_count,
                 total_bytes=total_bytes,

@@ -79,6 +79,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import bisect
 import datetime
 import json
 import sys
@@ -433,25 +434,102 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         }
                     )
 
-    # Detect stalled sessions (requests with no backend response)
-    request_indices = [i for i, e in enumerate(entries) if e["dir"] == 0]
-    for req_idx in request_indices:
-        # Look for backend response after this request
-        has_response = False
-        for i in range(req_idx + 1, len(entries)):
-            if entries[i]["dir"] == 0:  # Next request
-                break
-            if entries[i]["dir"] == 3:  # Backend to proxy
-                has_response = True
-                break
+    # Detect stalled requests (client requests that never get a backend response).
+    # NOTE: client requests can be interleaved (e.g., chat + title generation), so we
+    # must not assume that a C->P request is followed by backend traffic before the
+    # next C->P request.
+    #
+    # Strategy:
+    # 1) Correlate C->P to P->B using request id (rid)
+    # 2) For each P->B, verify there is at least one B->P response chunk before the
+    #    next P->B on the same backend session (sid)
 
-        if not has_response:
+    # Index proxy->backend requests by rid
+    pb_index_by_rid: dict[str, int] = {}
+    pb_indices_by_sid: dict[str, list[int]] = {}
+    bp_indices_by_sid: dict[str, list[int]] = {}
+
+    for i, e in enumerate(entries):
+        meta = e.get("meta", {})
+        sid = meta.get("sid")
+        if e.get("dir") == 2:
+            rid = meta.get("rid")
+            if isinstance(rid, str) and rid:
+                pb_index_by_rid[rid] = i
+            if isinstance(sid, str) and sid:
+                pb_indices_by_sid.setdefault(sid, []).append(i)
+        elif e.get("dir") == 3:
+            if isinstance(sid, str) and sid:
+                bp_indices_by_sid.setdefault(sid, []).append(i)
+
+    # Ensure ordering
+    for _sid, idxs in pb_indices_by_sid.items():
+        idxs.sort()
+    for _sid, idxs in bp_indices_by_sid.items():
+        idxs.sort()
+
+    # Helper: does a backend response exist for this P->B index?
+    def _pb_has_response(pb_idx: int, sid: str) -> bool:
+        pb_list = pb_indices_by_sid.get(sid)
+        bp_list = bp_indices_by_sid.get(sid)
+        if not pb_list or not bp_list:
+            return False
+
+        # Next P->B index for this backend session bounds this request
+        pos = bisect.bisect_right(pb_list, pb_idx)
+        next_pb_idx = pb_list[pos] if pos < len(pb_list) else None
+
+        # Any B->P index strictly after pb_idx and before next_pb_idx counts
+        bp_pos = bisect.bisect_right(bp_list, pb_idx)
+        if bp_pos >= len(bp_list):
+            return False
+        if next_pb_idx is None:
+            return True
+        return bp_list[bp_pos] < next_pb_idx
+
+    for e in entries:
+        if e.get("dir") != 0:
+            continue
+        meta = e.get("meta", {})
+        rid = meta.get("rid")
+        if not isinstance(rid, str) or not rid:
+            continue
+
+        pb_idx = pb_index_by_rid.get(rid)
+        if pb_idx is None:
+            # Proxy never forwarded this request to any backend.
+            # This can happen if the client disconnects early or retries quickly.
+            issues.append(
+                {
+                    "type": "missing_response",
+                    "severity": "warning",
+                    "entry": e.get("seq"),
+                    "description": f"Request at [{e.get('seq')}] has no backend request (not forwarded)",
+                }
+            )
+            continue
+
+        pb_meta = entries[pb_idx].get("meta", {})
+        pb_sid = pb_meta.get("sid")
+        if not isinstance(pb_sid, str) or not pb_sid:
+            # Can't correlate without backend session id
+            issues.append(
+                {
+                    "type": "missing_response",
+                    "severity": "warning",
+                    "entry": e.get("seq"),
+                    "description": f"Request at [{e.get('seq')}] missing backend session id for correlation",
+                }
+            )
+            continue
+
+        if not _pb_has_response(pb_idx, pb_sid):
             issues.append(
                 {
                     "type": "missing_response",
                     "severity": "error",
-                    "entry": entries[req_idx].get("seq"),
-                    "description": f"Request at [{entries[req_idx].get('seq')}] has no backend response",
+                    "entry": e.get("seq"),
+                    "description": f"Request at [{e.get('seq')}] has no backend response",
                 }
             )
 
