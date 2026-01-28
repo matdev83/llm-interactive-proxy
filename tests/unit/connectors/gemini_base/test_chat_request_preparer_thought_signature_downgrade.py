@@ -126,3 +126,80 @@ async def test_prepare_downgrades_tool_calls_without_thought_signature() -> None
     await preparer.prepare(
         request_data=request_data, effective_model="gemini-3-flash-preview"
     )
+
+
+@pytest.mark.asyncio
+async def test_prepare_keeps_tool_calls_with_signatures_and_downgrades_only_missing() -> (
+    None
+):
+    context = MockConnectorContext()
+    converter = MockMessageConverter()
+    limiter = MockPromptLimiter()
+    builder = MockRequestBodyBuilder()
+
+    translation_service = MagicMock()
+
+    def capture(canonical_request: CanonicalChatRequest):
+        roles = [m.role for m in canonical_request.messages]
+        assert roles == ["user", "assistant", "assistant", "user", "tool"]
+
+        # Descriptive content preserved as text-only assistant message.
+        assert canonical_request.messages[1].tool_calls is None
+        assert str(canonical_request.messages[1].content) == "doing tool"
+
+        # Only the signed tool call remains.
+        assert canonical_request.messages[2].tool_calls is not None
+        assert len(canonical_request.messages[2].tool_calls) == 1
+        assert canonical_request.messages[2].content is None
+        assert canonical_request.messages[2].tool_calls[0].id == "t2"
+
+        # Unsigned tool response is converted to user text.
+        assert canonical_request.messages[3].role == "user"
+        assert "tool_call_id=t1" in str(canonical_request.messages[3].content)
+
+        # Signed tool response remains structured.
+        assert canonical_request.messages[4].role == "tool"
+        assert canonical_request.messages[4].tool_call_id == "t2"
+        return {"contents": [{"parts": [{"text": "ok"}]}]}
+
+    translation_service.from_domain_to_gemini_request = MagicMock(side_effect=capture)
+
+    preparer = ChatRequestPreparer(
+        connector_context=context,
+        message_converter=converter,
+        prompt_limiter=limiter,
+        request_body_builder=builder,
+        translation_service=translation_service,
+    )
+
+    request_data = CanonicalChatRequest(
+        model="gemini-3-flash-preview",
+        stream=True,
+        session_id="s1",
+        messages=[
+            ChatMessage(role="user", content="hi"),
+            ChatMessage(
+                role="assistant",
+                content="doing tool",
+                tool_calls=[
+                    ToolCall(
+                        id="t1",
+                        type="function",
+                        function=FunctionCall(name="list_files", arguments="{}"),
+                    ),
+                    ToolCall(
+                        id="t2",
+                        type="function",
+                        function=FunctionCall(name="read", arguments="{}"),
+                        extra_content={"google": {"thought_signature": "sig-1"}},
+                    ),
+                ],
+            ),
+            ChatMessage(role="tool", tool_call_id="t1", content="result-one"),
+            ChatMessage(role="tool", tool_call_id="t2", content="result-two"),
+        ],
+    )
+
+    await preparer.prepare(
+        request_data=request_data, effective_model="gemini-3-flash-preview"
+    )

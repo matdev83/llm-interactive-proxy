@@ -503,24 +503,59 @@ class ChatRequestPreparer:
 
         downgraded: list[ChatMessage] = []
 
+        # Track which tool calls are safe to keep for signature-required backends.
+        # Any tool call without a thought_signature must be removed, and its tool
+        # result messages must be downgraded to plain text (otherwise Gemini may
+        # see orphaned functionResponse parts).
+        kept_tool_call_ids: set[str] = set()
+
+        for raw in messages:
+            role = (
+                raw.get("role") if isinstance(raw, dict) else getattr(raw, "role", None)
+            )
+            tool_calls = (
+                raw.get("tool_calls")
+                if isinstance(raw, dict)
+                else getattr(raw, "tool_calls", None)
+            )
+            if role != "assistant" or not isinstance(tool_calls, list):
+                continue
+            for tc in tool_calls:
+                if not self._extract_thought_signature(tc):
+                    continue
+                tc_id = (
+                    tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                )
+                if isinstance(tc_id, str) and tc_id:
+                    kept_tool_call_ids.add(tc_id)
+
         # Avoid exploding prompt size when tool signature recovery is impossible.
         # This path is a best-effort salvage mode, typically triggered after a proxy
         # restart or when a client does not preserve thought signatures.
         max_tool_result_chars = 2000
         max_converted_tool_messages = 50
 
-        # Keep only the most recent tool result messages.
-        tool_message_count = 0
+        # Keep only the most recent tool result messages that we need to downgrade.
+        convertible_tool_message_count = 0
         for raw in messages:
             role = (
                 raw.get("role") if isinstance(raw, dict) else getattr(raw, "role", None)
             )
-            if role == "tool":
-                tool_message_count += 1
-        tool_message_skip_before = max(
-            0, tool_message_count - max_converted_tool_messages
+            if role != "tool":
+                continue
+            tool_call_id = (
+                raw.get("tool_call_id")
+                if isinstance(raw, dict)
+                else getattr(raw, "tool_call_id", None)
+            )
+            if isinstance(tool_call_id, str) and tool_call_id in kept_tool_call_ids:
+                continue
+            convertible_tool_message_count += 1
+
+        convertible_tool_message_skip_before = max(
+            0, convertible_tool_message_count - max_converted_tool_messages
         )
-        tool_message_seen = 0
+        convertible_tool_message_seen = 0
 
         for msg in messages:
             if isinstance(msg, dict):
@@ -535,23 +570,71 @@ class ChatRequestPreparer:
                 continue
 
             if msg.role == "assistant" and msg.tool_calls:
+                kept_tool_calls: list[Any] = []
+                for tc in msg.tool_calls:
+                    sig = self._extract_thought_signature(tc)
+                    if sig:
+                        kept_tool_calls.append(tc)
+                        tc_id = (
+                            tc.get("id")
+                            if isinstance(tc, dict)
+                            else getattr(tc, "id", None)
+                        )
+                        if isinstance(tc_id, str) and tc_id:
+                            kept_tool_call_ids.add(tc_id)
+
                 # IMPORTANT: Do not append any "downgrade" transcript text.
                 # That text becomes part of the prompt and can easily cause the model
                 # to repeat it, creating visible loops for clients.
-                downgraded.append(
-                    ChatMessage(
-                        role="assistant",
-                        content=msg.content,
-                        reasoning_content=msg.reasoning_content,
-                        name=msg.name,
+                if kept_tool_calls:
+                    # Preserve any descriptive content in a separate message.
+                    if msg.content:
+                        downgraded.append(
+                            ChatMessage(
+                                role="assistant",
+                                content=msg.content,
+                                name=msg.name,
+                            )
+                        )
+
+                    downgraded.append(
+                        ChatMessage(
+                            role="assistant",
+                            content=None,
+                            tool_calls=kept_tool_calls,
+                            reasoning_content=msg.reasoning_content,
+                            name=msg.name,
+                        )
                     )
-                )
+                else:
+                    # No tool calls can be kept; keep the text content.
+                    downgraded.append(
+                        ChatMessage(
+                            role="assistant",
+                            content=msg.content,
+                            reasoning_content=msg.reasoning_content,
+                            name=msg.name,
+                        )
+                    )
                 continue
 
             if msg.role == "tool":
-                tool_message_seen += 1
-                if tool_message_seen <= tool_message_skip_before:
+                tool_call_id = msg.tool_call_id
+                if (
+                    isinstance(tool_call_id, str)
+                    and tool_call_id
+                    and tool_call_id in kept_tool_call_ids
+                ):
+                    downgraded.append(msg)
                     continue
+
+                convertible_tool_message_seen += 1
+                if (
+                    convertible_tool_message_seen
+                    <= convertible_tool_message_skip_before
+                ):
+                    continue
+
                 tool_text = extract_prompt_text([msg])
                 if tool_text.startswith("tool:"):
                     tool_text = tool_text[len("tool:") :].lstrip()
