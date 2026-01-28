@@ -82,10 +82,10 @@ async def test_prepare_downgrades_tool_calls_without_thought_signature() -> None
         # Tool calls should be stripped
         assert canonical_request.messages[1].role == "assistant"
         assert canonical_request.messages[1].tool_calls is None
-        # Downgraded transcript must not look like a real tool protocol.
+        # Downgrade must not inject protocol-looking or loop-inducing transcript text.
         assistant_text = str(canonical_request.messages[1].content)
         assert "tool_call:" not in assistant_text
-        assert "Downgraded tool call" in assistant_text
+        assert "Downgraded tool call" not in assistant_text
         assert "TOOL INVOCATION" not in assistant_text
         # Tool message should be converted to user text
         assert canonical_request.messages[2].role == "user"

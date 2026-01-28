@@ -109,11 +109,15 @@ class IntelligentSessionResolver(ISessionResolver):
                 logger.debug(
                     f"Using explicit session ID from header/cookie: {explicit_id}"
                 )
+            # Persist on context so downstream layers have a stable session_id.
+            context.session_id = explicit_id
             return explicit_id
 
         # If intelligent resolver is disabled, fall back to generating new ID
         if not self._enabled:
-            return str(uuid4())
+            resolved = str(uuid4())
+            context.session_id = resolved
+            return resolved
 
         # 2. Extract client fingerprint
         client_key = self._compute_client_key(context)
@@ -128,6 +132,7 @@ class IntelligentSessionResolver(ISessionResolver):
                 f"Creating new session {session_id} for client {client_key} (insufficient message history)"
             )
             await self._session_repository.update_client_session(session_id, client_key)
+            context.session_id = session_id
             return session_id
 
         # 5. Compute conversation fingerprint
@@ -153,7 +158,9 @@ class IntelligentSessionResolver(ISessionResolver):
             logger.info(
                 f"Detected exact continuation of session {existing_session.id} for client {client_key}"
             )
-            return str(existing_session.id)
+            resolved = str(existing_session.id)
+            context.session_id = resolved
+            return resolved
 
         # 7. Try fuzzy matching if enabled
         if self._fuzzy_matching:
@@ -162,6 +169,7 @@ class IntelligentSessionResolver(ISessionResolver):
                 logger.info(
                     f"Fuzzy matched continuation of session {fuzzy_match} for client {client_key}"
                 )
+                context.session_id = fuzzy_match
                 return fuzzy_match
 
         # 8. No match found - create new session
@@ -174,6 +182,8 @@ class IntelligentSessionResolver(ISessionResolver):
         # Before this fix, parallel requests would find the session but with null fingerprint,
         # causing them to create duplicate sessions instead of reusing the existing one.
         await self._session_repository.update_fingerprint(session_id, conversation_fp)
+
+        context.session_id = session_id
 
         return session_id
 

@@ -13,7 +13,6 @@ connector classes.
 
 import asyncio
 import contextlib
-import json
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -496,13 +495,32 @@ class ChatRequestPreparer:
         we convert tool calls/results into regular text so the request is still valid.
         """
 
-        from src.core.domain.chat import ChatMessage, MessageContentPartText
+        from src.core.domain.chat import ChatMessage
 
         messages = getattr(canonical_request, "messages", None)
         if not isinstance(messages, list) or not messages:
-            return
+            return canonical_request
 
         downgraded: list[ChatMessage] = []
+
+        # Avoid exploding prompt size when tool signature recovery is impossible.
+        # This path is a best-effort salvage mode, typically triggered after a proxy
+        # restart or when a client does not preserve thought signatures.
+        max_tool_result_chars = 2000
+        max_converted_tool_messages = 50
+
+        # Keep only the most recent tool result messages.
+        tool_message_count = 0
+        for raw in messages:
+            role = (
+                raw.get("role") if isinstance(raw, dict) else getattr(raw, "role", None)
+            )
+            if role == "tool":
+                tool_message_count += 1
+        tool_message_skip_before = max(
+            0, tool_message_count - max_converted_tool_messages
+        )
+        tool_message_seen = 0
 
         for msg in messages:
             if isinstance(msg, dict):
@@ -517,53 +535,13 @@ class ChatRequestPreparer:
                 continue
 
             if msg.role == "assistant" and msg.tool_calls:
-                tool_lines: list[str] = []
-                for tc in msg.tool_calls:
-                    if isinstance(tc, dict):
-                        fn = tc.get("function")
-                        fn_name = fn.get("name") if isinstance(fn, dict) else None
-                        fn_args = fn.get("arguments") if isinstance(fn, dict) else None
-                    else:
-                        fn = getattr(tc, "function", None)
-                        fn_name = getattr(fn, "name", None)
-                        fn_args = getattr(fn, "arguments", None)
-
-                    if not isinstance(fn_name, str) or not fn_name:
-                        continue
-                    if fn_args is None:
-                        fn_args = "{}"
-                    if not isinstance(fn_args, str):
-                        fn_args = json.dumps(fn_args)
-
-                    # IMPORTANT: Avoid protocol-like text that can be mistaken for an
-                    # actual tool invocation by downstream clients or the model itself.
-                    # Keep this as plain descriptive text.
-                    tool_lines.append(
-                        f"Downgraded tool call (signature missing): tool={fn_name}"
-                    )
-
-                new_content = msg.content
-                if tool_lines:
-                    appendix = "\n".join(tool_lines)
-                    if new_content is None:
-                        new_content = appendix
-                    elif isinstance(new_content, str):
-                        if new_content:
-                            new_content = f"{new_content}\n{appendix}"
-                        else:
-                            new_content = appendix
-                    else:
-                        try:
-                            new_parts = list(new_content)
-                        except TypeError:
-                            new_parts = [MessageContentPartText(text=str(new_content))]
-                        new_parts.append(MessageContentPartText(text=appendix))
-                        new_content = new_parts
-
+                # IMPORTANT: Do not append any "downgrade" transcript text.
+                # That text becomes part of the prompt and can easily cause the model
+                # to repeat it, creating visible loops for clients.
                 downgraded.append(
                     ChatMessage(
                         role="assistant",
-                        content=new_content,
+                        content=msg.content,
                         reasoning_content=msg.reasoning_content,
                         name=msg.name,
                     )
@@ -571,9 +549,14 @@ class ChatRequestPreparer:
                 continue
 
             if msg.role == "tool":
+                tool_message_seen += 1
+                if tool_message_seen <= tool_message_skip_before:
+                    continue
                 tool_text = extract_prompt_text([msg])
                 if tool_text.startswith("tool:"):
                     tool_text = tool_text[len("tool:") :].lstrip()
+                if len(tool_text) > max_tool_result_chars:
+                    tool_text = tool_text[:max_tool_result_chars] + "... (truncated)"
                 prefix = "Tool result"
                 if msg.tool_call_id:
                     prefix = f"{prefix} (tool_call_id={msg.tool_call_id})"

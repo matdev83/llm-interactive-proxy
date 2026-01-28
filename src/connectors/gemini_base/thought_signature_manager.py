@@ -46,6 +46,8 @@ class ThoughtSignatureManager:
         # Enabled by default outside pytest, writing under var/cache.
         # Can be overridden/disabled with env vars.
         self._persist_path: pathlib.Path | None = None
+        self._persist_dir: pathlib.Path | None = None
+        self._load_legacy_persist_file = True
         self._persist_min_interval_seconds = 5.0
         self._persist_last_write = 0.0
         self._persist_dirty = False
@@ -79,6 +81,8 @@ class ThoughtSignatureManager:
             "NO",
         }:
             self._persist_path = None
+            self._persist_dir = None
+            self._load_legacy_persist_file = False
             return
 
         # During pytest runs, do not persist by default to avoid polluting the repo.
@@ -86,66 +90,124 @@ class ThoughtSignatureManager:
             "LLM_PROXY_THOUGHT_SIGNATURE_PERSIST_PATH"
         ):
             self._persist_path = None
+            self._persist_dir = None
+            self._load_legacy_persist_file = False
             return
 
         raw_path = os.environ.get("LLM_PROXY_THOUGHT_SIGNATURE_PERSIST_PATH")
         if raw_path:
-            self._persist_path = pathlib.Path(raw_path)
+            # If explicitly configured, do not implicitly load/write the legacy
+            # single-file store under var/cache.
+            self._load_legacy_persist_file = False
+
+            configured = pathlib.Path(raw_path)
+            if configured.suffix.lower() == ".json":
+                self._persist_path = configured
+                self._persist_dir = configured.parent
+            else:
+                # Treat as directory.
+                self._persist_dir = configured
+                self._persist_path = (
+                    configured / f"thought_signatures_{os.getpid()}.json"
+                )
             return
 
-        # Default persistence location.
-        self._persist_path = pathlib.Path("var") / "cache" / "thought_signatures.json"
+        # Default persistence location (per-process shard files).
+        self._persist_dir = pathlib.Path("var") / "cache" / "thought_signatures"
+        self._persist_path = (
+            self._persist_dir / f"thought_signatures_{os.getpid()}.json"
+        )
+
+    def _iter_persist_files(self) -> list[pathlib.Path]:
+        """Return all persistence files to load for this process."""
+
+        files: list[pathlib.Path] = []
+
+        if self._load_legacy_persist_file:
+            legacy = pathlib.Path("var") / "cache" / "thought_signatures.json"
+            with contextlib.suppress(Exception):
+                if legacy.exists() and legacy.is_file():
+                    files.append(legacy)
+
+        persist_dir = self._persist_dir
+        if persist_dir is not None:
+            with contextlib.suppress(Exception):
+                if persist_dir.exists() and persist_dir.is_dir():
+                    files.extend(sorted(persist_dir.glob("thought_signatures_*.json")))
+
+        persist_path = self._persist_path
+        if persist_path is not None:
+            with contextlib.suppress(Exception):
+                if (
+                    persist_path.exists()
+                    and persist_path.is_file()
+                    and persist_path not in files
+                ):
+                    files.append(persist_path)
+
+        return files
 
     def _load_persisted_signatures(self) -> None:
-        path = self._persist_path
-        if path is None:
+        persist_files = self._iter_persist_files()
+        if not persist_files:
             return
-
-        try:
-            if not path.exists():
-                return
-        except Exception:
-            # If the path cannot be checked, skip persistence.
-            return
-
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            logger.debug("Failed to load persisted thought signatures", exc_info=True)
-            return
-
-        entries: dict[str, Any] = {}
-        if isinstance(data, dict):
-            if isinstance(data.get("entries"), dict):
-                entries = data["entries"]
-            else:
-                # Legacy format: {tool_call_id: signature}
-                entries = data
 
         current_time = time.time()
-        loaded: list[tuple[str, str, float]] = []
-        for tc_id, entry in entries.items():
-            if not isinstance(tc_id, str) or not tc_id:
-                continue
-            if isinstance(entry, dict):
-                sig = entry.get("sig")
-                ts = entry.get("ts")
-            else:
-                sig = entry
-                ts = None
+        merged: dict[str, tuple[str, float]] = {}
+        loaded_files = 0
 
-            if not isinstance(sig, str) or not sig:
+        for path in persist_files:
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                logger.debug(
+                    "Failed to load persisted thought signatures from %s",
+                    str(path),
+                    exc_info=True,
+                )
                 continue
-            timestamp = float(ts) if isinstance(ts, int | float) else current_time
-            if current_time - timestamp > self._ttl_seconds:
-                continue
-            loaded.append((tc_id, sig, timestamp))
 
-        if not loaded:
+            entries: dict[str, Any] = {}
+            if isinstance(data, dict):
+                if isinstance(data.get("entries"), dict):
+                    entries = data["entries"]
+                else:
+                    # Legacy format: {tool_call_id: signature}
+                    entries = data
+
+            if not entries:
+                continue
+
+            loaded_files += 1
+
+            for tc_id, entry in entries.items():
+                if not isinstance(tc_id, str) or not tc_id:
+                    continue
+
+                if isinstance(entry, dict):
+                    sig = entry.get("sig")
+                    ts = entry.get("ts")
+                else:
+                    sig = entry
+                    ts = None
+
+                if not isinstance(sig, str) or not sig:
+                    continue
+
+                timestamp = float(ts) if isinstance(ts, int | float) else current_time
+                if current_time - timestamp > self._ttl_seconds:
+                    continue
+
+                existing = merged.get(tc_id)
+                if existing is None or timestamp > existing[1]:
+                    merged[tc_id] = (sig, timestamp)
+
+        if not merged:
             return
 
-        # Seed anonymous cache entries ordered by timestamp so LRU behaves sensibly.
+        loaded = [(tc_id, sig, ts) for tc_id, (sig, ts) in merged.items()]
         loaded.sort(key=lambda x: x[2])
+
         with self._lock:
             for tc_id, sig, timestamp in loaded[-self._max_cache_size :]:
                 key = f"anon:{tc_id}"
@@ -156,9 +218,9 @@ class ThoughtSignatureManager:
 
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                "Loaded %d persisted thought_signature(s) from %s",
+                "Loaded %d persisted thought_signature(s) from %d file(s)",
                 len(loaded),
-                str(path),
+                loaded_files,
             )
 
     def _maybe_persist_locked(self, current_time: float | None = None) -> None:
@@ -219,7 +281,7 @@ class ThoughtSignatureManager:
         except Exception:
             logger.debug("Failed to persist thought signatures", exc_info=True)
             with contextlib.suppress(Exception):
-                tmp_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+                tmp_path.unlink(missing_ok=True)
 
     @property
     def cache(self) -> dict[str, str]:

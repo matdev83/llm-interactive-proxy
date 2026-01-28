@@ -126,6 +126,14 @@ class RequestProcessor(IRequestProcessor):
         session = cast(Session, enriched_session)
         session_id = await self._session_manager.resolve_session_id(context)
 
+        # Ensure session_id is propagated consistently for downstream components.
+        # Many backends/connectors (e.g., Gemini thought signature injection) rely on
+        # request_data.session_id being present even when the client does not send it.
+        with contextlib.suppress(Exception):
+            context.session_id = session_id
+        with contextlib.suppress(Exception):
+            request_data = request_data.model_copy(update={"session_id": session_id})
+
         # Apply request side effects (streaming registry, memory injection/capture)
         request_data = await self._request_side_effects.apply(
             context, session_id, request_data
@@ -233,6 +241,9 @@ class RequestProcessor(IRequestProcessor):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Failed to get backend type from app state: {exc}")
                 backend_type = None
+
+        if not isinstance(backend_type, str) or not backend_type.strip():
+            backend_type = None
 
         parsed = parse_model_backend(request_data.model, (backend_type or ""))
         original_backend = context.backend or parsed.backend_type

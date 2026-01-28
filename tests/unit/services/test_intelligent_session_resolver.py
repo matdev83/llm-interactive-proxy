@@ -445,12 +445,12 @@ class TestIntelligentSessionResolver:
 
         # The client-session mapping should be recorded
         # (We can't directly verify this without exposing internals,
-        # but we can verify a second request would create a new ID
-        # since the session isn't persisted)
+        # but we can verify the resolver pins the resolved ID on the
+        # RequestContext for downstream consistency)
         session_id2 = await resolver.resolve_session_id(context)
 
-        # Without persisting the session, should create new ID each time
-        assert session_id2 != session_id
+        # Resolver persists session_id on context; subsequent calls should match.
+        assert session_id2 == session_id
 
     @pytest.mark.asyncio
     async def test_no_cross_session_contamination_via_topic_similarity(
