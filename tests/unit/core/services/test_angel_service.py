@@ -153,3 +153,45 @@ def test_build_correction_request_includes_previous_response() -> None:
     assert correction.messages[-1].role == "user"
     assert "VERIFICATION FEEDBACK" in str(correction.messages[-1].content)
     assert "Fix the solution" in str(correction.messages[-1].content)
+
+
+def test_build_verification_messages_stringifies_tools() -> None:
+    from src.core.domain.chat import ToolCall, FunctionCall
+
+    svc = AngelService("openai:gpt-4o-mini")
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[
+            ChatMessage(role="user", content="Search for something"),
+            ChatMessage(
+                role="assistant",
+                content="I will search",
+                tool_calls=[
+                    ToolCall(
+                        id="call_1",
+                        function=FunctionCall(name="search", arguments='{"q": "test"}'),
+                    )
+                ],
+            ),
+            ChatMessage(
+                role="tool",
+                content="found results",
+                tool_call_id="call_1",
+            ),
+        ],
+    )
+    messages = svc.build_verification_messages(request, "final answer")
+
+    # System prompt + 3 processed messages + 1 assistant message = 5
+    assert len(messages) == 5
+
+    # Assistant message should be stringified
+    assert messages[2].role == "assistant"
+    assert messages[2].tool_calls is None
+    assert "I will search" in str(messages[2].content)
+    assert "[Tool Call: search({\"q\": \"test\"})]" in str(messages[2].content)
+
+    # Tool message should be stringified to a user message
+    assert messages[3].role == "user"
+    assert "Tool result (tool_call_id=call_1): found results" in str(messages[3].content)
+

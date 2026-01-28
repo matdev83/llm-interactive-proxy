@@ -9,6 +9,7 @@ from typing import Any
 
 from src.core.domain.angel import AngelDecision
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat_history_utils import stringify_tool_calls_and_results
 from src.core.domain.model_utils import (
     ParsedModelWithParams,
     parse_model_backend,
@@ -231,7 +232,8 @@ class AngelService:
         loader = get_prompt_loader()
         messages = [ChatMessage(role="system", content=loader.angel_prompt)]
 
-        history = list(request.messages)
+        # History stringification: convert tool calls/results to text for cross-backend compatibility.
+        history = stringify_tool_calls_and_results(list(request.messages))
 
         # Truncate history for Angel verification if enabled
         max_history = self._max_history
@@ -293,9 +295,12 @@ class AngelService:
     ) -> ChatRequest:
         normalized_response = self._normalize_assistant_content(original_response)
 
+        # History stringification: convert tool calls/results to text for cross-backend compatibility.
+        history = stringify_tool_calls_and_results(list(request.messages))
+
         # Construct correction messages following Role Alternation (Assistant -> User)
         augmented_messages = [
-            *list(request.messages),
+            *history,
             ChatMessage(role="assistant", content=normalized_response),
             ChatMessage(
                 role="user",

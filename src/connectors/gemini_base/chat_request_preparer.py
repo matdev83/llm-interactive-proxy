@@ -35,8 +35,8 @@ from src.connectors.gemini_base.thought_signature_service import (
     get_default_thought_signature_service,
 )
 from src.core.common.exceptions import AuthenticationError
+from src.core.domain.chat_history_utils import stringify_tool_calls_and_results
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
-from src.core.utils.token_count import extract_prompt_text
 
 if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
@@ -495,163 +495,15 @@ class ChatRequestPreparer:
         we convert tool calls/results into regular text so the request is still valid.
         """
 
-        from src.core.domain.chat import ChatMessage
-
         messages = getattr(canonical_request, "messages", None)
         if not isinstance(messages, list) or not messages:
             return canonical_request
 
-        downgraded: list[ChatMessage] = []
-
-        # Track which tool calls are safe to keep for signature-required backends.
-        # Any tool call without a thought_signature must be removed, and its tool
-        # result messages must be downgraded to plain text (otherwise Gemini may
-        # see orphaned functionResponse parts).
-        kept_tool_call_ids: set[str] = set()
-
-        for raw in messages:
-            role = (
-                raw.get("role") if isinstance(raw, dict) else getattr(raw, "role", None)
-            )
-            tool_calls = (
-                raw.get("tool_calls")
-                if isinstance(raw, dict)
-                else getattr(raw, "tool_calls", None)
-            )
-            if role != "assistant" or not isinstance(tool_calls, list):
-                continue
-            for tc in tool_calls:
-                if not self._extract_thought_signature(tc):
-                    continue
-                tc_id = (
-                    tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
-                )
-                if isinstance(tc_id, str) and tc_id:
-                    kept_tool_call_ids.add(tc_id)
-
-        # Avoid exploding prompt size when tool signature recovery is impossible.
-        # This path is a best-effort salvage mode, typically triggered after a proxy
-        # restart or when a client does not preserve thought signatures.
-        max_tool_result_chars = 2000
-        max_converted_tool_messages = 50
-
-        # Keep only the most recent tool result messages that we need to downgrade.
-        convertible_tool_message_count = 0
-        for raw in messages:
-            role = (
-                raw.get("role") if isinstance(raw, dict) else getattr(raw, "role", None)
-            )
-            if role != "tool":
-                continue
-            tool_call_id = (
-                raw.get("tool_call_id")
-                if isinstance(raw, dict)
-                else getattr(raw, "tool_call_id", None)
-            )
-            if isinstance(tool_call_id, str) and tool_call_id in kept_tool_call_ids:
-                continue
-            convertible_tool_message_count += 1
-
-        convertible_tool_message_skip_before = max(
-            0, convertible_tool_message_count - max_converted_tool_messages
+        downgraded = stringify_tool_calls_and_results(
+            list(messages),
+            signature_checker=lambda tc: bool(self._extract_thought_signature(tc)),
+            include_descriptions=False,
         )
-        convertible_tool_message_seen = 0
-
-        for msg in messages:
-            if isinstance(msg, dict):
-                msg = ChatMessage(
-                    role=str(msg.get("role", "user")),
-                    content=msg.get("content"),
-                    tool_calls=msg.get("tool_calls"),
-                    tool_call_id=msg.get("tool_call_id"),
-                )
-
-            if not isinstance(msg, ChatMessage):
-                continue
-
-            if msg.role == "assistant" and msg.tool_calls:
-                kept_tool_calls: list[Any] = []
-                for tc in msg.tool_calls:
-                    sig = self._extract_thought_signature(tc)
-                    if sig:
-                        kept_tool_calls.append(tc)
-                        tc_id = (
-                            tc.get("id")
-                            if isinstance(tc, dict)
-                            else getattr(tc, "id", None)
-                        )
-                        if isinstance(tc_id, str) and tc_id:
-                            kept_tool_call_ids.add(tc_id)
-
-                # IMPORTANT: Do not append any "downgrade" transcript text.
-                # That text becomes part of the prompt and can easily cause the model
-                # to repeat it, creating visible loops for clients.
-                if kept_tool_calls:
-                    # Preserve any descriptive content in a separate message.
-                    if msg.content:
-                        downgraded.append(
-                            ChatMessage(
-                                role="assistant",
-                                content=msg.content,
-                                name=msg.name,
-                            )
-                        )
-
-                    downgraded.append(
-                        ChatMessage(
-                            role="assistant",
-                            content=None,
-                            tool_calls=kept_tool_calls,
-                            reasoning_content=msg.reasoning_content,
-                            name=msg.name,
-                        )
-                    )
-                else:
-                    # No tool calls can be kept; keep the text content.
-                    downgraded.append(
-                        ChatMessage(
-                            role="assistant",
-                            content=msg.content,
-                            reasoning_content=msg.reasoning_content,
-                            name=msg.name,
-                        )
-                    )
-                continue
-
-            if msg.role == "tool":
-                tool_call_id = msg.tool_call_id
-                if (
-                    isinstance(tool_call_id, str)
-                    and tool_call_id
-                    and tool_call_id in kept_tool_call_ids
-                ):
-                    downgraded.append(msg)
-                    continue
-
-                convertible_tool_message_seen += 1
-                if (
-                    convertible_tool_message_seen
-                    <= convertible_tool_message_skip_before
-                ):
-                    continue
-
-                tool_text = extract_prompt_text([msg])
-                if tool_text.startswith("tool:"):
-                    tool_text = tool_text[len("tool:") :].lstrip()
-                if len(tool_text) > max_tool_result_chars:
-                    tool_text = tool_text[:max_tool_result_chars] + "... (truncated)"
-                prefix = "Tool result"
-                if msg.tool_call_id:
-                    prefix = f"{prefix} (tool_call_id={msg.tool_call_id})"
-                downgraded.append(
-                    ChatMessage(
-                        role="user",
-                        content=f"{prefix}: {tool_text}",
-                    )
-                )
-                continue
-
-            downgraded.append(msg)
 
         # CanonicalChatRequest is typically frozen (ValueObject). Prefer model_copy.
         if hasattr(canonical_request, "model_copy"):
