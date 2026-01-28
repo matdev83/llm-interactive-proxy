@@ -6,8 +6,10 @@ for clients (like Droid) that don't preserve extra_content.
 """
 
 import contextlib
+import json
 import logging
 import os
+import pathlib
 import threading
 import time
 from collections import OrderedDict
@@ -40,6 +42,15 @@ class ThoughtSignatureManager:
         self._max_cache_size = max_cache_size
         self._ttl_seconds = ttl_seconds
 
+        # Optional persistence for restart-safe interactive sessions.
+        # Enabled by default outside pytest, writing under var/cache.
+        # Can be overridden/disabled with env vars.
+        self._persist_path: pathlib.Path | None = None
+        self._persist_min_interval_seconds = 5.0
+        self._persist_last_write = 0.0
+        self._persist_dirty = False
+        self._configure_persistence()
+
         # OrderedDict for LRU eviction with timestamps.
         # NOTE: Some tests and legacy paths may still assign raw strings as values.
         # Treat those as "timestamp unknown" and normalize on read.
@@ -48,6 +59,167 @@ class ThoughtSignatureManager:
         self._by_tool_call: dict[str, str] = {}
         # Lock to protect cache access
         self._lock = threading.Lock()
+
+        # Load persisted signatures after initializing state.
+        self._load_persisted_signatures()
+
+    def _configure_persistence(self) -> None:
+        """Configure optional on-disk persistence.
+
+        Persistence is enabled by default outside pytest to avoid losing
+        thought signatures across process restarts.
+        """
+
+        # Explicit disable always wins.
+        if os.environ.get("LLM_PROXY_THOUGHT_SIGNATURE_PERSIST", "").strip() in {
+            "0",
+            "false",
+            "False",
+            "no",
+            "NO",
+        }:
+            self._persist_path = None
+            return
+
+        # During pytest runs, do not persist by default to avoid polluting the repo.
+        if os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get(
+            "LLM_PROXY_THOUGHT_SIGNATURE_PERSIST_PATH"
+        ):
+            self._persist_path = None
+            return
+
+        raw_path = os.environ.get("LLM_PROXY_THOUGHT_SIGNATURE_PERSIST_PATH")
+        if raw_path:
+            self._persist_path = pathlib.Path(raw_path)
+            return
+
+        # Default persistence location.
+        self._persist_path = pathlib.Path("var") / "cache" / "thought_signatures.json"
+
+    def _load_persisted_signatures(self) -> None:
+        path = self._persist_path
+        if path is None:
+            return
+
+        try:
+            if not path.exists():
+                return
+        except Exception:
+            # If the path cannot be checked, skip persistence.
+            return
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            logger.debug("Failed to load persisted thought signatures", exc_info=True)
+            return
+
+        entries: dict[str, Any] = {}
+        if isinstance(data, dict):
+            if isinstance(data.get("entries"), dict):
+                entries = data["entries"]
+            else:
+                # Legacy format: {tool_call_id: signature}
+                entries = data
+
+        current_time = time.time()
+        loaded: list[tuple[str, str, float]] = []
+        for tc_id, entry in entries.items():
+            if not isinstance(tc_id, str) or not tc_id:
+                continue
+            if isinstance(entry, dict):
+                sig = entry.get("sig")
+                ts = entry.get("ts")
+            else:
+                sig = entry
+                ts = None
+
+            if not isinstance(sig, str) or not sig:
+                continue
+            timestamp = float(ts) if isinstance(ts, int | float) else current_time
+            if current_time - timestamp > self._ttl_seconds:
+                continue
+            loaded.append((tc_id, sig, timestamp))
+
+        if not loaded:
+            return
+
+        # Seed anonymous cache entries ordered by timestamp so LRU behaves sensibly.
+        loaded.sort(key=lambda x: x[2])
+        with self._lock:
+            for tc_id, sig, timestamp in loaded[-self._max_cache_size :]:
+                key = f"anon:{tc_id}"
+                self._cache[key] = (sig, timestamp)
+                self._cache.move_to_end(key)
+                self._by_tool_call[tc_id] = sig
+            self._enforce_size_limit_locked()
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Loaded %d persisted thought_signature(s) from %s",
+                len(loaded),
+                str(path),
+            )
+
+    def _maybe_persist_locked(self, current_time: float | None = None) -> None:
+        """Persist anonymous thought signatures to disk (must hold lock)."""
+
+        path = self._persist_path
+        if path is None:
+            return
+
+        if not self._persist_dirty:
+            return
+
+        if current_time is None:
+            current_time = time.time()
+
+        if (
+            current_time - self._persist_last_write
+        ) < self._persist_min_interval_seconds:
+            return
+
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            logger.debug("Failed to create persistence directory", exc_info=True)
+            return
+
+        # Serialize only anonymous entries, which are session-id independent.
+        entries_out: dict[str, dict[str, Any]] = {}
+        for key, entry in self._cache.items():
+            if not key.startswith("anon:"):
+                continue
+            tc_id = key.split(":", 1)[1]
+            if isinstance(entry, tuple) and len(entry) == 2:
+                sig, ts = entry
+            else:
+                sig, ts = str(entry), current_time
+            if not sig:
+                continue
+            if current_time - float(ts) > self._ttl_seconds:
+                continue
+            entries_out[tc_id] = {"sig": sig, "ts": float(ts)}
+
+        payload = {
+            "version": 1,
+            "generated_at": float(current_time),
+            "ttl_seconds": int(self._ttl_seconds),
+            "entries": entries_out,
+        }
+
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        try:
+            tmp_path.write_text(
+                json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+            )
+            os.replace(str(tmp_path), str(path))
+            self._persist_last_write = float(current_time)
+            self._persist_dirty = False
+        except Exception:
+            logger.debug("Failed to persist thought signatures", exc_info=True)
+            with contextlib.suppress(Exception):
+                tmp_path.unlink(missing_ok=True)  # type: ignore[arg-type]
 
     @property
     def cache(self) -> dict[str, str]:
@@ -160,16 +332,26 @@ class ThoughtSignatureManager:
         This is used both when we observe an existing signature in the request
         and when we inject one from cache.
         """
-        if not session_id or not tc_id or not sig:
+        if not tc_id or not sig:
             return
 
         current_time = time.time()
         with self._lock:
-            cache_key = f"{session_id}:{tc_id}"
-            self._cache[cache_key] = (sig, current_time)
-            self._cache.move_to_end(cache_key)
+            if session_id:
+                cache_key = f"{session_id}:{tc_id}"
+                self._cache[cache_key] = (sig, current_time)
+                self._cache.move_to_end(cache_key)
+
+            # Always keep an anonymous copy so signatures survive session-id changes
+            # and can optionally be persisted across restarts.
+            anon_key = f"anon:{tc_id}"
+            self._cache[anon_key] = (sig, current_time)
+            self._cache.move_to_end(anon_key)
             self._by_tool_call[tc_id] = sig
             self._enforce_size_limit_locked()
+
+            self._persist_dirty = True
+            self._maybe_persist_locked(current_time)
 
     def _lookup_signature(self, tc_id: str, session_id: str) -> str | None:
         """Look up a signature by tool_call_id and session_id.
@@ -220,6 +402,8 @@ class ThoughtSignatureManager:
                         # Sliding TTL on anonymous entries as well.
                         self._cache[f"anon:{tc_id}"] = (anon_sig, current_time)
                         self._cache.move_to_end(f"anon:{tc_id}")
+                        self._persist_dirty = True
+                        self._maybe_persist_locked(current_time)
 
             if not sig:
                 # Fallback to global index by tool_call_id (handles session re-keying)
@@ -231,6 +415,13 @@ class ThoughtSignatureManager:
                     self._cache[cache_key] = (sig, current_time)
                     self._cache.move_to_end(cache_key)
                     self._enforce_size_limit_locked()
+
+                if sig:
+                    anon_key = f"anon:{tc_id}"
+                    self._cache[anon_key] = (sig, current_time)
+                    self._cache.move_to_end(anon_key)
+                    self._persist_dirty = True
+                    self._maybe_persist_locked(current_time)
 
             return sig
 
@@ -273,10 +464,17 @@ class ThoughtSignatureManager:
                     self._cache[cache_key] = (sig, current_time)
                     self._by_tool_call[tc_id] = sig
 
+                    # Always store an anonymous copy for restart/session-id safety.
+                    anon_key = f"anon:{tc_id}"
+                    self._cache[anon_key] = (sig, current_time)
+                    self._cache.move_to_end(anon_key)
+
                     # Move to end for LRU
                     self._cache.move_to_end(cache_key)
 
                     self._enforce_size_limit_locked()
+
+                    self._persist_dirty = True
 
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -285,6 +483,8 @@ class ThoughtSignatureManager:
                             cache_key[:16],
                             len(self._cache),
                         )
+
+            self._maybe_persist_locked(current_time)
 
     def log_signature_state(
         self,

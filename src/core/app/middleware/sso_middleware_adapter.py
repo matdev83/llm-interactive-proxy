@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, overload
 
 from src.core.auth.sso.middleware import AuthMiddleware
 from src.core.common.json_validation import JSONValidationError, validate_json_structure
+from starlette.requests import Request as StarletteRequest
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
@@ -88,9 +89,19 @@ class SSOMiddlewareAdapter:
         # so downstream handlers can read the body
         await self.app(scope, cached_receive, send)
 
+    @overload
     async def _convert_request_to_dict(
-        self, scope: Scope, receive: Receive
-    ) -> tuple[dict[str, Any], Receive]:
+        self, request: StarletteRequest
+    ) -> dict[str, Any]: ...
+
+    @overload
+    async def _convert_request_to_dict(
+        self, request: Scope, receive: Receive
+    ) -> tuple[dict[str, Any], Receive]: ...
+
+    async def _convert_request_to_dict(
+        self, request: Scope | StarletteRequest, receive: Receive | None = None
+    ) -> dict[str, Any] | tuple[dict[str, Any], Receive]:
         """Convert ASGI request to dict format and return cached receive for downstream.
 
         Args:
@@ -101,6 +112,20 @@ class SSOMiddlewareAdapter:
             Tuple of (request_dict, cached_receive) where cached_receive can be used
             by downstream handlers to read the body again
         """
+        scope = request
+        called_with_request = False
+        if receive is None:
+            if not isinstance(request, StarletteRequest):
+                raise TypeError("receive is required when passing ASGI scope")
+            request_obj = request
+            called_with_request = True
+            scope = request_obj.scope
+            receive = getattr(request_obj, "receive", None) or getattr(
+                request_obj, "_receive", None
+            )
+            if receive is None:
+                raise TypeError("Request does not expose an ASGI receive callable")
+
         # Extract headers from scope
         headers: dict[str, str] = {}
         for header_name_bytes, header_value_bytes in scope.get("headers", []):
@@ -183,6 +208,9 @@ class SSOMiddlewareAdapter:
             "method": method,
             "path": scope.get("path", ""),
         }
+
+        if called_with_request:
+            return request_dict
 
         return request_dict, cached_receive
 

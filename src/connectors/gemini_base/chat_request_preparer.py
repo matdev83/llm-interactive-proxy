@@ -535,9 +535,12 @@ class ChatRequestPreparer:
                     if not isinstance(fn_args, str):
                         fn_args = json.dumps(fn_args)
 
-                    # IMPORTANT: Do not use protocol-like prefixes such as "tool_call:".
-                    # Some clients treat that as an actual tool invocation.
-                    tool_lines.append(f"[TOOL INVOCATION] {fn_name}({fn_args})")
+                    # IMPORTANT: Avoid protocol-like text that can be mistaken for an
+                    # actual tool invocation by downstream clients or the model itself.
+                    # Keep this as plain descriptive text.
+                    tool_lines.append(
+                        f"Downgraded tool call (signature missing): tool={fn_name}"
+                    )
 
                 new_content = msg.content
                 if tool_lines:
