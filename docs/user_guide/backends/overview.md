@@ -21,6 +21,7 @@ The proxy supports the following backend providers out of the box:
 | `zenmux` | ZenMux | API Key | OpenAI-compatible ZenMux router |
 | `zai` | ZAI | API Key | Zhipu/Z.ai access |
 | `zai-coding-plan` | ZAI Coding Plan | API Key | Coding-specific workflows |
+| `kimi-code` | Kimi | API Key | Kimi For Coding (OpenAI-compatible) |
 | `minimax` | Minimax | API Key | Minimax AI models |
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
@@ -62,6 +63,7 @@ export GEMINI_API_KEY="AIza..."
 export OPENROUTER_API_KEY="sk-or-..."
 export ZENMUX_API_KEY="..."
 export ZAI_API_KEY="..."
+export KIMI_API_KEY="..."
 export MINIMAX_API_KEY="..."
 
 # For GCP-based Gemini
@@ -121,6 +123,7 @@ For detailed configuration and usage information for each backend, see:
 - [Qwen Backend](qwen.md)
 - [MiniMax Backend](minimax.md)
 - [ZenMux Backend](zenmux.md)
+- [Kimi Code Backend](kimi-code.md)
 - [Custom Backends](custom-backends.md)
 
 ## Related Features

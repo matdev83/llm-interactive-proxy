@@ -75,6 +75,31 @@ class TestBackendConfigProvider:
         assert isinstance(config, BackendConfig)
         assert config.api_key is None
 
+    def test_openai_responses_falls_back_to_openai_api_key(self) -> None:
+        app_config = AppConfig(
+            backends={
+                "openai": {"api_key": "test-key"},
+                "openai-responses": {},
+            }
+        )
+        provider = BackendConfigProvider(app_config)
+
+        config = provider.get_backend_config("openai-responses")
+        assert config is not None
+        assert config.api_key == "test-key"
+
+    def test_openai_responses_instance_falls_back_to_openai_api_key(self) -> None:
+        app_config = AppConfig(
+            backends={
+                "openai": {"api_key": "test-key"},
+            }
+        )
+        provider = BackendConfigProvider(app_config)
+
+        config = provider.get_backend_config("openai-responses.1")
+        assert config is not None
+        assert config.api_key == "test-key"
+
     def test_iter_backend_names(self) -> None:
         """Test iterating over backend names."""
         # Arrange
@@ -139,7 +164,7 @@ class TestBackendConfigProvider:
         # Arrange
         app_config = AppConfig(
             backends=BackendSettings(
-                test_backend1=BackendConfig(api_key=["test-key"]),
+                test_backend1=BackendConfig(api_key="test-key"),
                 test_backend2=BackendConfig(),
             )
         )

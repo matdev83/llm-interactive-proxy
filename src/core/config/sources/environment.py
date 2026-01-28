@@ -18,9 +18,14 @@ class EnvironmentConfigSource:
         *,
         resolution: ParameterResolution,
     ) -> dict[str, Any]:
+        import logging
+        logger = logging.getLogger(__name__)
         full_env_config = build_app_config_dict_from_env(
             environ=environ, resolution=resolution
         )
+        if "backends" in full_env_config and "kimi-code" in full_env_config["backends"]:
+             logger.warning("DIAG: full_env_config has kimi-code")
+        
         env_model = AppConfigModel.model_validate(full_env_config)
         env_dump = env_model.model_dump()
 

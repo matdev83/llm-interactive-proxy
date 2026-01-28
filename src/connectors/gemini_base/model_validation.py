@@ -195,21 +195,13 @@ class ModelListManager:
 
     # Default fallback model list
     DEFAULT_MODELS: list[str] = [
-        # Current generation (2.5 series) - DEFAULT models
+        # Current generation (3.x series)
+        "gemini-3-pro-preview",
+        "gemini-3-flash-preview",
+        # 2.5 series
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
-        # Preview models
-        "gemini-2.5-pro-preview-05-06",
-        "gemini-2.5-pro-preview-06-05",
-        "gemini-2.5-flash-preview-05-20",
-        # 2.0 series
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-thinking-exp-1219",
-        "gemini-2.0-flash-preview-image-generation",
-        # 1.5 series
-        "gemini-1.5-pro",
-        "gemini-1.5-flash",
         # Embedding model
         "gemini-embedding-001",
     ]

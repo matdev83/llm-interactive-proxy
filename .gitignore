@@ -126,3 +126,6 @@ var/kiro_oauth_accounts/
 
 # LevelDB test data (may contain sensitive data)
 leveldb_test/
+
+# Cache directory
+var/cache/

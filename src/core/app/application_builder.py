@@ -593,6 +593,37 @@ class ApplicationBuilder:
         @asynccontextmanager
         async def lifespan(app: FastAPI):  # type: ignore[no-untyped-def,no-any-return,misc]
             # Startup
+            try:
+                import os
+
+                from src.core.config.app_config import AppConfig
+                from src.core.interfaces.backend_lifecycle_manager_interface import (
+                    IBackendLifecycleManager,
+                )
+                from src.core.services.backend_registry import backend_registry
+                from src.core.services.backend_startup_disablement import (
+                    apply_backend_disablement_at_startup,
+                )
+
+                app_config = service_provider.get_service(AppConfig)
+                backend_lifecycle_manager = service_provider.get_service(
+                    IBackendLifecycleManager  # type: ignore[type-abstract]
+                )
+                if app_config is not None and backend_lifecycle_manager is not None:
+                    apply_backend_disablement_at_startup(
+                        config=app_config,
+                        registered_backends=backend_registry.get_registered_backends(),
+                        env=dict(os.environ),
+                        backend_lifecycle_manager=backend_lifecycle_manager,
+                    )
+            except Exception as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Startup backend disablement check failed: %s",
+                        exc,
+                        exc_info=True,
+                    )
+
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Application startup complete")
             yield

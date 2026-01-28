@@ -6,7 +6,7 @@ import logging
 import time
 from typing import Any
 
-from src.core.common.exceptions import BackendError, RateLimitExceededError
+from src.core.common.exceptions import RateLimitExceededError, ServiceUnavailableError
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
     IBackendAvailabilityChecker,
@@ -55,7 +55,7 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
             allow_failover: Whether failover is allowed
 
         Raises:
-            BackendError: If backend is permanently disabled
+            ServiceUnavailableError: If backend is permanently disabled
             RateLimitExceededError: If backend is rate limited
         """
         # Check if backend is permanently disabled
@@ -69,12 +69,12 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
                 or backend_type in self._failover_routes
             )
         ):
-            raise BackendError(
+            raise ServiceUnavailableError(
                 message=(
                     f"Backend {backend_type} is permanently disabled: "
                     f"{disabled_info.reason}"
                 ),
-                backend_name=backend_type,
+                details={"backend": backend_type, "reason": disabled_info.reason},
             )
 
         # Check resilience coordinator for instance/model availability

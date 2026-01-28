@@ -532,9 +532,20 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             )
 
         # Step 3: Check backend availability (disabled + resilience)
-        await self._availability_checker.check_backend_availability(
-            backend_type, effective_model, allow_failover, context
-        )
+        try:
+            await self._availability_checker.check_backend_availability(
+                backend_type, effective_model, allow_failover, context
+            )
+        except Exception as exc:
+            # For streaming requests, prefer returning a terminal SSE error chunk
+            # rather than raising and forcing the transport layer to emit a JSON error.
+            # This matches OpenAI streaming behavior more closely and gives clients
+            # actionable feedback instead of a generic "connection error".
+            if stream:
+                return await self._build_terminal_error_stream_envelope(
+                    error=exc, provider=backend_type
+                )
+            raise
 
         # Step 4: Initialize failure strategy tracking
         start_time = time.time()
@@ -749,18 +760,14 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                 # Step 11: Handle non-streaming response
                 # Wire-capture: capture inbound response
-                if isinstance(result, ResponseEnvelope):
-                    return await self._handle_non_streaming_response(
-                        result=result,
-                        backend_type=backend_type,
-                        effective_model=effective_model,
-                        context=context,
-                        session_id_for_backend=session_id_for_backend,
-                        session_key=session_key,
-                    )
-
-                # Should be unreachable if result is not None and matches types
-                return result  # type: ignore[return-value]
+                return await self._handle_non_streaming_response(
+                    result=result,
+                    backend_type=backend_type,
+                    effective_model=effective_model,
+                    context=context,
+                    session_id_for_backend=session_id_for_backend,
+                    session_key=session_key,
+                )
 
             except asyncio.CancelledError:
                 raise
@@ -990,6 +997,18 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 message=f"Backend call failed: {exc!s}",
                 backend_name=backend_type,
             ) from exc
+
+    async def _build_terminal_error_stream_envelope(
+        self, *, error: Exception, provider: str
+    ) -> StreamingResponseEnvelope:
+        """Return a streaming envelope that emits a single terminal error chunk."""
+        from src.core.domain.responses import StreamingResponseEnvelope
+        from src.core.services.streaming.error_mapping import handle_streaming_error
+
+        async def _iterator():
+            yield await handle_streaming_error(error, stream_id=None, provider=provider)
+
+        return StreamingResponseEnvelope(content=_iterator())
 
     async def cleanup(self) -> None:
         """Clean up pending cancellation tasks to prevent resource leaks.

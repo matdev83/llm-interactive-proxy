@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 import os
 from collections.abc import AsyncGenerator
@@ -18,7 +19,7 @@ from src.core.interfaces.configuration_interface import IAppIdentityConfig
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER
 from src.core.services.backend_registry import backend_registry
 
-from .openai import OpenAIConnector
+from .openai import MAX_SSE_BUFFER_SIZE, OpenAIConnector
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +138,7 @@ class KimiCodeConnector(OpenAIConnector):
     async def stream_completion(
         self, request: CanonicalChatRequest
     ) -> AsyncGenerator[object, None]:
-        """Stream SSE chunks from Kimi without the proxy loop-guard header."""
+        """Stream SSE chunks from Kimi, converting accumulated fields to deltas."""
 
         api_base = getattr(request, "api_base", None) or self.api_base_url
         url = f"{api_base.rstrip('/')}/chat/completions"
@@ -186,17 +187,141 @@ class KimiCodeConnector(OpenAIConnector):
             )
 
         try:
+            buffer = ""
+            separator = "\n\n"
+            alt_separator = "\r\n\r\n"
+
+            # Moonshot/Kimi often streams fields as accumulated strings rather than deltas.
+            # We track the last seen values to compute the delta for the client.
+            last_content = ""
+            last_reasoning = ""
+
             async for chunk_bytes in response.aiter_bytes():
-                yield chunk_bytes
+                chunk_text = chunk_bytes.decode("utf-8", errors="replace")
+                # DoS protection: cap buffer growth.
+                if len(buffer) + len(chunk_text) > MAX_SSE_BUFFER_SIZE:
+                    buffer = buffer[-MAX_SSE_BUFFER_SIZE:] if buffer else ""
+                buffer += chunk_text
+
+                while True:
+                    if alt_separator in buffer:
+                        event, buffer = buffer.split(alt_separator, 1)
+                        separator_used = alt_separator
+                    elif separator in buffer:
+                        event, buffer = buffer.split(separator, 1)
+                        separator_used = separator
+                    else:
+                        break
+
+                    if not event:
+                        continue
+
+                    if not event.startswith("data:"):
+                        yield (event + separator_used).encode("utf-8")
+                        continue
+
+                    data_str = event[5:].strip()
+                    if data_str == "[DONE]":
+                        yield (event + separator_used).encode("utf-8")
+                        continue
+
+                    try:
+                        data = json.loads(data_str)
+                    except json.JSONDecodeError:
+                        yield (event + separator_used).encode("utf-8")
+                        continue
+
+                    # Extract the delta container
+                    choices = data.get("choices")
+                    if not choices or not isinstance(choices, list):
+                        yield (event + separator_used).encode("utf-8")
+                        continue
+
+                    delta = choices[0].get("delta")
+                    if not delta or not isinstance(delta, dict):
+                        yield (event + separator_used).encode("utf-8")
+                        continue
+
+                    # 1. Handle content delta
+                    raw_content = delta.get("content")
+                    if isinstance(raw_content, str):
+                        # If Kimi sent accumulated content, compute delta.
+                        # (Kimi standard is delta, but let's be defensive if we see duplication).
+                        if raw_content.startswith(last_content) and len(raw_content) > len(last_content):
+                            delta_text = raw_content[len(last_content):]
+                            last_content = raw_content
+                            delta["content"] = delta_text
+                        elif not raw_content.startswith(last_content):
+                            # Reset if it doesn't match prefix (unexpected)
+                            last_content = raw_content
+
+                    # 2. Handle reasoning_content delta
+                    raw_reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                    if isinstance(raw_reasoning, str):
+                        if raw_reasoning.startswith(last_reasoning) and len(raw_reasoning) > len(last_reasoning):
+                            delta_reasoning = raw_reasoning[len(last_reasoning):]
+                            last_reasoning = raw_reasoning
+                            if "reasoning_content" in delta:
+                                delta["reasoning_content"] = delta_reasoning
+                            if "reasoning" in delta:
+                                delta["reasoning"] = delta_reasoning
+                        elif not raw_reasoning.startswith(last_reasoning):
+                            # Reset if it doesn't match prefix
+                            last_reasoning = raw_reasoning
+
+                    # Re-serialize and yield
+                    rewritten_event = f"data: {json.dumps(data)}"
+                    yield (rewritten_event + separator_used).encode("utf-8")
+
+            if buffer:
+                # Best-effort: flush remaining text (may be partial event).
+                yield buffer.encode("utf-8")
         finally:
             with contextlib.suppress(BaseException):
                 await response.aclose()
 
-    async def _prepare_payload(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Strip vendor prefix from model name before sending to Kimi."""
-        payload = await super()._prepare_payload(*args, **kwargs)
+    async def _prepare_payload(
+        self,
+        request_data: CanonicalChatRequest,
+        processed_messages: list[Any],
+        effective_model: str,
+        context: ConnectorRequestContext | None = None,
+    ) -> dict[str, Any]:
+        """Custom payload preparation for Kimi Code.
+        
+        Ensures 'reasoning_content' is preserved in history and not renamed to 'reasoning'.
+        Also ensures all assistant tool call messages have this field present.
+        """
+        payload = await super()._prepare_payload(request_data, processed_messages, effective_model, context)
+        
+        # Kimi doesn't support the 'reasoning' (effort) top-level field from OpenAI o1/o3.
+        # It only supports 'reasoning_content' inside message objects.
+        payload.pop("reasoning", None)
+
+        # Kimi is extremely strict about message structure in history.
+        if "messages" in payload and isinstance(payload["messages"], list):
+            for msg in payload["messages"]:
+                if not isinstance(msg, dict):
+                    continue
+                
+                # 1. Restore reasoning_content field name (OpenAIConnector base class renames it to 'reasoning')
+                if "reasoning" in msg:
+                    reasoning_val = msg.pop("reasoning")
+                    if "reasoning_content" not in msg:
+                        msg["reasoning_content"] = reasoning_val
+                
+                # 2. Kimi Requirement: assistant tool call messages MUST have reasoning_content.
+                # If it's missing, None, or empty, we MUST provide at least a placeholder.
+                # Kimi uses 'reasoning_content' for the thinking process.
+                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                    # Use a space if it's empty, as Kimi might treat truly empty as missing.
+                    if not msg.get("reasoning_content"):
+                        msg["reasoning_content"] = " "
+
+        # Strip vendor prefix from model name if present
         if self.VENDOR_PREFIX and "model" in payload:
             payload["model"] = strip_vendor_prefix(payload["model"], self.VENDOR_PREFIX)
+            
         return payload
 
     def get_provider_name(self) -> str:

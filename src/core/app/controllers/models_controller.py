@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import inspect
 import logging
+import os
 from collections.abc import Awaitable
 from typing import Any, cast
 
@@ -26,6 +27,7 @@ from src.core.common.exceptions import (
     ServiceUnavailableError,
 )
 from src.core.constants import HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+from src.core.domain.model_capabilities import ModelCapability
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
@@ -261,6 +263,25 @@ def _check_backend_credentials(backend_config: Any) -> bool:
     return False
 
 
+def _infer_modalities_from_capabilities(
+    capabilities: Any | None,
+) -> tuple[list[str], list[str]]:
+    """Infer input/output modalities for /models payload.
+
+    This is a best-effort hint for clients. It does not enforce validation.
+    """
+
+    output_modalities = ["text"]
+    if capabilities is None:
+        return ["text"], output_modalities
+
+    caps_list = getattr(capabilities, "capabilities", None)
+    if isinstance(caps_list, list) and ModelCapability.VISION in caps_list:
+        return ["text", "image"], output_modalities
+
+    return ["text"], output_modalities
+
+
 def _check_opencode_zen_credentials(
     backend_factory: BackendFactory, config: IConfig
 ) -> bool:
@@ -417,6 +438,15 @@ async def _list_models_impl(
 
             has_credentials = _check_backend_credentials(backend_config)
 
+            # Backends that read credentials from environment variables.
+            if not has_credentials:
+                env_key_map = {
+                    "kimi-code": "KIMI_API_KEY",
+                }
+                env_key = env_key_map.get(backend_type)
+                if env_key and os.getenv(env_key):
+                    has_credentials = True
+
             # Special case for backends that rely on disk-based credentials
             if (
                 backend_type in ("opencode-zen", "kiro-oauth-auto")
@@ -504,7 +534,7 @@ async def _list_models_impl(
 
                         if not capabilities:
                             # Try with provider prefixes
-                            for prefix in ["google/", "openai/", "anthropic/"]:
+                            for prefix in ["google/", "openai/", "anthropic/", "kimi/"]:
                                 capabilities = KNOWN_MODEL_CAPABILITIES.get(
                                     f"{prefix}{base_model}"
                                 )
@@ -524,6 +554,21 @@ async def _list_models_impl(
                                 context_window,
                             )
 
+                        input_modalities, output_modalities = (
+                            _infer_modalities_from_capabilities(capabilities)
+                        )
+
+                        extra_fields: dict[str, Any] = {
+                            "input_modalities": input_modalities,
+                            "output_modalities": output_modalities,
+                        }
+                        if capabilities is not None and getattr(
+                            capabilities, "capabilities", None
+                        ):
+                            extra_fields["capabilities"] = [
+                                cap.value for cap in capabilities.capabilities
+                            ]
+
                         all_models.append(
                             ModelInfo(
                                 id=model_id,
@@ -534,6 +579,7 @@ async def _list_models_impl(
                                     else str(backend_type).lower()
                                 ),
                                 context_window=context_window,
+                                **extra_fields,
                             )
                         )
                 if logger.isEnabledFor(logging.DEBUG):

@@ -110,6 +110,8 @@ Backend provider configuration and usage:
 - **[Antigravity OAuth Backend](backends/antigravity-oauth.md)** - Internal Antigravity OAuth configuration
 - **[Kiro OAuth Auto Backend](backends/kiro-oauth-auto.md)** - Amazon Kiro / Q Developer streaming via self-managed OAuth
 
+- **[Kimi Code Backend](backends/kimi-code.md)** - Kimi For Coding via OpenAI-compatible API
+
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access
 - **[ZAI Backend](backends/zai.md)** - Zhipu/Z.ai configuration
 - **[Qwen Backend](backends/qwen.md)** - Alibaba Qwen OAuth configuration

@@ -268,6 +268,34 @@ def apply_config_part3(
                 origin="OPENAI_API_KEY",
             )
 
+    if env.get("KIMI_API_KEY"):
+        config_backends["kimi-code"] = config_backends.get("kimi-code", {})
+        config_backends["kimi-code"]["api_key"] = env["KIMI_API_KEY"]
+        config_backends["kimi-code"]["api_url"] = _get_env_value(
+            env,
+            "KIMI_API_BASE_URL",
+            "https://api.kimi.com/coding/v1",
+            path="backends.kimi-code.api_url",
+            resolution=resolution,
+        )
+        kimi_timeout = _get_env_value(
+            env,
+            "KIMI_TIMEOUT",
+            None,
+            path="backends.kimi-code.timeout",
+            resolution=resolution,
+            transform=lambda value: _to_int(value, 0),
+        )
+        if kimi_timeout:
+            config_backends["kimi-code"]["timeout"] = kimi_timeout
+        if resolution is not None:
+            resolution.record(
+                "backends.kimi-code.api_key",
+                config_backends["kimi-code"]["api_key"],
+                ParameterSource.ENVIRONMENT,
+                origin="KIMI_API_KEY",
+            )
+
     if env.get("MINIMAX_API_KEY"):
         config_backends["minimax"] = config_backends.get("minimax", {})
         config_backends["minimax"]["api_key"] = env["MINIMAX_API_KEY"]
