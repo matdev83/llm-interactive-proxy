@@ -146,8 +146,10 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
             arguments = tool_call.get("function", {}).get("arguments", "{}")
 
             signature = build_tool_call_signature(tool_call)
+            # Use namespaced signature for loop detection to avoid collision with reactor
+            namespaced_signature = f"loop:{signature}"
             if not await self._lifecycle.register_detection(
-                resolved_session_id, signature
+                resolved_session_id, namespaced_signature
             ):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -183,7 +185,9 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
 
             if buffer_state is None:
                 tool_call["_already_processed"] = True
-            await self._lifecycle.mark_processed(resolved_session_id, signature)
+            await self._lifecycle.mark_processed(
+                resolved_session_id, namespaced_signature
+            )
 
         if buffer_state is None:
             self._mark_message_processed(response)
@@ -542,8 +546,10 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
             arguments = tool_call.get("function", {}).get("arguments", "{}")
 
             signature = build_tool_call_signature(tool_call)
+            # Use namespaced signature for loop detection
+            namespaced_signature = f"loop:{signature}"
             if not await self._lifecycle.register_detection(
-                resolved_session_id, signature
+                resolved_session_id, namespaced_signature
             ):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -576,7 +582,9 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
 
             if buffer_state is None:
                 tool_call["_already_processed"] = True
-            await self._lifecycle.mark_processed(resolved_session_id, signature)
+            await self._lifecycle.mark_processed(
+                resolved_session_id, namespaced_signature
+            )
 
         if buffer_state is None:
             self._mark_message_processed(response)

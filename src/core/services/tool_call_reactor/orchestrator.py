@@ -125,7 +125,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
         # Bypass check: VTC tool calls
         metadata = getattr(response, "metadata", None)
         if isinstance(metadata, dict) and metadata.get("vtc_tool_calls"):
-            if logger.isEnabledFor(logging.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG) and not is_streaming:
                 logger.debug(
                     "Skipping reactor processing for VTC tool calls "
                     "(already processed by VTCResponseStreamWrapper) in session %s",
@@ -194,7 +194,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 tool_call = ToolCall(**normalized_dict)
                 tool_calls.append(tool_call)
             except Exception as e:
-                if logger.isEnabledFor(logging.DEBUG):
+                if logger.isEnabledFor(logging.DEBUG) and not is_streaming:
                     logger.debug(
                         "Failed to convert normalized tool call to ToolCall: %s",
                         e,
@@ -216,7 +216,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                     return response
             except Exception as e:
                 # Fail-open: if EoS check fails, continue processing
-                if logger.isEnabledFor(logging.DEBUG):
+                if logger.isEnabledFor(logging.DEBUG) and not is_streaming:
                     logger.debug(
                         "Error checking session end status for %s: %s",
                         session_id,
@@ -234,7 +234,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
         )
 
         if not new_tool_calls:
-            if logger.isEnabledFor(logging.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG) and not is_streaming:
                 logger.debug(
                     "All %d tool call(s) already processed in session %s, "
                     "skipping reactor execution",
@@ -244,7 +244,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
             await self._reset_stream_state_if_needed(stream_key, response, is_streaming)
             return response
 
-        if logger.isEnabledFor(logging.DEBUG):
+        if logger.isEnabledFor(logging.DEBUG) and not is_streaming:
             logger.debug(
                 "Detected %d new tool call(s) in session %s (stream=%s, total=%d)",
                 len(new_tool_calls),
@@ -294,7 +294,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
 
             # Double-check if already processed (defensive)
             if await self._deduplicator.is_processed(stream_key, signature):
-                if logger.isEnabledFor(logging.DEBUG):
+                if logger.isEnabledFor(logging.DEBUG) and not is_streaming:
                     logger.debug(
                         "Skipping already-processed tool call (signature=%s) "
                         "for stream %s",
@@ -312,7 +312,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
                 model_name = metadata.get("model_name", "unknown")
                 calling_agent = metadata.get("calling_agent")
 
-            if logger.isEnabledFor(logging.DEBUG):
+            if logger.isEnabledFor(logging.DEBUG) and not is_streaming:
                 logger.debug(
                     "Processing tool call signature=%s session=%s stream=%s backend=%s model=%s",
                     signature,
@@ -326,7 +326,7 @@ class ToolCallReactorOrchestrator(IToolCallReactorOrchestrator):
             function_payload = tool_call.function
             tool_name = function_payload.name
             if not tool_name:
-                if logger.isEnabledFor(logging.DEBUG):
+                if logger.isEnabledFor(logging.DEBUG) and not is_streaming:
                     logger.debug(
                         "Skipping tool call with missing name in session %s",
                         session_id,

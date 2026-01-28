@@ -43,6 +43,8 @@ def build_tool_call_signature(tool_call: ToolCallDict | dict[str, Any]) -> str:
 
         name = model_obj.function.name
         arguments = model_obj.function.arguments
+        # Check for index in extra fields (not explicitly in ToolCallDict but might be in model_dump)
+        index = getattr(model_obj, "index", None)
     else:
         identifier = tool_call.get("id")
         if isinstance(identifier, str) and identifier:
@@ -54,8 +56,17 @@ def build_tool_call_signature(tool_call: ToolCallDict | dict[str, Any]) -> str:
 
         name = function_block.get("name", "unknown")
         arguments = function_block.get("arguments", "")
+        index = tool_call.get("index")
+
+    # If we have an index but no ID, we can use a stable signature based on the index.
+    # This prevents the signature from changing during streaming as arguments grow.
+    # We include the name to ensure that we don't collision if the model changes
+    # its mind about the tool name at the same index (rare but possible).
+    if index is not None and name:
+        return f"idx:{index}:{name}"
 
     if isinstance(arguments, dict | list):
+
         try:
             arguments_repr = json.dumps(arguments, sort_keys=True)
         except (TypeError, ValueError):
@@ -92,7 +103,10 @@ class ToolCallLifecycleRegistry:
 
         async with self._lock:
             state = await self._get_state(stream_key)
-            if signature in state.inflight_signatures:
+            if (
+                signature in state.inflight_signatures
+                or signature in state.processed_signatures
+            ):
                 return False
             state.inflight_signatures.add(signature)
             return True

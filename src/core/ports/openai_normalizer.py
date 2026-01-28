@@ -170,6 +170,28 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         # Extract choices array
         choices = event_data.get("choices", [])
         if not choices:
+            # Check for top-level error in chunk (some providers send error without choices)
+            if "error" in event_data:
+                err_metadata: dict[str, Any] = {
+                    "provider": self.provider,
+                    "error": event_data["error"],
+                    "finish_reason": "error",
+                }
+                if stream_id:
+                    err_metadata["stream_id"] = stream_id
+                if "id" in event_data:
+                    err_metadata["id"] = event_data["id"]
+                if "model" in event_data:
+                    err_metadata["model"] = event_data["model"]
+
+                return self.create_normalized_chunk(
+                    content="",
+                    metadata=err_metadata,
+                    is_done=True,
+                    is_empty=False,
+                    stream_id=stream_id,
+                )
+
             # Empty choices - skip this chunk
             return None
 

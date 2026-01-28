@@ -99,7 +99,13 @@ class KimiCodeConnector(OpenAIConnector):
         session_id: str,
         context: ConnectorRequestContext | None = None,
     ) -> ResponseEnvelope:
-        """Override to avoid injecting loop-guard header for Kimi."""
+        """Override to avoid injecting loop-guard header for Kimi.
+
+        CRITICAL: Do NOT mirror 'reasoning_content' into 'content' here.
+        Modern clients like KiloCode/RooCode support reasoning fields natively.
+        Mirroring causes text to be displayed twice (once in thought block, once in message).
+        The proxy's transport layer (SSESerializer) already handles necessary aliases.
+        """
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
@@ -124,6 +130,7 @@ class KimiCodeConnector(OpenAIConnector):
         domain_response = self.translation_service.to_domain_response(
             response_json, "openai"
         )
+
         try:
             response_headers = dict(response.headers)
         except Exception:
@@ -139,7 +146,13 @@ class KimiCodeConnector(OpenAIConnector):
     async def stream_completion(
         self, request: CanonicalChatRequest
     ) -> AsyncGenerator[object, None]:
-        """Stream SSE chunks from Kimi, converting accumulated fields to deltas."""
+        """Stream SSE chunks from Kimi, converting accumulated fields to deltas.
+
+        CRITICAL: Do NOT mirror 'reasoning_content' into 'content' here.
+        Modern clients like KiloCode/RooCode support reasoning fields natively.
+        Mirroring causes text to be displayed twice (once in thought block, once in message).
+        The proxy's transport layer (SSESerializer) already handles necessary aliases.
+        """
 
         api_base = getattr(request, "api_base", None) or self.api_base_url
         url = f"{api_base.rstrip('/')}/chat/completions"
@@ -250,12 +263,12 @@ class KimiCodeConnector(OpenAIConnector):
                         # (Kimi standard is delta, but let's be defensive if we see duplication).
                         if raw_content.startswith(last_content) and len(
                             raw_content
-                        ) > len(last_content):
+                        ) >= len(last_content):
                             delta_text = raw_content[len(last_content) :]
                             last_content = raw_content
                             delta["content"] = delta_text
-                        elif not raw_content.startswith(last_content):
-                            # Reset if it doesn't match prefix (unexpected)
+                        else:
+                            # Reset or handle unexpected prefix
                             last_content = raw_content
 
                     # 2. Handle reasoning_content delta
@@ -265,15 +278,15 @@ class KimiCodeConnector(OpenAIConnector):
                     if isinstance(raw_reasoning, str):
                         if raw_reasoning.startswith(last_reasoning) and len(
                             raw_reasoning
-                        ) > len(last_reasoning):
+                        ) >= len(last_reasoning):
                             delta_reasoning = raw_reasoning[len(last_reasoning) :]
                             last_reasoning = raw_reasoning
                             if "reasoning_content" in delta:
                                 delta["reasoning_content"] = delta_reasoning
                             if "reasoning" in delta:
                                 delta["reasoning"] = delta_reasoning
-                        elif not raw_reasoning.startswith(last_reasoning):
-                            # Reset if it doesn't match prefix
+                        else:
+                            # Reset or handle unexpected prefix
                             last_reasoning = raw_reasoning
 
                     # Re-serialize and yield
@@ -322,10 +335,13 @@ class KimiCodeConnector(OpenAIConnector):
                 # 2. Kimi Requirement: assistant tool call messages MUST have reasoning_content.
                 # If it's missing, None, or empty, we MUST provide at least a placeholder.
                 # Kimi uses 'reasoning_content' for the thinking process.
-                if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                if (
+                    msg.get("role") == "assistant"
+                    and msg.get("tool_calls")
+                    and not msg.get("reasoning_content")
+                ):
                     # Use a space if it's empty, as Kimi might treat truly empty as missing.
-                    if not msg.get("reasoning_content"):
-                        msg["reasoning_content"] = " "
+                    msg["reasoning_content"] = " "
 
         # Strip vendor prefix from model name if present
         if self.VENDOR_PREFIX and "model" in payload:

@@ -78,12 +78,14 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
 
         # Filter non-buffered calls against lifecycle registry
         for tool_call in tool_calls:
-            # Compute signature once and reuse
             # PERFORMANCE: Avoid expensive model_dump() if ID is available
-            # build_tool_call_signature uses ID if present anyway
             if tool_call.id:
                 signature = tool_call.id
             else:
+                # If name is missing during streaming, skip processing until it arrives.
+                # This prevents "None:hash" signature collisions and useless reactor calls.
+                if is_streaming and not tool_call.function.name:
+                    continue
                 signature = build_tool_call_signature(tool_call.model_dump())
 
             # Check if already processed in buffer state
@@ -91,9 +93,12 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
             if buffer_state is not None and buffer_state.is_processed(signature):
                 continue
 
+            # Use namespaced signature for reactor to avoid collision with loop detection
+            namespaced_signature = f"reactor:{signature}"
+
             # Check lifecycle registry for non-buffered calls
             is_new = await self._lifecycle_registry.register_detection(
-                stream_key, signature
+                stream_key, namespaced_signature
             )
             if not is_new:
                 continue
@@ -119,13 +124,18 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
             signature: The tool call signature to mark as processed
             buffer_state: Optional buffer state (None for degraded mode)
         """
+        # Use namespaced signature for reactor
+        namespaced_signature = f"reactor:{signature}"
+
         # Ensure state exists in lifecycle registry by registering detection first
         # This matches the existing middleware behavior where mark_processed is
         # called after register_detection
-        await self._lifecycle_registry.register_detection(stream_key, signature)
+        await self._lifecycle_registry.register_detection(
+            stream_key, namespaced_signature
+        )
 
         # Mark in lifecycle registry (moves from inflight to processed)
-        await self._lifecycle_registry.mark_processed(stream_key, signature)
+        await self._lifecycle_registry.mark_processed(stream_key, namespaced_signature)
 
         # Mark in buffer state if available
         if buffer_state is not None:
@@ -145,4 +155,8 @@ class ToolCallDeduplicator(IToolCallDeduplicator):
         Returns:
             True if the signature has been processed, False otherwise.
         """
-        return await self._lifecycle_registry.is_processed(stream_key, signature)
+        # Use namespaced signature for reactor
+        namespaced_signature = f"reactor:{signature}"
+        return await self._lifecycle_registry.is_processed(
+            stream_key, namespaced_signature
+        )

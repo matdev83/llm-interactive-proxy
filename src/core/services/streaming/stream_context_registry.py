@@ -13,13 +13,12 @@ logger = logging.getLogger(__name__)
 _global_init_lock = threading.Lock()
 
 # Maximum number of reasoning chunks to prevent unbounded memory growth
-# 1000 chunks at ~100 bytes each = ~100KB per stream
-_MAX_REASONING_CHUNKS = 1000
+# 64K chunks at ~100 bytes each = ~6.4MB per stream
+_MAX_REASONING_CHUNKS = 65536
 
 # Maximum number of content chunks to prevent unbounded memory growth
-# 10000 chunks at ~100 bytes each = ~1MB per stream
-# This is higher than reasoning chunks because content chunks are the main payload
-_MAX_CONTENT_CHUNKS = 10000
+# 256K chunks at ~100 bytes each = ~25.6MB per stream
+_MAX_CONTENT_CHUNKS = 262144
 
 # Maximum number of detected tool calls to prevent unbounded memory growth
 # 1000 tool calls at ~200 bytes each = ~200KB per stream
@@ -58,13 +57,17 @@ class StreamBufferState:
         with self._lock:
             self.reasoning_chunks.append(chunk)
             # Enforce size limit to prevent unbounded memory growth
-            while len(self.reasoning_chunks) > _MAX_REASONING_CHUNKS:
+            if len(self.reasoning_chunks) > _MAX_REASONING_CHUNKS:
                 self.reasoning_chunks.popleft()
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Evicted oldest reasoning chunk (max_chunks=%d reached)",
-                        _MAX_REASONING_CHUNKS,
-                    )
+                # Log only once per stream to prevent log spam during high-frequency eviction
+                if not self.truncation_logged:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Stream reasoning buffer exceeded %d chunks. "
+                            "Truncating oldest chunks to prevent memory leak.",
+                            _MAX_REASONING_CHUNKS,
+                        )
+                    self.truncation_logged = True
 
     def append_content_chunk(
         self, chunk_text: str, encoded_chunk: bytes, content_length: int
@@ -90,18 +93,20 @@ class StreamBufferState:
 
             # Enforce size limit to prevent unbounded memory growth
             # Remove oldest chunks when limit is exceeded
-            while len(self.chunks) > _MAX_CONTENT_CHUNKS:
+            if len(self.chunks) > _MAX_CONTENT_CHUNKS:
                 self.chunks.popleft()
                 self.encoded_chunks.popleft()
                 old_length = self.chunk_lengths.popleft()
                 self.byte_length -= old_length
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Evicted oldest content chunk (max_chunks=%d reached, "
-                        "removed %d bytes)",
-                        _MAX_CONTENT_CHUNKS,
-                        old_length,
-                    )
+                # Log only once per stream to prevent log spam
+                if not self.truncation_logged:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Stream content buffer exceeded %d chunks. "
+                            "Truncating oldest chunks to prevent memory leak.",
+                            _MAX_CONTENT_CHUNKS,
+                        )
+                    self.truncation_logged = True
 
 
 @dataclass
