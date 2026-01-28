@@ -54,7 +54,8 @@ class KimiCodeConnector(OpenAIConnector):
         self.api_key = api_key
 
         # Hardcode the list of models as requested
-        self.available_models = ["kimi-for-coding"]
+        # Format: vendor/model-name for proper backend prefixing
+        self.available_models = ["kimi/kimi-for-coding"]
 
         if not self.api_key and logger.isEnabledFor(logging.WARNING):
             logger.warning(
@@ -247,8 +248,10 @@ class KimiCodeConnector(OpenAIConnector):
                     if isinstance(raw_content, str):
                         # If Kimi sent accumulated content, compute delta.
                         # (Kimi standard is delta, but let's be defensive if we see duplication).
-                        if raw_content.startswith(last_content) and len(raw_content) > len(last_content):
-                            delta_text = raw_content[len(last_content):]
+                        if raw_content.startswith(last_content) and len(
+                            raw_content
+                        ) > len(last_content):
+                            delta_text = raw_content[len(last_content) :]
                             last_content = raw_content
                             delta["content"] = delta_text
                         elif not raw_content.startswith(last_content):
@@ -256,10 +259,14 @@ class KimiCodeConnector(OpenAIConnector):
                             last_content = raw_content
 
                     # 2. Handle reasoning_content delta
-                    raw_reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                    raw_reasoning = delta.get("reasoning_content") or delta.get(
+                        "reasoning"
+                    )
                     if isinstance(raw_reasoning, str):
-                        if raw_reasoning.startswith(last_reasoning) and len(raw_reasoning) > len(last_reasoning):
-                            delta_reasoning = raw_reasoning[len(last_reasoning):]
+                        if raw_reasoning.startswith(last_reasoning) and len(
+                            raw_reasoning
+                        ) > len(last_reasoning):
+                            delta_reasoning = raw_reasoning[len(last_reasoning) :]
                             last_reasoning = raw_reasoning
                             if "reasoning_content" in delta:
                                 delta["reasoning_content"] = delta_reasoning
@@ -288,12 +295,14 @@ class KimiCodeConnector(OpenAIConnector):
         context: ConnectorRequestContext | None = None,
     ) -> dict[str, Any]:
         """Custom payload preparation for Kimi Code.
-        
+
         Ensures 'reasoning_content' is preserved in history and not renamed to 'reasoning'.
         Also ensures all assistant tool call messages have this field present.
         """
-        payload = await super()._prepare_payload(request_data, processed_messages, effective_model, context)
-        
+        payload = await super()._prepare_payload(
+            request_data, processed_messages, effective_model, context
+        )
+
         # Kimi doesn't support the 'reasoning' (effort) top-level field from OpenAI o1/o3.
         # It only supports 'reasoning_content' inside message objects.
         payload.pop("reasoning", None)
@@ -303,13 +312,13 @@ class KimiCodeConnector(OpenAIConnector):
             for msg in payload["messages"]:
                 if not isinstance(msg, dict):
                     continue
-                
+
                 # 1. Restore reasoning_content field name (OpenAIConnector base class renames it to 'reasoning')
                 if "reasoning" in msg:
                     reasoning_val = msg.pop("reasoning")
                     if "reasoning_content" not in msg:
                         msg["reasoning_content"] = reasoning_val
-                
+
                 # 2. Kimi Requirement: assistant tool call messages MUST have reasoning_content.
                 # If it's missing, None, or empty, we MUST provide at least a placeholder.
                 # Kimi uses 'reasoning_content' for the thinking process.
@@ -321,7 +330,7 @@ class KimiCodeConnector(OpenAIConnector):
         # Strip vendor prefix from model name if present
         if self.VENDOR_PREFIX and "model" in payload:
             payload["model"] = strip_vendor_prefix(payload["model"], self.VENDOR_PREFIX)
-            
+
         return payload
 
     def get_provider_name(self) -> str:
