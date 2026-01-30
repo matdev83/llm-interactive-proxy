@@ -49,16 +49,16 @@ class ApiModelDiscovery:
         headers: dict[str, str],
         base_url: str,
     ) -> list[str]:
-        """Discover available models from fetchAvailableModels API.
+        """Return hardcoded model list (API discovery is deprecated).
 
-        Uses the v1internal:fetchAvailableModels endpoint which returns a dictionary
-        of available models. The models are extracted from the "models" dictionary keys
-        in the response.
+        The v1internal:fetchAvailableModels endpoint is no longer supported on
+        standard Code Assist API endpoints. This method now returns the hardcoded
+        fallback list to avoid 404 errors.
 
         Args:
-            client: The HTTP client for API calls.
-            headers: HTTP headers including authorization.
-            base_url: The API base URL.
+            client: The HTTP client (unused).
+            headers: HTTP headers (unused).
+            base_url: The API base URL (unused).
 
         Returns:
             List of available model names.
@@ -66,45 +66,14 @@ class ApiModelDiscovery:
         if self._cached_models:
             return self._cached_models.copy()
 
-        base_url = (base_url or "").rstrip("/")
-        url = f"{base_url}/v1internal:fetchAvailableModels"
-
-        try:
-            response = await client.get(url, headers=headers, timeout=15.0)
-        except Exception as exc:
-            logger.warning(
-                "Failed to reach fetchAvailableModels endpoint %s: %s",
-                url,
-                exc,
-                exc_info=True,
-            )
-            return self.get_fallback_models()
-
-        if response.status_code != 200:
-            logger.debug(
-                "fetchAvailableModels endpoint %s returned %s: %s",
-                url,
-                response.status_code,
-                response.text[:200] if response.text else "",
-            )
-            return self.get_fallback_models()
-
-        try:
-            data = response.json()
-            models = self._extract_models_from_response(data)
-            if models:
-                self._cached_models = models
-                logger.info(
-                    "Successfully discovered %d models from fetchAvailableModels",
-                    len(models),
-                )
-                return models
-        except Exception as exc:
-            logger.warning(
-                "Failed to parse fetchAvailableModels response: %s", exc, exc_info=True
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "Skipping fetchAvailableModels API (deprecated); using hardcoded model list."
             )
 
-        return self.get_fallback_models()
+        self._cached_models = self.get_fallback_models()
+        return self._cached_models.copy()
+
 
     def _extract_models_from_response(self, data: dict[str, Any]) -> list[str]:
         """Extract model names from the API response.

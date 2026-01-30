@@ -108,11 +108,8 @@ class GeminiHealthCheckService(IHealthCheckService):
         This method tests actual API connectivity by making a simple request to verify
         the OAuth token works and the service is accessible.
 
-        Uses the fetchAvailableModels endpoint which is supported by all Code Assist API
+        Uses the loadCodeAssist endpoint which is supported by all Code Assist API
         variants (standard and sandbox).
-
-        Returns:
-            bool: True if health check passes, False otherwise
         """
         try:
             # Ensure credentials are available
@@ -129,35 +126,8 @@ class GeminiHealthCheckService(IHealthCheckService):
             base_url = self._endpoint_config.get_base_url().rstrip("/")
             headers = self._endpoint_config.get_api_headers(credentials.to_dict())
 
-            # Use fetchAvailableModels endpoint for health check
-            # This endpoint is supported by all Code Assist API variants
-            fetch_models_url = f"{base_url}/v1internal:fetchAvailableModels"
-            try:
-                response = await self._http_client.get(
-                    fetch_models_url, headers=headers, timeout=10.0
-                )
-            except httpx.TimeoutException as te:
-                logger.error(
-                    f"Health check timeout calling {fetch_models_url} for {self._backend_name}: {te}",
-                    exc_info=True,
-                )
-                return False
-            except httpx.RequestError as rexc:
-                logger.error(
-                    f"Health check connection error calling {fetch_models_url} for {self._backend_name}: {rexc}",
-                    exc_info=True,
-                )
-                return False
-
-            if response.status_code == 200:
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Health check passed for %s - API connectivity verified via fetchAvailableModels",
-                        self._backend_name,
-                    )
-                return True
-
-            # Fallback: use loadCodeAssist which is reliable on Code Assist API
+            # Use loadCodeAssist for health check - it's reliable and supported by all variants.
+            # We skip fetchAvailableModels as it is deprecated/non-existent on some endpoints.
             load_url = f"{base_url}/v1internal:loadCodeAssist"
             payload = {
                 "metadata": {
@@ -200,6 +170,7 @@ class GeminiHealthCheckService(IHealthCheckService):
             return False
 
         except AuthenticationError as e:
+
             logger.error(
                 f"Health check failed for {self._backend_name} - authentication error: {e}",
                 exc_info=True,

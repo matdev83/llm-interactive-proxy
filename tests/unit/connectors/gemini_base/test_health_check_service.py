@@ -67,14 +67,14 @@ class TestEnsureHealthy:
         # Setup mock response
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_http_client.get = AsyncMock(return_value=mock_response)
+        mock_http_client.post = AsyncMock(return_value=mock_response)
 
         # Execute
         await health_check_service.ensure_healthy()
 
         # Verify
         mock_credential_coordinator.refresh_if_needed.assert_called_once()
-        mock_http_client.get.assert_called_once()
+        mock_http_client.post.assert_called_once()
         assert health_check_service._health_checked is True
 
     @pytest.mark.asyncio
@@ -85,17 +85,18 @@ class TestEnsureHealthy:
         # Setup mock response
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_http_client.get = AsyncMock(return_value=mock_response)
+        mock_http_client.post = AsyncMock(return_value=mock_response)
 
         # Execute first call
         await health_check_service.ensure_healthy()
-        first_call_count = mock_http_client.get.call_count
+        first_call_count = mock_http_client.post.call_count
 
         # Execute second call
         await health_check_service.ensure_healthy()
 
         # Verify second call didn't make additional HTTP requests
-        assert mock_http_client.get.call_count == first_call_count
+        assert mock_http_client.post.call_count == first_call_count
+
 
     @pytest.mark.asyncio
     async def test_refresh_failure_raises_backend_error(
@@ -120,7 +121,6 @@ class TestEnsureHealthy:
         # Setup mock to fail health check
         mock_response = Mock()
         mock_response.status_code = 500
-        mock_http_client.get = AsyncMock(return_value=mock_response)
         mock_http_client.post = AsyncMock(return_value=mock_response)
 
         # Execute (should not raise)
@@ -155,54 +155,29 @@ class TestPerformHealthCheck:
     """Test _perform_health_check method."""
 
     @pytest.mark.asyncio
-    async def test_successful_check_via_fetch_models(
+    async def test_successful_check_via_load_code_assist(
         self, health_check_service, mock_http_client
     ):
-        """Verify successful health check via fetchAvailableModels endpoint."""
+        """Verify successful health check via loadCodeAssist endpoint."""
         # Setup mock response
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_http_client.get = AsyncMock(return_value=mock_response)
+        mock_http_client.post = AsyncMock(return_value=mock_response)
 
         # Execute
         result = await health_check_service._perform_health_check()
 
         # Verify
         assert result is True
-        mock_http_client.get.assert_called_once()
-        # Verify correct endpoint was called
-        call_args = mock_http_client.get.call_args
-        assert "fetchAvailableModels" in call_args[0][0]
-
-    @pytest.mark.asyncio
-    async def test_fallback_to_load_code_assist(
-        self, health_check_service, mock_http_client
-    ):
-        """Verify fallback to loadCodeAssist when fetchAvailableModels fails."""
-        # Setup mock responses
-        fetch_response = Mock()
-        fetch_response.status_code = 500
-        load_response = Mock()
-        load_response.status_code = 200
-        mock_http_client.get = AsyncMock(return_value=fetch_response)
-        mock_http_client.post = AsyncMock(return_value=load_response)
-
-        # Execute
-        result = await health_check_service._perform_health_check()
-
-        # Verify
-        assert result is True
-        mock_http_client.get.assert_called_once()
         mock_http_client.post.assert_called_once()
         # Verify correct endpoint was called
-        post_call_args = mock_http_client.post.call_args
-        assert "loadCodeAssist" in post_call_args[0][0]
+        call_args = mock_http_client.post.call_args
+        assert "loadCodeAssist" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_timeout_handling(self, health_check_service, mock_http_client):
         """Verify timeout exceptions are handled gracefully."""
         # Setup mock to raise timeout
-        mock_http_client.get = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
         mock_http_client.post = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
 
         # Execute
@@ -215,9 +190,6 @@ class TestPerformHealthCheck:
     async def test_request_error_handling(self, health_check_service, mock_http_client):
         """Verify request errors are handled gracefully."""
         # Setup mock to raise request error
-        mock_http_client.get = AsyncMock(
-            side_effect=httpx.RequestError("Connection error")
-        )
         mock_http_client.post = AsyncMock(
             side_effect=httpx.RequestError("Connection error")
         )
@@ -248,7 +220,9 @@ class TestPerformHealthCheck:
     ):
         """Verify AuthenticationError is handled gracefully."""
         # Setup mock to raise AuthenticationError
-        mock_http_client.get = AsyncMock(side_effect=AuthenticationError("Auth failed"))
+        mock_http_client.post = AsyncMock(
+            side_effect=AuthenticationError("Auth failed")
+        )
 
         # Execute
         result = await health_check_service._perform_health_check()
@@ -260,7 +234,7 @@ class TestPerformHealthCheck:
     async def test_backend_error_handling(self, health_check_service, mock_http_client):
         """Verify BackendError is handled gracefully."""
         # Setup mock to raise BackendError
-        mock_http_client.get = AsyncMock(side_effect=BackendError("Backend failed"))
+        mock_http_client.post = AsyncMock(side_effect=BackendError("Backend failed"))
 
         # Execute
         result = await health_check_service._perform_health_check()
@@ -274,10 +248,11 @@ class TestPerformHealthCheck:
     ):
         """Verify unexpected exceptions are handled gracefully."""
         # Setup mock to raise unexpected exception
-        mock_http_client.get = AsyncMock(side_effect=ValueError("Unexpected error"))
+        mock_http_client.post = AsyncMock(side_effect=ValueError("Unexpected error"))
 
         # Execute
         result = await health_check_service._perform_health_check()
 
         # Verify
         assert result is False
+

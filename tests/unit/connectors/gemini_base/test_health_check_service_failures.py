@@ -12,7 +12,7 @@ import pytest
 from src.connectors.gemini_base.endpoints import StandardCodeAssistEndpoint
 from src.connectors.gemini_base.health_check_service import GeminiHealthCheckService
 from src.connectors.gemini_base.models import GeminiOAuthCredentials
-from src.core.common.exceptions import AuthenticationError
+from src.core.common.exceptions import AuthenticationError, BackendError
 
 
 @pytest.fixture
@@ -79,7 +79,6 @@ class TestHealthCheckRecovery:
         # First call fails
         mock_response = Mock()
         mock_response.status_code = 500
-        mock_http_client.get = AsyncMock(return_value=mock_response)
         mock_http_client.post = AsyncMock(return_value=mock_response)
 
         await service1.ensure_healthy()
@@ -100,40 +99,21 @@ class TestHealthCheckRecovery:
         assert service2._health_checked is True
 
     @pytest.mark.asyncio
-    async def test_both_endpoints_fail(
+    async def test_endpoint_fail(
         self,
         health_check_service: GeminiHealthCheckService,
         mock_http_client: Mock,
     ) -> None:
-        """Verify behavior when both fetchAvailableModels and loadCodeAssist fail."""
-        # Both endpoints return 500
+        """Verify behavior when loadCodeAssist fails."""
+        # Endpoint returns 500
         fail_response = Mock()
         fail_response.status_code = 500
-        mock_http_client.get = AsyncMock(return_value=fail_response)
         mock_http_client.post = AsyncMock(return_value=fail_response)
 
         result = await health_check_service._perform_health_check()
 
         assert result is False
-        mock_http_client.get.assert_called_once()  # fetchAvailableModels
-        mock_http_client.post.assert_called_once()  # loadCodeAssist fallback
-
-    @pytest.mark.asyncio
-    async def test_fetch_models_succeeds_load_code_assist_not_called(
-        self,
-        health_check_service: GeminiHealthCheckService,
-        mock_http_client: Mock,
-    ) -> None:
-        """Verify loadCodeAssist is not called when fetchAvailableModels succeeds."""
-        success_response = Mock()
-        success_response.status_code = 200
-        mock_http_client.get = AsyncMock(return_value=success_response)
-
-        result = await health_check_service._perform_health_check()
-
-        assert result is True
-        mock_http_client.get.assert_called_once()
-        mock_http_client.post.assert_not_called()
+        mock_http_client.post.assert_called_once()  # loadCodeAssist
 
 
 class TestNetworkErrorHandling:
@@ -146,9 +126,6 @@ class TestNetworkErrorHandling:
         mock_http_client: Mock,
     ) -> None:
         """Verify connection refused error is handled gracefully."""
-        mock_http_client.get = AsyncMock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
         mock_http_client.post = AsyncMock(
             side_effect=httpx.ConnectError("Connection refused")
         )
@@ -164,9 +141,6 @@ class TestNetworkErrorHandling:
         mock_http_client: Mock,
     ) -> None:
         """Verify DNS resolution failure is handled gracefully."""
-        mock_http_client.get = AsyncMock(
-            side_effect=httpx.RequestError("DNS resolution failed")
-        )
         mock_http_client.post = AsyncMock(
             side_effect=httpx.RequestError("DNS resolution failed")
         )
@@ -182,9 +156,6 @@ class TestNetworkErrorHandling:
         mock_http_client: Mock,
     ) -> None:
         """Verify SSL error is handled gracefully."""
-        mock_http_client.get = AsyncMock(
-            side_effect=httpx.RequestError("SSL certificate verify failed")
-        )
         mock_http_client.post = AsyncMock(
             side_effect=httpx.RequestError("SSL certificate verify failed")
         )
@@ -207,7 +178,7 @@ class TestCredentialInteraction:
         """Verify refresh_if_needed is called before performing health check."""
         mock_response = Mock()
         mock_response.status_code = 200
-        mock_http_client.get = AsyncMock(return_value=mock_response)
+        mock_http_client.post = AsyncMock(return_value=mock_response)
 
         await health_check_service.ensure_healthy()
 
@@ -234,8 +205,6 @@ class TestCredentialInteraction:
     ) -> None:
         """Verify BackendError raised when refresh fails."""
         mock_credential_coordinator.refresh_if_needed = AsyncMock(return_value=False)
-
-        from src.core.common.exceptions import BackendError
 
         with pytest.raises(BackendError) as exc_info:
             await health_check_service.ensure_healthy()
@@ -271,7 +240,6 @@ class TestHTTPResponseCodes:
         """Verify 401 response is handled as failure."""
         mock_response = Mock()
         mock_response.status_code = 401
-        mock_http_client.get = AsyncMock(return_value=mock_response)
         mock_http_client.post = AsyncMock(return_value=mock_response)
 
         result = await health_check_service._perform_health_check()
@@ -287,7 +255,6 @@ class TestHTTPResponseCodes:
         """Verify 403 response is handled as failure."""
         mock_response = Mock()
         mock_response.status_code = 403
-        mock_http_client.get = AsyncMock(return_value=mock_response)
         mock_http_client.post = AsyncMock(return_value=mock_response)
 
         result = await health_check_service._perform_health_check()
@@ -303,7 +270,6 @@ class TestHTTPResponseCodes:
         """Verify 429 rate limit response is handled as failure."""
         mock_response = Mock()
         mock_response.status_code = 429
-        mock_http_client.get = AsyncMock(return_value=mock_response)
         mock_http_client.post = AsyncMock(return_value=mock_response)
 
         result = await health_check_service._perform_health_check()
@@ -319,7 +285,6 @@ class TestHTTPResponseCodes:
         """Verify 503 service unavailable is handled as failure."""
         mock_response = Mock()
         mock_response.status_code = 503
-        mock_http_client.get = AsyncMock(return_value=mock_response)
         mock_http_client.post = AsyncMock(return_value=mock_response)
 
         result = await health_check_service._perform_health_check()
