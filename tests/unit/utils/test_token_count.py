@@ -29,3 +29,44 @@ def test_count_tokens_returns_zero_for_empty_text_when_tiktoken_missing(
     from src.core.utils.token_count import count_tokens
 
     assert count_tokens("") == 0
+
+
+def test_extract_prompt_text_basic():
+    from src.core.utils.token_count import extract_prompt_text
+
+    messages = [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "User prompt"},
+    ]
+    result = extract_prompt_text(messages)
+    assert result == "system: System prompt\nuser: User prompt"
+
+
+def test_extract_prompt_text_with_tool_calls():
+    from src.core.utils.token_count import extract_prompt_text
+
+    messages = [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": '{"location": "London"}',
+                    }
+                }
+            ],
+        }
+    ]
+    result = extract_prompt_text(messages)
+    assert 'assistant (tool_call): get_weather({"location": "London"})' in result
+
+
+def test_extract_prompt_text_with_tool_response():
+    from src.core.utils.token_count import extract_prompt_text
+
+    messages = [{"role": "tool", "content": "Sunny"}]
+    result = extract_prompt_text(messages)
+    assert result == "tool: Sunny"
+

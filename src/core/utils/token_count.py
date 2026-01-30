@@ -62,15 +62,18 @@ def extract_prompt_text(messages: list[Any]) -> str:
         role = None
         content = None
         reasoning = None
+        tool_calls = None
 
         if isinstance(m, dict):
             role = m.get("role")
             content = m.get("content")
             reasoning = m.get("reasoning_content")
+            tool_calls = m.get("tool_calls")
         else:
             role = getattr(m, "role", None)
             content = getattr(m, "content", None)
             reasoning = getattr(m, "reasoning_content", None)
+            tool_calls = getattr(m, "tool_calls", None)
 
         # Basic role identification
         role_label = str(role) if role else "unknown"
@@ -78,6 +81,26 @@ def extract_prompt_text(messages: list[Any]) -> str:
         # Handle reasoning content if present
         if reasoning and isinstance(reasoning, str):
             parts.append(f"{role_label} (reasoning): {reasoning}")
+
+        # Handle tool calls if present
+        if tool_calls and isinstance(tool_calls, list):
+            for tc in tool_calls:
+                if isinstance(tc, dict):
+                    function = tc.get("function", {})
+                    if isinstance(function, dict):
+                        name = function.get("name", "unknown_tool")
+                        args = function.get("arguments", "")
+                        parts.append(f"{role_label} (tool_call): {name}({args})")
+                elif hasattr(tc, "function"):
+                    # Handle object with attributes
+                    function = getattr(tc, "function", None)
+                    name = (
+                        getattr(function, "name", "unknown_tool")
+                        if function
+                        else "unknown_tool"
+                    )
+                    args = getattr(function, "arguments", "") if function else ""
+                    parts.append(f"{role_label} (tool_call): {name}({args})")
 
         # Handle primary content
         if isinstance(content, str):
