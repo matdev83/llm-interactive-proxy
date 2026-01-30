@@ -142,7 +142,6 @@ from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
     InvalidRequestError,
-    ServiceUnavailableError,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
@@ -597,7 +596,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 self.config, "gemini_read_timeout", None
             )
             # If not configured or invalid, let StreamingExecutor use its default
-            if not isinstance(read_timeout, (int, float)):
+            if not isinstance(read_timeout, int | float):
                 read_timeout = None
 
             self._streaming_executor_instance = StreamingExecutor(

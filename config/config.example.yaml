@@ -56,7 +56,7 @@ session:
     fuzzy_matching: true
     max_session_age_seconds: 604800  # 7 days
     fingerprint_message_count: 5
-    client_key_includes_ip: true
+    client_key_includes_ip: false  # IPs are ignored for session continuity
     # Topic similarity is inherently weaker and can increase risk of cross-session merges.
     # Disabled by default. Enable only if you understand the trade-offs.
     enable_topic_similarity_matching: false

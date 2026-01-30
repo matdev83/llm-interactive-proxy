@@ -1396,7 +1396,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
             read_timeout = getattr(
                 self.config, "gemini_read_timeout", DEFAULT_READ_TIMEOUT
             )
-            if not isinstance(read_timeout, (int, float)):
+            if not isinstance(read_timeout, int | float):
                 read_timeout = DEFAULT_READ_TIMEOUT
 
             # Make the non-streaming API call
@@ -1518,7 +1518,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                         read_timeout = getattr(
                             self.config, "gemini_read_timeout", DEFAULT_READ_TIMEOUT
                         )
-                        if not isinstance(read_timeout, (int, float)):
+                        if not isinstance(read_timeout, int | float):
                             read_timeout = DEFAULT_READ_TIMEOUT
 
                         response = await asyncio.to_thread(

@@ -20,6 +20,9 @@ from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.conversation_fingerprint_service import (
     ConversationFingerprintService,
 )
+from src.core.services.fingerprint_request_transformer import (
+    apply_fingerprint_transforms,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,18 +180,29 @@ class SessionManager(ISessionManager):
         _ = await self._session_service.get_session(session_id)
 
     async def update_session_fingerprint(
-        self, session_id: str, messages: list[ChatMessage]
+        self,
+        session_id: str,
+        request: ChatRequest,
+        context: RequestContext | None = None,
     ) -> None:
         """Update the conversation fingerprint for a session.
 
         Args:
             session_id: Session ID to update
-            messages: List of messages in the conversation
+            request: Request used to derive fingerprint content
+            context: Optional request context for config access
         """
         if not self._session_repository:
             # Repository not available, skip fingerprinting
             return
 
+        if not request or not getattr(request, "messages", None):
+            return
+
+        transformed = await apply_fingerprint_transforms(
+            request, context=context, session_id=session_id
+        )
+        messages = list(getattr(transformed, "messages", None) or [])
         if not messages:
             return
 

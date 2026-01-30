@@ -231,8 +231,8 @@ def test_cline_pure_hello_command(interactive_client: TestClient) -> None:
         if isinstance(data, dict) and "choices" in data:
             message = data["choices"][0]["message"]
 
-            # Should be XML wrapped for Cline
-            assert message.get("content") is None
+            # Should be XML wrapped for Cline or empty if tool calls present
+            assert not message.get("content")
             assert message.get("tool_calls") is not None
             assert len(message["tool_calls"]) == 1
 

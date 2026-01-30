@@ -85,7 +85,7 @@ class ConversationFingerprintService:
         parts = []
         for idx, msg in enumerate(relevant_messages):
             role = msg.role
-            content = self._extract_content_preview(msg)
+            content = self._extract_content_signature(msg)
             # Include position to maintain order sensitivity
             parts.append(f"{idx}:{role}:{content}")
 
@@ -144,18 +144,8 @@ class ConversationFingerprintService:
 
         return fingerprints
 
-    def _extract_content_preview(
-        self, message: ChatMessage, max_length: int = 200
-    ) -> str:
-        """Extract a preview of message content for fingerprinting.
-
-        Args:
-            message: Message to extract content from
-            max_length: Maximum length of preview
-
-        Returns:
-            Content preview string
-        """
+    def _extract_content_signature(self, message: ChatMessage) -> str:
+        """Extract a stable content signature for fingerprinting."""
         content = message.content
 
         # Handle None content
@@ -165,18 +155,13 @@ class ConversationFingerprintService:
                 tool_names = [
                     tc.function.name for tc in message.tool_calls if tc.function.name
                 ]
-                return f"tool_calls:{','.join(tool_names)}"
+                return self._hash_text(f"tool_calls:{','.join(tool_names)}")
             return "empty"
 
         # Handle string content
         if isinstance(content, str):
-            # Normalize whitespace
-            normalized = " ".join(content.split())
-            # Truncate to max length
-            preview = (
-                normalized[:max_length] if len(normalized) > max_length else normalized
-            )
-            return preview
+            normalized = self._normalize_text(content)
+            return self._hash_text(normalized)
 
         # Handle list of content parts (multimodal)
         if isinstance(content, list):
@@ -194,14 +179,23 @@ class ConversationFingerprintService:
                         text_parts.append("[image]")
 
             combined = " ".join(text_parts)
-            normalized = " ".join(combined.split())
-            preview = (
-                normalized[:max_length] if len(normalized) > max_length else normalized
-            )
-            return preview if preview else "multimodal"
+            normalized = self._normalize_text(combined)
+            return self._hash_text(normalized if normalized else "multimodal")
 
-        # Fallback for unexpected content types
-        return str(content)[:max_length]
+        # Handle other content types (fallback to string)
+        normalized = self._normalize_text(str(content))
+        return self._hash_text(normalized)
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        """Normalize text for stable fingerprinting."""
+        return " ".join(text.split())
+
+    @staticmethod
+    def _hash_text(text: str) -> str:
+        """Create a compact hash signature for normalized text."""
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+        return f"{len(text)}:{digest}"
 
     def is_continuation(
         self,

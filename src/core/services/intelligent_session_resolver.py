@@ -22,6 +22,9 @@ from src.core.services.conversation_fingerprint_service import (
     ConversationFingerprintBundle,
     ConversationFingerprintService,
 )
+from src.core.services.fingerprint_request_transformer import (
+    apply_fingerprint_transforms,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +53,6 @@ class IntelligentSessionResolver(ISessionResolver):
         self._enabled = True
         self._fuzzy_matching = True
         self._max_session_age_seconds = 604800  # 7 days default
-        self._client_key_includes_ip = True
         self._topic_similarity_threshold = 0.3
         self._topic_overlap_min_tokens = 10
         self._recent_session_window_seconds = 900
@@ -67,9 +69,14 @@ class IntelligentSessionResolver(ISessionResolver):
                 self._max_session_age_seconds = getattr(
                     continuity, "max_session_age_seconds", 604800
                 )
-                self._client_key_includes_ip = getattr(
-                    continuity, "client_key_includes_ip", True
+                requested_ip_in_key = getattr(
+                    continuity, "client_key_includes_ip", False
                 )
+                if requested_ip_in_key and logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "session_continuity.client_key_includes_ip is ignored; "
+                        "IP addresses are never used for session correlation"
+                    )
                 self._topic_similarity_threshold = getattr(
                     continuity, "topic_similarity_threshold", 0.3
                 )
@@ -123,7 +130,7 @@ class IntelligentSessionResolver(ISessionResolver):
         client_key = self._compute_client_key(context)
 
         # 3. Extract request messages
-        messages = self._extract_messages_from_context(context)
+        messages = await self._extract_messages_from_context(context)
 
         # 4. If no messages or too few, create new session
         if not messages or len(messages) < 2:
@@ -243,25 +250,44 @@ class IntelligentSessionResolver(ISessionResolver):
         """
         components = []
 
-        # Include client host/IP if configured
-        if self._client_key_includes_ip:
-            client_host = context.client_host
-            if isinstance(client_host, str) and client_host:
-                components.append(client_host)
-
         # Include user agent (always)
         user_agent = context.headers.get("user-agent", "unknown")
         if user_agent is not None:
-            components.append(user_agent)
+            user_agent = str(user_agent).strip()
+            components.append(user_agent if user_agent else "unknown")
         else:
-            components.append("unknown")
+            user_agent = "unknown"
+            components.append(user_agent)
+
+        # Include agent identifier when it differs from user-agent
+        agent_value = None
+        try:
+            agent_value = getattr(context, "agent", None)
+        except AttributeError:
+            agent_value = None
+        if not agent_value:
+            header_agent = None
+            if isinstance(context.headers, dict):
+                header_agent = context.headers.get("x-agent") or context.headers.get(
+                    "x-client-agent"
+                )
+            if header_agent:
+                agent_value = header_agent
+
+        if isinstance(agent_value, str):
+            agent_value = agent_value.strip()
+        else:
+            agent_value = ""
+
+        if agent_value and agent_value.casefold() != str(user_agent).casefold():
+            components.append(agent_value[:120])
 
         # Hash to create stable but anonymized key
         key_str = "|".join(components)
         hash_obj = hashlib.sha256(key_str.encode("utf-8"))
         return hash_obj.hexdigest()[:32]
 
-    def _extract_messages_from_context(
+    async def _extract_messages_from_context(
         self, context: RequestContext
     ) -> list[ChatMessage] | None:
         """Extract messages from request context.
@@ -277,10 +303,21 @@ class IntelligentSessionResolver(ISessionResolver):
             domain_request = getattr(context, "domain_request", None)
             if domain_request and isinstance(domain_request, ChatRequest):
                 messages = getattr(domain_request, "messages", None)
-                if messages:
-                    return list(messages)
+                if not messages:
+                    return None
+
+                transformed = await apply_fingerprint_transforms(
+                    domain_request,
+                    context=context,
+                    config=self._config,
+                    session_id=context.session_id,
+                )
+                if transformed and getattr(transformed, "messages", None):
+                    return list(transformed.messages)
+                return list(messages)
 
         return None
+
 
     async def _try_fuzzy_match(
         self,

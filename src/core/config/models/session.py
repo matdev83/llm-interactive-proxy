@@ -139,7 +139,7 @@ class SessionContinuityConfig(DomainModel):
     fuzzy_matching: bool = True
     max_session_age_seconds: int = 604800  # 7 days
     fingerprint_message_count: int = 5
-    client_key_includes_ip: bool = True
+    client_key_includes_ip: bool = False
 
     enable_topic_similarity_matching: bool = False
     """Whether topic similarity matching may be used during fuzzy session resolution.
