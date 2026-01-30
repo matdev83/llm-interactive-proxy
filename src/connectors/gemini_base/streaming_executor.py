@@ -326,6 +326,35 @@ class StreamingExecutor:
         self._session_factory = session_factory
         self._read_timeout = read_timeout or DEFAULT_READ_TIMEOUT
 
+    def _extract_retry_after_seconds(self, error: BackendError) -> float | None:
+        details = getattr(error, "details", None)
+        if not isinstance(details, dict):
+            return None
+        retry_after = details.get("retry_after")
+        if isinstance(retry_after, int | float):
+            return float(retry_after)
+        return None
+
+    async def _record_rate_limit(
+        self,
+        token_refresher: ITokenRefresher | None,
+        retry_after_seconds: float | None,
+    ) -> None:
+        if token_refresher is None:
+            return
+        recorder = getattr(token_refresher, "record_rate_limit", None)
+        if not callable(recorder):
+            return
+        try:
+            result = recorder(retry_after_seconds=retry_after_seconds)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception:
+            logger.warning(
+                "Failed to record rate limit for oauth-auto account",
+                exc_info=True,
+            )
+
     async def execute(
         self,
         prepared: PreparedChatRequest,
@@ -534,7 +563,7 @@ class StreamingExecutor:
                 )
                 error_dict = error_chunk.model_dump()
                 yield ProcessedResponse(
-                    content=error_dict if isinstance(error_dict, dict) else str(error_chunk),  # type: ignore[arg-type]
+                    content=error_dict,
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -550,7 +579,7 @@ class StreamingExecutor:
                 )
                 error_dict = error_chunk.model_dump()
                 yield ProcessedResponse(
-                    content=error_dict if isinstance(error_dict, dict) else str(error_chunk),  # type: ignore[arg-type]
+                    content=error_dict,
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -563,7 +592,7 @@ class StreamingExecutor:
                 error_chunk = self._build_auth_error_chunk(prepared.effective_model)
                 error_dict = error_chunk.model_dump()
                 yield ProcessedResponse(
-                    content=error_dict if isinstance(error_dict, dict) else str(error_chunk),  # type: ignore[arg-type]
+                    content=error_dict,
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -895,7 +924,11 @@ class StreamingExecutor:
                                         isinstance(item, dict) for item in choices_raw
                                     )
                                 ):
-                                    choices = choices_raw  # type: ignore[assignment]
+                                    choices = [
+                                        item
+                                        for item in choices_raw
+                                        if isinstance(item, dict)
+                                    ]
                                     finish_reason = choices[0].get("finish_reason")
                                     if finish_reason is None:
                                         finish_reason = (
@@ -947,7 +980,11 @@ class StreamingExecutor:
                                 and choices_raw
                                 and all(isinstance(item, dict) for item in choices_raw)
                             ):
-                                chunk_choices = choices_raw  # type: ignore[assignment]
+                                chunk_choices = [
+                                    item
+                                    for item in choices_raw
+                                    if isinstance(item, dict)
+                                ]
                                 finish_reason = chunk_choices[0].get("finish_reason")
                                 if finish_reason in ("stop", "stop_sequence"):
                                     is_stop_chunk = True
@@ -1043,6 +1080,10 @@ class StreamingExecutor:
                 )
 
         except BackendError as err:
+            if getattr(err, "status_code", None) == 429:
+                await self._record_rate_limit(
+                    token_refresher, self._extract_retry_after_seconds(err)
+                )
             # Handle quota_exceeded errors by yielding error chunk with code 503
             if hasattr(err, "code") and err.code == "quota_exceeded":
                 # Use standardized message for quota errors
@@ -1057,7 +1098,7 @@ class StreamingExecutor:
                 )
                 error_dict = error_chunk.model_dump()
                 yield ProcessedResponse(
-                    content=error_dict if isinstance(error_dict, dict) else str(error_chunk),  # type: ignore[arg-type]
+                    content=error_dict,
                     metadata=self._build_error_metadata(error_chunk),
                 )
                 return
@@ -1331,6 +1372,12 @@ class StreamingExecutor:
             details=detail_payload,
             backend_name=self._backend_type,
         )
+
+        if response.status_code == 429:
+            retry_after = retry_hint_seconds or self._extract_retry_after_seconds(
+                backend_error
+            )
+            await self._record_rate_limit(token_refresher, retry_after)
 
         auth_policy = auth_refresh_policy or self._auth_refresh_policy
         auth_attempt = 1 if _auth_retry_attempted else 0

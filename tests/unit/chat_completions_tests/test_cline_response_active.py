@@ -5,8 +5,10 @@ import pytest
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, patch
+
+from fastapi import FastAPI
 
 # Ensure no module-level skips are applied - DEBUG TEST
 from starlette.testclient import TestClient
@@ -140,7 +142,7 @@ def test_real_cline_hello_response(interactive_client: TestClient) -> None:
 
     except Exception as e:
         print(f"Could not parse response as JSON: {e}")
-        print(f"Raw response: {resp.content}")
+        print(f"Raw response: {resp.content!r}")
         raise
 
     assert resp.status_code == 200
@@ -196,7 +198,7 @@ def test_cline_pure_hello_command(interactive_client: TestClient) -> None:
         print(json.dumps(resp1.json(), indent=2))
     except Exception as e:
         print(f"Could not parse response as JSON: {e}")
-        print(f"Raw response: {resp1.content}")
+        print(f"Raw response: {resp1.content!r}")
 
     # Now send pure command
     payload = {
@@ -221,7 +223,7 @@ def test_cline_pure_hello_command(interactive_client: TestClient) -> None:
         print(json.dumps(resp.json(), indent=2))
     except Exception as e:
         print(f"Could not parse response as JSON: {e}")
-        print(f"Raw response: {resp.content}")
+        print(f"Raw response: {resp.content!r}")
 
     assert resp.status_code == 200
 
@@ -272,7 +274,7 @@ def test_cline_no_session_id(interactive_client: TestClient) -> None:
         print(json.dumps(resp.json(), indent=2))
     except Exception as e:
         print(f"Could not parse response as JSON: {e}")
-        print(f"Raw response: {resp.content}")
+        print(f"Raw response: {resp.content!r}")
 
     assert resp.status_code == 200
 
@@ -303,8 +305,9 @@ def test_cline_non_command_message(interactive_client: TestClient) -> None:
     from src.core.domain.responses import ResponseEnvelope
     from src.core.interfaces.backend_service_interface import IBackendService
 
+    app = cast(FastAPI, interactive_client.app)
     backend_service = (
-        interactive_client.app.state.service_provider.get_required_service(
+        app.state.service_provider.get_required_service(
             IBackendService
         )
     )
@@ -372,7 +375,7 @@ def test_cline_non_command_message(interactive_client: TestClient) -> None:
         print(json.dumps(resp.json(), indent=2))
     except Exception as e:
         print(f"Could not parse response as JSON: {e}")
-        print(f"Raw response: {resp.content}")
+        print(f"Raw response: {resp.content!r}")
 
     assert resp.status_code == 200
 
@@ -417,7 +420,7 @@ def test_cline_first_message_hello(interactive_client: TestClient) -> None:
         print(json.dumps(resp.json(), indent=2))
     except Exception as e:
         print(f"Could not parse response as JSON: {e}")
-        print(f"Raw response: {resp.content}")
+        print(f"Raw response: {resp.content!r}")
 
     assert resp.status_code == 200
 
@@ -469,7 +472,7 @@ def test_cline_first_message_with_detection(interactive_client: TestClient) -> N
         print(json.dumps(resp.json(), indent=2))
     except Exception as e:
         print(f"Could not parse response as JSON: {e}")
-        print(f"Raw response: {resp.content}")
+        print(f"Raw response: {resp.content!r}")
 
     assert resp.status_code == 200
 
@@ -532,7 +535,7 @@ def test_realistic_cline_hello_request(interactive_client: TestClient) -> None:
         print(json.dumps(resp.json(), indent=2))
     except Exception as e:
         print(f"Could not parse response as JSON: {e}")
-        print(f"Raw response: {resp.content}")
+        print(f"Raw response: {resp.content!r}")
 
     assert resp.status_code == 200
 

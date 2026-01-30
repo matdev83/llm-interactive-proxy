@@ -38,6 +38,7 @@ FAILURE_REDIRECT: str = (
 DEFAULT_REFRESH_BUFFER_MS: int = 300_000  # 5 minutes before expiry
 DEFAULT_AUTH_TIMEOUT_SECONDS: int = 120  # Timeout for user to complete OAuth
 DEFAULT_STORAGE_PATH: str = "var/gemini_oauth_accounts"
+DEFAULT_RATE_LIMIT_SECONDS: float = 10.0
 
 # Retry configuration for token refresh
 TOKEN_REFRESH_MAX_RETRIES: int = 3

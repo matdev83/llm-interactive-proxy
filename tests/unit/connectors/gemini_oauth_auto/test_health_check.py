@@ -59,6 +59,10 @@ class TestGeminiOAuthAutoHealth:
         """Test is_backend_functional combines base logic and account count."""
         await connector.initialize()
 
+        # Ensure selector is a mock (initialize might have replaced it)
+        if not isinstance(connector._account_selector, MagicMock):
+            connector._account_selector = MagicMock()
+
         # 1. Healthy state
         connector.is_functional = True
         connector._account_selector.get_available_count.return_value = 2
@@ -83,6 +87,10 @@ class TestGeminiOAuthAutoHealth:
     async def test_get_validation_errors_includes_account_info(self, connector):
         """Test get_validation_errors reports missing accounts."""
         await connector.initialize()
+
+        # Ensure selector is a mock
+        if not isinstance(connector._account_selector, MagicMock):
+            connector._account_selector = MagicMock()
 
         # Scenario: No accounts
         connector._account_selector.get_available_count.return_value = 0

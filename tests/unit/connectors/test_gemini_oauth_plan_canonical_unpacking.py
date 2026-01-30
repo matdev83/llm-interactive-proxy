@@ -36,6 +36,8 @@ async def test_chat_completions_unpacks_canonical_request(mocker):
         config=mock_config,
         translation_service=mock_translation_service,
     )
+    # Set required base URL that normally comes from initialize()
+    connector.gemini_api_base_url = "https://cloudaicompanion-pa.googleapis.com"
 
     # Prepare input data
     chat_req = CanonicalChatRequest(
@@ -60,6 +62,9 @@ async def test_chat_completions_unpacks_canonical_request(mocker):
     )
 
     # Act & Assert
+    # Mock runtime credential validation to skip token refresh logic
+    mocker.patch.object(connector, "_validate_runtime_credentials", new_callable=AsyncMock, return_value=True)
+
     # We patch the base class's chat_completions method where it is actually defined.
     # GeminiOAuthPlanConnector inherits from GeminiOAuthBaseConnector (facade),
     # which inherits from src.connectors.gemini_base.connector.GeminiOAuthBaseConnector (base).

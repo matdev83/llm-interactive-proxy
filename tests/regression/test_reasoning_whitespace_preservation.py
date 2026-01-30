@@ -1,10 +1,12 @@
 
-import pytest
 import json
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from src.connectors.kimi_code import KimiCodeConnector
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
+
 
 class AsyncMockIterable:
     def __init__(self, items):
@@ -51,7 +53,7 @@ async def test_regression_kimi_reasoning_delta_conversion_all_aliases(connector)
         }}]},
     ]
     
-    events = [f"data: {json.dumps(c)}\n\n".encode("utf-8") for c in chunks]
+    events = [f"data: {json.dumps(c)}\n\n".encode() for c in chunks]
     events.append(b"data: [DONE]\n\n")
     
     response = AsyncMock()
@@ -100,8 +102,10 @@ async def test_regression_accumulation_processor_preserves_whitespace():
     """
     REGRESSION TEST: Ensures ContentAccumulationProcessor does not strip chunks.
     """
-    from src.core.services.streaming.content_accumulation_processor import ContentAccumulationProcessor
     from src.core.domain.streaming.streaming_content import StreamingContent
+    from src.core.services.streaming.content_accumulation_processor import (
+        ContentAccumulationProcessor,
+    )
     
     processor = ContentAccumulationProcessor()
     

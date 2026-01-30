@@ -53,6 +53,10 @@ class StoredAccount(BaseModel):
     last_used: str | None = Field(
         default=None, description="ISO 8601 last used timestamp"
     )
+    rate_limited_until: int | None = Field(
+        default=None,
+        description="Epoch ms until which this account is rate limited",
+    )
 
     @field_validator("account_id")
     @classmethod
@@ -72,6 +76,18 @@ class StoredAccount(BaseModel):
             update={"last_used": datetime.now(timezone.utc).isoformat()}
         )
 
+    def is_rate_limited(self, now_ms: int | None = None) -> bool:
+        if self.rate_limited_until is None:
+            return False
+        current_time_ms = now_ms or int(time.time() * 1000)
+        return current_time_ms < self.rate_limited_until
+
+    def rate_limit_remaining_ms(self, now_ms: int | None = None) -> int:
+        if self.rate_limited_until is None:
+            return 0
+        current_time_ms = now_ms or int(time.time() * 1000)
+        return max(self.rate_limited_until - current_time_ms, 0)
+
     def with_updated_tokens(
         self,
         *,
@@ -84,6 +100,28 @@ class StoredAccount(BaseModel):
                 "access_token": access_token,
                 "expiry_date": expiry_date,
                 "refresh_token": refresh_token or self.refresh_token,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    def mark_rate_limited(
+        self,
+        *,
+        retry_after_seconds: float | None,
+        default_window_seconds: float,
+    ) -> StoredAccount:
+        now_ms = int(time.time() * 1000)
+        wait_seconds = (
+            float(retry_after_seconds)
+            if isinstance(retry_after_seconds, int | float) and retry_after_seconds > 0
+            else float(default_window_seconds)
+        )
+        new_until = now_ms + int(wait_seconds * 1000)
+        if self.rate_limited_until and self.rate_limited_until > new_until:
+            new_until = self.rate_limited_until
+        return self.model_copy(
+            update={
+                "rate_limited_until": new_until,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         )

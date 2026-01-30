@@ -69,6 +69,10 @@ class StoredAccount(BaseModel):
         default=False,
         description="If True, account requires re-authorization",
     )
+    rate_limited_until: int | None = Field(
+        default=None,
+        description="Epoch ms until which this account is rate limited",
+    )
     project_id: str | None = Field(
         default=None,
         description="Cached Google Cloud project ID for Code Assist API",
@@ -98,6 +102,20 @@ class StoredAccount(BaseModel):
         """
         current_time_ms = int(time.time() * 1000)
         return current_time_ms >= (self.expiry_date - buffer_ms)
+
+    def is_rate_limited(self, now_ms: int | None = None) -> bool:
+        """Check if account is currently rate limited."""
+        if self.rate_limited_until is None:
+            return False
+        current_time_ms = now_ms or int(time.time() * 1000)
+        return current_time_ms < self.rate_limited_until
+
+    def rate_limit_remaining_ms(self, now_ms: int | None = None) -> int:
+        """Return remaining rate limit window in milliseconds."""
+        if self.rate_limited_until is None:
+            return 0
+        current_time_ms = now_ms or int(time.time() * 1000)
+        return max(self.rate_limited_until - current_time_ms, 0)
 
     def to_credentials_dict(self) -> dict[str, Any]:
         """Convert to dictionary format for API authentication.
@@ -171,6 +189,29 @@ class StoredAccount(BaseModel):
         """
         return self.model_copy(
             update={"last_used": datetime.now(timezone.utc).isoformat()}
+        )
+
+    def mark_rate_limited(
+        self,
+        *,
+        retry_after_seconds: float | None,
+        default_window_seconds: float,
+    ) -> "StoredAccount":
+        """Create new instance marked as rate limited until a future time."""
+        now_ms = int(time.time() * 1000)
+        wait_seconds = (
+            float(retry_after_seconds)
+            if isinstance(retry_after_seconds, int | float) and retry_after_seconds > 0
+            else float(default_window_seconds)
+        )
+        new_until = now_ms + int(wait_seconds * 1000)
+        if self.rate_limited_until and self.rate_limited_until > new_until:
+            new_until = self.rate_limited_until
+        return self.model_copy(
+            update={
+                "rate_limited_until": new_until,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
         )
 
 

@@ -787,19 +787,30 @@ async def test_property_filtering_scope_semantics(
       history, not from injected segments
     """
     identity_service = NonForwardableMessageIdentityService()
-    all_messages = client_messages + injected_messages
+    # Ensure all messages are unique to avoid identity collisions between segments
+    unique_client_messages = [
+        msg.model_copy(update={"content": f"CLIENT_{i}: {msg.content}"})
+        if isinstance(msg.content, str) else msg
+        for i, msg in enumerate(client_messages)
+    ]
+    unique_injected_messages = [
+        msg.model_copy(update={"content": f"INJECTED_{i}: {msg.content}"})
+        if isinstance(msg.content, str) else msg
+        for i, msg in enumerate(injected_messages)
+    ]
+    all_messages = unique_client_messages + unique_injected_messages
 
     # Compute identities
     identities = [identity_service.compute_identity(msg) for msg in all_messages]
 
     # Tag some client messages with client_history_only
-    client_tagged_indices = set(range(0, len(client_messages), 2))
+    client_tagged_indices = set(range(0, len(unique_client_messages), 2))
     client_tagged_identities = {identities[i] for i in client_tagged_indices}
 
     # Tag some injected messages with never_forward
     injected_tagged_indices = (
-        set(range(len(client_messages), len(all_messages), 2))
-        if injected_messages
+        set(range(len(unique_client_messages), len(all_messages), 2))
+        if unique_injected_messages
         else set()
     )
     injected_tagged_identities = {identities[i] for i in injected_tagged_indices}
@@ -838,7 +849,7 @@ async def test_property_filtering_scope_semantics(
         cookies={},
         state=None,
         app_state=None,
-        extensions={"proxy_injected_messages_start_index": len(client_messages)},
+        extensions={"proxy_injected_messages_start_index": len(unique_client_messages)},
     )
 
     # Filter messages (may raise NoForwardableContentError if all user content filtered)
@@ -857,75 +868,38 @@ async def test_property_filtering_scope_semantics(
 
     # Verify client_history_only messages are excluded from client history
     # Note: We check against the original client messages to ensure they're excluded
-    # from the client history portion. If a client message and injected message share
-    # the same identity, the injected message may still pass through (which is correct
-    # behavior - client_history_only only affects client history, not injected segment).
+    # from the client history portion. Since we ensured uniqueness, identity match
+    # uniquely identifies the message origin.
     filtered_identities_set = {
         identity_service.compute_identity(msg) for msg in filtered
     }
 
     # Check that client_history_only tagged messages from client history are excluded
-    # by verifying they don't appear in filtered messages that correspond to original client messages
-    # We do this by checking if any filtered message has the same identity and content/role
-    # as the original client message (to distinguish from injected messages with same identity)
     for idx in client_tagged_indices:
         msg_identity = identities[idx]
-        original_client_msg = client_messages[idx]
-
-        # Check if any filtered message matches this client message exactly
-        # (same identity AND same position characteristics that would identify it as the client message)
-        found_in_client_history = False
-        for filtered_msg in filtered:
-            filtered_identity = identity_service.compute_identity(filtered_msg)
-            # Same identity - check if it could be the same message
-            # (same role and content match would indicate it's the same message)
-            if (
-                filtered_identity == msg_identity
-                and filtered_msg.role == original_client_msg.role
-                and filtered_msg.content == original_client_msg.content
-            ):
-                found_in_client_history = True
-                break
-
-        # Should be excluded from client history (it's tagged as client_history_only)
         assert (
-            not found_in_client_history
+            msg_identity not in filtered_identities_set
         ), f"client_history_only message at index {idx} must be excluded from client history"
 
     # Verify never_forward messages are excluded from both segments
     for idx in injected_tagged_indices:
         msg_identity = identities[idx]
-        # Should be excluded (never_forward applies to injected segment too)
-        assert msg_identity not in {
-            identity_service.compute_identity(msg) for msg in filtered
-        }, f"never_forward message at index {idx} must be excluded from injected segment"
-
-    # Verify client_history_only messages in injected segment are NOT excluded
-    # (if any client messages somehow ended up in injected segment, they shouldn't be filtered)
-    # Actually, the test setup has clear boundary, so this is more about verifying
-    # that injected messages tagged as client_history_only are NOT filtered
-    # (but we didn't tag any injected messages as client_history_only, so this is covered)
+        assert (
+            msg_identity not in filtered_identities_set
+        ), f"never_forward message at index {idx} must be excluded from both segments"
 
     # Verify untagged injected messages pass through
-    # Note: If an untagged injected message shares identity with a tagged client message,
-    # it will also be filtered (this is acceptable - identity-based filtering)
     untagged_injected_indices = (
-        set(range(len(client_messages), len(all_messages))) - injected_tagged_indices
+        set(range(len(unique_client_messages), len(all_messages))) - injected_tagged_indices
     )
-    filtered_identities_set = {
-        identity_service.compute_identity(msg) for msg in filtered
-    }
     for idx in untagged_injected_indices:
         msg_identity = identities[idx]
-        # If this identity is not tagged (neither never_forward nor client_history_only for this message),
-        # and it doesn't share identity with any tagged client message, it should pass through
-        if (
-            msg_identity not in client_tagged_identities
-            and msg_identity not in injected_tagged_identities
-        ):
-            assert (
-                msg_identity in filtered_identities_set
-            ), f"Untagged injected message at index {idx} with unique identity must pass through"
+        # Injected messages are NOT filtered against client_history_only,
+        # so if it's not tagged never_forward, it should pass through.
+        # (It shouldn't share identity with any tagged client message because we made them unique)
+        assert (
+            msg_identity in filtered_identities_set
+        ), f"Untagged injected message at index {idx} must pass through"
 
 
 # ============================================================================

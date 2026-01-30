@@ -158,12 +158,12 @@ def client(
         auth=AuthConfig(disable_auth=True),
         backends=BackendSettings(
             default_backend="openai",
-            openai=BackendConfig(api_key=["test_key"]),
-            openrouter=BackendConfig(api_key=["test_key"]),
-            gemini=BackendConfig(api_key=["test_key"]),
-            anthropic=BackendConfig(api_key=["test_key"]),
-            qwen_oauth=BackendConfig(api_key=["test_key"]),
-            zai=BackendConfig(api_key=["test_key"]),
+            openai=BackendConfig(api_key="test_key"),
+            openrouter=BackendConfig(api_key="test_key"),
+            gemini=BackendConfig(api_key="test_key"),
+            anthropic=BackendConfig(api_key="test_key"),
+            qwen_oauth=BackendConfig(api_key="test_key"),
+            zai=BackendConfig(api_key="test_key"),
         ),
     )
     app = build_app(config)
@@ -224,12 +224,12 @@ def interactive_client(
         auth=AuthConfig(disable_auth=True),
         backends=BackendSettings(
             default_backend="openai",
-            openai=BackendConfig(api_key=["test_key"]),
-            openrouter=BackendConfig(api_key=["test_key"]),
-            gemini=BackendConfig(api_key=["test_key"]),
-            anthropic=BackendConfig(api_key=["test_key"]),
-            qwen_oauth=BackendConfig(api_key=["test_key"]),
-            zai=BackendConfig(api_key=["test_key"]),
+            openai=BackendConfig(api_key="test_key"),
+            openrouter=BackendConfig(api_key="test_key"),
+            gemini=BackendConfig(api_key="test_key"),
+            anthropic=BackendConfig(api_key="test_key"),
+            qwen_oauth=BackendConfig(api_key="test_key"),
+            zai=BackendConfig(api_key="test_key"),
         ),
         session=SessionConfig(default_interactive_mode=True),  # Use SessionConfig
     )
@@ -303,12 +303,12 @@ def commands_disabled_client(
         auth=AuthConfig(disable_auth=True),
         backends=BackendSettings(
             default_backend="openai",
-            openai=BackendConfig(api_key=["test_key"]),
-            openrouter=BackendConfig(api_key=["test_key"]),
-            gemini=BackendConfig(api_key=["test_key"]),
-            anthropic=BackendConfig(api_key=["test_key"]),
-            qwen_oauth=BackendConfig(api_key=["test_key"]),
-            zai=BackendConfig(api_key=["test_key"]),
+            openai=BackendConfig(api_key="test_key"),
+            openrouter=BackendConfig(api_key="test_key"),
+            gemini=BackendConfig(api_key="test_key"),
+            anthropic=BackendConfig(api_key="test_key"),
+            qwen_oauth=BackendConfig(api_key="test_key"),
+            zai=BackendConfig(api_key="test_key"),
         ),
         session=SessionConfig(
             disable_interactive_commands=True

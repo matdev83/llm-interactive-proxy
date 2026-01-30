@@ -132,12 +132,12 @@ class KiroOAuthAutoConnector(LLMBackend):
             "claude-opus-4.5",
             "auto",
         }
-        
+
         fetched_models = set(self._available_models)
-        
+
         # Merge fetched models with our core known-good models
         all_models = sorted(base_models.union(fetched_models))
-        
+
         # Explicitly remove models known to be unsupported/legacy if they show up
         legacy_models = {"claude-sonnet-4"}
         all_models = [m for m in all_models if m not in legacy_models]
@@ -291,6 +291,8 @@ class KiroOAuthAutoConnector(LLMBackend):
         """StreamProducer implementation: yields StreamingContent objects via Kiro normalizer."""
         account = self._selector.get_current_account()
         if not account:
+            account = await self._selector.get_next_account()
+        if not account:
             raise ServiceUnavailableError(message="No Kiro account selected")
 
         canonical = request.request
@@ -319,28 +321,47 @@ class KiroOAuthAutoConnector(LLMBackend):
             urls.append((CODEWHISPERER_GENERATE_URL, CODEWHISPERER_AMZ_TARGET))
 
         last_exc: Exception | None = None
-        for url, target in urls:
-            try:
-                async for chunk in self._stream_from_endpoint(
-                    account=account,
-                    url=url,
-                    amz_target=target,
-                    payload=payload,
-                    stream_id=stream_id,
-                    model=effective_model,
-                    created=created,
-                ):
-                    yield chunk
-                return
-            except BackendError as exc:
-                last_exc = exc
-                # Fallback on quota or invalid model (might be supported on the other endpoint)
-                if exc.status_code in (400, 429) or exc.code == "quota_exceeded":
+        rate_limit_retry_attempted = False
+
+        while True:
+            for url, target in urls:
+                try:
+                    async for chunk in self._stream_from_endpoint(
+                        account=account,
+                        url=url,
+                        amz_target=target,
+                        payload=payload,
+                        stream_id=stream_id,
+                        model=effective_model,
+                        created=created,
+                    ):
+                        yield chunk
+                    return
+                except BackendError as exc:
+                    last_exc = exc
+                    # Fallback on quota or invalid model (might be supported on the other endpoint)
+                    if exc.status_code in (400, 429) or exc.code == "quota_exceeded":
+                        continue
+                    raise
+                except Exception as exc:
+                    last_exc = exc
                     continue
-                raise
-            except Exception as exc:
-                last_exc = exc
+
+            if isinstance(last_exc, BackendError) and (
+                last_exc.status_code == 429 or last_exc.code == "quota_exceeded"
+            ):
+                await self._selector.mark_current_account_rate_limited(
+                    self._extract_retry_after_seconds(last_exc)
+                )
+                if rate_limit_retry_attempted:
+                    break
+                rate_limit_retry_attempted = True
+                account = await self._selector.get_next_account()
+                if not account:
+                    break
                 continue
+
+            break
 
         raise ServiceUnavailableError(message=f"Kiro streaming failed: {last_exc}")
 
@@ -375,8 +396,18 @@ class KiroOAuthAutoConnector(LLMBackend):
                 timeout=httpx.Timeout(120.0, connect=30.0),
             ) as resp:
                 if resp.status_code == 429:
+                    retry_after_seconds = self._parse_retry_after(
+                        resp.headers.get("Retry-After")
+                    )
                     raise BackendError(
-                        "quota_exceeded", status_code=429, code="quota_exceeded"
+                        "quota_exceeded",
+                        status_code=429,
+                        code="quota_exceeded",
+                        details=(
+                            {"retry_after": retry_after_seconds}
+                            if retry_after_seconds is not None
+                            else None
+                        ),
                     )
                 if resp.status_code in (401, 403):
                     body = (await resp.aread()).decode("utf-8", errors="replace")[:2000]
@@ -554,6 +585,25 @@ class KiroOAuthAutoConnector(LLMBackend):
             is_done=True,
             stream_id=stream_id,
         )
+
+    @staticmethod
+    def _parse_retry_after(value: str | None) -> float | None:
+        if not value:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _extract_retry_after_seconds(error: BackendError) -> float | None:
+        details = getattr(error, "details", None)
+        if not isinstance(details, dict):
+            return None
+        retry_after = details.get("retry_after")
+        if isinstance(retry_after, int | float):
+            return float(retry_after)
+        return None
 
     def _build_headers(
         self, *, account: StoredAccount, amz_target: str

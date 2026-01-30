@@ -201,6 +201,50 @@ class TestAccountSelectorService:
         assert selected.account_id == "account-2"
 
     @pytest.mark.asyncio
+    async def test_waits_for_shortest_rate_limit(
+        self,
+        mock_storage: MagicMock,
+        mock_refresh_service: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When all accounts are rate limited, wait for the shortest window."""
+        from src.connectors.gemini_oauth_auto import (
+            account_selector as module_under_test,
+        )
+
+        base_time = 1768780800.0
+        base_ms = int(base_time * 1000)
+        account1 = create_valid_account("account-1")
+        account2 = create_valid_account("account-2")
+        account1 = account1.model_copy(update={"rate_limited_until": base_ms + 5000})
+        account2 = account2.model_copy(update={"rate_limited_until": base_ms + 10000})
+
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account1, account2])
+
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
+
+        times = iter([base_time, base_time + 5.1])
+
+        def fake_time() -> float:
+            return next(times, base_time + 5.1)
+
+        monkeypatch.setattr(module_under_test.time, "time", fake_time)
+
+        selector = AccountSelectorService(
+            storage=mock_storage,
+            refresh_service=mock_refresh_service,
+        )
+
+        selected = await selector.get_next_account()
+
+        assert selected is not None
+        assert selected.account_id == "account-1"
+        assert sleep_mock.await_count == 1
+        assert sleep_mock.await_args is not None
+        assert sleep_mock.await_args.args[0] == pytest.approx(5.0)
+
+    @pytest.mark.asyncio
     async def test_random_strategy_picks_different_account(
         self,
         mock_storage: MagicMock,

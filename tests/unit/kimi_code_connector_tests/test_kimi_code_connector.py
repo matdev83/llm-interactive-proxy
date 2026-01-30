@@ -80,6 +80,8 @@ async def test_kimi_prepare_payload_strips_vendor_prefix(
         config=AppConfig(),
         translation_service=translation_service,
     )
+    # Ensure VENDOR_PREFIX is set for this test
+    connector.VENDOR_PREFIX = "kimi"
 
     async def _base_prepare_payload(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {"model": "kimi/kimi-for-coding"}

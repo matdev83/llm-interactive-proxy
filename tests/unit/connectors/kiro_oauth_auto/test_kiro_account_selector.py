@@ -116,3 +116,53 @@ class TestAccountSelectorService:
         _ = await selector.get_next_account()
         await selector.mark_current_account_used()
         storage.save_account.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_waits_for_shortest_rate_limit(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        account_valid: StoredAccount,
+    ) -> None:
+        """When all accounts are rate limited, wait for the shortest window."""
+        from src.connectors.kiro_oauth_auto import account_selector as module_under_test
+
+        base_time = 1768780800.0
+        base_ms = int(base_time * 1000)
+
+        account1 = account_valid.model_copy(
+            update={"account_id": "a-1", "rate_limited_until": base_ms + 5000}
+        )
+        account2 = account_valid.model_copy(
+            update={"account_id": "a-2", "rate_limited_until": base_ms + 10000}
+        )
+
+        storage = MagicMock()
+        storage.load_all_accounts = AsyncMock(return_value=[account1, account2])
+        storage.save_account = AsyncMock()
+
+        refresh = MagicMock()
+        refresh.refresh_account = AsyncMock(side_effect=lambda acc: acc)
+
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
+
+        times = iter([base_time, base_time + 5.1])
+
+        def fake_time() -> float:
+            return next(times, base_time + 5.1)
+
+        monkeypatch.setattr(module_under_test.time, "time", fake_time)
+
+        selector = AccountSelectorService(
+            storage=storage,
+            refresh_service=refresh,
+            refresh_buffer_ms=300_000,
+        )
+        await selector.reload_accounts()
+
+        selected = await selector.get_next_account()
+
+        assert selected.account_id == "a-1"
+        assert sleep_mock.await_count == 1
+        assert sleep_mock.await_args is not None
+        assert sleep_mock.await_args.args[0] == pytest.approx(5.0)

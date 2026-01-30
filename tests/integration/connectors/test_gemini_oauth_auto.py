@@ -153,7 +153,7 @@ class TestGeminiOAuthAutoIntegration:
                 translation_service=mock_translation_service,
             )
 
-            connector._ensure_models_loaded = AsyncMock()
+            connector._ensure_models_loaded = AsyncMock()  # type: ignore[method-assign]
 
             await connector.initialize()
 
@@ -184,3 +184,60 @@ class TestGeminiOAuthAutoIntegration:
             creds = connector._oauth_credentials
             assert creds is not None
             assert creds["access_token"] == "token-1"
+
+    @pytest.mark.asyncio
+    async def test_selector_waits_for_shortest_rate_limit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Selector waits for the earliest rate-limited account."""
+        from src.connectors.gemini_oauth_auto import (
+            account_selector as module_under_test,
+        )
+
+        base_time = 1768780800.0
+        base_ms = int(base_time * 1000)
+
+        storage = TokenStorageService(storage_path=tmp_path)
+        account1 = StoredAccount(
+            account_id="test-acc-1",
+            email="test1@gmail.com",
+            access_token="token-1",
+            refresh_token="refresh-1",
+            scope="scope1",
+            expiry_date=base_ms + 3600_000,
+            rate_limited_until=base_ms + 5000,
+        )
+        account2 = StoredAccount(
+            account_id="test-acc-2",
+            email="test2@gmail.com",
+            access_token="token-2",
+            refresh_token="refresh-2",
+            scope="scope2",
+            expiry_date=base_ms + 3600_000,
+            rate_limited_until=base_ms + 12_000,
+        )
+        await storage.save_account(account1)
+        await storage.save_account(account2)
+
+        async with httpx.AsyncClient() as client:
+            refresh = TokenRefreshService(storage=storage, http_client=client)
+            selector = AccountSelectorService(storage=storage, refresh_service=refresh)
+
+            sleep_mock = AsyncMock()
+            monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
+
+            times = iter([base_time, base_time + 5.1])
+
+            def fake_time() -> float:
+                return next(times, base_time + 5.1)
+
+            monkeypatch.setattr(module_under_test.time, "time", fake_time)
+
+            await selector.reload_accounts()
+            selected = await selector.get_next_account()
+
+            assert selected is not None
+            assert selected.account_id == "test-acc-1"
+            assert sleep_mock.await_count == 1
+            assert sleep_mock.await_args is not None
+            assert sleep_mock.await_args.args[0] == pytest.approx(5.0)

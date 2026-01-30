@@ -392,7 +392,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         project_candidate = data.get(top_key)
         if isinstance(project_candidate, dict):
             project_candidate = project_candidate.get("id")
-        
+
         project_id = str(project_candidate) if project_candidate else None
         return project_id if project_id and project_id != "default" else None
 
@@ -400,7 +400,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         """Update account storage with discovered project ID."""
         if not account:
             return
-            
+
         updated_account = account.model_copy(
             update={
                 "project_id": project_id,
@@ -413,13 +413,17 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
     def _get_tier_score(self, tier: dict[str, Any]) -> TierScore:
         """Calculate score for a tier to find the best one for onboarding."""
+
         def _tier_id(t: dict[str, Any]) -> str:
             return str(t.get("id") or t.get("tierId") or "").lower()
 
         def _context_tokens(t: dict[str, Any]) -> int:
             for key in (
-                "maxContextTokens", "contextTokenLimit", "contextWindowTokens",
-                "tokenLimit", "maxContextWindow",
+                "maxContextTokens",
+                "contextTokenLimit",
+                "contextWindowTokens",
+                "tokenLimit",
+                "maxContextWindow",
             ):
                 value = t.get(key)
                 if isinstance(value, int | float):
@@ -427,15 +431,22 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             return 0
 
         tid = _tier_id(tier)
-        is_paid = int(tid in {
-            "paid-tier", "google-one-tier", "googleone-tier",
-            "googleone", "duet-ai-pro", "standard-tier",
-        })
-        
+        is_paid = int(
+            tid
+            in {
+                "paid-tier",
+                "google-one-tier",
+                "googleone-tier",
+                "googleone",
+                "duet-ai-pro",
+                "standard-tier",
+            }
+        )
+
         tokens = _context_tokens(tier)
         if is_paid and tokens == 0:
             tokens = 1_000_000
-            
+
         return TierScore(
             is_paid=is_paid,
             context_tokens=tokens,
@@ -474,8 +485,10 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         try:
             # Step 1: Call loadCodeAssist to discover existing project ID
             client_metadata = {
-                "ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED",
-                "pluginType": "GEMINI", "duetProject": initial_project_id,
+                "ideType": "IDE_UNSPECIFIED",
+                "platform": "PLATFORM_UNSPECIFIED",
+                "pluginType": "GEMINI",
+                "duetProject": initial_project_id,
             }
             load_request: dict[str, Any] = {"metadata": client_metadata}
             if initial_project_id:
@@ -483,8 +496,12 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
             load_url = f"{self.gemini_api_base_url}/v1internal:loadCodeAssist"
             load_response = await asyncio.to_thread(
-                auth_session.request, method="POST", url=load_url,
-                json=load_request, headers={"Content-Type": "application/json"}, timeout=30.0,
+                auth_session.request,
+                method="POST",
+                url=load_url,
+                json=load_request,
+                headers={"Content-Type": "application/json"},
+                timeout=30.0,
             )
 
             if load_response.status_code != 200:
@@ -494,7 +511,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
             # Check cloudaicompanionProject and currentTier for existing project ID
             project_candidate = self._extract_project_id_from_response(load_data)
-            
+
             # If not in top level, check currentTier
             if not project_candidate:
                 current_tier_data = load_data.get("currentTier")
@@ -505,17 +522,28 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
             if project_candidate:
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info("Discovered project ID from loadCodeAssist: %s", project_candidate)
+                    logger.info(
+                        "Discovered project ID from loadCodeAssist: %s",
+                        project_candidate,
+                    )
                 await self._update_account_project(current_account, project_candidate)
                 return project_candidate
 
             # Step 2: Determine which tier to use for onboarding
-            allowed_tiers = [t for t in load_data.get("allowedTiers", []) if isinstance(t, dict)]
+            allowed_tiers = [
+                t for t in load_data.get("allowedTiers", []) if isinstance(t, dict)
+            ]
             if isinstance(load_data.get("currentTier"), dict):
                 allowed_tiers.append(load_data["currentTier"])
 
-            tier_to_use = max(allowed_tiers, key=self._get_tier_score) if allowed_tiers else {"id": "free-tier"}
-            selected_tier_id = tier_to_use.get("id") or tier_to_use.get("tierId") or "free-tier"
+            tier_to_use = (
+                max(allowed_tiers, key=self._get_tier_score)
+                if allowed_tiers
+                else {"id": "free-tier"}
+            )
+            selected_tier_id = (
+                tier_to_use.get("id") or tier_to_use.get("tierId") or "free-tier"
+            )
 
             # Step 3: Perform onboarding
             onboard_url = f"{self.gemini_api_base_url}/v1internal:onboardUser"
@@ -528,7 +556,10 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 if is_paid_tier:
                     onboard_request = {
                         "tierId": selected_tier_id,
-                        "metadata": {**client_metadata, "duetProject": initial_project_id},
+                        "metadata": {
+                            **client_metadata,
+                            "duetProject": initial_project_id,
+                        },
                     }
                     if initial_project_id:
                         onboard_request["cloudaicompanionProject"] = initial_project_id
@@ -536,34 +567,49 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                     onboard_request = {
                         "tierId": selected_tier_id,
                         "metadata": {
-                            "ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED",
+                            "ideType": "IDE_UNSPECIFIED",
+                            "platform": "PLATFORM_UNSPECIFIED",
                             "pluginType": "GEMINI",
                         },
                     }
 
                 lro_response = await asyncio.to_thread(
-                    auth_session.request, method="POST", url=onboard_url,
-                    json=onboard_request, headers={"Content-Type": "application/json"}, timeout=30.0,
+                    auth_session.request,
+                    method="POST",
+                    url=onboard_url,
+                    json=onboard_request,
+                    headers={"Content-Type": "application/json"},
+                    timeout=30.0,
                 )
 
                 if lro_response.status_code != 200:
                     error_text = lro_response.text
-                    if selected_tier_id == "free-tier" and "FREE_TIER_USER_NOT_ELIGIBLE" in error_text:
-                        selected_tier_id = "standard-tier" # Retry with standard
+                    if (
+                        selected_tier_id == "free-tier"
+                        and "FREE_TIER_USER_NOT_ELIGIBLE" in error_text
+                    ):
+                        selected_tier_id = "standard-tier"  # Retry with standard
                         continue
                     raise BackendError(f"OnboardUser failed: {error_text}")
 
                 lro_data = lro_response.json()
                 if lro_data.get("done"):
                     resp_data = lro_data.get("response", {})
-                    discovered_project_id = self._extract_project_id_from_response(resp_data)
-                    
+                    discovered_project_id = self._extract_project_id_from_response(
+                        resp_data
+                    )
+
                     if discovered_project_id:
                         if logger.isEnabledFor(logging.INFO):
-                            logger.info("Discovered project ID from onboarding: %s", discovered_project_id)
-                        await self._update_account_project(current_account, discovered_project_id)
+                            logger.info(
+                                "Discovered project ID from onboarding: %s",
+                                discovered_project_id,
+                            )
+                        await self._update_account_project(
+                            current_account, discovered_project_id
+                        )
                         return discovered_project_id
-                    
+
                     onboarding_completed_with_default = True
                     break
 
@@ -573,13 +619,21 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             # Final check if onboarding returned default
             if onboarding_completed_with_default:
                 load_response_retry = await asyncio.to_thread(
-                    auth_session.request, method="POST", url=load_url, json=load_request,
-                    headers={"Content-Type": "application/json"}, timeout=30.0,
+                    auth_session.request,
+                    method="POST",
+                    url=load_url,
+                    json=load_request,
+                    headers={"Content-Type": "application/json"},
+                    timeout=30.0,
                 )
                 if load_response_retry.status_code == 200:
-                    project_retry = self._extract_project_id_from_response(load_response_retry.json())
+                    project_retry = self._extract_project_id_from_response(
+                        load_response_retry.json()
+                    )
                     if project_retry:
-                        await self._update_account_project(current_account, project_retry)
+                        await self._update_account_project(
+                            current_account, project_retry
+                        )
                         return project_retry
 
             if retry_count >= max_retries and not onboarding_completed_with_default:
@@ -587,11 +641,15 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
         except Exception as exc:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Project discovery failed, using fallback '%s': %s", fallback_project_id, exc, exc_info=True)
+                logger.warning(
+                    "Project discovery failed, using fallback '%s': %s",
+                    fallback_project_id,
+                    exc,
+                    exc_info=True,
+                )
             return str(fallback_project_id)
 
         return str(fallback_project_id)
-
 
     async def chat_completions(  # type: ignore[override]
         self,
@@ -636,6 +694,10 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 **cast(dict[str, Any], request.options),
             )
         except BackendError as e:
+            if getattr(e, "status_code", None) == 429:
+                await self.record_rate_limit(
+                    retry_after_seconds=self._extract_retry_after_seconds(e)
+                )
             if e.code == "quota_exceeded":
                 self._mark_backend_unusable(reason="quota_exceeded")
             raise
@@ -668,6 +730,22 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
     async def _rotate_and_sync(self) -> None:
         """Rotate to next account and sync credentials into gemini_base."""
         await self._account_selector.rotate_on_quota()
+        self._sync_selected_account_to_base()
+
+    @staticmethod
+    def _extract_retry_after_seconds(error: BackendError) -> float | None:
+        details = getattr(error, "details", None)
+        if not isinstance(details, dict):
+            return None
+        retry_after = details.get("retry_after")
+        if isinstance(retry_after, int | float):
+            return float(retry_after)
+        return None
+
+    async def record_rate_limit(self, *, retry_after_seconds: float | None) -> None:
+        await self._account_selector.mark_current_account_rate_limited(
+            retry_after_seconds
+        )
         self._sync_selected_account_to_base()
 
     def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:

@@ -3,9 +3,14 @@
 Manages which account to use for API requests with round-robin rotation.
 """
 
+import asyncio
 import logging
+import time
 
-from src.connectors.gemini_oauth_auto.constants import DEFAULT_REFRESH_BUFFER_MS
+from src.connectors.gemini_oauth_auto.constants import (
+    DEFAULT_RATE_LIMIT_SECONDS,
+    DEFAULT_REFRESH_BUFFER_MS,
+)
 from src.connectors.gemini_oauth_auto.errors import TokenRefreshError
 from src.connectors.gemini_oauth_auto.interfaces import (
     IAccountSelector,
@@ -121,6 +126,48 @@ class AccountSelectorService(IAccountSelector):
             return accounts
         return [acc for acc in accounts if acc.account_id in self._allowed_account_ids]
 
+    def _get_rate_limit_eligible_accounts(
+        self, now_ms: int
+    ) -> tuple[list[StoredAccount], list[StoredAccount]]:
+        available = self._get_available_accounts()
+        if not available:
+            return [], []
+        eligible = [acc for acc in available if not self._is_rate_limited(acc, now_ms)]
+        return available, eligible
+
+    def _is_rate_limited(self, account: StoredAccount, now_ms: int) -> bool:
+        checker = getattr(account, "is_rate_limited", None)
+        if callable(checker):
+            try:
+                result = checker(now_ms)
+            except TypeError:
+                result = checker()
+            if isinstance(result, bool):
+                return result
+        rate_limited_until = getattr(account, "rate_limited_until", None)
+        if isinstance(rate_limited_until, int):
+            return now_ms < rate_limited_until
+        return False
+
+    def _get_next_wait_seconds(
+        self, accounts: list[StoredAccount], now_ms: int
+    ) -> float:
+        if not accounts:
+            return 0.0
+
+        def _rate_limited_until(account: StoredAccount) -> int:
+            value = getattr(account, "rate_limited_until", None)
+            return value if isinstance(value, int) else now_ms
+
+        soonest = min(
+            accounts,
+            key=_rate_limited_until,
+        )
+        rate_limited_until = _rate_limited_until(soonest)
+        if rate_limited_until == now_ms:
+            return 0.0
+        return max((rate_limited_until - now_ms) / 1000.0, 0.0)
+
     async def get_next_account(self) -> StoredAccount | None:
         """Get next valid account based on selection strategy.
 
@@ -133,39 +180,58 @@ class AccountSelectorService(IAccountSelector):
         """
         await self._ensure_accounts_loaded()
 
-        available = self._get_available_accounts()
-        if not available:
-            logger.warning("No valid accounts available for selection")
-            return None
+        while True:
+            now_ms = int(time.time() * 1000)
+            available, eligible = self._get_rate_limit_eligible_accounts(now_ms)
+            if not available:
+                logger.warning("No valid accounts available for selection")
+                return None
 
-        account = self._select_account_from_available(available)
-        if not account:
-            return None
+            if not eligible:
+                wait_seconds = self._get_next_wait_seconds(available, now_ms)
+                if wait_seconds > 0:
+                    soonest = min(
+                        available,
+                        key=lambda acc: getattr(acc, "rate_limited_until", None)
+                        or now_ms,
+                    )
+                    logger.info(
+                        "All accounts are rate limited; waiting %.2fs for account %s",
+                        wait_seconds,
+                        soonest.account_id,
+                    )
+                    await asyncio.sleep(wait_seconds)
+                    continue
+                return None
 
-        try:
-            account = await self._refresh_service.refresh_if_needed(
-                account, buffer_ms=self._refresh_buffer_ms
-            )
-            self._update_account_in_list(account)
-        except TokenRefreshError as e:
-            if e.needs_reauth:
-                logger.warning(
-                    "Account %s needs reauth, trying next account",
-                    account.account_id,
+            account = self._select_account_from_available(eligible)
+            if not account:
+                return None
+
+            try:
+                account = await self._refresh_service.refresh_if_needed(
+                    account, buffer_ms=self._refresh_buffer_ms
                 )
-                account = account.model_copy(update={"needs_reauth": True})
                 self._update_account_in_list(account)
-                return await self.get_next_account()
+            except TokenRefreshError as e:
+                if e.needs_reauth:
+                    logger.warning(
+                        "Account %s needs reauth, trying next account",
+                        account.account_id,
+                    )
+                    account = account.model_copy(update={"needs_reauth": True})
+                    self._update_account_in_list(account)
+                    continue
 
-            logger.warning(
-                "Failed to refresh account %s, using anyway: %s",
-                account.account_id,
-                e,
-            )
+                logger.warning(
+                    "Failed to refresh account %s, using anyway: %s",
+                    account.account_id,
+                    e,
+                )
 
-        self._current_account = account
-        logger.debug("Selected account: %s", account.account_id)
-        return account
+            self._current_account = account
+            logger.debug("Selected account: %s", account.account_id)
+            return account
 
     def _select_account_from_available(
         self, available: list[StoredAccount]
@@ -204,6 +270,24 @@ class AccountSelectorService(IAccountSelector):
         self._update_account_in_list(updated)
         await self._storage.save_account(updated)
         logger.debug("Updated last_used for account: %s", updated.account_id)
+
+    async def mark_current_account_rate_limited(
+        self, retry_after_seconds: float | None
+    ) -> None:
+        if not self._current_account:
+            return
+        updated = self._current_account.mark_rate_limited(
+            retry_after_seconds=retry_after_seconds,
+            default_window_seconds=DEFAULT_RATE_LIMIT_SECONDS,
+        )
+        self._current_account = updated
+        self._update_account_in_list(updated)
+        await self._storage.save_account(updated)
+        logger.info(
+            "Marked account %s rate limited until %s",
+            updated.account_id,
+            updated.rate_limited_until,
+        )
 
     def _update_account_in_list(self, updated: StoredAccount) -> None:
         """Update an account in our local list.
