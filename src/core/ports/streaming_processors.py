@@ -627,9 +627,9 @@ class ThinkTagsProcessor(IStreamProcessor):
             # If we have opening <think> but no proper closing, treat entire content as reasoning
             if content.strip().startswith("<think>"):
                 # Remove opening tag and treat rest as reasoning
-                reasoning_content = content.replace("<think>", "", 1)
+                reasoning_content = content.replace("<think>", "", 1).strip()
                 if reasoning_content.endswith("</think>"):
-                    reasoning_content = reasoning_content[:-8]
+                    reasoning_content = reasoning_content[:-8].strip()
 
                 if self._logger.isEnabledFor(logging.INFO):
                     self._logger.info(
@@ -645,8 +645,8 @@ class ThinkTagsProcessor(IStreamProcessor):
             match.groups()
         )
 
-        # Keep reasoning content whitespace intact to avoid merging issues in some clients
-        reasoning_content = reasoning_content if reasoning_content else ""
+        # Strip outer whitespace to normalize reasoning blocks
+        reasoning_content = reasoning_content.strip() if reasoning_content else ""
         response_content = (
             f"{leading_space}{middle_space}{remaining_content}"
             if remaining_content is not None

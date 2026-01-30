@@ -4,8 +4,11 @@ import asyncio
 import contextlib
 import importlib.util
 import inspect
+import logging
 import os
 import sys
+import threading
+import traceback
 import types
 import warnings
 import weakref
@@ -15,6 +18,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
@@ -338,11 +343,35 @@ def pytest_sessionfinish(session, exitstatus) -> None:  # type: ignore[no-untype
         try:
             asyncio.set_event_loop(None)
             if not _session_loop.is_closed() and not _session_loop.is_running():
+                pending = [
+                    task for task in asyncio.all_tasks(_session_loop) if not task.done()
+                ]
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    _session_loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
+            if not _session_loop.is_closed() and not _session_loop.is_running():
                 _session_loop.close()
         finally:
             with contextlib.suppress(Exception):
                 asyncio.set_event_loop_policy(_ORIGINAL_EVENT_LOOP_POLICY)
         _session_loop = None
+
+    for thread in threading.enumerate():
+        if thread is threading.main_thread() or thread.daemon:
+            continue
+        thread.join(timeout=1.0)
+        if thread.is_alive():
+            ident = thread.ident
+            frame = sys._current_frames().get(ident) if ident is not None else None
+            stack = "".join(traceback.format_stack(frame)) if frame else ""
+            logger.warning(
+                "Non-daemon thread still running at session end: %s\n%s",
+                thread.name,
+                stack,
+            )
 
 
 # Apply a global, message-targeted filter for Windows ProactorEventLoop noise

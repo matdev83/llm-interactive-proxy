@@ -198,10 +198,10 @@ class ThinkTagsFixFeature(IResponseFeature):
         match = self._THINK_TAG_PATTERN.match(content)
         if match:
             leading_ws = match.group(1)
-            reasoning = match.group(2)
+            reasoning = match.group(2).strip()
             middle_ws = match.group(3)
-            remaining = match.group(4)
-            fixed_content = f"{leading_ws}{middle_ws}{remaining}"
+            remaining = match.group(4).strip()
+            fixed_content = f"{leading_ws}{middle_ws}{remaining}".strip()
             return ThinkTagFixResult(
                 response_content=fixed_content, reasoning_content=reasoning
             )
@@ -249,7 +249,7 @@ class ThinkTagsFixFeature(IResponseFeature):
                 if opening_match:
                     reasoning = reasoning[opening_match.end() :]
 
-                reasoning = reasoning
+                reasoning = reasoning.strip()
                 self._stream_states[session_id] = "after_think"
                 self._streaming_buffers[session_id] = after_close
 
@@ -263,7 +263,7 @@ class ThinkTagsFixFeature(IResponseFeature):
                 # Cleanup after adding to enforce max limit
                 self._cleanup_expired_reasoning()
 
-                return after_close, reasoning_metadata
+                return after_close.strip(), reasoning_metadata
 
             if len(current_buffer) > self._streaming_buffer_size:
                 self._stream_states[session_id] = "pass_through"
@@ -651,9 +651,9 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             # If we have opening <think> but no proper closing, treat entire content as reasoning
             if content.strip().startswith("<think>"):
                 # Remove opening tag and treat rest as reasoning
-                reasoning_content = content.replace("<think>", "", 1)
+                reasoning_content = content.replace("<think>", "", 1).strip()
                 if reasoning_content.endswith("</think>"):
-                    reasoning_content = reasoning_content[:-8]
+                    reasoning_content = reasoning_content[:-8].strip()
 
                 self._logger.info(
                     "Fixed incomplete think tags - treating as pure reasoning"
@@ -668,8 +668,8 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             match.groups()
         )
 
-        # Keep reasoning content whitespace intact to avoid merging issues
-        reasoning_content = reasoning_content if reasoning_content else ""
+        # Strip outer whitespace to normalize reasoning blocks
+        reasoning_content = reasoning_content.strip() if reasoning_content else ""
 
         response_content = (
             f"{leading_space}{middle_space}{remaining_content}"
@@ -1080,6 +1080,9 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         processed_response.content = response_content
 
         # Add reasoning to metadata
+        if processed_response.metadata is None:
+            processed_response.metadata = {}
+
         processed_response.metadata["reasoning"] = reasoning_content
         processed_response.metadata["reasoning_format"] = "extracted_from_think_tags"
         processed_response.metadata["think_tags_fixed"] = True
