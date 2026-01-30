@@ -16,6 +16,8 @@ from fastapi import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from src.core.common.logging_utils import redact_sensitive_value
+
 # Import HTTP status constants
 from src.core.constants import (
     HTTP_401_UNAUTHORIZED_MESSAGE,
@@ -173,12 +175,16 @@ class APIKeyMiddleware:
                 )
 
         api_key: str | None = None
-        auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+        auth_header = request.headers.get("authorization") or request.headers.get(
+            "Authorization"
+        )
         if auth_header and auth_header.startswith("Bearer "):
             api_key = auth_header.replace("Bearer ", "", 1)
 
         if not api_key:
-            api_key = request.headers.get("x-goog-api-key") or request.headers.get("X-Goog-Api-Key")
+            api_key = request.headers.get("x-goog-api-key") or request.headers.get(
+                "X-Goog-Api-Key"
+            )
 
         if not api_key:
             try:
@@ -461,7 +467,7 @@ class APIKeyMiddleware:
 
         # Debug: log detected API key (masked) for test troubleshooting
         try:
-            masked: str | None = api_key[:4] + "..." if api_key else None
+            masked = redact_sensitive_value(api_key)
             logger.debug("Detected API key in request: %s", masked)
         except Exception as e:
             logger.debug("Error masking API key for logging: %s", e, exc_info=True)
@@ -638,7 +644,9 @@ class AuthMiddleware:
 
         # Check for token in header
         # Support both lowercase and capitalized for mock compatibility
-        token = request.headers.get("x-auth-token") or request.headers.get("X-Auth-Token")
+        token = request.headers.get("x-auth-token") or request.headers.get(
+            "X-Auth-Token"
+        )
 
         # Extract client IP for logging
         client_ip = None
@@ -647,7 +655,7 @@ class AuthMiddleware:
                 client_ip = request.client.host
         except Exception:
             client_ip = None
-            
+
         method = request.method
 
         # Validate the token

@@ -267,9 +267,7 @@ def redact_dict(
     if redacted_fields is None:
         redacted_fields = DEFAULT_REDACTED_FIELDS
 
-    normalized_fields = {
-        field.lower() for field in redacted_fields if isinstance(field, str)
-    }
+    normalized_fields = {field.lower() for field in redacted_fields}
 
     result: dict[Any, Any] = {}
 
@@ -323,6 +321,29 @@ def redact_text(text: str, mask: str = "***") -> str:
     return redacted
 
 
+def redact_sensitive_value(value: object | None, mask: str = "***") -> str | None:
+    """Redact a sensitive value for safe logging.
+
+    Args:
+        value: Potentially sensitive value
+        mask: The mask to use
+
+    Returns:
+        The redacted value or None
+    """
+    if value is None:
+        return None
+
+    if not isinstance(value, str):
+        return redact_text(str(value), mask=mask)
+
+    redacted = redact_text(value, mask=mask)
+    if redacted != value:
+        return redacted
+
+    return redact(value, mask=mask)
+
+
 class ApiKeyRedactionFilter(logging.Filter):
     """Logging filter that redacts known API keys from log records.
 
@@ -339,7 +360,7 @@ class ApiKeyRedactionFilter(logging.Filter):
         keys = set(api_keys or [])
         # Remove falsy/short values: API keys are long, and very short "keys"
         # (e.g., single characters) can cause catastrophic over-redaction in logs.
-        keys = {k for k in keys if isinstance(k, str) and len(k) >= 8}
+        keys = {k for k in keys if len(k) >= 8}
         # Build list of compiled patterns: explicit keys and default token patterns
         self.patterns: list[re.Pattern] = []
         if keys:

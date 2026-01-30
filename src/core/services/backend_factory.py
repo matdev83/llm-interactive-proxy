@@ -9,6 +9,7 @@ import httpx
 
 from src.connectors.base import LLMBackend
 from src.connectors.strategies.registry import initialization_strategy_registry
+from src.core.common.logging_utils import redact_sensitive_value
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.interfaces.activity_tracker_interface import IConnectionActivityTracker
 from src.core.interfaces.backend_factory_interface import IBackendFactory
@@ -224,14 +225,14 @@ class BackendFactory(IBackendFactory):
                         )
 
         if logger.isEnabledFor(logging.DEBUG):
+            safe_api_key = redact_sensitive_value(current_api_key)
             logger.debug(
-                f"Backend factory for {backend_type} (connector={connector_type}): current_api_key={current_api_key}, default_backend_env={default_backend_env}"
+                f"Backend factory for {backend_type} (connector={connector_type}): current_api_key={safe_api_key}, default_backend_env={default_backend_env}"
             )
 
         if current_api_key and logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                f"Using provided API key for {backend_type}: {current_api_key[:20] if current_api_key else 'None'}..."
-            )
+            safe_api_key = redact_sensitive_value(current_api_key)
+            logger.debug(f"Using provided API key for {backend_type}: {safe_api_key}")
 
         # Delegate backend-specific augmentation to initialization strategies
         strategy = initialization_strategy_registry.get_strategy(connector_type)
