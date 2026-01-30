@@ -164,6 +164,9 @@ def test_property_25_configuration_loading_logging(
         assert (
             f"turn_count={turn_count}" in log_message
         ), f"Log message missing turn_count: {log_message}"
+        assert (
+            "allow_oauth_auto_replacement=" in log_message
+        ), f"Log message missing allow_oauth_auto_replacement: {log_message}"
     finally:
         # Restore original logger
         original_logger.info = original_info

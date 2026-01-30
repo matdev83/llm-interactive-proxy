@@ -145,8 +145,10 @@ class ModelReplacementService:
                 f"enabled={self._config.enabled}, "
                 f"probability={self._config.probability}, "
                 f"replacement_rules=[{rules_info}], "
-                f"turn_count={self._config.turn_count}"
+                f"turn_count={self._config.turn_count}, "
+                f"allow_oauth_auto_replacement={self._cached_allow_oauth_auto_replacement}"
             )
+
 
     def should_replace(
         self,
