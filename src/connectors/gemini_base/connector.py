@@ -1201,77 +1201,42 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
     async def _load_models_from_api(self) -> None:
         """
-        Retrieve model slugs from the fetchAvailableModels endpoint.
+        Populate model cache with fallback list.
 
-        Uses the v1internal:fetchAvailableModels endpoint which returns a dictionary
-        of available models. The models are extracted from the "models" dictionary keys
-        in the response, which contains the exhaustive list of all supported models.
-
-        This method is designed to work with both the standard Code Assist API
-        (cloudcode-pa.googleapis.com) and sandbox variants (e.g., Antigravity).
+        The API endpoint `v1internal:fetchAvailableModels` is no longer available.
+        This method now populates `self.available_models` with a hardcoded fallback list
+        to prevent 404 errors.
         """
-        if not await self._refresh_token_if_needed():
-            return
-        if not self._oauth_credentials or not self._oauth_credentials.get(
-            "access_token"
-        ):
+        # If models are already loaded, do nothing
+        if getattr(self, "available_models", None):
             return
 
-        headers = self._get_api_headers()
-
-        base_url = (self.gemini_api_base_url or CODE_ASSIST_ENDPOINT).rstrip("/")
-        url = f"{base_url}/v1internal:fetchAvailableModels"
-
+        # Use fallback models from model registry logic
+        # We duplicate the default list here to ensure standalone functionality
+        # without circular imports if possible, but importing from config is cleaner.
         try:
-            response = await self.client.get(url, headers=headers, timeout=15.0)
-        except Exception as exc:
-            logger.warning(
-                "Failed to reach fetchAvailableModels endpoint %s: %s",
-                url,
-                exc,
-                exc_info=True,
-            )
-            return
+            from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
+            models = list(DEFAULT_AVAILABLE_MODELS)
+        except ImportError:
+            # Fallback if config import fails (unlikely)
+            models = [
+                "gemini-3-pro-preview",
+                "gemini-3-flash-preview",
+                "gemini-2.5-pro",
+                "gemini-2.5-flash",
+                "gemini-2.5-flash-lite",
+                "gemini-embedding-001",
+            ]
 
-        if response.status_code != 200:
-            logger.debug(
-                "fetchAvailableModels endpoint %s returned %s: %s",
-                url,
-                response.status_code,
-                response.text[:200] if response.text else "",
-            )
-            return
-
-        try:
-            data = response.json()
-        except Exception as exc:
-            logger.warning(
-                "Failed to decode fetchAvailableModels response from %s: %s",
-                url,
-                exc,
-                exc_info=True,
-            )
-            return
-
-        # Extract model IDs from "models" dictionary keys
-        # This is the exhaustive list of all supported models
-        slugs: set[str] = set()
-        models_dict = data.get("models", {})
-        if isinstance(models_dict, dict):
-            for model_key in models_dict:
-                if isinstance(model_key, str) and model_key.strip():
-                    slugs.add(model_key.strip())
-
-        if slugs:
-            self.available_models = sorted(slugs)
-            # Update the cached model set for fast validation lookups
-            self._available_models_set = slugs
-            # Mark that models were loaded from API (enables validation)
-            self._models_from_api = True
-            logger.info(
-                "Loaded %d models from fetchAvailableModels endpoint",
-                len(self.available_models),
-            )
+        self.available_models = models
+        # Update the cached model set for fast validation lookups
+        self._available_models_set = set(models)
+        # Mark that models were NOT loaded from API (disables strict validation against this list)
+        self._models_from_api = False
+        logger.info(
+            "Loaded %d models from fallback list (fetchAvailableModels API is deprecated)",
+            len(self.available_models),
+        )
 
     def _get_available_models_set(self) -> set[str]:
         """
@@ -1363,75 +1328,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
     ) -> ModelsListingResponse:
-        """List available models using the fetchAvailableModels endpoint.
+        """List available models using hardcoded fallback list.
 
-        Uses the v1internal:fetchAvailableModels endpoint and transforms the response
-        to match the expected format. Ignores API key params since this uses OAuth.
+        The v1internal:fetchAvailableModels endpoint is no longer supported.
+        This method returns the hardcoded model list to match the expected format.
         """
-        if not self._oauth_credentials or not self._oauth_credentials.get(
-            "access_token"
-        ):
-            raise HTTPException(
-                status_code=401, detail="No OAuth access token available"
+        await self._ensure_models_loaded()
+        model_infos = [
+            ModelInfo(
+                id=f"models/{model}",
+                name=model,
+                object="model",
+                owned_by="google",
             )
-
-        headers = self._get_api_headers()
-        base_url = (self.gemini_api_base_url or CODE_ASSIST_ENDPOINT).rstrip("/")
-        url = f"{base_url}/v1internal:fetchAvailableModels"
-
-        try:
-            response = await self.client.get(url, headers=headers, timeout=15.0)
-            if response.status_code >= 400:
-                try:
-                    error_detail = response.json()
-                except Exception as e:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Failed to parse model fetch error response as JSON, using text fallback: %s",
-                            e,
-                            exc_info=True,
-                        )
-                    error_detail = response.text
-                raise BackendError(
-                    message=str(error_detail),
-                    code="gemini_oauth_error",
-                    status_code=response.status_code,
-                    backend_name=self.backend_type,
-                )
-
-            data = response.json()
-
-            # Transform the response to match expected format
-            # Extract models from the response
-            model_infos = []
-            models_dict = data.get("models", {})
-            if isinstance(models_dict, dict):
-                for model_id, model_info in models_dict.items():
-                    model_entry = ModelInfo(
-                        id=f"models/{model_id}",
-                        name=model_id,
-                        object="model",
-                        owned_by="google",
-                    )
-                    if isinstance(model_info, dict) and "displayName" in model_info:
-                        model_entry.name = model_info["displayName"]
-
-                    model_infos.append(model_entry)
-
-            return ModelsListingResponse(object="list", data=model_infos)
-
-        except httpx.TimeoutException as e:
-            logger.error("Timeout connecting to Gemini OAuth API: %s", e, exc_info=True)
-            raise ServiceUnavailableError(
-                message=f"Timeout connecting to Gemini OAuth API ({e})"
-            ) from e
-        except httpx.RequestError as e:
-            logger.error(
-                "Request error connecting to Gemini OAuth API: %s", e, exc_info=True
-            )
-            raise ServiceUnavailableError(
-                message=f"Could not connect to Gemini OAuth API ({e})"
-            ) from e
+            for model in self.available_models
+        ]
+        return ModelsListingResponse(object="list", data=model_infos)
 
     async def _resolve_gemini_api_config(
         self,
@@ -1490,11 +1402,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         This method tests actual API connectivity by making a simple request to verify
         the OAuth token works and the service is accessible.
 
-        Uses the fetchAvailableModels endpoint which is supported by all Code Assist API
+        Uses the loadCodeAssist endpoint which is supported by all Code Assist API
         variants (standard and sandbox).
-
-        Returns:
-            bool: True if health check passes, False otherwise
         """
         try:
             # Ensure token is refreshed before testing
@@ -1502,7 +1411,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 logger.warning("Health check failed - couldn't refresh OAuth token")
                 return False
 
-            # Test API connectivity with a simple GET request
+            # Test API connectivity with a simple request
             if not self._oauth_credentials or not self._oauth_credentials.get(
                 "access_token"
             ):
@@ -1512,34 +1421,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             base_url = (self.gemini_api_base_url or CODE_ASSIST_ENDPOINT).rstrip("/")
             headers = self._get_api_headers()
 
-            # Use fetchAvailableModels endpoint for health check
-            # This endpoint is supported by all Code Assist API variants
-            fetch_models_url = f"{base_url}/v1internal:fetchAvailableModels"
-            try:
-                response = await self.client.get(
-                    fetch_models_url, headers=headers, timeout=10.0
-                )
-            except httpx.TimeoutException as te:
-                logger.error(
-                    f"Health check timeout calling {fetch_models_url}: {te}",
-                    exc_info=True,
-                )
-                return False
-            except httpx.RequestError as rexc:
-                logger.error(
-                    f"Health check connection error calling {fetch_models_url}: {rexc}",
-                    exc_info=True,
-                )
-                return False
-
-            if response.status_code == 200:
-                logger.info(
-                    "Health check passed - API connectivity verified via fetchAvailableModels"
-                )
-                self._health_checked = True
-                return True
-
-            # Fallback: use loadCodeAssist which is reliable on Code Assist API
+            # Use loadCodeAssist for health check - it's reliable and supported by all variants
             load_url = f"{base_url}/v1internal:loadCodeAssist"
             payload = {
                 "metadata": {

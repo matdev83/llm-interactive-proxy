@@ -133,37 +133,21 @@ class TestAntigravityOAuthConnector:
         assert connector.client.get.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_model_enumeration_uses_correct_endpoint_url(
+    async def test_model_enumeration_skips_deprecated_api(
         self, connector, monkeypatch
     ):
-        """Verify that non-sandbox base URLs still use fetchAvailableModels."""
+        """Verify that non-sandbox base URLs also skip fetchAvailableModels (deprecated)."""
         connector.gemini_api_base_url = "https://custom-endpoint.example.com"
         connector._oauth_credentials = {"access_token": "test-token"}
-        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
 
-        captured_url = None
-
-        async def capture_get(url, **kwargs):
-            nonlocal captured_url
-            captured_url = url
-
-            class DummyResponse:
-                status_code = 200
-                text = "{}"
-
-                def json(self):
-                    return {"models": {}, "agentModelSorts": []}
-
-            return DummyResponse()
-
-        connector.client.get = capture_get  # type: ignore[assignment]
+        connector.client.get = AsyncMock()
 
         await connector._load_models_from_api()
 
-        assert (
-            captured_url
-            == "https://custom-endpoint.example.com/v1internal:fetchAvailableModels"
-        )
+        # Should NOT call fetchAvailableModels
+        assert connector.client.get.call_count == 0
+        assert connector.available_models # Loaded from fallback
 
     @pytest.mark.asyncio
     async def test_model_enumeration_fallback_on_failure(self, connector, monkeypatch):
@@ -178,72 +162,50 @@ class TestAntigravityOAuthConnector:
         assert connector.available_models
 
     @pytest.mark.asyncio
-    async def test_health_check_uses_fetch_available_models_endpoint(
+    async def test_health_check_uses_load_code_assist_endpoint(
         self, connector, monkeypatch
     ):
-        """Health check should skip fetchAvailableModels on sandbox base URL."""
+        """Health check should use loadCodeAssist."""
         connector._oauth_credentials = {"access_token": "test-token"}
-        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
-        connector.gemini_api_base_url = ANTIGRAVITY_SANDBOX_ENDPOINT
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
+        connector.gemini_api_base_url = "https://custom-endpoint.example.com"
 
-        connector.client.get = AsyncMock()  # type: ignore[assignment]
+        mock_response = Mock()
+        mock_response.status_code = 200
+        connector.client.post = AsyncMock(return_value=mock_response)
 
         result = await connector._perform_health_check()
 
         assert result is True
-        assert connector.client.get.await_count == 0
-        assert connector._health_checked is True
-        assert connector._refresh_token_if_needed.await_count == 1
+        assert connector.client.post.call_count == 1
+        # Verify correct endpoint was called
+        call_args = connector.client.post.call_args
+        assert "loadCodeAssist" in call_args[0][0]
 
     @pytest.mark.asyncio
     async def test_health_check_fails_on_non_200_response(self, connector, monkeypatch):
         """Health check should return False on non-200 response."""
         connector._oauth_credentials = {"access_token": "test-token"}
-        connector._refresh_token_if_needed = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+        connector._refresh_token_if_needed = AsyncMock(return_value=True)
         connector.gemini_api_base_url = "https://custom-endpoint.example.com"
 
-        class DummyResponse:
-            status_code = 401
-            text = "Unauthorized"
-
-            def json(self):
-                return {"error": "Unauthorized"}
-
-        connector.client.get = AsyncMock(return_value=DummyResponse())  # type: ignore[assignment]
+        mock_response = Mock()
+        mock_response.status_code = 401
+        connector.client.post = AsyncMock(return_value=mock_response)
 
         result = await connector._perform_health_check()
 
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_list_models_uses_fetch_available_models_endpoint(
+    async def test_list_models_skips_deprecated_api(
         self, connector, monkeypatch
     ):
-        """list_models should use fetchAvailableModels and transform response."""
+        """list_models should skip fetchAvailableModels and use fallback."""
         connector._oauth_credentials = {"access_token": "test-token"}
         connector.gemini_api_base_url = "https://custom-endpoint.example.com"
 
-        class DummyResponse:
-            status_code = 200
-            text = "{}"
-
-            def json(self):
-                return {
-                    "models": {
-                        "gemini-2.5-flash": {
-                            "displayName": "Gemini 2.5 Flash",
-                            "maxTokens": 1048576,
-                            "maxOutputTokens": 65535,
-                        },
-                        "claude-sonnet-4-5": {
-                            "displayName": "Claude Sonnet 4.5",
-                            "maxTokens": 200000,
-                            "maxOutputTokens": 64000,
-                        },
-                    }
-                }
-
-        connector.client.get = AsyncMock(return_value=DummyResponse())  # type: ignore[assignment]
+        connector.client.get = AsyncMock()
 
         result = await connector.list_models(
             gemini_api_base_url="https://custom-endpoint.example.com",
@@ -251,11 +213,10 @@ class TestAntigravityOAuthConnector:
             api_key="test-key",
         )
 
+        assert connector.client.get.call_count == 0
         assert result.data
-        assert len(result.data) == 2
-        model_names = [m.id for m in result.data]
-        assert "models/gemini-2.5-flash" in model_names
-        assert "models/claude-sonnet-4-5" in model_names
+        # Model IDs include vendor prefix when using standard fallback models
+        assert any("gemini-2.5-flash" in model.id for model in result.data)
 
     @pytest.mark.asyncio
     async def test_list_models_uses_fallback_on_sandbox(self, connector, monkeypatch):

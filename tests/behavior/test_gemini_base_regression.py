@@ -148,23 +148,17 @@ class TestHealthCheckBehavior:
         self, health_check_service_source: str
     ) -> None:
         """Verify health check uses existing endpoints only."""
-        # Should use fetchAvailableModels or loadCodeAssist
-        assert (
-            "fetchAvailableModels" in health_check_service_source
-            or "loadCodeAssist" in health_check_service_source
-        )
+        # Should use loadCodeAssist
+        assert "loadCodeAssist" in health_check_service_source
 
     def test_health_check_uses_only_specified_endpoints(
         self, health_check_service_source: str
     ) -> None:
-        """Verify health check uses only fetchAvailableModels and loadCodeAssist endpoints.
+        """Verify health check uses only the loadCodeAssist endpoint.
 
         Requirement: 7.3 - The system shall not introduce new health check endpoints.
         """
-        # Must use fetchAvailableModels (primary)
-        assert "fetchAvailableModels" in health_check_service_source
-
-        # Must use loadCodeAssist (fallback)
+        # Must use loadCodeAssist
         assert "loadCodeAssist" in health_check_service_source
 
         # Should not use any other endpoints
@@ -175,14 +169,15 @@ class TestHealthCheckBehavior:
         endpoint_pattern = r"v1internal:(\w+)"
         endpoints = re.findall(endpoint_pattern, health_check_service_source)
 
-        # Should only contain fetchAvailableModels and loadCodeAssist
-        allowed_endpoints = {"fetchAvailableModels", "loadCodeAssist"}
+        # Should only contain loadCodeAssist
+        allowed_endpoints = {"loadCodeAssist"}
         found_endpoints = set(endpoints)
 
         # All found endpoints must be in allowed list
         assert found_endpoints.issubset(
             allowed_endpoints
         ), f"Found unexpected endpoints: {found_endpoints - allowed_endpoints}"
+
 
     def test_health_check_failure_does_not_raise(self) -> None:
         """Verify health check failures are logged but don't raise."""
@@ -619,32 +614,16 @@ class TestWireCapturePayloadStructure:
 class TestHealthCheckEndpointValidation:
     """Test health check endpoint validation.
 
-    Requirement: 7.3 - Health check uses correct endpoint URLs and fallback order.
+    Requirement: 7.3 - Health check uses correct endpoint URLs.
     """
 
     def test_health_check_uses_correct_endpoint_urls(
         self, health_check_service_source: str
     ) -> None:
         """Verify health check constructs correct endpoint URLs."""
-        # Should use fetchAvailableModels endpoint
-        assert "fetchAvailableModels" in health_check_service_source
-        assert "v1internal:fetchAvailableModels" in health_check_service_source
-
-        # Should use loadCodeAssist as fallback
+        # Should use loadCodeAssist
         assert "loadCodeAssist" in health_check_service_source
         assert "v1internal:loadCodeAssist" in health_check_service_source
-
-    def test_health_check_endpoint_fallback_order(
-        self, health_check_service_source: str
-    ) -> None:
-        """Verify health check endpoint fallback order is correct."""
-        # fetchAvailableModels should be tried first
-        fetch_index = health_check_service_source.find("fetchAvailableModels")
-        load_index = health_check_service_source.find("loadCodeAssist")
-
-        assert (
-            fetch_index < load_index
-        ), "fetchAvailableModels should be tried before loadCodeAssist"
 
     def test_health_check_does_not_use_other_endpoints(
         self, health_check_service_source: str
@@ -656,14 +635,15 @@ class TestHealthCheckEndpointValidation:
         endpoint_pattern = r"v1internal:(\w+)"
         endpoints = re.findall(endpoint_pattern, health_check_service_source)
 
-        # Should only contain fetchAvailableModels and loadCodeAssist
-        allowed_endpoints = {"fetchAvailableModels", "loadCodeAssist"}
+        # Should only contain loadCodeAssist
+        allowed_endpoints = {"loadCodeAssist"}
         found_endpoints = set(endpoints)
 
         # All found endpoints must be in allowed list
         assert found_endpoints.issubset(
             allowed_endpoints
         ), f"Found unexpected endpoints: {found_endpoints - allowed_endpoints}"
+
 
 
 class TestExcInfoRuntimeVerification:
