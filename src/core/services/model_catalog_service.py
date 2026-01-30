@@ -28,6 +28,7 @@ class ModelCatalogService:
         self._models: dict[str, ModelLimits] = {}
         self._input_modalities: dict[str, set[str]] = {}
         self._providers: dict[str, Any] = {}
+        self._catalog_loaded: bool = False
         self.load_catalog()
 
     def load_catalog(self) -> None:
@@ -114,6 +115,7 @@ class ModelCatalogService:
 
         self._models = parsed_models
         self._input_modalities = parsed_modalities
+        self._catalog_loaded = bool(parsed_models)
 
     def _lookup_mapping(
         self, mapping: dict[str, Any], model_name: str, backend_type: str | None
@@ -158,6 +160,12 @@ class ModelCatalogService:
     ) -> ModelLimits | None:
         """Look up limits for a model, optionally restricted by backend type."""
         return self._lookup_mapping(self._models, model_name, backend_type)
+
+    def has_model(self, model_name: str, backend_type: str | None = None) -> bool:
+        """Return True if the catalog has an entry for the model."""
+        if not self._catalog_loaded:
+            return False
+        return self._lookup_mapping(self._models, model_name, backend_type) is not None
 
     def get_input_modalities(
         self, model_name: str, backend_type: str | None = None

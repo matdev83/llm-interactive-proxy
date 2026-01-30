@@ -36,6 +36,7 @@ async def test_backend_preparer_capacity_rejection(
         context_window=1000, max_output_tokens=200
     )
     model_catalog.get_input_modalities.return_value = None
+    model_catalog.has_model.return_value = True
 
     preparer = BackendPreparer(backend_request_manager, app_state, model_catalog)
 
@@ -87,6 +88,7 @@ async def test_backend_preparer_capacity_acceptance(
         context_window=1000, max_output_tokens=200
     )
     model_catalog.get_input_modalities.return_value = None
+    model_catalog.has_model.return_value = True
 
     preparer = BackendPreparer(backend_request_manager, app_state, model_catalog)
 
@@ -129,6 +131,7 @@ async def test_backend_preparer_rejects_unsupported_modalities(
     model_catalog = MagicMock()
     model_catalog.get_limits.return_value = None
     model_catalog.get_input_modalities.return_value = {"text"}
+    model_catalog.has_model.return_value = True
 
     preparer = BackendPreparer(backend_request_manager, app_state, model_catalog)
 
@@ -174,3 +177,46 @@ async def test_backend_preparer_rejects_unsupported_modalities(
 
     error_dict = excinfo.value.to_dict()
     assert error_dict["error"]["code"] == "unsupported_modality"
+
+
+@pytest.mark.asyncio
+async def test_backend_preparer_skips_when_model_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend_request_manager = MagicMock()
+    backend_request_manager.prepare_backend_request = AsyncMock()
+
+    app_state = MagicMock()
+    app_state.get_setting.return_value = SimpleNamespace(
+        model_limit_enforcement=SimpleNamespace(enabled=True)
+    )
+    app_state.get_model_defaults.return_value = {
+        "gpt-4": {"limits": {"context_window": 1000, "max_output_tokens": 200}}
+    }
+    app_state.get_backend_type.return_value = "openai"
+
+    model_catalog = MagicMock()
+    model_catalog.has_model.return_value = False
+
+    preparer = BackendPreparer(backend_request_manager, app_state, model_catalog)
+
+    request = ChatRequest(
+        model="gpt-4", messages=[ChatMessage(role="user", content="hello")]
+    )
+    backend_request = ChatRequest(
+        model="gpt-4", messages=[ChatMessage(role="user", content="hello")]
+    )
+    backend_request_manager.prepare_backend_request.return_value = backend_request
+
+    processed = ProcessedResult(
+        modified_messages=[], command_executed=False, command_results=[]
+    )
+    context = RequestContext(headers={}, cookies={}, state=None, app_state=app_state)
+
+    monkeypatch.setattr(
+        "src.core.services.backend_preparer.count_tokens",
+        lambda *_args, **_kwargs: 9999,
+    )
+
+    result = await preparer.prepare(context, "session_id", request, processed)
+    assert result is not None

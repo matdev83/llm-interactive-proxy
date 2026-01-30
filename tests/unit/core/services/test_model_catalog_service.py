@@ -53,6 +53,10 @@ def test_model_catalog_parsing():
     assert service.get_input_modalities("model1") == {"text"}
     assert service.get_input_modalities("gpt-4", "openai") == {"text", "image"}
 
+    assert service.has_model("model1") is True
+    assert service.has_model("gpt-4", "openai") is True
+    assert service.has_model("missing-model") is False
+
     Path(temp_path).unlink()
 
 
@@ -83,5 +87,7 @@ def test_model_catalog_prefix_matching():
     limits = service.get_limits("claude-3-5-sonnet", "anthropic")
     assert limits is not None
     assert limits.context_window == 200000
+
+    assert service.has_model("claude-3-5-sonnet", "anthropic") is True
 
     Path(temp_path).unlink()

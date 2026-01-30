@@ -20,7 +20,7 @@ The Context Window Enforcement feature enforces per-model context window limits 
 
 Context windows are configured in backend-specific YAML files or model defaults.
 
-When the model registry is enabled, the proxy can also enforce modality support based on registry metadata. If the registry is missing, a model entry is missing, or modalities are not provided, modality validation is skipped (fail-open).
+When the model registry is enabled, the proxy can also enforce modality support based on registry metadata. If the registry file is missing/unparsable or the requested model is absent from the registry, both modality and context enforcement are skipped (fail-open). If the model exists but `modalities` are missing, only modality validation is skipped.
 
 ### Backend-Specific Configuration
 

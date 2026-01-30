@@ -38,6 +38,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Improved error handling for "Instructions are not valid" errors in OpenAI Codex connector with actionable messages
+- **Model Registry**: Graceful degradation for context and modality enforcement when registry data is missing/unparsable or the model is absent.
 - Enhanced prompt handling with robust fallbacks and codex_default enforcement
 - Updated OpenAI Codex documentation with detailed configuration examples
 - Improved type safety in ToolArgumentsParser with proper TelemetryRecorder typing
