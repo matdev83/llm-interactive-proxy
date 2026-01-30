@@ -56,8 +56,10 @@ async def test_health_check_uses_load_code_assist_endpoint(
     ok = await backend._perform_health_check()
     assert ok is True
     assert mock_client.calls, "Health check did not invoke HTTP client"
-    # The fallback should issue a POST to loadCodeAssist after initial GET fails
+    # Now only issues a POST to loadCodeAssist (fetchAvailableModels is deprecated)
     methods = [method for method, _ in mock_client.calls]
     assert "POST" in methods
+    assert "GET" not in methods
     post_calls = [url for method, url in mock_client.calls if method == "POST"]
     assert post_calls and post_calls[-1].endswith("/v1internal:loadCodeAssist")
+
