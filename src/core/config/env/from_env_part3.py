@@ -378,11 +378,11 @@ def apply_config_part3(
             path="replacement.turn_count",
             resolution=resolution,
         ),
-        "allow_gemini_oauth_auto_replacement": _env_to_bool(
-            "ALLOW_GEMINI_OAUTH_AUTO_REPLACEMENT",
+        "allow_oauth_auto_replacement": _env_to_bool(
+            "ALLOW_OAUTH_AUTO_REPLACEMENT",
             False,
             env,
-            path="replacement.allow_gemini_oauth_auto_replacement",
+            path="replacement.allow_oauth_auto_replacement",
             resolution=resolution,
         ),
     }

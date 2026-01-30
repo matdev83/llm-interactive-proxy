@@ -15,7 +15,7 @@ The Random Model/Backend Replacement feature enables probabilistic swapping of b
 
 - **Probabilistic Activation**: Configure the likelihood (0.0-1.0) of triggering replacement for each session
 - **Multi-Turn Persistence**: Replacement remains active for a configurable number of consecutive turns
-- **OAUTH-AUTO Support**: Optional support for multi-account `gemini-oauth-auto` rotating backends via explicit override
+- **OAUTH-AUTO Support**: Optional support for multi-account `oauth-auto` rotating backends via explicit override
 - **Per-Session State**: Each session maintains independent replacement state
 
 - **Opt-Out Support**: Disable replacement via request headers or session-level configuration
@@ -53,7 +53,7 @@ replacement:
       to_backend: "anthropic"
       to_model: "claude-3-5-sonnet"
   turn_count: 3  # Stay with replacement for 3 turns
-  allow_gemini_oauth_auto_replacement: true  # Allow replacement for gemini-oauth-auto
+  allow_oauth_auto_replacement: true  # Allow replacement for oauth-auto backends
 ```
 
 
@@ -84,8 +84,8 @@ REPLACEMENT_BACKEND_MODEL=qwen-oauth:qwen3-coder-plus
 # Set number of turns to use replacement
 REPLACEMENT_TURN_COUNT=3
 
-# Allow replacement for gemini-oauth-auto backends
-ALLOW_GEMINI_OAUTH_AUTO_REPLACEMENT=true
+# Allow replacement for oauth-auto backends
+ALLOW_OAUTH_AUTO_REPLACEMENT=true
 ```
 
 
@@ -97,7 +97,7 @@ ALLOW_GEMINI_OAUTH_AUTO_REPLACEMENT=true
 --random-model-replacement-from-to "<from>=<to>"  # Can be specified multiple times
 --replacement-backend-model BACKEND:MODEL  # Deprecated: use --random-model-replacement-from-to instead
 --replacement-turn-count N
---allow-gemini-oauth-auto-replacement  # Allow replacement for gemini-oauth-auto backends
+--allow-oauth-auto-replacement  # Allow replacement for oauth-auto backends
 ```
 
 
@@ -358,7 +358,7 @@ Disable replacement for an entire session programmatically via the replacement s
   - At least one rule is required when enabled
 - **backend_model**: **Deprecated** - Legacy format for backward compatibility. Automatically converted to a wildcard replacement rule if `replacement_rules` is empty.
 - **turn_count**: Number of consecutive turns to use replacement model (default: `1`, minimum: `1`)
-- **allow_gemini_oauth_auto_replacement**: Allow replacement for multi-account `gemini-oauth-auto` backends (default: `false`). Enabling this is recommended for "diversity of views" research but may bypass capacity protections.
+- **allow_oauth_auto_replacement**: Allow replacement for multi-account `oauth-auto` backends (default: `false`). Enabling this is recommended for "diversity of views" research but may bypass capacity protections.
 
 
 ### Replacement Rule Format

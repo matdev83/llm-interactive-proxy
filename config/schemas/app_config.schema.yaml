@@ -394,7 +394,7 @@ properties:
             to_model: { type: string }
       backend_model: { type: string }
       turn_count: { type: integer, minimum: 1 }
-      allow_gemini_oauth_auto_replacement: { type: boolean }
+      allow_oauth_auto_replacement: { type: boolean }
   vtc_client_patterns:
     type: array
     items: { type: string }

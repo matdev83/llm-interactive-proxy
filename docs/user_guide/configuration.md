@@ -337,7 +337,7 @@ replacement:
   probability: 0.0             # 0.0 to 1.0
   backend_model: null          # "backend:model"
   turn_count: 1                # Number of turns to stay on replacement
-  allow_gemini_oauth_auto_replacement: false # Allow replacement for gemini-oauth-auto
+  allow_oauth_auto_replacement: false # Allow replacement for oauth-auto
 ```
 
 ```

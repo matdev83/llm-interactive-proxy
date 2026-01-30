@@ -18,7 +18,7 @@ class TestModelReplacementServiceOverride(unittest.IsolatedAsyncioTestCase):
             probability=1.0,
             replacement_rules=[],
             backend_model="other-backend:model",
-            allow_gemini_oauth_auto_replacement=False
+            allow_oauth_auto_replacement=False
         )
         service = ModelReplacementService(config, self.backend_registry)
         
@@ -33,7 +33,13 @@ class TestModelReplacementServiceOverride(unittest.IsolatedAsyncioTestCase):
         # Turn 2
         result = service.should_replace(session_id, context, "gemini-oauth-auto", "model")
         
-        self.assertFalse(result, "Replacement should be blocked for oauth-auto by default")
+        self.assertFalse(result, "Replacement should be blocked for gemini-oauth-auto by default")
+
+        # Test kiro-oauth-auto as well
+        session_id_kiro = "test-session-kiro"
+        service.should_replace(session_id_kiro, context, "kiro-oauth-auto", "model")
+        result_kiro = service.should_replace(session_id_kiro, context, "kiro-oauth-auto", "model")
+        self.assertFalse(result_kiro, "Replacement should be blocked for kiro-oauth-auto by default")
 
     async def test_oauth_auto_replacement_allowed_with_override(self):
         config = ReplacementConfig(
@@ -41,7 +47,7 @@ class TestModelReplacementServiceOverride(unittest.IsolatedAsyncioTestCase):
             probability=1.0,
             replacement_rules=[],
             backend_model="other-backend:model",
-            allow_gemini_oauth_auto_replacement=True
+            allow_oauth_auto_replacement=True
         )
         service = ModelReplacementService(config, self.backend_registry)
         
@@ -55,4 +61,10 @@ class TestModelReplacementServiceOverride(unittest.IsolatedAsyncioTestCase):
         # Turn 2
         result = service.should_replace(session_id, context, "gemini-oauth-auto", "model")
         
-        self.assertTrue(result, "Replacement should be allowed for oauth-auto with override")
+        self.assertTrue(result, "Replacement should be allowed for gemini-oauth-auto with override")
+
+        # Test kiro-oauth-auto as well
+        session_id_kiro = "test-session-kiro-2"
+        service.should_replace(session_id_kiro, context, "kiro-oauth-auto", "model")
+        result_kiro = service.should_replace(session_id_kiro, context, "kiro-oauth-auto", "model")
+        self.assertTrue(result_kiro, "Replacement should be allowed for kiro-oauth-auto with override")

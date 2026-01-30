@@ -119,18 +119,18 @@ class ReplacementApplicator:
                 origin="--replacement-turn-count",
             )
 
-        if getattr(args, "allow_gemini_oauth_auto_replacement", None) is not None:
-            replacement_overrides["allow_gemini_oauth_auto_replacement"] = (
-                args.allow_gemini_oauth_auto_replacement
+        if getattr(args, "allow_oauth_auto_replacement", None) is not None:
+            replacement_overrides["allow_oauth_auto_replacement"] = (
+                args.allow_oauth_auto_replacement
             )
-            os.environ["ALLOW_GEMINI_OAUTH_AUTO_REPLACEMENT"] = (
-                "true" if args.allow_gemini_oauth_auto_replacement else "false"
+            os.environ["ALLOW_OAUTH_AUTO_REPLACEMENT"] = (
+                "true" if args.allow_oauth_auto_replacement else "false"
             )
             resolution.record(
-                "replacement.allow_gemini_oauth_auto_replacement",
-                args.allow_gemini_oauth_auto_replacement,
+                "replacement.allow_oauth_auto_replacement",
+                args.allow_oauth_auto_replacement,
                 ParameterSource.CLI,
-                origin="--allow-gemini-oauth-auto-replacement",
+                origin="--allow-oauth-auto-replacement",
             )
 
         if replacement_overrides:
