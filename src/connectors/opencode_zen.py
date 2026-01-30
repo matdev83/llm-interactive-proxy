@@ -486,11 +486,11 @@ class OpencodeZenConnector(OpenAIConnector):
         if model_name in reverse_exact_mappings:
             return reverse_exact_mappings[model_name]
 
-        # Heuristic stripping of vendor prefixes
-        known_prefixes = ["anthropic/", "openai/", "google/"]
-        for prefix in known_prefixes:
-            if model_name.startswith(prefix):
-                return model_name[len(prefix) :]
+        # General stripping of vendor prefixes - anything before the last slash
+        # This handles cases like 'kimi/kimi-k2.5-free' -> 'kimi-k2.5-free'
+        # and 'google/gemini-1.5-pro' -> 'gemini-1.5-pro'
+        if "/" in model_name:
+            return model_name.split("/")[-1]
 
         return model_name
 
@@ -510,48 +510,45 @@ class OpencodeZenConnector(OpenAIConnector):
         """
         return self.is_functional and len(self._credential_validation_errors) == 0
 
+    def _is_auth_error(self, exc: Exception) -> bool:
+        """Check if an exception is an authentication error (401)."""
+        if isinstance(exc, AuthenticationError):
+            return True
+
+        # Note: The OpenCode Zen backend sometimes returns 401 for ModelErrors,
+        # but we still treat it as a potential auth issue to trigger a credential reload.
+        return isinstance(exc, HTTPException) and exc.status_code == 401
+
     async def stream_completion(
         self, request: CanonicalChatRequest
     ) -> AsyncGenerator[object, None]:
         """Yield raw streaming chunks from the backend with 401 retry logic."""
-        try:
-            async for chunk in super().stream_completion(request):
-                yield chunk
-        except (HTTPException, AuthenticationError) as e:
-            is_401 = False
-            if (
-                isinstance(e, HTTPException)
-                and e.status_code == 401
-                or isinstance(e, AuthenticationError)
-            ):
-                is_401 = True
-
-            if is_401:
-                token = (
-                    self._oauth_credentials.get("access", "")
-                    if self._oauth_credentials
-                    else ""
-                )
-                masked_token = (
-                    f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "masked"
-                )
-                if logger.isEnabledFor(logging.WARNING):
+        # Use a loop for retry to avoid recursive exception handling issues
+        for attempt in range(2):
+            try:
+                async for chunk in super().stream_completion(request):
+                    yield chunk
+                return  # Success, exit the generator
+            except (HTTPException, AuthenticationError) as e:
+                if attempt == 0 and self._is_auth_error(e):
+                    token = (
+                        self._oauth_credentials.get("access", "")
+                        if self._oauth_credentials
+                        else ""
+                    )
+                    masked_token = (
+                        f"{token[:4]}...{token[-4:]}" if len(token) > 8 else "masked"
+                    )
                     logger.warning(
                         "Received 401 from OpenCode Zen backend during streaming. "
-                        "Token used: %s. "
-                        "Reloading credentials and retrying...",
+                        "Token used: %s. Reloading credentials and retrying...",
                         masked_token,
-                        exc_info=True,
                     )
-                if await self._load_oauth_credentials():
-                    # Retry the stream
-                    async for chunk in super().stream_completion(request):
-                        yield chunk
-                else:
-                    raise AuthenticationError(
-                        "Failed to refresh credentials after 401 in stream"
-                    ) from e
-            else:
+                    if await self._load_oauth_credentials():
+                        continue  # Try again with new credentials
+
+                # If we're here, it's either not a 401, we already retried,
+                # or we failed to load credentials.
                 raise e
 
     async def chat_completions(  # type: ignore[override]
@@ -639,48 +636,32 @@ class OpencodeZenConnector(OpenAIConnector):
             # It's a Pydantic model, create a copy with updated field
             request_data = request_data.model_copy(update={"model": model_name})  # type: ignore[attr-defined]
         elif isinstance(request_data, dict):
-            # It's a dict, update in place (or copy if preferred, but in-place is standard for dicts here)
+            # It's a dict, update in place
             request_data["model"] = model_name
 
-        try:
-            return await super().chat_completions(
-                request_data=request_data,
-                processed_messages=processed_messages,
-                effective_model=model_name,
-                identity=identity,
-                **kwargs,
-            )
-        except (HTTPException, AuthenticationError) as e:
-            is_401 = False
-            if (
-                isinstance(e, HTTPException)
-                and e.status_code == 401
-                or isinstance(e, AuthenticationError)
-            ):
-                is_401 = True
-
-            if is_401:
-                logger.warning(
-                    "Received 401 from OpenCode Zen backend. Reloading credentials and retrying...",
-                    exc_info=True,
+        for attempt in range(2):
+            try:
+                return await super().chat_completions(
+                    request_data=request_data,
+                    processed_messages=processed_messages,
+                    effective_model=model_name,
+                    identity=identity,
+                    **kwargs,
                 )
-                # Reload credentials (force check)
-                if await self._load_oauth_credentials():
-                    # Retry once
-                    return await super().chat_completions(
-                        request_data=request_data,
-                        processed_messages=processed_messages,
-                        effective_model=model_name,
-                        identity=identity,
-                        **kwargs,
+            except (HTTPException, AuthenticationError) as e:
+                if attempt == 0 and self._is_auth_error(e):
+                    logger.warning(
+                        "Received 401 from OpenCode Zen backend. Reloading credentials and retrying..."
                     )
-                else:
-                    raise AuthenticationError(
-                        "Failed to refresh credentials after 401"
-                    ) from e
+                    if await self._load_oauth_credentials():
+                        continue
+                raise e
 
-            # Re-raise other errors
-            raise e
+        # This part should theoretically not be reached due to the raise in the loop
+        raise BackendError(
+            message="Unexpected retry failure in OpenCode Zen backend",
+            backend_name="opencode-zen",
+        )
 
 
 backend_registry.register_backend("opencode-zen", OpencodeZenConnector)

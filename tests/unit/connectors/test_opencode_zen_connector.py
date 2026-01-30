@@ -982,8 +982,6 @@ class TestBackendRegistry:
 
     def test_connector_registered_in_registry(self):
         """Connector should be registered in backend registry."""
-        # Import the module to trigger registration
-        import src.connectors.opencode_zen  # noqa: F401
         from src.core.services.backend_registry import backend_registry
 
         assert "opencode-zen" in backend_registry.get_registered_backends()
@@ -1031,8 +1029,8 @@ class TestModelNameNormalization:
             ("anthropic/claude-3-opus", "claude-3-opus"),
             ("openai/gpt-4o", "gpt-4o"),
             ("google/gemini-1.5-pro", "gemini-1.5-pro"),
-            # Unknown vendor prefix (should be unchanged)
-            ("custom/some-model", "custom/some-model"),
+            # Unknown vendor prefix (should be stripped)
+            ("custom/some-model", "some-model"),
             # No prefix (should be unchanged)
             ("some-random-model", "some-random-model"),
         ],
