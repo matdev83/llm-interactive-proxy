@@ -173,12 +173,12 @@ class APIKeyMiddleware:
                 )
 
         api_key: str | None = None
-        auth_header = request.headers.get("authorization")
+        auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             api_key = auth_header.replace("Bearer ", "", 1)
 
         if not api_key:
-            api_key = request.headers.get("x-goog-api-key")
+            api_key = request.headers.get("x-goog-api-key") or request.headers.get("X-Goog-Api-Key")
 
         if not api_key:
             try:
@@ -586,6 +586,85 @@ class AuthMiddleware:
         self.app = app
         self.valid_token = valid_token
         self.bypass_paths = bypass_paths or ["/docs", "/openapi.json", "/redoc"]
+
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """Compatibility path for call sites expecting BaseHTTPMiddleware.
+
+        The project intentionally uses pure ASGI middleware to avoid buffering
+        streaming responses, but some unit tests call `dispatch()`.
+        This method preserves the same authentication semantics as `__call__`.
+        """
+        path = getattr(getattr(request, "url", None), "path", None) or ""
+        if path in self.bypass_paths:
+            return await call_next(request)
+
+        # Respect runtime auth disabling
+        app_state_service: IApplicationState | None = None
+        injected_service = getattr(self, "app_state_service", None)
+        if injected_service is not None and hasattr(injected_service, "get_setting"):
+            app_state_service = injected_service  # type: ignore[assignment]
+
+        if app_state_service is None:
+            try:
+                provider = getattr(request.app.state, "service_provider", None)
+                if provider is not None:
+                    app_state_service = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
+            except Exception:
+                app_state_service = None
+
+        disable_auth = (
+            app_state_service.get_setting("disable_auth", False)
+            if app_state_service is not None
+            else getattr(request.app.state, "disable_auth", False)
+        )
+
+        if disable_auth:
+            return await call_next(request)
+
+        app_config = (
+            app_state_service.get_setting("app_config")
+            if app_state_service is not None
+            else getattr(request.app.state, "app_config", None)
+        )
+
+        if (
+            app_config
+            and hasattr(app_config, "auth")
+            and getattr(app_config.auth, "disable_auth", False)
+        ):
+            return await call_next(request)
+
+        # Check for token in header
+        # Support both lowercase and capitalized for mock compatibility
+        token = request.headers.get("x-auth-token") or request.headers.get("X-Auth-Token")
+
+        # Extract client IP for logging
+        client_ip = None
+        try:
+            if request.client:
+                client_ip = request.client.host
+        except Exception:
+            client_ip = None
+            
+        method = request.method
+
+        # Validate the token
+        if not token or token != self.valid_token:
+            logger.warning(
+                "Invalid or missing auth token for %s %s from client %s",
+                method,
+                path,
+                client_ip or "unknown",
+            )
+            return JSONResponse(
+                status_code=401,
+                content={"detail": HTTP_401_UNAUTHORIZED_MESSAGE},
+            )
+
+        # Token is valid, continue processing
+        return await call_next(request)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Process request and check for valid token without buffering streams.

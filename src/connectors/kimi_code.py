@@ -205,8 +205,10 @@ class KimiCodeConnector(OpenAIConnector):
             separator = "\n\n"
             alt_separator = "\r\n\r\n"
 
-            # Moonshot/Kimi often streams fields as accumulated strings rather than deltas.
-            # We track the last seen values to compute the delta for the client.
+            # Moonshot/Kimi may stream as proper deltas OR as accumulated text.
+            # In some cases (seen in live capture) it mixes both styles within one response.
+            # Track the total accumulated values so we can convert accumulated chunks
+            # into deltas without duplicating already-sent text.
             last_content = ""
             last_reasoning = ""
 
@@ -256,45 +258,47 @@ class KimiCodeConnector(OpenAIConnector):
                         yield (event + separator_used).encode("utf-8")
                         continue
 
-                    # 1. Handle content delta
+                    # 1. Handle content delta/accumulator
                     raw_content = delta.get("content")
                     if isinstance(raw_content, str):
-                        # If Kimi sent accumulated content, compute delta.
-                        # (Kimi standard is delta, but let's be defensive if we see duplication).
-                        if raw_content.startswith(last_content) and len(
-                            raw_content
-                        ) >= len(last_content):
+                        if last_content and raw_content.startswith(last_content):
+                            # Accumulated chunk: forward only the new suffix.
                             delta_text = raw_content[len(last_content) :]
                             last_content = raw_content
-                            delta["content"] = delta_text
+                            if delta_text:
+                                delta["content"] = delta_text
+                            else:
+                                delta.pop("content", None)
                         else:
-                            # Reset or handle unexpected prefix
-                            last_content = raw_content
+                            # Delta chunk: forward as-is and update accumulator.
+                            last_content += raw_content
+                            delta["content"] = raw_content
 
-                    # 2. Handle reasoning_content delta
+                    # 2. Handle reasoning_content delta/accumulator
                     raw_reasoning = delta.get("reasoning_content") or delta.get(
                         "reasoning"
                     )
                     if isinstance(raw_reasoning, str):
-                        if raw_reasoning.startswith(last_reasoning) and len(
-                            raw_reasoning
-                        ) >= len(last_reasoning):
+                        if last_reasoning and raw_reasoning.startswith(last_reasoning):
                             delta_reasoning = raw_reasoning[len(last_reasoning) :]
                             last_reasoning = raw_reasoning
+                        else:
+                            last_reasoning += raw_reasoning
+                            delta_reasoning = raw_reasoning
+
+                        if delta_reasoning:
                             if "reasoning_content" in delta:
                                 delta["reasoning_content"] = delta_reasoning
                             if "reasoning" in delta:
                                 delta["reasoning"] = delta_reasoning
                         else:
-                            # Reset or handle unexpected prefix
-                            last_reasoning = raw_reasoning
+                            delta.pop("reasoning_content", None)
+                            delta.pop("reasoning", None)
 
-                    # Re-serialize and yield
                     rewritten_event = f"data: {json.dumps(data)}"
                     yield (rewritten_event + separator_used).encode("utf-8")
 
             if buffer:
-                # Best-effort: flush remaining text (may be partial event).
                 yield buffer.encode("utf-8")
         finally:
             with contextlib.suppress(BaseException):

@@ -30,31 +30,54 @@ logger = logging.getLogger(__name__)
 
 
 async def safe_aclose(
-    stream: Any, provider: str | None = None, stream_id: str | None = None
+    stream: Any,
+    provider: str | None = None,
+    stream_id: str | None = None,
+    *,
+    timeout_s: float = 5.0,
 ) -> None:
-    """Close stream, tolerating errors during GeneratorExit cleanup."""
+    """Close stream, tolerating errors during GeneratorExit cleanup.
+
+    Important: closing an async generator may hang indefinitely if the underlying
+    transport/SDK blocks during shutdown. Since `safe_aclose()` is invoked from
+    request/response cleanup paths, we must never block forever here.
+
+    Args:
+        stream: The stream object (usually an async generator).
+        provider: Optional provider name for logging context.
+        stream_id: Optional stream identifier for logging context.
+        timeout_s: Max seconds to wait for `aclose()` to finish before giving up.
+    """
+
     if stream is None:
         return
+
     try:
-        if hasattr(stream, "aclose"):
-            # Use shield to ensure aclose() finishes even if this task is cancelled.
-            # This is critical for nested async generators where multiple callbacks
-            # may attempt to close the same underlying stream sequentially.
-            # Without shielding, a cancellation during the first aclose() would
-            # allow the second aclose() to start while the first is still suspended,
-            # triggering "RuntimeError: aclose(): asynchronous generator is already running".
-            res = stream.aclose()
-            if asyncio.iscoroutine(res):
-                task = asyncio.create_task(res)
-                try:
-                    await asyncio.shield(task)
-                except asyncio.CancelledError:
-                    # Ensure the shielded task completes before propagating cancellation.
-                    # Re-awaiting the task is safe and ensures sequentiality.
-                    await task
-                    raise
-            elif res is not None:
-                await res
+        if not hasattr(stream, "aclose"):
+            return
+
+        res = stream.aclose()
+
+        # Use shield to ensure aclose() finishes even if this task is cancelled.
+        # This is critical for nested async generators where multiple callbacks
+        # may attempt to close the same underlying stream sequentially.
+        if asyncio.iscoroutine(res):
+            task = asyncio.create_task(res)
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Timed out waiting for stream aclose()",
+                        extra={"provider": provider, "stream_id": stream_id},
+                    )
+                return
+            except asyncio.CancelledError:
+                await task
+                raise
+        elif res is not None:
+            await asyncio.wait_for(res, timeout=timeout_s)
+
     except (RuntimeError, GeneratorExit, asyncio.CancelledError) as err:
         # Happens when aclose() is invoked while the generator is mid-execution
         # or already closing.

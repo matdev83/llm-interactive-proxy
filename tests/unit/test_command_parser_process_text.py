@@ -78,10 +78,10 @@ async def test_process_text_multiple_commands_only_first_processed():
     service = build_new_command_service(session_service, command_parser)
     processor = CoreCommandProcessor(service)
 
-    messages = [ChatMessage(role="user", content="!/hello !/anothercmd")]
+    messages = [ChatMessage(role="user", content="!/hello !/nonexistentcmd")]
     result = await processor.process_messages(messages, session_id="s1")
     assert result.command_executed is False
-    assert result.modified_messages[0].content == "!/hello !/anothercmd"
+    assert result.modified_messages[0].content == "!/hello !/nonexistentcmd"
 
 
 @pytest.mark.asyncio

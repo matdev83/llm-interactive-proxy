@@ -32,6 +32,7 @@ def mock_context() -> RequestContext:
     context = MagicMock(spec=RequestContext)
     context.session_id = "test-session-123"
     context.agent = None
+    context.extensions = {}
     return context
 
 
@@ -106,7 +107,7 @@ def create_test_processor(
     policy_service: ToolAccessPolicyService | None,
     mock_session: Session,
     sample_tools: list[dict],
-) -> tuple[RequestProcessor, AsyncMock]:
+) -> tuple[RequestProcessor, AsyncMock, AsyncMock, AsyncMock]:
     """Helper to create a test processor with mocked dependencies."""
     from src.core.interfaces.request_processor_internal import (
         IBackendExecutor,

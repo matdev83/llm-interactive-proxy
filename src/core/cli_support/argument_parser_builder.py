@@ -132,6 +132,13 @@ class ArgumentParserBuilder:
             metavar="N",
             help="Number of turns to use replacement model (default: 1)",
         )
+        replacement_group.add_argument(
+            "--allow-gemini-oauth-auto-replacement",
+            dest="allow_gemini_oauth_auto_replacement",
+            action="store_true",
+            default=None,
+            help="Allow random model replacement for multi-account gemini-oauth-auto backends (disabled by default for safety)",
+        )
 
     def _add_backend_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add backend selection and configuration arguments."""

@@ -83,8 +83,12 @@ class ModelReplacementService:
         self._cached_enabled: bool = config.enabled
         self._cached_probability: float = config.probability
         self._cached_turn_count: int = config.turn_count
+        self._cached_allow_gemini_oauth_auto_replacement: bool = (
+            config.allow_gemini_oauth_auto_replacement
+        )
 
         # Metrics tracking for monitoring and analysis
+
         self._metrics = ReplacementMetrics()
 
         # Performance optimization: Sample probability check debug logs to reduce
@@ -182,13 +186,19 @@ class ModelReplacementService:
             self._metrics.record_opt_out(session_id, "header")
             return False
 
-        # Do not apply random model replacement to multi-account oauth-auto backends.
-        # Those backends implement their own quota/rate-limit mitigation via account rotation,
-        # and replacement can unintentionally route traffic back to single-account backends.
-        if original_backend and "oauth-auto" in original_backend:
+        # Do not apply random model replacement to multi-account gemini-oauth-auto backends
+        # unless explicitly allowed. Those backends implement their own quota/rate-limit
+        # mitigation via account rotation, and replacement can unintentionally route
+        # traffic back to single-account backends.
+        if (
+            not self._cached_allow_gemini_oauth_auto_replacement
+            and original_backend
+            and "gemini-oauth-auto" in original_backend
+        ):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Replacement disabled for oauth-auto backend %s", original_backend
+                    "Replacement disabled for gemini-oauth-auto backend %s (safety override active)",
+                    original_backend,
                 )
             self._metrics.record_opt_out(session_id, "backend")
             return False

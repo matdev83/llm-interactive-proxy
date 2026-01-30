@@ -205,12 +205,12 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             # Re-initialization - preserve rotation state but update configuration
             logger.debug(
                 "Re-initializing connector - preserving rotation state (current_index=%d)",
-                self._account_selector._rotation_index,
+                self._account_selector.rotation_index,
             )
             # Update configuration without resetting rotation
-            self._account_selector._refresh_buffer_ms = refresh_buffer_ms
-            self._account_selector._allowed_account_ids = accounts_allowlist
-            self._account_selector._selection_strategy = selection_strategy
+            self._account_selector.refresh_buffer_ms = refresh_buffer_ms
+            self._account_selector.allowed_account_ids = accounts_allowlist
+            self._account_selector.selection_strategy = selection_strategy
             await self._account_selector.reload_accounts()
             # Use current account if available, otherwise get next
             account = self._account_selector.get_current_account()
@@ -249,7 +249,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             # force_reload=True is called by streaming executor on 429 rate limits
             # Rotate to next account to avoid rate limit on current account
             old_account = self._account_selector.get_current_account()
-            total_accounts = len(self._account_selector._accounts)
+            total_accounts = self._account_selector.total_count
 
             logger.info(
                 "Rate limit detected, attempting account rotation (current: %s, total accounts: %d)",
@@ -295,7 +295,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         should_rotate = False
         if not account or account.is_expired():
             should_rotate = True
-        elif self._account_selector._selection_strategy == "round-robin":
+        elif self._account_selector.selection_strategy == "round-robin":
             # Round-robin: rotate before each request to distribute load
             should_rotate = True
 
@@ -370,6 +370,78 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
         return errors
 
+    def _get_cached_project_id(self, current_account: Any) -> str | None:
+        """Check for existing project ID in the current account's credentials."""
+        if (
+            current_account
+            and current_account.project_id
+            and current_account.project_id != "default"
+        ):
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Using cached project ID from account: %s",
+                    current_account.project_id,
+                )
+            return str(current_account.project_id)
+        return None
+
+    def _extract_project_id_from_response(
+        self, data: dict[str, Any], top_key: str = "cloudaicompanionProject"
+    ) -> str | None:
+        """Extract project ID from a response dictionary (string or dict format)."""
+        project_candidate = data.get(top_key)
+        if isinstance(project_candidate, dict):
+            project_candidate = project_candidate.get("id")
+        
+        project_id = str(project_candidate) if project_candidate else None
+        return project_id if project_id and project_id != "default" else None
+
+    async def _update_account_project(self, account: Any, project_id: str) -> None:
+        """Update account storage with discovered project ID."""
+        if not account:
+            return
+            
+        updated_account = account.model_copy(
+            update={
+                "project_id": project_id,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        await self._token_storage.save_account(updated_account)
+        self._account_selector.update_account(updated_account)
+        self._sync_selected_account_to_base()
+
+    def _get_tier_score(self, tier: dict[str, Any]) -> TierScore:
+        """Calculate score for a tier to find the best one for onboarding."""
+        def _tier_id(t: dict[str, Any]) -> str:
+            return str(t.get("id") or t.get("tierId") or "").lower()
+
+        def _context_tokens(t: dict[str, Any]) -> int:
+            for key in (
+                "maxContextTokens", "contextTokenLimit", "contextWindowTokens",
+                "tokenLimit", "maxContextWindow",
+            ):
+                value = t.get(key)
+                if isinstance(value, int | float):
+                    return int(value)
+            return 0
+
+        tid = _tier_id(tier)
+        is_paid = int(tid in {
+            "paid-tier", "google-one-tier", "googleone-tier",
+            "googleone", "duet-ai-pro", "standard-tier",
+        })
+        
+        tokens = _context_tokens(tier)
+        if is_paid and tokens == 0:
+            tokens = 1_000_000
+            
+        return TierScore(
+            is_paid=is_paid,
+            context_tokens=tokens,
+            is_default=int(bool(tier.get("isDefault"))),
+        )
+
     async def _discover_project_id(self, auth_session: Any = None) -> str:
         """
         Discover or retrieve the project ID for Code Assist API.
@@ -383,23 +455,13 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         # Get current account
         current_account = self._account_selector.get_current_account()
 
-        # Check for existing project ID in the current account's credentials
-        if (
-            current_account
-            and current_account.project_id
-            and current_account.project_id != "default"
-        ):
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Using cached project ID from account: %s",
-                    current_account.project_id,
-                )
-            return str(current_account.project_id)
+        # Check for cached project ID
+        cached_id = self._get_cached_project_id(current_account)
+        if cached_id:
+            return cached_id
 
         if not auth_session:
-            logger.warning(
-                "auth_session required for project discovery but missing, using fallback"
-            )
+            logger.warning("auth_session missing for project discovery, using fallback")
             return "default"
 
         # Get initial project ID from current account if available
@@ -409,30 +471,20 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
         fallback_project_id = initial_project_id or "default"
 
-        # Prepare client metadata (matching other connectors)
-        client_metadata = {
-            "ideType": "IDE_UNSPECIFIED",
-            "platform": "PLATFORM_UNSPECIFIED",
-            "pluginType": "GEMINI",
-            "duetProject": initial_project_id,
-        }
-
         try:
             # Step 1: Call loadCodeAssist to discover existing project ID
-            load_request: dict[str, Any] = {
-                "metadata": client_metadata,
+            client_metadata = {
+                "ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED",
+                "pluginType": "GEMINI", "duetProject": initial_project_id,
             }
+            load_request: dict[str, Any] = {"metadata": client_metadata}
             if initial_project_id:
                 load_request["cloudaicompanionProject"] = initial_project_id
 
             load_url = f"{self.gemini_api_base_url}/v1internal:loadCodeAssist"
             load_response = await asyncio.to_thread(
-                auth_session.request,
-                method="POST",
-                url=load_url,
-                json=load_request,
-                headers={"Content-Type": "application/json"},
-                timeout=30.0,
+                auth_session.request, method="POST", url=load_url,
+                json=load_request, headers={"Content-Type": "application/json"}, timeout=30.0,
             )
 
             if load_response.status_code != 200:
@@ -440,439 +492,106 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
             load_data = load_response.json()
 
-            # Debug: log the full response to understand structure
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("loadCodeAssist response: %s", load_data)
-
-            # Also check currentTier for project ID (accounts may already be onboarded)
-            # For paid tiers, project ID might be in currentTier.cloudaicompanionProject
-            current_tier_data = load_data.get("currentTier")
-            if isinstance(current_tier_data, dict):
-                tier_project = current_tier_data.get("cloudaicompanionProject")
-                if tier_project:
-                    # Extract project ID from currentTier (can be string or dict)
-                    if isinstance(tier_project, dict):
-                        tier_project = tier_project.get("id") or tier_project
-                    tier_project = str(tier_project) if tier_project else None
-
-                    # Use currentTier project ID if top-level doesn't have a valid one
-                    top_level_project = load_data.get("cloudaicompanionProject")
-                    if not top_level_project or (
-                        isinstance(top_level_project, str)
-                        and top_level_project == "default"
-                    ):
-                        if tier_project and tier_project != "default":
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    "Found project ID in currentTier: %s", tier_project
-                                )
-                            load_data["cloudaicompanionProject"] = tier_project
-                        elif logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "currentTier has project but it's invalid: %s",
-                                tier_project,
-                            )
-
-            # Check if we already have a project ID from the response
-            # loadCodeAssist can return project ID as string or dict
-            project_candidate = load_data.get("cloudaicompanionProject")
-            if project_candidate:
-                # Handle both string and dict formats (matching gemini-oauth-free)
-                if isinstance(project_candidate, dict):
-                    project_candidate = project_candidate.get("id")
-                # Convert to string
-                project_candidate = (
-                    str(project_candidate) if project_candidate else None
-                )
-
-                # Only use if it's a valid project ID (not None, not "default")
-                if project_candidate and project_candidate != "default":
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Discovered project ID from loadCodeAssist: %s",
-                            project_candidate,
-                        )
-
-                    # Save project_id to current account storage for future use
-                    if current_account:
-                        updated_account = current_account.model_copy(
-                            update={
-                                "project_id": project_candidate,
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
-                            }
-                        )
-                        await self._token_storage.save_account(updated_account)
-                        # Update account selector's current account reference
-                        self._account_selector.update_account(updated_account)
-                        self._sync_selected_account_to_base()
-
-                    return str(project_candidate)
-                elif logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "loadCodeAssist returned invalid project ID: %s",
-                        project_candidate,
+            # Check cloudaicompanionProject and currentTier for existing project ID
+            project_candidate = self._extract_project_id_from_response(load_data)
+            
+            # If not in top level, check currentTier
+            if not project_candidate:
+                current_tier_data = load_data.get("currentTier")
+                if isinstance(current_tier_data, dict):
+                    project_candidate = self._extract_project_id_from_response(
+                        current_tier_data
                     )
 
-            # Check if account is already onboarded (currentTier exists)
-            # If onboarded, we should be able to get project ID from currentTier
-            if current_tier_data and isinstance(current_tier_data, dict):
-                tier_id = current_tier_data.get("id") or current_tier_data.get("tierId")
-                if tier_id:
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Account is already onboarded with tier: %s", tier_id
-                        )
-                    # If already onboarded but no project ID found, this is unusual
-                    # Try to extract from currentTier more carefully
-                    tier_project = current_tier_data.get("cloudaicompanionProject")
-                    if tier_project:
-                        if isinstance(tier_project, dict):
-                            tier_project = tier_project.get("id")
-                        tier_project = str(tier_project) if tier_project else None
-                        if tier_project and tier_project != "default":
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    "Extracted project ID from currentTier: %s",
-                                    tier_project,
-                                )
-                            if current_account:
-                                updated_account = current_account.model_copy(
-                                    update={
-                                        "project_id": tier_project,
-                                        "updated_at": datetime.now(
-                                            timezone.utc
-                                        ).isoformat(),
-                                    }
-                                )
-                                await self._token_storage.save_account(updated_account)
-                                self._account_selector.update_account(updated_account)
-                                self._sync_selected_account_to_base()
-                            return str(tier_project)
-
-                    # If account is already onboarded but we can't find project ID,
-                    # check top-level cloudaicompanionProject again (might have been missed)
-                    top_level_retry = load_data.get("cloudaicompanionProject")
-                    if top_level_retry:
-                        if isinstance(top_level_retry, dict):
-                            top_level_retry = top_level_retry.get("id")
-                        top_level_retry = (
-                            str(top_level_retry) if top_level_retry else None
-                        )
-                        if top_level_retry and top_level_retry != "default":
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    "Found project ID at top level for onboarded account: %s",
-                                    top_level_retry,
-                                )
-                            if current_account:
-                                updated_account = current_account.model_copy(
-                                    update={
-                                        "project_id": top_level_retry,
-                                        "updated_at": datetime.now(
-                                            timezone.utc
-                                        ).isoformat(),
-                                    }
-                                )
-                                await self._token_storage.save_account(updated_account)
-                                self._account_selector.update_account(updated_account)
-                                self._sync_selected_account_to_base()
-                            return str(top_level_retry)
-
-                    # Account is onboarded but project ID not found
-                    # Continue to onboarding - it might reveal the project ID
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Account is onboarded with tier %s but project ID not found. "
-                            "Will attempt onboarding to discover project ID.",
-                            tier_id,
-                        )
+            if project_candidate:
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Discovered project ID from loadCodeAssist: %s", project_candidate)
+                await self._update_account_project(current_account, project_candidate)
+                return project_candidate
 
             # Step 2: Determine which tier to use for onboarding
-            # Select the best tier from allowedTiers (similar to gemini-oauth-plan)
-            allowed_tiers_raw = load_data.get("allowedTiers", [])
-            allowed_tiers: list[dict[str, Any]] = [
-                tier for tier in allowed_tiers_raw if isinstance(tier, dict)
-            ]
-            current_tier = load_data.get("currentTier")
-            if isinstance(current_tier, dict):
-                allowed_tiers.append(current_tier)
+            allowed_tiers = [t for t in load_data.get("allowedTiers", []) if isinstance(t, dict)]
+            if isinstance(load_data.get("currentTier"), dict):
+                allowed_tiers.append(load_data["currentTier"])
 
-            def _tier_id(tier: dict[str, Any]) -> str:
-                raw_id = tier.get("id") or tier.get("tierId")
-                return str(raw_id or "").lower()
+            tier_to_use = max(allowed_tiers, key=self._get_tier_score) if allowed_tiers else {"id": "free-tier"}
+            selected_tier_id = tier_to_use.get("id") or tier_to_use.get("tierId") or "free-tier"
 
-            def _context_tokens(tier: dict[str, Any]) -> int:
-                for key in (
-                    "maxContextTokens",
-                    "contextTokenLimit",
-                    "contextWindowTokens",
-                    "tokenLimit",
-                    "maxContextWindow",
-                ):
-                    value = tier.get(key)
-                    if isinstance(value, int | float):
-                        return int(value)
-                return 0
-
-            def _tier_score(tier: dict[str, Any]) -> TierScore:
-                tier_id = _tier_id(tier)
-                # Match gemini-oauth-plan: recognize paid tiers including AI Pro tiers
-                is_paid = int(
-                    tier_id
-                    in {
-                        "paid-tier",
-                        "google-one-tier",
-                        "googleone-tier",
-                        "googleone",
-                        "duet-ai-pro",
-                        "standard-tier",  # Standard tier is also a paid tier for AI Pro
-                    }
-                )
-                context_tokens = _context_tokens(tier)
-                if is_paid and context_tokens == 0:
-                    context_tokens = 1_000_000
-                is_default = int(bool(tier.get("isDefault")))
-                return TierScore(
-                    is_paid=is_paid,
-                    context_tokens=context_tokens,
-                    is_default=is_default,
-                )
-
-            tier_to_use: dict[str, Any] | None = None
-            if allowed_tiers:
-                tier_to_use = max(allowed_tiers, key=_tier_score)
-
-            if not tier_to_use:
-                tier_to_use = {"id": "free-tier"}
-
-            selected_tier_id = (
-                tier_to_use.get("id") or tier_to_use.get("tierId") or "free-tier"
-            )
-
-            # Don't override the selected tier - if tier selection picked a paid tier,
-            # use it (accounts with AI Pro should use paid tiers, not free-tier)
-
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Selected Code Assist tier '%s' (context_limit=%s)",
-                    selected_tier_id,
-                    _context_tokens(tier_to_use),
-                )
-
-            # Step 3: Perform onboarding with the selected tier
-            # For free-tier, we MUST NOT include cloudaicompanionProject field
-            # For paid tiers (including standard-tier for AI Pro), we include it if available
-            is_paid_tier = selected_tier_id not in ("free-tier",)
-            if is_paid_tier:
-                # Paid tiers (standard-tier, paid-tier, google-one-tier, etc.) require cloudaicompanionProject
-                onboard_request: dict[str, Any] = {
-                    "tierId": selected_tier_id,
-                    "metadata": {
-                        **client_metadata,
-                        "duetProject": initial_project_id,
-                    },
-                }
-                if initial_project_id:
-                    onboard_request["cloudaicompanionProject"] = initial_project_id
-            else:
-                # Free-tier must NOT include cloudaicompanionProject
-                onboard_request = {
-                    "tierId": selected_tier_id,
-                    "metadata": {
-                        "ideType": "IDE_UNSPECIFIED",
-                        "platform": "PLATFORM_UNSPECIFIED",
-                        "pluginType": "GEMINI",
-                    },
-                }
-
-            # Call onboardUser
+            # Step 3: Perform onboarding
             onboard_url = f"{self.gemini_api_base_url}/v1internal:onboardUser"
-            max_retries = 30
-            retry_count = 0
+            max_retries, retry_count = 30, 0
             onboarding_completed_with_default = False
 
             while retry_count < max_retries:
+                # Prepare onboarding request
+                is_paid_tier = selected_tier_id != "free-tier"
+                if is_paid_tier:
+                    onboard_request = {
+                        "tierId": selected_tier_id,
+                        "metadata": {**client_metadata, "duetProject": initial_project_id},
+                    }
+                    if initial_project_id:
+                        onboard_request["cloudaicompanionProject"] = initial_project_id
+                else:
+                    onboard_request = {
+                        "tierId": selected_tier_id,
+                        "metadata": {
+                            "ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED",
+                            "pluginType": "GEMINI",
+                        },
+                    }
+
                 lro_response = await asyncio.to_thread(
-                    auth_session.request,
-                    method="POST",
-                    url=onboard_url,
-                    json=onboard_request,
-                    headers={"Content-Type": "application/json"},
-                    timeout=30.0,
+                    auth_session.request, method="POST", url=onboard_url,
+                    json=onboard_request, headers={"Content-Type": "application/json"}, timeout=30.0,
                 )
 
                 if lro_response.status_code != 200:
                     error_text = lro_response.text
-                    # Check if this is a free-tier eligibility error
-                    if (
-                        selected_tier_id == "free-tier"
-                        and "FREE_TIER_USER_NOT_ELIGIBLE" in error_text
-                    ):
-                        # Account is not eligible for free-tier, try standard-tier or paid-tier
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info(
-                                "Account not eligible for free-tier, trying standard-tier instead"
-                            )
-                        # Update request to use standard-tier
-                        selected_tier_id = "standard-tier"
-                        onboard_request = {
-                            "tierId": selected_tier_id,
-                            "metadata": {
-                                **client_metadata,
-                                "duetProject": initial_project_id,
-                            },
-                        }
-                        if initial_project_id:
-                            onboard_request["cloudaicompanionProject"] = (
-                                initial_project_id
-                            )
-
-                        # Retry with standard-tier (will be handled in next iteration)
-                        lro_response = await asyncio.to_thread(
-                            auth_session.request,
-                            method="POST",
-                            url=onboard_url,
-                            json=onboard_request,
-                            headers={"Content-Type": "application/json"},
-                            timeout=30.0,
-                        )
-                        if lro_response.status_code != 200:
-                            raise BackendError(
-                                f"OnboardUser failed: {lro_response.text}"
-                            )
-                    else:
-                        raise BackendError(f"OnboardUser failed: {error_text}")
+                    if selected_tier_id == "free-tier" and "FREE_TIER_USER_NOT_ELIGIBLE" in error_text:
+                        selected_tier_id = "standard-tier" # Retry with standard
+                        continue
+                    raise BackendError(f"OnboardUser failed: {error_text}")
 
                 lro_data = lro_response.json()
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("onboardUser response: %s", lro_data)
-
-                # Check if onboarding is complete
                 if lro_data.get("done"):
-                    response_data = lro_data.get("response", {})
-                    cloudai_project = response_data.get("cloudaicompanionProject", {})
-                    # Extract project ID - match gemini-oauth-free logic
-                    # cloudaicompanionProject can be a dict with "id" field or a string
-                    if isinstance(cloudai_project, dict):
-                        discovered_project_id = cloudai_project.get(
-                            "id", initial_project_id
-                        )
-                    elif isinstance(cloudai_project, str):
-                        discovered_project_id = cloudai_project
-                    else:
-                        # Fallback: try to get project ID from response directly
-                        discovered_project_id = (
-                            response_data.get("cloudaicompanionProject")
-                            or initial_project_id
-                        )
-
-                    # Convert to string and validate
-                    discovered_project_id = (
-                        str(discovered_project_id) if discovered_project_id else None
-                    )
-
-                    # Only use discovered project ID if it's valid (not None, not "default")
-                    if discovered_project_id and discovered_project_id != "default":
+                    resp_data = lro_data.get("response", {})
+                    discovered_project_id = self._extract_project_id_from_response(resp_data)
+                    
+                    if discovered_project_id:
                         if logger.isEnabledFor(logging.INFO):
-                            logger.info(
-                                "Discovered project ID from onboarding: %s",
-                                discovered_project_id,
-                            )
+                            logger.info("Discovered project ID from onboarding: %s", discovered_project_id)
+                        await self._update_account_project(current_account, discovered_project_id)
+                        return discovered_project_id
+                    
+                    onboarding_completed_with_default = True
+                    break
 
-                        # Save project_id to current account storage for future use
-                        if current_account:
-                            updated_account = current_account.model_copy(
-                                update={
-                                    "project_id": discovered_project_id,
-                                    "updated_at": datetime.now(
-                                        timezone.utc
-                                    ).isoformat(),
-                                }
-                            )
-                            await self._token_storage.save_account(updated_account)
-                            # Update account selector's current account reference
-                            self._account_selector.update_account(updated_account)
-                            self._sync_selected_account_to_base()
-
-                        return str(discovered_project_id)
-                    else:
-                        # If we got "default", operation is done but project ID is invalid
-                        # This may indicate the account is already onboarded with a different project
-                        logger.warning(
-                            "Onboarding completed but returned 'default' as project ID. "
-                            "This may indicate the account is already onboarded. "
-                            "Checking loadCodeAssist again for existing project..."
-                        )
-                        onboarding_completed_with_default = True
-                        # Break out of polling loop - operation is done
-                        break
-
-                # Not done yet, wait and retry
                 retry_count += 1
                 await asyncio.sleep(2)
 
-            # If onboarding completed but returned "default", try loadCodeAssist again
-            # The account might already be onboarded and we need to get the real project ID
+            # Final check if onboarding returned default
             if onboarding_completed_with_default:
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Re-checking loadCodeAssist for project ID after onboarding returned 'default'"
-                    )
-                # Call loadCodeAssist again - it should now return the actual project ID
                 load_response_retry = await asyncio.to_thread(
-                    auth_session.request,
-                    method="POST",
-                    url=load_url,
-                    json=load_request,
-                    headers={"Content-Type": "application/json"},
-                    timeout=30.0,
+                    auth_session.request, method="POST", url=load_url, json=load_request,
+                    headers={"Content-Type": "application/json"}, timeout=30.0,
                 )
                 if load_response_retry.status_code == 200:
-                    load_data_retry = load_response_retry.json()
-                    project_retry = load_data_retry.get("cloudaicompanionProject")
+                    project_retry = self._extract_project_id_from_response(load_response_retry.json())
                     if project_retry:
-                        if isinstance(project_retry, dict):
-                            project_retry = project_retry.get("id")
-                        project_retry = str(project_retry) if project_retry else None
-                        if project_retry and project_retry != "default":
-                            if logger.isEnabledFor(logging.INFO):
-                                logger.info(
-                                    "Found project ID from loadCodeAssist retry: %s",
-                                    project_retry,
-                                )
-                            if current_account:
-                                updated_account = current_account.model_copy(
-                                    update={
-                                        "project_id": project_retry,
-                                        "updated_at": datetime.now(
-                                            timezone.utc
-                                        ).isoformat(),
-                                    }
-                                )
-                                await self._token_storage.save_account(updated_account)
-                                self._account_selector.update_account(updated_account)
-                                self._sync_selected_account_to_base()
-                            return str(project_retry)
+                        await self._update_account_project(current_account, project_retry)
+                        return project_retry
 
-            # Timeout - onboarding didn't complete (or completed with invalid project ID)
             if retry_count >= max_retries and not onboarding_completed_with_default:
-                raise BackendError(
-                    f"Onboarding timeout after {max_retries} retries - operation did not complete"
-                )
+                raise BackendError(f"Onboarding timeout after {max_retries} retries")
 
         except Exception as exc:
             if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Project discovery failed, using fallback project '%s': %s",
-                    fallback_project_id,
-                    exc,
-                    exc_info=True,
-                )
-            # Fall back to default
+                logger.warning("Project discovery failed, using fallback '%s': %s", fallback_project_id, exc, exc_info=True)
             return str(fallback_project_id)
 
-        # Final fallback
         return str(fallback_project_id)
+
 
     async def chat_completions(  # type: ignore[override]
         self,

@@ -60,6 +60,47 @@ class AccountSelectorService(IAccountSelector):
         self._rotation_index: int = 0
         self._initialized: bool = False
 
+    @property
+    def rotation_index(self) -> int:
+        """Current rotation index."""
+        return self._rotation_index
+
+    @rotation_index.setter
+    def rotation_index(self, value: int) -> None:
+        self._rotation_index = value
+
+    @property
+    def refresh_buffer_ms(self) -> int:
+        """Refresh buffer in milliseconds."""
+        return self._refresh_buffer_ms
+
+    @refresh_buffer_ms.setter
+    def refresh_buffer_ms(self, value: int) -> None:
+        self._refresh_buffer_ms = value
+
+    @property
+    def allowed_account_ids(self) -> set[str] | None:
+        """Set of allowed account IDs."""
+        return self._allowed_account_ids
+
+    @allowed_account_ids.setter
+    def allowed_account_ids(self, value: set[str] | None) -> None:
+        self._allowed_account_ids = value
+
+    @property
+    def selection_strategy(self) -> str:
+        """Current selection strategy."""
+        return self._selection_strategy
+
+    @selection_strategy.setter
+    def selection_strategy(self, value: str) -> None:
+        self._selection_strategy = value
+
+    @property
+    def total_count(self) -> int:
+        """Total count of loaded accounts."""
+        return len(self._accounts)
+
     async def _ensure_accounts_loaded(self) -> None:
         """Load accounts from storage if not already loaded."""
         if not self._initialized:

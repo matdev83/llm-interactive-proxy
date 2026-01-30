@@ -53,9 +53,9 @@ async def test_lifecycle_registry_register_then_mark():
     # Mark as processed
     await registry.mark_processed(stream_key, signature)
 
-    # Register again - should now succeed since not in-flight
+    # Register again - should now FAIL since it's already processed
     # (it was moved to processed)
-    assert await registry.register_detection(stream_key, signature) is True
+    assert await registry.register_detection(stream_key, signature) is False
 
     # Should be marked as processed
     assert await registry.is_processed(stream_key, signature) is True

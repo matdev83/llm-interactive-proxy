@@ -195,6 +195,15 @@ class JSONResponseBuilder:
             envelope, prepared_content, context
         )
 
+        # Guardrail: some clients error if a chat.completion response contains no assistant message.
+        # Ensure at least one assistant message is always present for OpenAI-compatible payloads.
+        if isinstance(prepared_content, dict):
+            prepared_content = (
+                self._ensure_openai_chat_completion_has_assistant_message(
+                    prepared_content
+                )
+            )
+
         # Get headers and inject usage headers (Requirement 5.5)
         headers = envelope.headers or {}
         headers = self._usage_header_injector.inject_headers(
@@ -234,6 +243,56 @@ class JSONResponseBuilder:
         elif is_dataclass(content) and not isinstance(content, type):
             return asdict(content)
         return content
+
+    def _ensure_openai_chat_completion_has_assistant_message(
+        self, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Ensure OpenAI chat.completion payload always contains an assistant message.
+
+        Some downstream clients (notably IDE assistants) reject responses if they cannot
+        find any assistant message in the payload. While OpenAI allows tool_calls-only
+        messages (content=None), certain clients still require a message with
+        role="assistant" and a string content field.
+
+        This guardrail is deliberately minimal and only applies to non-streaming
+        chat.completion responses.
+        """
+        if payload.get("object") != "chat.completion":
+            return payload
+
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            payload["choices"] = [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": ""},
+                    "finish_reason": "stop",
+                }
+            ]
+            return payload
+
+        first = choices[0]
+        if not isinstance(first, dict):
+            payload["choices"][0] = {
+                "index": 0,
+                "message": {"role": "assistant", "content": ""},
+                "finish_reason": "stop",
+            }
+            return payload
+
+        message = first.get("message")
+        if not isinstance(message, dict):
+            message = {}
+            first["message"] = message
+
+        if message.get("role") != "assistant":
+            message["role"] = "assistant"
+
+        content = message.get("content")
+        if content is None or not isinstance(content, str):
+            message["content"] = ""
+
+        return payload
 
     def _ensure_usage(
         self,

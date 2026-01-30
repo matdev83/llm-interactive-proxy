@@ -25,6 +25,7 @@ class ReplacementConfig(ValueObject):
     # Legacy field for backward compatibility
     backend_model: str = ""
     turn_count: int = 1
+    allow_gemini_oauth_auto_replacement: bool = False
 
     def model_post_init(self, __context: Any) -> None:  # type: ignore[override]
         """Run post-initialization validation."""

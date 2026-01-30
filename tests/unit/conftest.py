@@ -1,4 +1,3 @@
-import logging
 from collections.abc import Generator
 
 import pytest
@@ -14,6 +13,9 @@ def _global_mock_backend_init() -> Generator[None, None, None]:
     """
     # This fixture does nothing but exists to override others.
     yield
+
+
+import logging
 
 
 @pytest.fixture(autouse=True)

@@ -21,8 +21,17 @@ def command(name: str) -> Callable[[type[ICommandHandler]], type[ICommandHandler
     """
 
     def decorator(cls: type[ICommandHandler]) -> type[ICommandHandler]:
-        if name in _registry:
-            raise ValueError(f"Command '{name}' is already registered.")
+        if name in _registry and _registry[name] is not cls:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Command '%s' is already registered to %s. Overwriting with %s",
+                    name,
+                    _registry[name].__name__,
+                    cls.__name__,
+                )
         _registry[name] = cls
         return cls
 

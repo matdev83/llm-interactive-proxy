@@ -159,8 +159,7 @@ class OAuthFlowService:
                         f"Account IDs must be alphanumeric with hyphens/underscores only.\n"
                     )
                     logger.warning(warning_msg.strip())
-                    # Also print to stdout for visibility in management script
-                    print(warning_msg, end="")
+
 
             # Check if account already exists
             existing = await self._storage.get_account(account_id)

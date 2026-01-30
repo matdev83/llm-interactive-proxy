@@ -136,7 +136,7 @@ class KiroOAuthAutoConnector(LLMBackend):
         fetched_models = set(self._available_models)
         
         # Merge fetched models with our core known-good models
-        all_models = sorted(list(base_models.union(fetched_models)))
+        all_models = sorted(base_models.union(fetched_models))
         
         # Explicitly remove models known to be unsupported/legacy if they show up
         legacy_models = {"claude-sonnet-4"}

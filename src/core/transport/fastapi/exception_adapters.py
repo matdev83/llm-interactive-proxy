@@ -78,6 +78,9 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
             status_code = status.HTTP_400_BAD_REQUEST
     elif isinstance(exc, ServiceUnavailableError):
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    elif isinstance(exc, RateLimitExceededError):
+        status_code = status.HTTP_429_TOO_MANY_REQUESTS
+        headers = _build_retry_after_header(getattr(exc, "reset_at", None))
     elif isinstance(exc, BackendError):
         # Preserve specific BackendError subclasses' status_code if provided
         explicit = getattr(exc, "status_code", None)
@@ -88,9 +91,6 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
             status_code = explicit
         else:
             status_code = status.HTTP_502_BAD_GATEWAY
-    elif isinstance(exc, RateLimitExceededError):
-        status_code = status.HTTP_429_TOO_MANY_REQUESTS
-        headers = _build_retry_after_header(getattr(exc, "reset_at", None))
     elif isinstance(exc, LoopDetectionError):
         status_code = status.HTTP_400_BAD_REQUEST
 
@@ -103,15 +103,9 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     if hasattr(exc, "to_dict"):
         dict_result = exc.to_dict()
         # If to_dict() returns {"error": {...}}, unwrap it for HTTPException detail
-        if isinstance(dict_result, dict) and "error" in dict_result:
-            detail = dict_result["error"]
-        else:
-            detail = dict_result
+        detail = dict_result.get("error", dict_result)
     elif hasattr(exc, "details") and exc.details:
-        if isinstance(detail, str):
-            detail = {"message": detail, "details": exc.details}
-        elif isinstance(detail, dict):
-            detail["details"] = exc.details
+        detail = {"message": str(detail), "details": exc.details}
 
     # Create and return the HTTP exception
     return HTTPException(status_code=status_code, detail=detail, headers=headers)

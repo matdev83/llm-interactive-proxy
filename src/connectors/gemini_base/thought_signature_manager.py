@@ -708,12 +708,12 @@ class ThoughtSignatureManager:
                 if len(parts) == 2:
                     tool_call_ids_to_remove.append(parts[1])
 
-            # Remove from primary cache
+            # Remove from primary cache and anonymous cache
             for key in keys_to_remove:
                 del self._cache[key]
-
-            # Remove from secondary index
+            
             for tc_id in tool_call_ids_to_remove:
+                self._cache.pop(f"anon:{tc_id}", None)
                 self._by_tool_call.pop(tc_id, None)
 
             if keys_to_remove and logger.isEnabledFor(logging.INFO):

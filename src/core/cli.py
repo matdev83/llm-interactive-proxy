@@ -358,6 +358,10 @@ async def main(
 
     error_handler = ErrorHandler()
     try:
+        # Log raw CLI params as early as possible for debugging
+        raw_params = argv if argv is not None else sys.argv[1:]
+        logger.info("CLI startup params: %s", raw_params)
+
         # Parse arguments
         args: argparse.Namespace = parse_cli_args(argv)
 

@@ -16,8 +16,11 @@ logging.basicConfig(
     level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 from src.constants import DEFAULT_COMMAND_PREFIX
+from src.core.commands.models import Command, CommandResultWrapper
 from src.core.di.container import ServiceCollection
+from src.core.domain.configuration.failover_models import FailoverRoute
 from src.core.domain.session import SessionState, SessionStateAdapter
+from src.core.domain.state_auditing import StateAccessLogEntry
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.state_provider_interface import (
@@ -34,7 +37,10 @@ from tests.unit.core.test_doubles import (
     MockResponseProcessor,
     MockSessionService,
 )
-from tests.unit.mock_commands import MockAnotherCommand, MockHelloCommand
+from tests.unit.mock_commands import (
+    MockAnotherCommandHandler,
+    MockHelloCommandHandler,
+)
 
 
 class MockAppState:
@@ -45,6 +51,8 @@ class MockAppState:
         self.api_key_redaction_enabled = True
         self.default_api_key_redaction_enabled = True
         self.functional_backends = ["openai", "openrouter", "gemini"]
+
+
 
 
 # Define custom mock classes
@@ -73,8 +81,11 @@ class MockSecureStateAccess(ISecureStateAccess):
     def get_disable_interactive_commands(self) -> bool:
         return self._application_state.get_disable_interactive_commands()
 
-    def get_failover_routes(self) -> list[dict[str, Any]] | None:
+    def get_failover_routes(self) -> list[FailoverRoute] | None:
         return self._application_state.get_failover_routes()
+
+    def get_access_log(self) -> list[StateAccessLogEntry]:
+        return []
 
 
 class MockSecureStateModification(ISecureStateModification):
@@ -98,7 +109,7 @@ class MockSecureStateModification(ISecureStateModification):
     def update_interactive_commands(self, disabled: bool) -> None:
         self._application_state.set_disable_interactive_commands(disabled)
 
-    def update_failover_routes(self, routes: list[dict[str, Any]]) -> None:
+    def update_failover_routes(self, routes: list[FailoverRoute]) -> None:
         self._application_state.set_failover_routes(routes)
 
 
@@ -174,12 +185,12 @@ def services() -> ServiceCollection:
     )
     # Removed legacy MockCommandService
     services.add_singleton(
-        MockHelloCommand,
-        implementation_factory=lambda service_provider: MockHelloCommand(),
+        MockHelloCommandHandler,
+        implementation_factory=lambda service_provider: MockHelloCommandHandler(),
     )
     services.add_singleton(
-        MockAnotherCommand,
-        implementation_factory=lambda service_provider: MockAnotherCommand(),
+        MockAnotherCommandHandler,
+        implementation_factory=lambda service_provider: MockAnotherCommandHandler(),
     )
 
     # Register Command Processor and its interface for test fixtures
@@ -190,6 +201,16 @@ def services() -> ServiceCollection:
 
     # Add a mock implementation of ICommandService
     class MockCommandService(ICommandService):
+        async def execute_command(
+            self, command: Command, session_id: str
+        ) -> CommandResultWrapper:
+            from src.core.commands.models import CommandResultWrapper
+            from src.core.domain.command_results import CommandResult
+
+            return CommandResultWrapper(
+                command.name, CommandResult(success=True, message="Mock")
+            )
+
         async def process_commands(
             self, messages: list[Any], session_id: str
         ) -> ProcessedResult:
@@ -488,16 +509,16 @@ def mock_app(service_provider: IServiceProvider) -> FastAPI:
 
 
 @pytest.fixture
-def hello_command(service_provider: IServiceProvider) -> MockHelloCommand:
-    """Provides the MockHelloCommand instance from the service provider."""
-    command = service_provider.get_service(MockHelloCommand)
-    cast(MockHelloCommand, command).reset_mock_state()
-    return cast(MockHelloCommand, command)
+def hello_command(service_provider: IServiceProvider) -> MockHelloCommandHandler:
+    """Provides the MockHelloCommandHandler instance from the service provider."""
+    command = service_provider.get_service(MockHelloCommandHandler)
+    cast(MockHelloCommandHandler, command).reset_mock_state()
+    return cast(MockHelloCommandHandler, command)
 
 
 @pytest.fixture
-def another_command(service_provider: IServiceProvider) -> MockAnotherCommand:
-    """Provides the MockAnotherCommand instance from the service provider."""
-    command = service_provider.get_service(MockAnotherCommand)
-    cast(MockAnotherCommand, command).reset_mock_state()
-    return cast(MockAnotherCommand, command)
+def another_command(service_provider: IServiceProvider) -> MockAnotherCommandHandler:
+    """Provides the MockAnotherCommandHandler instance from the service provider."""
+    command = service_provider.get_service(MockAnotherCommandHandler)
+    cast(MockAnotherCommandHandler, command).reset_mock_state()
+    return cast(MockAnotherCommandHandler, command)

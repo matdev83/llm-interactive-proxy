@@ -1,5 +1,7 @@
 """Mock command implementations for unit tests."""
 
+from typing import Any
+
 from src.core.commands.handler import ICommandHandler
 from src.core.commands.models import Command
 from src.core.commands.registry import command
@@ -10,6 +12,13 @@ from src.core.domain.session import Session
 @command("set")
 class MockSetCommandHandler(ICommandHandler):
     """Mock implementation of the set command for tests."""
+
+    def __init__(self, service: Any = None) -> None:
+        self.service = service
+        self.called = False
+
+    def reset_mock_state(self) -> None:
+        self.called = False
 
     @property
     def command_name(self) -> str:
@@ -28,6 +37,7 @@ class MockSetCommandHandler(ICommandHandler):
         return ["!/set(model=gpt-4)"]
 
     async def handle(self, command: Command, session: Session) -> CommandResult:
+        self.called = True
         message = "Settings updated"
         return CommandResult(
             success=True,
@@ -39,6 +49,13 @@ class MockSetCommandHandler(ICommandHandler):
 @command("unset")
 class MockUnsetCommandHandler(ICommandHandler):
     """Mock implementation of the unset command for tests."""
+
+    def __init__(self, service: Any = None) -> None:
+        self.service = service
+        self.called = False
+
+    def reset_mock_state(self) -> None:
+        self.called = False
 
     @property
     def command_name(self) -> str:
@@ -57,6 +74,7 @@ class MockUnsetCommandHandler(ICommandHandler):
         return ["!/unset(model)"]
 
     async def handle(self, command: Command, session: Session) -> CommandResult:
+        self.called = True
         message = "Settings unset"
         return CommandResult(
             success=True,
@@ -68,6 +86,13 @@ class MockUnsetCommandHandler(ICommandHandler):
 @command("help")
 class MockHelpCommandHandler(ICommandHandler):
     """Mock implementation of the help command for tests."""
+
+    def __init__(self, service: Any = None) -> None:
+        self.service = service
+        self.called = False
+
+    def reset_mock_state(self) -> None:
+        self.called = False
 
     @property
     def command_name(self) -> str:
@@ -86,6 +111,7 @@ class MockHelpCommandHandler(ICommandHandler):
         return ["!/help"]
 
     async def handle(self, command: Command, session: Session) -> CommandResult:
+        self.called = True
         message = "Mock help information"
         return CommandResult(
             success=True,
@@ -96,6 +122,13 @@ class MockHelpCommandHandler(ICommandHandler):
 @command("hello")
 class MockHelloCommandHandler(ICommandHandler):
     """Mock implementation of the hello command for tests."""
+
+    def __init__(self, service: Any = None) -> None:
+        self.service = service
+        self.called = False
+
+    def reset_mock_state(self) -> None:
+        self.called = False
 
     @property
     def command_name(self) -> str:
@@ -114,6 +147,7 @@ class MockHelloCommandHandler(ICommandHandler):
         return ["!/hello"]
 
     async def handle(self, command: Command, session: Session) -> CommandResult:
+        self.called = True
         session.state = session.state.with_hello_requested(True)
 
         result = CommandResult(
@@ -127,6 +161,13 @@ class MockHelloCommandHandler(ICommandHandler):
 @command("anothercmd")
 class MockAnotherCommandHandler(ICommandHandler):
     """Mock implementation of another command for tests."""
+
+    def __init__(self, service: Any = None) -> None:
+        self.service = service
+        self.called = False
+
+    def reset_mock_state(self) -> None:
+        self.called = False
 
     @property
     def command_name(self) -> str:
@@ -145,6 +186,7 @@ class MockAnotherCommandHandler(ICommandHandler):
         return ["!/anothercmd"]
 
     async def handle(self, command: Command, session: Session) -> CommandResult:
+        self.called = True
         return CommandResult(
             success=True,
             message="Another mock command executed.",
@@ -155,6 +197,13 @@ class MockAnotherCommandHandler(ICommandHandler):
 @command("model")
 class MockModelCommandHandler(ICommandHandler):
     """Mock implementation of the model command for tests."""
+
+    def __init__(self, service: Any = None) -> None:
+        self.service = service
+        self.called = False
+
+    def reset_mock_state(self) -> None:
+        self.called = False
 
     @property
     def command_name(self) -> str:
@@ -173,6 +222,7 @@ class MockModelCommandHandler(ICommandHandler):
         return ["!/model(name=gpt-4)"]
 
     async def handle(self, command: Command, session: Session) -> CommandResult:
+        self.called = True
         message = "Model command executed"
         return CommandResult(
             success=True,

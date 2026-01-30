@@ -46,7 +46,7 @@ async def test_process_messages_stops_after_first_command_in_message_content_lis
             role="user",
             content=[
                 MessageContentPartText(type="text", text="!/hello"),
-                MessageContentPartText(type="text", text="!/anothercmd"),
+                MessageContentPartText(type="text", text="!/nonexistentcmd"),
             ],
         )
     ]

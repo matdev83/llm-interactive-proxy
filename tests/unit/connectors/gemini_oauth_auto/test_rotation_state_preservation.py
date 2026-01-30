@@ -178,7 +178,7 @@ class TestRotationStatePreservation:
         await connector.initialize()
 
         # Modify config for re-initialization
-        connector.config.backends.get.return_value = MagicMock(
+        connector.config.backends.get.return_value = MagicMock(  # type: ignore[attr-defined]
             extra={
                 "refresh_buffer_seconds": 120,
                 "accounts": ["account1", "account2"],
@@ -190,10 +190,10 @@ class TestRotationStatePreservation:
         await connector.initialize()
 
         # Configuration should be updated
-        assert selector._refresh_buffer_ms == 120000
+        assert selector.refresh_buffer_ms == 120000
         # accounts are converted to set in _parse_accounts_allowlist
-        assert selector._allowed_account_ids == {"account1", "account2"}
-        assert selector._selection_strategy == "random"
+        assert selector.allowed_account_ids == {"account1", "account2"}
+        assert selector.selection_strategy == "random"
 
     @pytest.mark.asyncio
     async def test_reinitialization_calls_reload_accounts(

@@ -6,7 +6,7 @@ This module provides test implementations of interfaces for use in unit tests.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -36,6 +36,7 @@ from src.core.domain.session import (
     SessionState,
     SessionStateAdapter,
 )
+from src.core.domain.usage_summary import UsageSummary
 from src.core.domain.validation import BackendModelValidation
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_service_interface import IBackendService
@@ -45,8 +46,217 @@ from src.core.interfaces.di_interface import (
     IServiceScope,
 )
 from src.core.interfaces.domain_entities_interface import ISession
+from src.core.interfaces.loop_detector_interface import (
+    ILoopDetector,
+    LoopDetectionResult,
+)
 from src.core.interfaces.rate_limiter_interface import IRateLimiter, RateLimitInfo
+from src.core.interfaces.repositories_interface import ISessionRepository
+from src.core.interfaces.response_handler_interface import (
+    INonStreamingResponseHandler,
+    IStreamingResponseHandler,
+)
+from src.core.interfaces.response_processor_interface import (
+    IResponseMiddleware,
+    IResponseProcessor,
+    ProcessedResponse,
+)
 from src.core.interfaces.session_service_interface import ISessionService
+from src.loop_detection.event import LoopDetectionEvent
+
+
+#
+# Mock Loop Detector
+#
+class MockLoopDetector(ILoopDetector):
+    """A mock loop detector for testing."""
+
+    def __init__(self) -> None:
+        self.history: list[LoopDetectionEvent] = []
+        self.state: dict[str, Any] = {}
+        self._is_enabled = True  # Default to enabled for testing
+        self.results_queue: list[LoopDetectionEvent | None] = (
+            []
+        )  # For controlling process_chunk returns
+
+    def is_enabled(self) -> bool:
+        return self._is_enabled
+
+    def process_chunk(self, chunk: str) -> LoopDetectionEvent | None:
+        if self.results_queue:
+            result = self.results_queue.pop(0)
+            if result:
+                self.history.append(result)
+            return result
+        return None
+
+    def reset(self) -> None:
+        self.history.clear()
+        self.state.clear()
+        self.results_queue.clear()
+
+    def get_loop_history(self) -> list[LoopDetectionEvent]:
+        return self.history
+
+    def get_current_state(self) -> Any:
+        return self.state
+
+    def get_stats(self) -> Any:
+        return {}
+
+    # Helper for tests to enqueue results
+    def add_result_to_queue(self, result: LoopDetectionEvent | None) -> None:
+        self.results_queue.append(result)
+
+    # --- Backward compatibility methods for older tests that might call them ---
+    async def check_for_loops(self, content: str) -> LoopDetectionResult:
+        # This method is for older tests; new ILoopDetector uses process_chunk
+        event = self.process_chunk(content)
+        if event:
+            return LoopDetectionResult(
+                has_loop=True,
+                pattern=event.pattern,
+                repetitions=event.repetition_count,
+                details={"buffer_content": event.buffer_content},
+            )
+        return LoopDetectionResult(has_loop=False)
+
+    async def register_tool_call(
+        self, tool_name: str, arguments: dict[str, Any]
+    ) -> None:
+        # This was part of an older loop detector impl, now handled by specific processors
+        pass
+
+    async def clear_history(self) -> None:
+        self.reset()
+
+    async def configure(
+        self,
+        min_pattern_length: int = 100,
+        max_pattern_length: int = 8000,
+        min_repetitions: int = 2,
+    ) -> None:
+        pass
+
+    def on_session_ended(self) -> None:
+        self.reset()
+
+    def on_tool_code_execution_started(self) -> None:
+        pass
+
+
+class MockResponseProcessor(IResponseProcessor):
+    """A mock response processor for testing."""
+
+    def __init__(self) -> None:
+        self.processed: list[Any] = []
+        self.non_streaming_handler = MockNonStreamingResponseHandler()
+        self.streaming_handler = MockStreamingResponseHandler()
+
+    async def process_response(
+        self,
+        response: Any,
+        session_id: str,
+        context: RequestContext | None = None,
+    ) -> ProcessedResponse:
+        self.processed.append(response)
+        processed_response = await self.non_streaming_handler.process_response(response)
+        return ProcessedResponse(
+            content=processed_response.content,
+        )
+
+    async def register_middleware(
+        self, middleware: IResponseMiddleware, priority: int = 0
+    ) -> None:
+        """Register a response middleware (mock implementation)."""
+
+    def process_streaming_response(
+        self,
+        response_iterator: AsyncIterator[Any],
+        session_id: str,
+        context: RequestContext | None = None,
+    ) -> AsyncIterator[ProcessedResponse]:
+        async def mock_iterator() -> AsyncIterator[ProcessedResponse]:
+            async for chunk in response_iterator:
+                yield ProcessedResponse(content=chunk.decode("utf-8"))
+
+        return mock_iterator()
+
+
+class MockNonStreamingResponseHandler(INonStreamingResponseHandler):
+    """A mock non-streaming response handler for testing."""
+
+    async def process_response(
+        self, response: ResponseEnvelope | ProcessedResponse
+    ) -> ResponseEnvelope:
+        if isinstance(response, ResponseEnvelope):
+            return response
+        return ResponseEnvelope(
+            content=response.content,
+            status_code=200,
+            headers={"content-type": "application/json"},
+        )
+
+
+class MockStreamingResponseHandler(IStreamingResponseHandler):
+    """A mock streaming response handler for testing."""
+
+    async def process_response(
+        self, response: AsyncIterator[bytes]
+    ) -> StreamingResponseEnvelope:
+        async def mock_iterator() -> AsyncIterator[ProcessedResponse]:
+            async for chunk in response:
+                yield ProcessedResponse(content=chunk.decode("utf-8"))
+
+        return StreamingResponseEnvelope(content=mock_iterator())
+
+
+class MockSessionRepository(ISessionRepository):
+    """A mock session repository for testing."""
+
+    def __init__(self) -> None:
+        self.sessions: dict[str, Session] = {}
+        self.user_sessions: dict[str, list[Session]] = {}
+
+    async def get_by_id(self, id: str) -> Session | None:
+        return self.sessions.get(id)
+
+    async def get_all(self) -> list[Session]:
+        return list(self.sessions.values())
+
+    async def add(self, entity: Session) -> Session:
+        self.sessions[entity.session_id] = entity
+        return entity
+
+    async def update(self, entity: Session) -> Session:
+        self.sessions[entity.session_id] = entity
+        return entity
+
+    async def delete(self, id: str) -> bool:
+        if id in self.sessions:
+            del self.sessions[id]
+            return True
+        return False
+
+    async def get_by_user_id(self, user_id: str) -> list[Session]:
+        return self.user_sessions.get(user_id, [])
+
+    async def cleanup_expired(self, max_age_seconds: int) -> int:
+        count = 0
+        # Use fixed timestamp - tests should control time via @freeze_time decorator
+        current_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+        expired_ids = [
+            session_id
+            for session_id, session in self.sessions.items()
+            if (current_time - session.last_active_at).total_seconds() > max_age_seconds
+        ]
+
+        for session_id in expired_ids:
+            del self.sessions[session_id]
+            count += 1
+
+        return count
 
 
 class MockSuccessCommand(BaseCommand):
@@ -490,7 +700,7 @@ class TestDataBuilder:
                     finish_reason="stop",
                 )
             ],
-            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            usage=UsageSummary(prompt_tokens=10, completion_tokens=20, total_tokens=30),
         )
         return ResponseEnvelope(
             content=chat_response.model_dump(),

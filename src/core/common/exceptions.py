@@ -88,7 +88,7 @@ class BackendError(LLMProxyError):
         self.backend_name = backend_name
 
 
-class ServiceUnavailableError(LLMProxyError):
+class ServiceUnavailableError(BackendError):
     """Raised when a service is temporarily unavailable."""
 
     def __init__(
@@ -97,7 +97,7 @@ class ServiceUnavailableError(LLMProxyError):
         details: dict | None = None,
         **kwargs,
     ):
-        super().__init__(message, details, status_code=503, **kwargs)
+        super().__init__(message, details=details, status_code=503, **kwargs)
 
 
 class ConfigurationError(LLMProxyError):
@@ -112,7 +112,7 @@ class ConfigurationError(LLMProxyError):
         super().__init__(message, details, status_code=400, **kwargs)
 
 
-class RateLimitExceededError(LLMProxyError):
+class RateLimitExceededError(BackendError):
     """Raised when rate limits are exceeded."""
 
     def __init__(
@@ -122,7 +122,9 @@ class RateLimitExceededError(LLMProxyError):
         **kwargs,
     ):
         reset_at = kwargs.pop("reset_at", None)
-        super().__init__(message, details, status_code=429, reset_at=reset_at, **kwargs)
+        super().__init__(
+            message, details=details, status_code=429, reset_at=reset_at, **kwargs
+        )
         # optional reset time in seconds for Retry-After
         self.reset_at: int | None = reset_at
 

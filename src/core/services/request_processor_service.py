@@ -109,6 +109,9 @@ class RequestProcessor(IRequestProcessor):
         request_data: ChatRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request using decomposed services."""
+        if not isinstance(request_data, ChatRequest):
+            raise TypeError("request_data must be of type ChatRequest")
+
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 f"RequestProcessor.process_request called with session_id: {getattr(context, 'session_id', 'unknown')}"

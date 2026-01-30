@@ -156,7 +156,7 @@ def test_build_correction_request_includes_previous_response() -> None:
 
 
 def test_build_verification_messages_stringifies_tools() -> None:
-    from src.core.domain.chat import ToolCall, FunctionCall
+    from src.core.domain.chat import FunctionCall, ToolCall
 
     svc = AngelService("openai:gpt-4o-mini")
     request = ChatRequest(
