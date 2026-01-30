@@ -592,6 +592,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         initialize before the executor is used.
         """
         if self._streaming_executor_instance is None:
+            # Determine read timeout from config or default
+            read_timeout = getattr(
+                self.config, "gemini_read_timeout", None
+            )
+            # If not configured or invalid, let StreamingExecutor use its default
+            if not isinstance(read_timeout, (int, float)):
+                read_timeout = None
+
             self._streaming_executor_instance = StreamingExecutor(
                 translation_service=self.translation_service,
                 token_estimator=self._token_estimator,
@@ -600,6 +608,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 auth_refresh_policy=self._auth_refresh_policy,
                 retry_policy=self._retry_policy,
                 backend_type=self.backend_type,
+                read_timeout=read_timeout,
             )
         return self._streaming_executor_instance
 

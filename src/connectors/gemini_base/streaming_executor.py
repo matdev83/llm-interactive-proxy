@@ -301,6 +301,7 @@ class StreamingExecutor:
         backend_type: str = "gemini",
         *,
         session_factory: Any | None = None,
+        read_timeout: float | None = None,
     ) -> None:
         """Initialize the executor.
 
@@ -313,6 +314,7 @@ class StreamingExecutor:
             retry_policy: Optional retry policy for rate-limit handling.
             backend_type: The backend type for error reporting.
             session_factory: Legacy hook retained for compatibility (unused).
+            read_timeout: Optional read timeout override.
         """
         self._translation_service = translation_service
         self._token_estimator = token_estimator or get_default_token_estimator()
@@ -322,6 +324,7 @@ class StreamingExecutor:
         self._retry_policy = retry_policy
         self._backend_type = backend_type
         self._session_factory = session_factory
+        self._read_timeout = read_timeout or DEFAULT_READ_TIMEOUT
 
     async def execute(
         self,
@@ -445,7 +448,7 @@ class StreamingExecutor:
                     params={"alt": "sse"},
                     json=request_body,
                     headers={"Content-Type": "application/json"},
-                    timeout=int(DEFAULT_READ_TIMEOUT),
+                    timeout=int(self._read_timeout),
                     stream=True,
                 )
                 if logger.isEnabledFor(TRACE_LEVEL):
@@ -466,7 +469,7 @@ class StreamingExecutor:
                 ):
                     logger.warning(
                         "Streaming timeout (%.1fs) calling %s, attempting account rotation and retry",
-                        DEFAULT_READ_TIMEOUT,
+                        self._read_timeout,
                         url,
                     )
 

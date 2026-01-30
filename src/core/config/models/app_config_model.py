@@ -57,6 +57,7 @@ class AppConfigModel(DomainModel, IConfig):
     context_window_override: int | None = None
     gcp_project_id: str | None = None
     gemini_credentials_path: str | None = None
+    gemini_read_timeout: float = 120.0  # Default 2 minutes
     disable_health_checks: bool = False
     enable_activity_tracking: bool = False
 

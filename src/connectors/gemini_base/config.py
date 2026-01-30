@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
 # Timeouts
 DEFAULT_CONNECTION_TIMEOUT = 60.0
-DEFAULT_READ_TIMEOUT = 300.0
+DEFAULT_READ_TIMEOUT = 120.0
 
 # Graceful degradation configuration
 DEFAULT_RETRY_DELAYS = [5, 10]  # Wait 5s, then 10s between retries

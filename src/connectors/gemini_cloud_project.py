@@ -192,19 +192,17 @@ def _load_gemini_oauth_client_config() -> GeminiOAuthClientConfig:
     )
 
 
-# Code Assist API endpoint (same as personal OAuth)
-CODE_ASSIST_ENDPOINT = "https://cloudcode-pa.googleapis.com"
-# Code Assist API version: v1internal (documented for clarity)
-
 # Tier IDs for standard and enterprise
 STANDARD_TIER_ID = "standard-tier"
 ENTERPRISE_TIER_ID = "enterprise-tier"
+
 
 # Timeout configuration for streaming requests
 # Connection timeout: time to establish connection
 DEFAULT_CONNECTION_TIMEOUT = 60.0
 # Read timeout: time between chunks during streaming (much longer for large responses)
-DEFAULT_READ_TIMEOUT = 300.0  # 5 minutes to handle large file reads and long responses
+# This is a fallback default; the actual value is now configurable via AppConfig
+DEFAULT_READ_TIMEOUT = 120.0  # 2 minutes to handle large file reads and long responses
 
 logger = logging.getLogger(__name__)
 
@@ -1394,6 +1392,13 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
             url = f"{self.gemini_api_base_url}/v1internal:generateContent"
 
+            # Determine read timeout from config or default
+            read_timeout = getattr(
+                self.config, "gemini_read_timeout", DEFAULT_READ_TIMEOUT
+            )
+            if not isinstance(read_timeout, (int, float)):
+                read_timeout = DEFAULT_READ_TIMEOUT
+
             # Make the non-streaming API call
             api_response = await asyncio.to_thread(
                 auth_session.request,
@@ -1401,7 +1406,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                 url=url,
                 json=request_body,
                 headers={"Content-Type": "application/json"},
-                timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),  # type: ignore[arg-type]
+                timeout=(DEFAULT_CONNECTION_TIMEOUT, read_timeout),  # type: ignore[arg-type]
             )
 
             if api_response.status_code >= 400:
@@ -1509,6 +1514,13 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                     # Use tuple for (connect_timeout, read_timeout) to allow longer streaming
                     # CRITICAL: Add stream=True to enable real-time streaming
                     try:
+                        # Determine read timeout from config or default
+                        read_timeout = getattr(
+                            self.config, "gemini_read_timeout", DEFAULT_READ_TIMEOUT
+                        )
+                        if not isinstance(read_timeout, (int, float)):
+                            read_timeout = DEFAULT_READ_TIMEOUT
+
                         response = await asyncio.to_thread(
                             auth_session.request,
                             method="POST",
@@ -1516,7 +1528,7 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                             params={"alt": "sse"},
                             json=request_body,
                             headers={"Content-Type": "application/json"},
-                            timeout=(DEFAULT_CONNECTION_TIMEOUT, DEFAULT_READ_TIMEOUT),  # type: ignore[arg-type]
+                            timeout=(DEFAULT_CONNECTION_TIMEOUT, read_timeout),  # type: ignore[arg-type]
                             stream=True,  # Enable streaming mode for real-time data
                         )
                     except requests.exceptions.Timeout as te:  # type: ignore[attr-defined]
