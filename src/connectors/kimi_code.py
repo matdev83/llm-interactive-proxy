@@ -211,6 +211,7 @@ class KimiCodeConnector(OpenAIConnector):
             # into deltas without duplicating already-sent text.
             last_content = ""
             last_reasoning = ""
+            reasoning_started = False
 
             # Common reasoning fields used by Kimi and other OpenAI-compatible backends
             reasoning_keys = ["reasoning_content", "reasoning", "thinking", "thought"]
@@ -310,11 +311,19 @@ class KimiCodeConnector(OpenAIConnector):
                             delta_reasoning = raw_reasoning
 
                         if delta_reasoning:
-                            # Update ALL reasoning fields present in the delta with the new delta text.
-                            # This prevents the client from receiving accumulated fields that would cause duplication.
-                            for key in reasoning_keys:
-                                if key in delta:
-                                    delta[key] = delta_reasoning
+                            delta_is_whitespace = delta_reasoning.strip() == ""
+                            if delta_is_whitespace and not reasoning_started:
+                                # Drop leading whitespace-only reasoning to avoid empty thinking sections.
+                                for key in reasoning_keys:
+                                    delta.pop(key, None)
+                            else:
+                                if not delta_is_whitespace:
+                                    reasoning_started = True
+                                # Update ALL reasoning fields present in the delta with the new delta text.
+                                # This prevents the client from receiving accumulated fields that would cause duplication.
+                                for key in reasoning_keys:
+                                    if key in delta:
+                                        delta[key] = delta_reasoning
                         else:
                             # If no new reasoning content, remove all reasoning fields
                             for key in reasoning_keys:

@@ -315,6 +315,14 @@ class BackendApplicator:
             ("enable_qwen_oauth_backend_debugging_override", "qwen_oauth"),
             ("enable_openai_codex_backend_debugging_override", "openai_codex"),
             ("enable_anthropic_oauth_backend_debugging_override", "anthropic_oauth"),
+            (
+                "enable_gemini_oauth_auto_backend_debugging_override",
+                "gemini_oauth_auto",
+            ),
+            (
+                "enable_opencode_zen_backend_debugging_override",
+                "opencode_zen",
+            ),
         ]
 
         for flag_name, backend_name in debug_flags:

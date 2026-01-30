@@ -131,7 +131,12 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
 
         # Unpack canonical request to match legacy connector signature
         # Unpack canonical request to match legacy connector signature
-        return await super().chat_completions(
+        from src.connectors.gemini_oauth_base import (
+            GeminiOAuthBaseConnector as GeminiOAuthBaseConnectorRuntime,
+        )
+
+        return await GeminiOAuthBaseConnectorRuntime.chat_completions(
+            self,
             request_data=request.request,
             processed_messages=list(request.processed_messages),
             effective_model=request.effective_model,

@@ -170,12 +170,20 @@ class BackendRequestManager(IBackendRequestManager):
         backend_name: str | None = None
         extra_body = getattr(request, "extra_body", None)
         if isinstance(extra_body, dict):
-            backend_name = extra_body.get("backend_type")
+            raw_backend_type = extra_body.get("backend_type")
+            if isinstance(raw_backend_type, str):
+                backend_name = raw_backend_type
+
         if backend_name is None:
-            backend_name = getattr(request, "model", None)
+            raw_model = getattr(request, "model", None)
+            if isinstance(raw_model, str):
+                backend_name = raw_model
 
         # Extract model_name from request
-        model_name = getattr(request, "model", None)
+        model_name: str | None = None
+        raw_model = getattr(request, "model", None)
+        if isinstance(raw_model, str):
+            model_name = raw_model
 
         # Extract client_os from processing_context if available
         client_os: str | None = None
