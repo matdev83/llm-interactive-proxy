@@ -213,6 +213,7 @@ class ProcessorStage(InitializationStage):
             from src.core.interfaces.application_state_interface import (
                 IApplicationState,
             )
+            from src.core.services.model_catalog_service import ModelCatalogService
 
             backend_request_manager: IBackendRequestManager = (
                 provider.get_required_service(cast(type, IBackendRequestManager))
@@ -220,9 +221,15 @@ class ProcessorStage(InitializationStage):
             app_state: IApplicationState | None = provider.get_service(
                 cast(type, IApplicationState)
             )
-            return BackendPreparer(
-                backend_request_manager=backend_request_manager, app_state=app_state
+            model_catalog: ModelCatalogService | None = provider.get_service(
+                ModelCatalogService
             )
+            return BackendPreparer(
+                backend_request_manager=backend_request_manager,
+                app_state=app_state,
+                model_catalog=model_catalog,
+            )
+
 
         # Register concrete implementation
         services.add_singleton(

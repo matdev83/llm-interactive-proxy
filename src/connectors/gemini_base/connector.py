@@ -234,11 +234,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             session_id: The session ID for cache key lookup
         """
         # Use injected service for thought signature management
-        if self._thought_signature_service is not None:
-            self._thought_signature_service.inject_signatures(
-                canonical_request,
-                session_id,
-            )
+        self._thought_signature_service.inject_signatures(
+            canonical_request,
+            session_id,
+        )
 
     def _log_tool_call_signature_state(
         self, canonical_request: Any, session_id: str, effective_model: str
@@ -247,10 +246,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         Delegates to injected ThoughtSignatureService for implementation.
         """
-        if self._thought_signature_service is not None:
-            self._thought_signature_service.log_signature_state(
-                canonical_request, session_id, effective_model
-            )
+        self._thought_signature_service.log_signature_state(
+            canonical_request, session_id, effective_model
+        )
 
     @staticmethod
     def _extract_generated_text_from_response(response_payload: Any) -> str:
@@ -411,7 +409,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         raw_prefix_overrides_attr = getattr(self, "prompt_limit_prefix_overrides", None)
         raw_prefix_overrides = tuple(raw_prefix_overrides_attr or ())
         normalized_prefixes: list[tuple[str, int]] = []
-        for prefix, limit in cast(tuple[tuple[str, int], ...], raw_prefix_overrides):
+        for prefix, limit in cast(tuple[tuple[str, Any], ...], raw_prefix_overrides):
             if limit is None:
                 continue
             try:
@@ -875,17 +873,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
             coordinator = self._credential_coordinator
             if isinstance(coordinator, GeminiCredentialCoordinator):
-                await coordinator._handle_credentials_file_change()
+                await coordinator.handle_credentials_file_change()
                 # Sync state for backward compatibility
                 if coordinator.credentials:
                     self.__dict__["_oauth_credentials"] = (
                         coordinator.credentials.to_dict()
                     )
-                    self._credentials_path = coordinator._credentials_path
-                    self._credentials_fingerprint = coordinator._credentials_fingerprint
-                    self._credentials_file_hash = coordinator._credentials_file_hash
+                    self._credentials_path = coordinator.credentials_path
+                    self._credentials_fingerprint = coordinator.credentials_fingerprint
+                    self._credentials_file_hash = coordinator.credentials_file_hash
                     self._last_credentials_event_hash = (
-                        coordinator._last_credentials_event_hash
+                        coordinator.last_credentials_event_hash
                     )
             # Update functional state based on coordinator state
             if self._credential_coordinator.credentials:
@@ -1081,15 +1079,18 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
                 coordinator = self._credential_coordinator
                 if isinstance(coordinator, GeminiCredentialCoordinator):
-                    self._credentials_path = coordinator._credentials_path
-                    self._credentials_fingerprint = coordinator._credentials_fingerprint
-                    self._credentials_file_hash = coordinator._credentials_file_hash
+                    self._credentials_path = coordinator.credentials_path
+                    self._credentials_fingerprint = coordinator.credentials_fingerprint
+                    self._credentials_file_hash = coordinator.credentials_file_hash
+                    self._last_credentials_event_hash = (
+                        coordinator.last_credentials_event_hash
+                    )
         except AuthenticationError as e:
             # Convert coordinator errors to initialization failures
             errors = [str(e.message)] if hasattr(e, "message") else [str(e)]
             if (
                 hasattr(e, "details")
-                and isinstance(e.details, dict)
+                and e.details
                 and "errors" in e.details
             ):
                 errors = e.details["errors"]
@@ -1123,9 +1124,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     and hasattr(registry, "_models_from_api")
                 ):
                     # Access private attributes for backward compatibility with concrete implementations
-                    self.available_models = getattr(registry, "_available_models", None)  # type: ignore[assignment,attr-defined]
-                    self._available_models_set = getattr(registry, "_available_models_set", None)  # type: ignore[assignment,attr-defined]
-                    self._models_from_api = getattr(registry, "_models_from_api", None)  # type: ignore[assignment,attr-defined]
+                    self.available_models = getattr(registry, "_available_models", [])
+                    self._available_models_set = getattr(registry, "_available_models_set", set())
+                    self._models_from_api = getattr(registry, "_models_from_api", False)
             except Exception as e:
                 logger.warning(
                     f"Failed to load models during initialization: {e}", exc_info=True
@@ -1156,9 +1157,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 and hasattr(registry, "_models_from_api")
             ):
                 # Access private attributes for backward compatibility with concrete implementations
-                self.available_models = getattr(registry, "_available_models", None)  # type: ignore[assignment,attr-defined]
-                self._available_models_set = getattr(registry, "_available_models_set", None)  # type: ignore[assignment,attr-defined]
-                self._models_from_api = getattr(registry, "_models_from_api", None)  # type: ignore[assignment,attr-defined]
+                self.available_models = getattr(registry, "_available_models", [])
+                self._available_models_set = getattr(registry, "_available_models_set", set())
+                self._models_from_api = getattr(registry, "_models_from_api", False)
         else:
             # Fallback to old logic
             if self.available_models:

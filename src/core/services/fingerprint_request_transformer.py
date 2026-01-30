@@ -12,6 +12,7 @@ from typing import Any, cast
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.configuration_interface import IConfig
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,15 @@ def _resolve_config(
         app_state = getattr(context, "app_state", None)
         if app_state is None:
             return None
-        value: Any = app_state.get_setting("app_config")
+
+        service_provider = getattr(app_state, "service_provider", None)
+        if service_provider is not None:
+            app_state_service = service_provider.get_service(IApplicationState)
+            if app_state_service is not None:
+                value: Any = app_state_service.get_setting("app_config")
+                return cast(IConfig | None, value)
+
+        value = getattr(app_state, "app_config", None)
         return cast(IConfig | None, value)
     except (AttributeError, KeyError, TypeError):
         return None

@@ -65,11 +65,9 @@ async def test_chat_completions_unpacks_canonical_request(mocker):
     # Mock runtime credential validation to skip token refresh logic
     mocker.patch.object(connector, "_validate_runtime_credentials", new_callable=AsyncMock, return_value=True)
 
-    # We patch the base class's chat_completions method where it is actually defined.
-    # GeminiOAuthPlanConnector inherits from GeminiOAuthBaseConnector (facade),
-    # which inherits from src.connectors.gemini_base.connector.GeminiOAuthBaseConnector (base).
+    # We patch the facade class's chat_completions method which GeminiOAuthPlanConnector calls via super().
     mock_super_chat = mocker.patch(
-        "src.connectors.gemini_base.connector.GeminiOAuthBaseConnector.chat_completions",
+        "src.connectors.gemini_oauth_base.GeminiOAuthBaseConnector.chat_completions",
         new_callable=AsyncMock,
     )
 

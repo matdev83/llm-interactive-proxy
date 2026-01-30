@@ -52,6 +52,9 @@ from src.core.cli_support.applicators.failurehandling_applicator import (
 from src.core.cli_support.applicators.identity_applicator import IdentityApplicator
 from src.core.cli_support.applicators.logging_applicator import LoggingApplicator
 from src.core.cli_support.applicators.memory_applicator import MemoryApplicator
+from src.core.cli_support.applicators.model_registry_applicator import (
+    ModelRegistryApplicator,
+)
 from src.core.cli_support.applicators.replacement_applicator import (
     ReplacementApplicator,
 )
@@ -73,6 +76,7 @@ __all__ = [
     "IdentityApplicator",
     "LoggingApplicator",
     "MemoryApplicator",
+    "ModelRegistryApplicator",
     "ResilienceApplicator",
     "RoutingApplicator",
     "ReplacementApplicator",

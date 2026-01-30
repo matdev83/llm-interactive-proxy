@@ -669,8 +669,8 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             match.groups()
         )
 
-        # Keep reasoning content whitespace intact
-        reasoning_content = reasoning_content if reasoning_content else ""
+        # Keep reasoning content whitespace intact (strip for non-streaming standard metadata)
+        reasoning_content = reasoning_content.strip() if reasoning_content else ""
 
         response_content = (
             f"{leading_space}{middle_space}{remaining_content}"

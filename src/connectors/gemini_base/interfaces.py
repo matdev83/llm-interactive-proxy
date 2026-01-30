@@ -343,6 +343,14 @@ class ICredentialCoordinator(Protocol):
         """
         ...
 
+    async def handle_credentials_file_change(self) -> None:
+        """Handle credentials file change event.
+
+        This method is called when the file system watcher detects a change to the
+        underlying credentials source.
+        """
+        ...
+
     @property
     def credentials(self) -> GeminiOAuthCredentials | None:
         """Return the current credential payload.

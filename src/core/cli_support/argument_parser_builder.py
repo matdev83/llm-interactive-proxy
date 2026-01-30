@@ -73,8 +73,43 @@ class ArgumentParserBuilder:
         self._add_resilience_arguments(parser)
         self._add_end_of_session_arguments(parser)
         self._add_replacement_arguments(parser)
+        self._add_model_registry_arguments(parser)
 
         return parser
+
+    def _add_model_registry_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add model registry and limit enforcement arguments."""
+        registry_group = parser.add_argument_group(
+            "Model Registry & Limits",
+            "Options for external model metadata registry and automated limit enforcement",
+        )
+        registry_group.add_argument(
+            "--disable-model-registry-download",
+            dest="model_registry_download_enabled",
+            action="store_false",
+            default=None,
+            help="Disable downloading updates from the external model registry",
+        )
+        registry_group.add_argument(
+            "--model-registry-url",
+            dest="model_registry_url",
+            metavar="URL",
+            help="URL of the model registry (default: https://models.dev/api.json)",
+        )
+        registry_group.add_argument(
+            "--model-registry-update-interval",
+            dest="model_registry_update_interval_seconds",
+            type=int,
+            metavar="SECONDS",
+            help="Interval for checking for updates (default: 86400/1 day)",
+        )
+        registry_group.add_argument(
+            "--disable-model-limit-enforcement",
+            dest="model_limit_enforcement_enabled",
+            action="store_false",
+            default=None,
+            help="Disable model limit enforcement (context window, etc.) based on registry data",
+        )
 
     def _add_replacement_arguments(self, parser: argparse.ArgumentParser) -> None:
         """Add random model replacement arguments."""

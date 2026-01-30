@@ -14,6 +14,8 @@ from src.core.config.models.logging import LoggingConfig
 from src.core.config.models.misc import (
     CodebuffConfig,
     EmptyResponseConfig,
+    ModelLimitEnforcementConfig,
+    ModelRegistryConfig,
     ResilienceConfig,
     UsageTrackingConfig,
 )
@@ -105,6 +107,11 @@ class AppConfigModel(DomainModel, IConfig):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     non_forwardable_tagging: NonForwardableTaggingConfig = Field(
         default_factory=NonForwardableTaggingConfig
+    )
+
+    model_registry: ModelRegistryConfig = Field(default_factory=ModelRegistryConfig)
+    model_limit_enforcement: ModelLimitEnforcementConfig = Field(
+        default_factory=ModelLimitEnforcementConfig
     )
 
     vtc_client_patterns: list[str] = Field(

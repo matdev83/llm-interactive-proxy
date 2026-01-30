@@ -23,6 +23,8 @@ if TYPE_CHECKING:
     from src.core.interfaces.backend_request_manager_interface import (
         IBackendRequestManager,
     )
+    from src.core.services.model_catalog_service import ModelCatalogService
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +46,7 @@ class BackendPreparer(IBackendPreparer):
         self,
         backend_request_manager: IBackendRequestManager,
         app_state: IApplicationState | None = None,
+        model_catalog: ModelCatalogService | None = None,
     ) -> None:
         """
         Initialize the backend preparer.
@@ -51,9 +54,12 @@ class BackendPreparer(IBackendPreparer):
         Args:
             backend_request_manager: Service for preparing backend requests
             app_state: Optional application state for configuration access
+            model_catalog: Optional model catalog for metadata lookups
         """
         self._backend_request_manager = backend_request_manager
         self._app_state = app_state
+        self._model_catalog = model_catalog
+
 
     async def prepare(
         self,
@@ -85,7 +91,23 @@ class BackendPreparer(IBackendPreparer):
         # Enforce per-model context window limits (front-end enforcement)
         if backend_request is not None and self._app_state is not None:
             try:
+                # Check if model limit enforcement is enabled
+                enforcement_enabled = True
+                try:
+                    app_config = self._app_state.get_setting("app_config")
+                    if app_config is not None:
+                        # Handle both object and dict-like config
+                        enforcement_cfg = getattr(app_config, "model_limit_enforcement", None)
+                        if enforcement_cfg is not None:
+                            enforcement_enabled = getattr(enforcement_cfg, "enabled", True)
+                except (AttributeError, KeyError, TypeError):
+                    enforcement_enabled = True
+
+                if not enforcement_enabled:
+                    return backend_request
+
                 model_defaults_map: dict[str, ModelDefaults] = (
+
                     self._app_state.get_model_defaults() or {}
                 )
 
@@ -169,7 +191,16 @@ class BackendPreparer(IBackendPreparer):
                     )
                 )
 
+                # Try to get limits from model catalog if not found in model_defaults
+                if limits is None and self._model_catalog is not None:
+                    catalog_limits = self._model_catalog.get_limits(model_name, backend_key)
+                    if catalog_limits:
+                        limits = catalog_limits
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug("Found limits for %s in model catalog", model_name)
+
                 # Apply CLI override if set
+
                 if cli_context_window is not None and cli_context_window > 0:
                     # Create a new limits object or modify existing to use CLI override
                     if limits is None:

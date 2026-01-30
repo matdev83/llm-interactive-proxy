@@ -12,7 +12,9 @@ This stage registers fundamental services that have minimal dependencies:
 from __future__ import annotations
 
 import contextlib
+import httpx
 import logging
+
 from typing import cast
 
 from src.core.config.app_config import AppConfig
@@ -28,7 +30,10 @@ from src.core.interfaces.streaming_response_processor_interface import (
 )
 from src.core.services.application_state_service import ApplicationStateService
 from src.core.services.intelligent_session_resolver import IntelligentSessionResolver
+from src.core.services.model_catalog_service import ModelCatalogService
+from src.core.services.model_catalog_updater import ModelCatalogUpdater
 from src.core.services.response_processor_service import ResponseProcessor
+
 from src.core.services.secure_state_service import SecureStateService
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 
@@ -68,7 +73,22 @@ class CoreServicesStage(InitializationStage):
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Registered AppConfig instance")
 
+        # Register model catalog service and updater
+        services.add_singleton(
+            ModelCatalogService,
+            implementation_factory=lambda p: ModelCatalogService(config.model_registry),
+        )
+        services.add_singleton(
+            ModelCatalogUpdater,
+            implementation_factory=lambda p: ModelCatalogUpdater(
+                config.model_registry,
+                p.get_required_service(ModelCatalogService),
+                p.get_service(httpx.AsyncClient) if p.has_service(httpx.AsyncClient) else None,
+            ),
+        )
+
         # Register EventBus early for EoS services
+
         self._register_event_bus(services)
 
         # Register and initialize ApplicationStateService

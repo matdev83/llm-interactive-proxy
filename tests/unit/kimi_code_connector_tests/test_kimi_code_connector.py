@@ -99,4 +99,6 @@ async def test_kimi_prepare_payload_strips_vendor_prefix(
         "kimi/kimi-for-coding",
         context=None,
     )
+    print(f"DEBUG: payload={payload}")
+    assert "model" in payload
     assert payload["model"] == "kimi-for-coding"

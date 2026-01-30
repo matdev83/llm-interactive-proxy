@@ -341,7 +341,21 @@ resilience:
 #   model: "gpt-4o-mini"  # Model to use for assessment
 #   history_window: 20  # Number of recent turns to include
 
+# Model Registry & Limit Enforcement
+# External registry for model metadata (context windows, pricing, capabilities)
+# and automated request limit enforcement.
+model_registry:
+  download_enabled: true  # Whether to download updates from external registry
+  url: "https://models.dev/api.json"  # Registry URL
+  update_interval_seconds: 86400  # Check for updates every 24 hours
+  # cache_path: "./var/model_registry/models.dev.json"
+  # bootstrap_path: "./src/resources/model_registry/models.dev.json"
+
+model_limit_enforcement:
+  enabled: true  # Enforce context window and token limits based on registry data
+
 # Codebuff WebSocket server settings
+
 # Enables WebSocket server implementing the Codebuff protocol for coding agents
 # See docs/user_guide/features/codebuff-backend.md for complete documentation
 codebuff:

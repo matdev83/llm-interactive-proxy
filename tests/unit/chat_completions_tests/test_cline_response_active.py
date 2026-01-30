@@ -305,7 +305,7 @@ def test_cline_non_command_message(interactive_client: TestClient) -> None:
     from src.core.domain.responses import ResponseEnvelope
     from src.core.interfaces.backend_service_interface import IBackendService
 
-    app = cast(FastAPI, interactive_client.app)
+    app = cast(Any, interactive_client.app)
     backend_service = (
         app.state.service_provider.get_required_service(
             IBackendService

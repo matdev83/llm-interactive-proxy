@@ -395,6 +395,20 @@ properties:
       backend_model: { type: string }
       turn_count: { type: integer, minimum: 1 }
       allow_oauth_auto_replacement: { type: boolean }
+  model_limit_enforcement:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled: { type: boolean }
+  model_registry:
+    type: object
+    additionalProperties: false
+    properties:
+      download_enabled: { type: boolean }
+      url: { type: string }
+      update_interval_seconds: { type: integer, minimum: 0 }
+      cache_path: { type: string }
+      bootstrap_path: { type: string }
   vtc_client_patterns:
     type: array
     items: { type: string }

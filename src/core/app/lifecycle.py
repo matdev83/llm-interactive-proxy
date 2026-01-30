@@ -91,7 +91,11 @@ class AppLifecycle:
         # Start usage tracking services (async write queue)
         await self._start_usage_tracking_services()
 
+        # Start model catalog updater
+        await self._start_model_catalog_updater()
+
         # Start background tasks
+
         self._start_background_tasks()
 
     async def shutdown(self) -> None:
@@ -111,7 +115,11 @@ class AppLifecycle:
         # Stop usage tracking services (drain pending records)
         await self._stop_usage_tracking_services()
 
+        # Stop model catalog updater
+        await self._stop_model_catalog_updater()
+
         # Stop background tasks
+
         await self._stop_background_tasks()
 
         # Close any remaining connections
@@ -567,7 +575,48 @@ class AppLifecycle:
                     exc_info=True,
                 )
 
+    async def _start_model_catalog_updater(self) -> None:
+        """Start the model catalog updater."""
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        try:
+            from src.core.services.model_catalog_updater import ModelCatalogUpdater
+
+            updater = provider.get_service(ModelCatalogUpdater)
+            if updater:
+                await updater.start()
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Error starting model catalog updater: %s", e, exc_info=True
+                )
+
+    async def _stop_model_catalog_updater(self) -> None:
+        """Stop the model catalog updater."""
+        provider = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        try:
+            from src.core.services.model_catalog_updater import ModelCatalogUpdater
+
+            updater = provider.get_service(ModelCatalogUpdater)
+            if updater:
+                await updater.stop()
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Error stopping model catalog updater: %s", e, exc_info=True
+                )
+
     async def _start_health_checks(self) -> None:
+
         """Start health check services if enabled."""
         provider = getattr(self.app.state, "service_provider", None)
         if not provider:

@@ -58,3 +58,33 @@ class ResilienceConfig(DomainModel):
 
     shared_backend_types: list[str] | None = Field(default=None)
     """Backend types that should always use shared resilience state."""
+
+
+class ModelRegistryConfig(DomainModel):
+    """Configuration for the external model registry."""
+
+    model_config = ConfigDict(frozen=True)
+
+    download_enabled: bool = True
+    """Whether to download updates from the external registry."""
+
+    url: str = "https://models.dev/api.json"
+    """URL of the model registry."""
+
+    update_interval_seconds: int = 86400  # 1 day
+    """Interval for checking for updates."""
+
+    cache_path: str = "./var/model_registry/models.dev.json"
+    """Path to the cached model registry file."""
+
+    bootstrap_path: str = "./src/resources/model_registry/models.dev.json"
+    """Path to the bootstrap model registry file."""
+
+
+class ModelLimitEnforcementConfig(DomainModel):
+    """Configuration for model limit enforcement."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    """Whether to enforce model limits (context window, etc.)."""
