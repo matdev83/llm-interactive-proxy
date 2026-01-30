@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Model Registry**: Implemented automated LLM model catalog registry and limit enforcement. This includes `ModelCatalogService` for metadata discovery, `ModelCatalogUpdater` for periodic background updates from models.dev, and automated enforcement of context window/token limits in `BackendPreparer` when local configuration is missing.
 - **Gemini OAuth Auto**: Implemented `random` and `first-available` selection strategies for multi-account rotation.
 - **Gemini OAuth Auto**: Added `last_used` usage tracking for registered accounts.
 - **Gemini OAuth Auto**: Added `show` command to `manage_gemini_accounts.py` for detailed account inspection.
