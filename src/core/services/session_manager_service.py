@@ -9,7 +9,7 @@ from __future__ import annotations
 # mypy: disable-error-code="unreachable"
 import logging
 
-from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import Session, SessionInteraction

@@ -318,7 +318,6 @@ class IntelligentSessionResolver(ISessionResolver):
 
         return None
 
-
     async def _try_fuzzy_match(
         self,
         client_key: str,

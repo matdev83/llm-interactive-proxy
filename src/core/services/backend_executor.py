@@ -128,7 +128,7 @@ class BackendExecutor(IBackendExecutor):
             if hasattr(self._session_manager, "update_session_fingerprint"):
                 try:
                     update_method = self._session_manager.update_session_fingerprint  # type: ignore[attr-defined]
-                    await update_method(session_id, list(request.messages))
+                    await update_method(session_id, original_request, context)
                 except Exception as e:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
