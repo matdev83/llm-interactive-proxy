@@ -38,6 +38,7 @@ class AccountSelectorService:
         self._selection_strategy = selection_strategy
         self._lock = asyncio.Lock()
         self._accounts: list[StoredAccount] = []
+        self._blocked_account_ids: set[str] = set()
         self._current_idx: int = 0
 
     async def reload_accounts(self) -> None:
@@ -85,6 +86,7 @@ class AccountSelectorService:
                     account
                     for account in self._accounts
                     if not account.is_rate_limited(now_ms)
+                    and account.account_id not in self._blocked_account_ids
                 ]
 
                 if not eligible:
@@ -169,3 +171,23 @@ class AccountSelectorService:
             if existing.account_id == account_id:
                 self._current_idx = i
                 return
+
+    async def mark_current_account_blocked(self, reason: str) -> None:
+        """Mark the currently selected account as blocked/unusable until restart.
+
+        Args:
+            reason: Reason why the account is being blocked.
+        """
+        async with self._lock:
+            account = self.get_current_account()
+            if not account:
+                return
+
+            account_id = account.account_id
+            if account_id not in self._blocked_account_ids:
+                self._blocked_account_ids.add(account_id)
+                logger.warning(
+                    "Account %s blocked until restart. Reason: %s",
+                    account_id,
+                    reason,
+                )

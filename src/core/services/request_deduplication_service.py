@@ -70,7 +70,7 @@ class RequestDeduplicationService:
 
     def __init__(
         self,
-        window_seconds: float = 3.0,
+        window_seconds: float = 6.0,
         enabled: bool = True,
         max_cache_size: int = 10000,
     ) -> None:
@@ -185,7 +185,17 @@ class RequestDeduplicationService:
                     return (False, content_hash)
 
                 # Check if within deduplication window and status is blockable
-                if age < self._window_seconds and tracked.status in (
+                # CRITICAL: Use much longer window for 403 Forbidden to prevent
+                # hitting the backend with requests that caused an account block.
+                # Also use a longer window (e.g. 1 minute) for 204 No Content (empty stream)
+                # to prevent rapid retries of requests that the model refuses to answer.
+                effective_window = self._window_seconds
+                if tracked.status_code == 403:
+                    effective_window = max(effective_window, 300.0)  # 5 minute block
+                elif tracked.status_code == 204:
+                    effective_window = max(effective_window, 60.0)   # 1 minute block
+
+                if age < effective_window and tracked.status in (
                     RequestStatus.IN_FLIGHT,
                     RequestStatus.SUCCESS,
                     RequestStatus.CLIENT_DISCONNECT,
@@ -204,11 +214,14 @@ class RequestDeduplicationService:
 
                 # Outside window or unknown status - treat as new request
                 if logger.isEnabledFor(logging.DEBUG):
+                    # Use more descriptive message that doesn't imply a bug
+                    # (status unknown is common after cleanup or for retriable errors)
                     logger.debug(
-                        "Request expired or status unknown: hash=%s session=%s age=%.2fs",
+                        "Request tracking expired (age=%.2fs > window=%.1fs) or status reset; treating as new request: hash=%s session=%s",
+                        age,
+                        self._window_seconds,
                         content_hash[:8],
                         session_id,
-                        age,
                     )
 
             # New request or expired - register as in-flight

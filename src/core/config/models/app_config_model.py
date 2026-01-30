@@ -63,7 +63,7 @@ class AppConfigModel(DomainModel, IConfig):
     disable_health_checks: bool = False
     enable_activity_tracking: bool = False
 
-    request_dedup_window: float = 3.0
+    request_dedup_window: float = 6.0
     request_dedup_max_cache: int = 10000
 
     default_rate_limit: int = 60

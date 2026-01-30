@@ -245,6 +245,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         raise BackendError(
             message="Upstream model returned no content after retries",
             backend_name=None,
+            status_code=204,  # Use 204 No Content to trigger longer dedup window
             details={
                 "session_id": session_id,
                 "reason": reason,
@@ -901,26 +902,14 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     yield chunk
 
             if not seen_meaningful:
-                if seen_any and buffered:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Streaming response contained only empty chunks for session %s; "
-                            "passing through without empty-stream retry.",
-                            processing_context.session_id,
-                        )
-                    for buffered_chunk in buffered:
-                        yield buffered_chunk
-                    return
-
-                if not seen_any:
-                    # Use retry_depth + 1 to match middleware's retry_count tracking
-                    # (retry_count starts at 1 for first retry)
-                    raise EmptyResponseRetryError(
-                        recovery_prompt=_STREAM_RECOVERY_PROMPT,
-                        session_id=processing_context.session_id,
-                        retry_count=retry_depth + 1,
-                        original_request=request,
-                    )
+                # Use retry_depth + 1 to match middleware's retry_count tracking
+                # (retry_count starts at 1 for first retry)
+                raise EmptyResponseRetryError(
+                    recovery_prompt=_STREAM_RECOVERY_PROMPT,
+                    session_id=processing_context.session_id,
+                    retry_count=retry_depth + 1,
+                    original_request=request,
+                )
 
         # Handle empty stream recovery
         async def stream_with_empty_recovery() -> AsyncIterator[ProcessedResponse]:
@@ -996,13 +985,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     metadata=getattr(retry_response, "metadata", {}),
                 )
 
-        backend_name = processing_context.backend_name or ""
-        use_empty_recovery = "gemini" not in backend_name.lower()
-        content_stream = (
-            stream_with_empty_recovery()
-            if use_empty_recovery
-            else attach_metadata_stream()
-        )
+        content_stream = stream_with_empty_recovery()
 
         return StreamingResponseEnvelope(
             content=content_stream,

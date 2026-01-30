@@ -15,7 +15,7 @@ class TestRequestDeduplicationService:
     @pytest.fixture
     def service(self) -> RequestDeduplicationService:
         """Create a deduplication service with default settings."""
-        return RequestDeduplicationService(window_seconds=3.0, enabled=True)
+        return RequestDeduplicationService(window_seconds=6.0, enabled=True)
 
     @pytest.fixture
     def short_window_service(self) -> RequestDeduplicationService:
@@ -116,7 +116,7 @@ class TestRequestDeduplicationService:
         self, sample_request: ChatRequest
     ) -> None:
         """Disabled service should never detect duplicates."""
-        service = RequestDeduplicationService(window_seconds=3.0, enabled=False)
+        service = RequestDeduplicationService(window_seconds=6.0, enabled=False)
 
         await service.check_and_register(sample_request, "session-1")
 
@@ -254,7 +254,7 @@ class TestStatusAwareDeduplication:
     @pytest.fixture
     def service(self) -> RequestDeduplicationService:
         """Create a deduplication service with default settings."""
-        return RequestDeduplicationService(window_seconds=5.0, enabled=True)
+        return RequestDeduplicationService(window_seconds=6.0, enabled=True)
 
     @pytest.fixture
     def sample_request(self) -> ChatRequest:
@@ -399,6 +399,61 @@ class TestStatusAwareDeduplication:
         # Retry should be blocked (treated as success for dedup purposes)
         is_dup, _ = await service.check_and_register(sample_request, "session-1")
         assert is_dup is True, "Retry after 400 should be blocked"
+
+    @pytest.mark.asyncio
+    async def test_retry_after_403_blocked_for_longer(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after 403 Forbidden should be blocked for an extended window (5 mins)."""
+        from tests.utils.fake_clock import FakeClockContext
+
+        async with FakeClockContext() as clock:
+            # First request
+            is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+
+            # Mark as 403 (Forbidden/Block)
+            await service.mark_request_complete(hash1, "session-1", status_code=403)
+
+            # Advance past default window (3s) but still within 5 mins (300s)
+            clock.advance(10.0)
+
+            # Retry should STILL be blocked
+            is_dup, _ = await service.check_and_register(sample_request, "session-1")
+            assert is_dup is True, "Retry after 403 should be blocked even after default window"
+
+            # Advance past 5 mins (total 310s)
+            clock.advance(300.0)
+
+            # Now it should be allowed (treated as new request)
+            is_dup, _ = await service.check_and_register(sample_request, "session-1")
+            assert is_dup is False
+
+    @pytest.mark.asyncio
+    async def test_retry_after_204_blocked_for_longer(
+        self, service: RequestDeduplicationService, sample_request: ChatRequest
+    ) -> None:
+        """Retry after 204 No Content (empty response) should be blocked for a longer window (1 min)."""
+        from tests.utils.fake_clock import FakeClockContext
+
+        async with FakeClockContext() as clock:
+            # First request
+            is_dup, hash1 = await service.check_and_register(sample_request, "session-1")
+
+            # Mark as 204 (No Content / Empty Response)
+            await service.mark_request_complete(hash1, "session-1", status_code=204)
+
+            # Advance past default window (3s) but still within 1 min (60s)
+            clock.advance(10.0)
+
+            # Retry should STILL be blocked
+            is_dup, _ = await service.check_and_register(sample_request, "session-1")
+            assert is_dup is True, "Retry after 204 should be blocked even after default window"
+
+            # Advance past 1 min (total 70s)
+            clock.advance(60.0)
+
+            is_dup, _ = await service.check_and_register(sample_request, "session-1")
+            assert is_dup is False
 
     @pytest.mark.asyncio
     async def test_zombie_pattern_detection(

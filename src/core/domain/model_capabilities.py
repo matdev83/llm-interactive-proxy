@@ -545,4 +545,25 @@ KNOWN_MODEL_CAPABILITIES = {
             context_window=1048576,
         ),
     ),
+    "gemini-3-pro-preview": ModelCapabilities(
+        model_id="gemini-3-pro-preview",
+        backend_type="google",
+        metadata=ModelMetadata(
+            name="gemini-3-pro-preview",
+            display_name="Gemini 3 Pro Preview",
+            description="Google's next generation powerful model (Preview)",
+            provider="Google",
+            tags=["general", "reasoning", "coding", "multimodal", "preview"],
+        ),
+        capabilities=[
+            ModelCapability.CHAT,
+            ModelCapability.VISION,
+            ModelCapability.STREAMING,
+            ModelCapability.REASONING,
+        ],
+        limits=ModelLimits(
+            max_tokens=2097152,
+            context_window=2097152,
+        ),
+    ),
 }

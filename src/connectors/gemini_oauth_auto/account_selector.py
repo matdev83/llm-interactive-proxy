@@ -62,6 +62,7 @@ class AccountSelectorService(IAccountSelector):
 
         self._current_account: StoredAccount | None = None
         self._accounts: list[StoredAccount] = []
+        self._blocked_account_ids: set[str] = set()
         self._rotation_index: int = 0
         self._initialized: bool = False
 
@@ -117,11 +118,16 @@ class AccountSelectorService(IAccountSelector):
         """Get list of accounts that don't need reauthorization.
 
         Applies allowlist filtering when `allowed_account_ids` is configured.
+        Filters out accounts that are blocked in-memory until restart.
 
         Returns:
-            List of accounts with needs_reauth=False
+            List of accounts with needs_reauth=False and not blocked.
         """
-        accounts = [acc for acc in self._accounts if not acc.needs_reauth]
+        accounts = [
+            acc
+            for acc in self._accounts
+            if not acc.needs_reauth and acc.account_id not in self._blocked_account_ids
+        ]
         if self._allowed_account_ids is None:
             return accounts
         return [acc for acc in accounts if acc.account_id in self._allowed_account_ids]
@@ -365,3 +371,25 @@ class AccountSelectorService(IAccountSelector):
             len(self._accounts),
             self._rotation_index,
         )
+
+    async def mark_current_account_blocked(self, reason: str) -> None:
+        """Mark the currently selected account as blocked/unusable until restart.
+
+        Args:
+            reason: Reason why the account is being blocked.
+        """
+        if not self._current_account:
+            return
+
+        account_id = self._current_account.account_id
+        if account_id not in self._blocked_account_ids:
+            self._blocked_account_ids.add(account_id)
+            logger.warning(
+                "Account %s blocked until restart. Reason: %s",
+                account_id,
+                reason,
+            )
+            # Advancing index is not strictly necessary here as get_next_account
+            # will skip this account next time, but clearing current ensures
+            # we don't try to use it again for the same request if logic repeats.
+            self._current_account = None

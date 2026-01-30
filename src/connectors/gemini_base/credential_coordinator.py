@@ -287,6 +287,80 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
         """
         return self.credentials_obj
 
+    @property
+    def _credentials(self) -> GeminiOAuthCredentials | None:
+        """Backward-compatible access to credentials."""
+        return self.credentials_obj
+
+    @_credentials.setter
+    def _credentials(self, value: GeminiOAuthCredentials | None) -> None:
+        """Backward-compatible setter for credentials."""
+        self.credentials_obj = value
+
+    @property
+    def _credentials_path(self) -> Path | None:
+        """Backward-compatible access to credentials path."""
+        return self.credentials_path
+
+    @_credentials_path.setter
+    def _credentials_path(self, value: Path | None) -> None:
+        """Backward-compatible setter for credentials path."""
+        self.credentials_path = value
+
+    @property
+    def _last_modified(self) -> float:
+        """Backward-compatible access to last modified timestamp."""
+        return self.last_modified_ts
+
+    @_last_modified.setter
+    def _last_modified(self, value: float) -> None:
+        """Backward-compatible setter for last modified timestamp."""
+        self.last_modified_ts = value
+
+    @property
+    def _credentials_fingerprint(self) -> str | None:
+        """Backward-compatible access to credentials fingerprint."""
+        return self.credentials_fingerprint
+
+    @_credentials_fingerprint.setter
+    def _credentials_fingerprint(self, value: str | None) -> None:
+        """Backward-compatible setter for credentials fingerprint."""
+        self.credentials_fingerprint = value
+
+    @property
+    def _credentials_file_hash(self) -> str | None:
+        """Backward-compatible access to credentials file hash."""
+        return self.credentials_file_hash
+
+    @_credentials_file_hash.setter
+    def _credentials_file_hash(self, value: str | None) -> None:
+        """Backward-compatible setter for credentials file hash."""
+        self.credentials_file_hash = value
+
+    @property
+    def _last_credentials_event_hash(self) -> str | None:
+        """Backward-compatible access to last credentials event hash."""
+        return self.last_credentials_event_hash
+
+    @_last_credentials_event_hash.setter
+    def _last_credentials_event_hash(self, value: str | None) -> None:
+        """Backward-compatible setter for last credentials event hash."""
+        self.last_credentials_event_hash = value
+
+    @property
+    def _gemini_cli_oauth_path(self) -> str | None:
+        """Backward-compatible access to custom .gemini path."""
+        return self.gemini_cli_oauth_path
+
+    @_gemini_cli_oauth_path.setter
+    def _gemini_cli_oauth_path(self, value: str | None) -> None:
+        """Backward-compatible setter for custom .gemini path."""
+        self.gemini_cli_oauth_path = value
+
+    async def _handle_credentials_file_change(self) -> None:
+        """Backward-compatible alias for file change handler."""
+        await self.handle_credentials_file_change()
+
     def _schedule_credentials_reload(self) -> None:
         """Schedule an asynchronous reload when the credentials file changes."""
         # Sync main_loop to state

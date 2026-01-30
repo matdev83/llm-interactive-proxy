@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, cast
 import httpx
 import requests  # type: ignore[import-untyped]
 from fastapi import HTTPException
+from pydantic.types import JsonValue
 
 from src.core.domain.chat import (
     CanonicalChatRequest,
@@ -44,6 +45,7 @@ from src.connectors.gemini_base.credential_coordinator import (
 from src.connectors.gemini_base.credential_loader import (
     CredentialLoader,
     CredentialPathValidationResult,
+    CredentialStorage,
     CredentialStructureValidationResult,
 )
 from src.connectors.gemini_base.credentials import (
@@ -393,7 +395,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._default_prompt_limit = getattr(
             self, "default_prompt_limit", DEFAULT_CODE_ASSIST_PROMPT_LIMIT
         )
-        raw_overrides = dict(getattr(self, "prompt_limit_overrides", {}) or {})
+        raw_overrides = cast(
+            dict[str, Any], dict(getattr(self, "prompt_limit_overrides", {}) or {})
+        )
         self._prompt_limit_overrides: dict[str, int] = {}
         for key, limit in raw_overrides.items():
             if limit is None:
@@ -590,9 +594,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """
         if self._streaming_executor_instance is None:
             # Determine read timeout from config or default
-            read_timeout = getattr(
-                self.config, "gemini_read_timeout", None
-            )
+            read_timeout = getattr(self.config, "gemini_read_timeout", None)
             # If not configured or invalid, let StreamingExecutor use its default
             if not isinstance(read_timeout, int | float):
                 read_timeout = None
@@ -1034,7 +1036,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self, force_reload: bool = False, silent: bool = False
     ) -> bool:
         """Load OAuth credentials from oauth_creds.json file."""
-        return await CredentialLoader.load_oauth_credentials(self, force_reload, silent)  # type: ignore[arg-type]
+        storage = cast(CredentialStorage, self)
+        return await CredentialLoader.load_oauth_credentials(
+            storage, force_reload, silent
+        )
 
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize backend with enhanced validation following the stale token handling pattern."""
@@ -1088,11 +1093,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         except AuthenticationError as e:
             # Convert coordinator errors to initialization failures
             errors = [str(e.message)] if hasattr(e, "message") else [str(e)]
-            if (
-                hasattr(e, "details")
-                and e.details
-                and "errors" in e.details
-            ):
+            if hasattr(e, "details") and e.details and "errors" in e.details:
                 errors = e.details["errors"]
             self._fail_init(errors)
             return
@@ -1125,7 +1126,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 ):
                     # Access private attributes for backward compatibility with concrete implementations
                     self.available_models = getattr(registry, "_available_models", [])
-                    self._available_models_set = getattr(registry, "_available_models_set", set())
+                    self._available_models_set = getattr(
+                        registry, "_available_models_set", set()
+                    )
                     self._models_from_api = getattr(registry, "_models_from_api", False)
             except Exception as e:
                 logger.warning(
@@ -1158,7 +1161,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             ):
                 # Access private attributes for backward compatibility with concrete implementations
                 self.available_models = getattr(registry, "_available_models", [])
-                self._available_models_set = getattr(registry, "_available_models_set", set())
+                self._available_models_set = getattr(
+                    registry, "_available_models_set", set()
+                )
                 self._models_from_api = getattr(registry, "_models_from_api", False)
         else:
             # Fallback to old logic
@@ -1225,6 +1230,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         # without circular imports if possible, but importing from config is cleaner.
         try:
             from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
+
             models = list(DEFAULT_AVAILABLE_MODELS)
         except ImportError:
             # Fallback if config import fails (unlikely)
@@ -1993,7 +1999,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     getattr(request_data, "session_id", None),
                     effective_model,
                 )
-                error_payload = {
+                error_payload: dict[str, JsonValue] = {
                     "choices": [{"delta": {}, "finish_reason": "error", "index": 0}],
                     "error": chunk.metadata.get("error"),
                 }
@@ -2108,11 +2114,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Create a thought-signature storage callback for streaming executor."""
 
         def callback(tool_calls: list[dict[str, Any]], session_id: str | None) -> None:
-            if self._thought_signature_service is not None:
-                self._thought_signature_service.store_signatures_from_tool_calls(
-                    tool_calls,
-                    session_id,
-                )
+            self._thought_signature_service.store_signatures_from_tool_calls(
+                tool_calls,
+                session_id,
+            )
 
         return callback
 
@@ -2404,11 +2409,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         retry_after = self._extract_retry_delay(error) if error else None
         details: dict[str, Any] = {}
         if error and error.details:
-            details = (
-                dict(error.details)
-                if isinstance(error.details, dict)
-                else {"raw": error.details}
-            )
+            details = dict(error.details)
         if retry_after is not None:
             details["retry_after"] = retry_after
 
@@ -2496,15 +2497,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         if hasattr(self, "_file_watcher_state"):
             self._stop_file_watching()
 
-        # Cleanup CLI refresh process via token manager
-        # Note: This is best-effort cleanup in __del__. The preferred path
-        # is via shutdown() which calls token_manager.cleanup() explicitly.
-        if hasattr(self, "_token_manager"):
-            cli_process = self._token_manager._cli_refresh_process
-            if cli_process and cli_process.poll() is None:
-                with contextlib.suppress(Exception):
-                    cli_process.terminate()
-            self._token_manager._cli_refresh_process = None
+        # TokenManager handles subprocess cleanup in its own __del__
 
         # Cancel recovery probe task if running
         # During shutdown, we need to cancel the task without trying to schedule it

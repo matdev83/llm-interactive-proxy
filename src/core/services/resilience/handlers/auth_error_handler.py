@@ -48,10 +48,15 @@ class AuthErrorHandler(BaseErrorHandler):
             error: The exception to check
 
         Returns:
-            True if this is a 401/403 or AuthenticationError
+            True if this is a 401/403, AuthenticationError, or contains a block message
         """
         # Check for our domain AuthenticationError
         if isinstance(error, AuthenticationError):
+            return True
+
+        # Check for specific block message "To continue, validate"
+        error_msg = str(error)
+        if "To continue, validate" in error_msg:
             return True
 
         # Check for HTTP 401/403 status code
@@ -77,7 +82,10 @@ class AuthErrorHandler(BaseErrorHandler):
         Returns:
             ResilienceAction indicating instance was disabled
         """
-        if context.extra.get("is_personal_backend") is True:
+        if (
+            context.extra.get("is_personal_backend") is True
+            and ":" not in context.instance_id
+        ):
             return ResilienceAction(
                 type=ActionType.PROCEED,
                 reason="Auth errors for personal OAuth backends are not globally disabled",

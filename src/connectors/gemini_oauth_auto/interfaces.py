@@ -195,3 +195,12 @@ class IAccountSelector(ABC):
             account: The updated account model.
         """
         ...
+
+    @abstractmethod
+    async def mark_current_account_blocked(self, reason: str) -> None:
+        """Mark the currently selected account as blocked/unusable until restart.
+
+        Args:
+            reason: Reason why the account is being blocked.
+        """
+        ...

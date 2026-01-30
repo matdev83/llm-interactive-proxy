@@ -339,8 +339,12 @@ class KiroOAuthAutoConnector(LLMBackend):
                     return
                 except BackendError as exc:
                     last_exc = exc
-                    # Fallback on quota or invalid model (might be supported on the other endpoint)
-                    if exc.status_code in (400, 429) or exc.code == "quota_exceeded":
+                    # Fallback on quota, invalid model, or account block (next account will be tried)
+                    if (
+                        exc.status_code in (400, 429)
+                        or exc.code == "quota_exceeded"
+                        or "To continue, validate" in str(exc)
+                    ):
                         continue
                     raise
                 except Exception as exc:
@@ -411,6 +415,16 @@ class KiroOAuthAutoConnector(LLMBackend):
                     )
                 if resp.status_code in (401, 403):
                     body = (await resp.aread()).decode("utf-8", errors="replace")[:2000]
+                    if "To continue, validate" in body:
+                        await self._selector.mark_current_account_blocked(body)
+                        exc = BackendError(
+                            f"Kiro account blocked: {body}",
+                            status_code=resp.status_code,
+                            code="auth_error",
+                        )
+                        # Prevent global instance disable
+                        setattr(exc, "__resilience_context__", {"is_personal_backend": True})
+                        raise exc
                     raise BackendError(
                         f"Auth error {resp.status_code}: {body}",
                         status_code=resp.status_code,

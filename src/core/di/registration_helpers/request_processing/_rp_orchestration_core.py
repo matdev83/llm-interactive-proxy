@@ -283,7 +283,7 @@ def _create_deduplication_service(
         RequestDeduplicationService,
     )
 
-    dedup_window = getattr(config, "request_dedup_window", 3.0)
+    dedup_window = getattr(config, "request_dedup_window", 6.0)
     dedup_max_cache = getattr(config, "request_dedup_max_cache", 10000)
 
     if dedup_window <= 0:

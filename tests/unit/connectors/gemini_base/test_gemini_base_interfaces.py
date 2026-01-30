@@ -47,6 +47,9 @@ class TestICredentialCoordinator:
                 """Mock refresh_if_needed method."""
                 return True
 
+            async def handle_credentials_file_change(self) -> None:
+                """Mock file change handler."""
+
             @property
             def credentials(self) -> GeminiOAuthCredentials | None:
                 """Mock credentials property."""

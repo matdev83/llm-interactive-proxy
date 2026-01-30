@@ -683,24 +683,38 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         if effective_model.startswith(prefix):
             effective_model = effective_model[len(prefix) :]
 
-        try:
-            result = await super().chat_completions(
-                request_data=request.request,
-                processed_messages=list(request.processed_messages),
-                effective_model=effective_model,
-                identity=request.identity,
-                cancellation_token=request.cancellation_token,
-                cancellation_coordinator=request.cancellation_coordinator,
-                **cast(dict[str, Any], request.options),
-            )
-        except BackendError as e:
-            if getattr(e, "status_code", None) == 429:
-                await self.record_rate_limit(
-                    retry_after_seconds=self._extract_retry_after_seconds(e)
+        while True:
+            try:
+                result = await super().chat_completions(
+                    request_data=request.request,
+                    processed_messages=list(request.processed_messages),
+                    effective_model=effective_model,
+                    identity=request.identity,
+                    cancellation_token=request.cancellation_token,
+                    cancellation_coordinator=request.cancellation_coordinator,
+                    **cast(dict[str, Any], request.options),
                 )
-            if e.code == "quota_exceeded":
-                self._mark_backend_unusable(reason="quota_exceeded")
-            raise
+                break  # Success
+            except BackendError as e:
+                error_str = str(e)
+                if "To continue, validate" in error_str:
+                    await self._account_selector.mark_current_account_blocked(error_str)
+                    self._sync_selected_account_to_base()
+                    # Ensure AuthErrorHandler doesn't disable the entire auto-pool instance
+                    setattr(e, "__resilience_context__", {"is_personal_backend": True})
+
+                    # Try next account if available
+                    if self._account_selector.get_available_count() > 0:
+                        logger.info("Account blocked; retrying with next available account")
+                        continue
+
+                if getattr(e, "status_code", None) == 429:
+                    await self.record_rate_limit(
+                        retry_after_seconds=self._extract_retry_after_seconds(e)
+                    )
+                if e.code == "quota_exceeded":
+                    self._mark_backend_unusable(reason="quota_exceeded")
+                raise
 
         if isinstance(result, StreamingResponseEnvelope) and result.content:
             result.content = self._wrap_stream_for_rotation(result.content)
@@ -719,7 +733,14 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             if isinstance(error_info, dict):
                 error_type = str(error_info.get("type", "")).lower()
                 error_code = error_info.get("code")
-                if error_type == "quota_exceeded" or error_code in (429, 503):
+                error_msg = str(error_info.get("message", ""))
+                if "To continue, validate" in error_msg:
+                    logger.warning(
+                        "Detected account block in stream, triggering rotation"
+                    )
+                    await self._account_selector.mark_current_account_blocked(error_msg)
+                    self._sync_selected_account_to_base()
+                elif error_type == "quota_exceeded" or error_code in (429, 503):
                     logger.warning(
                         "Detected quota error in stream, triggering rotation"
                     )
