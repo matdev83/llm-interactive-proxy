@@ -26,6 +26,7 @@ class ModelCatalogService:
     def __init__(self, config: ModelRegistryConfig) -> None:
         self._config = config
         self._models: dict[str, ModelLimits] = {}
+        self._input_modalities: dict[str, set[str]] = {}
         self._providers: dict[str, Any] = {}
         self.load_catalog()
 
@@ -37,7 +38,9 @@ class ModelCatalogService:
         path_to_load = cache_path if cache_path.exists() else bootstrap_path
 
         if not path_to_load.exists():
-            logger.warning("Model catalog file not found at %s or %s", cache_path, bootstrap_path)
+            logger.warning(
+                "Model catalog file not found at %s or %s", cache_path, bootstrap_path
+            )
             return
 
         try:
@@ -45,9 +48,16 @@ class ModelCatalogService:
                 data = json.load(f)
                 self._parse_catalog(data)
                 if logger.isEnabledFor(logging.INFO):
-                    logger.info("Loaded %d models from %s", len(self._models), path_to_load)
+                    logger.info(
+                        "Loaded %d models from %s", len(self._models), path_to_load
+                    )
         except Exception as e:
-            logger.error("Failed to load model catalog from %s: %s", path_to_load, e, exc_info=True)
+            logger.error(
+                "Failed to load model catalog from %s: %s",
+                path_to_load,
+                e,
+                exc_info=True,
+            )
 
     def _parse_catalog(self, data: dict[str, Any]) -> None:
         """Parse the raw catalog data into internal structures."""
@@ -62,46 +72,60 @@ class ModelCatalogService:
         #   }
         # }
         self._providers = data
-        
+
         parsed_models: dict[str, ModelLimits] = {}
+        parsed_modalities: dict[str, set[str]] = {}
         for provider_id, provider_info in data.items():
             models_data = provider_info.get("models", {})
             for model_id, info in models_data.items():
                 limits = info.get("limit", {})
                 context_window = limits.get("context")
                 max_output = limits.get("output")
-                
+
+                modalities = info.get("modalities", {})
+                input_modalities: set[str] | None = None
+                if isinstance(modalities, dict):
+                    raw_inputs = modalities.get("input")
+                    if isinstance(raw_inputs, list):
+                        input_modalities = {
+                            str(item) for item in raw_inputs if isinstance(item, str)
+                        }
+
                 # Create ModelLimits object
                 model_limits = ModelLimits(
                     context_window=context_window,
                     max_output_tokens=max_output,
-                    max_input_tokens=context_window  # Assume full window available for input
+                    max_input_tokens=context_window,  # Assume full window available for input
                 )
-                
+
                 # Store with various keys for better lookup
                 parsed_models[model_id] = model_limits
-                
+
+                if input_modalities:
+                    parsed_modalities[model_id] = input_modalities
+
                 # Also store with provider prefix (using models.dev provider ID)
                 parsed_models[f"{provider_id}:{model_id}"] = model_limits
                 parsed_models[f"{provider_id}/{model_id}"] = model_limits
-                
+
+                if input_modalities:
+                    parsed_modalities[f"{provider_id}:{model_id}"] = input_modalities
+                    parsed_modalities[f"{provider_id}/{model_id}"] = input_modalities
+
         self._models = parsed_models
+        self._input_modalities = parsed_modalities
 
-    def get_limits(self, model_name: str, backend_type: str | None = None) -> ModelLimits | None:
-        """Look up limits for a model, optionally restricted by backend type."""
-        # 1. Try exact match on model_id
-        if model_name in self._models:
-            return self._models[model_name]
+    def _lookup_mapping(
+        self, mapping: dict[str, Any], model_name: str, backend_type: str | None
+    ) -> Any | None:
+        if model_name in mapping:
+            return mapping[model_name]
 
-        # 2. Try with backend prefix if provided
         if backend_type:
-            # backend:model
             fq_name = f"{backend_type}:{model_name}"
-            if fq_name in self._models:
-                return self._models[fq_name]
-            
-            # models.dev often uses provider/model
-            # Map our backend types to models.dev provider names
+            if fq_name in mapping:
+                return mapping[fq_name]
+
             provider = self._PROVIDER_MAP.get(backend_type)
             if provider:
                 candidate_keys = [
@@ -110,25 +134,40 @@ class ModelCatalogService:
                     f"{provider}-{model_name}",
                 ]
                 for k in candidate_keys:
-                    if k in self._models:
-                        return self._models[k]
+                    if k in mapping:
+                        return mapping[k]
 
-        # 3. Try fuzzy match (stripping common prefixes if any)
         if "/" in model_name:
             base_name = model_name.split("/")[-1]
-            if base_name in self._models:
-                return self._models[base_name]
+            if base_name in mapping:
+                return mapping[base_name]
 
-        # 4. Try matching by prefix (e.g., 'claude-3-5-sonnet' matches 'claude-3-5-sonnet-20241022')
-        # Only do this if we have a provider to narrow it down, to avoid false positives
         if backend_type:
             provider = self._PROVIDER_MAP.get(backend_type)
             if provider:
-                # Look for keys starting with provider/model_name or provider:model_name
                 prefix1 = f"{provider}/{model_name}"
                 prefix2 = f"{provider}:{model_name}"
-                for k, v in self._models.items():
+                for k, v in mapping.items():
                     if k.startswith((prefix1, prefix2)):
                         return v
 
+        return None
+
+    def get_limits(
+        self, model_name: str, backend_type: str | None = None
+    ) -> ModelLimits | None:
+        """Look up limits for a model, optionally restricted by backend type."""
+        return self._lookup_mapping(self._models, model_name, backend_type)
+
+    def get_input_modalities(
+        self, model_name: str, backend_type: str | None = None
+    ) -> set[str] | None:
+        """Look up input modalities for a model (e.g., {'text', 'image'})."""
+        modalities = self._lookup_mapping(
+            self._input_modalities, model_name, backend_type
+        )
+        if modalities is None:
+            return None
+        if isinstance(modalities, set):
+            return modalities
         return None

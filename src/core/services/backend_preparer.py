@@ -29,6 +29,31 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _extract_required_input_modalities(request: ChatRequest | None) -> set[str]:
+    required: set[str] = {"text"}
+    if request is None:
+        return required
+
+    for message in request.messages:
+        content = getattr(message, "content", None)
+        parts: list[Any] = []
+        if isinstance(content, list | tuple):
+            parts = list(content)
+        elif isinstance(content, dict):
+            parts = [content]
+
+        for part in parts:
+            part_type = getattr(part, "type", None)
+            if part_type is None and isinstance(part, dict):
+                part_type = part.get("type")
+            if part_type == "image_url":
+                required.add("image")
+            elif part_type == "input_audio":
+                required.add("audio")
+
+    return required
+
+
 class BackendPreparer(IBackendPreparer):
     """
     Handles backend request preparation and validation.
@@ -59,7 +84,6 @@ class BackendPreparer(IBackendPreparer):
         self._backend_request_manager = backend_request_manager
         self._app_state = app_state
         self._model_catalog = model_catalog
-
 
     async def prepare(
         self,
@@ -97,9 +121,13 @@ class BackendPreparer(IBackendPreparer):
                     app_config = self._app_state.get_setting("app_config")
                     if app_config is not None:
                         # Handle both object and dict-like config
-                        enforcement_cfg = getattr(app_config, "model_limit_enforcement", None)
+                        enforcement_cfg = getattr(
+                            app_config, "model_limit_enforcement", None
+                        )
                         if enforcement_cfg is not None:
-                            enforcement_enabled = getattr(enforcement_cfg, "enabled", True)
+                            enforcement_enabled = getattr(
+                                enforcement_cfg, "enabled", True
+                            )
                 except (AttributeError, KeyError, TypeError):
                     enforcement_enabled = True
 
@@ -107,7 +135,6 @@ class BackendPreparer(IBackendPreparer):
                     return backend_request
 
                 model_defaults_map: dict[str, ModelDefaults] = (
-
                     self._app_state.get_model_defaults() or {}
                 )
 
@@ -165,6 +192,39 @@ class BackendPreparer(IBackendPreparer):
                         bool(model_defaults),
                     )
 
+                # Enforce input modality support when catalog data is available
+                if self._model_catalog is not None:
+                    input_modalities = self._model_catalog.get_input_modalities(
+                        model_name, backend_key
+                    )
+                    if isinstance(input_modalities, set) and input_modalities:
+                        required_modalities = _extract_required_input_modalities(
+                            backend_request
+                        )
+                        missing_modalities = required_modalities - input_modalities
+                        if missing_modalities:
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "Unsupported input modalities: required=%s supported=%s missing=%s model=%s",
+                                    sorted(required_modalities),
+                                    sorted(input_modalities),
+                                    sorted(missing_modalities),
+                                    requested_model,
+                                )
+                            raise InvalidRequestError(
+                                message=(
+                                    "Model does not support required input modalities"
+                                ),
+                                code="unsupported_modality",
+                                param="messages",
+                                details={
+                                    "model": requested_model or model_name,
+                                    "required": sorted(required_modalities),
+                                    "supported": sorted(input_modalities),
+                                    "missing": sorted(missing_modalities),
+                                },
+                            )
+
                 # Check for CLI context window override first
                 cli_context_window = None
                 app_state = self._app_state
@@ -193,11 +253,15 @@ class BackendPreparer(IBackendPreparer):
 
                 # Try to get limits from model catalog if not found in model_defaults
                 if limits is None and self._model_catalog is not None:
-                    catalog_limits = self._model_catalog.get_limits(model_name, backend_key)
+                    catalog_limits = self._model_catalog.get_limits(
+                        model_name, backend_key
+                    )
                     if catalog_limits:
                         limits = catalog_limits
                         if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug("Found limits for %s in model catalog", model_name)
+                            logger.debug(
+                                "Found limits for %s in model catalog", model_name
+                            )
 
                 # Apply CLI override if set
 
@@ -278,36 +342,76 @@ class BackendPreparer(IBackendPreparer):
 
                             # Check total token limit (input + max_tokens) against context window
                             max_tokens = getattr(backend_request, "max_tokens", None)
-                            if (
-                                context_window is not None
-                                and context_window > 0
-                                and max_tokens is not None
-                                and max_tokens > 0
-                            ):
-                                total_requested = measured + max_tokens
-                                if total_requested > context_window:
+
+                            # Determine effective max output tokens for safety check
+                            # (what the model is capable of outputting)
+                            max_out_limit = None
+                            if isinstance(limits, dict):
+                                max_out_limit = limits.get("max_output_tokens")
+                            else:
+                                max_out_limit = getattr(
+                                    limits, "max_output_tokens", None
+                                )
+
+                            if context_window is not None and context_window > 0:
+                                # 1. Check against explicitly requested max_tokens
+                                if max_tokens is not None and max_tokens > 0:
+                                    total_requested = measured + max_tokens
+                                    if total_requested > context_window:
+                                        if logger.isEnabledFor(logging.INFO):
+                                            logger.info(
+                                                "Total token limit exceeded: input=%s + max_tokens=%s = %s > context_window=%s model=%s",
+                                                measured,
+                                                max_tokens,
+                                                total_requested,
+                                                context_window,
+                                                requested_model,
+                                            )
+                                        raise InvalidRequestError(
+                                            message="Total token limit exceeded (input + max_tokens exceeds context window)",
+                                            code="total_limit_exceeded",
+                                            param="max_tokens",
+                                            details={
+                                                "model": requested_model or model_name,
+                                                "context_window": int(context_window),
+                                                "input_tokens": measured,
+                                                "max_tokens": max_tokens,
+                                                "total_requested": total_requested,
+                                                "suggestion": f"Reduce max_tokens to {context_window - measured} or less",
+                                            },
+                                        )
+
+                                # 2. Check if input is so large that model's intrinsic max output cannot fit
+                                if (
+                                    max_out_limit is not None
+                                    and max_out_limit > 0
+                                    and measured + max_out_limit > context_window
+                                ):
                                     if logger.isEnabledFor(logging.INFO):
                                         logger.info(
-                                            "Total token limit exceeded: input=%s + max_tokens=%s = %s > context_window=%s model=%s",
+                                            "Model capacity exceeded: input=%s + model_max_output=%s = %s > context_window=%s model=%s",
                                             measured,
-                                            max_tokens,
-                                            total_requested,
+                                            max_out_limit,
+                                            measured + max_out_limit,
                                             context_window,
                                             requested_model,
                                         )
                                     raise InvalidRequestError(
-                                        message="Total token limit exceeded (input + max_tokens exceeds context window)",
-                                        code="total_limit_exceeded",
-                                        param="max_tokens",
+                                        message="Model capacity exceeded: input size leaves no room for maximum model output",
+                                        code="model_capacity_exceeded",
+                                        param="messages",
                                         details={
                                             "model": requested_model or model_name,
                                             "context_window": int(context_window),
                                             "input_tokens": measured,
-                                            "max_tokens": max_tokens,
-                                            "total_requested": total_requested,
-                                            "suggestion": f"Reduce max_tokens to {context_window - measured} or less",
+                                            "model_max_output": max_out_limit,
+                                            "total_required": measured + max_out_limit,
+                                            "available_for_output": max(
+                                                0, context_window - measured
+                                            ),
                                         },
                                     )
+
                     except InvalidRequestError:
                         # Re-raise structured invalid request
                         raise

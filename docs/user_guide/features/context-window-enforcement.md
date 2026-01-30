@@ -14,10 +14,13 @@ The Context Window Enforcement feature enforces per-model context window limits 
 - **Flexible Configuration**: Supports both `context_window` and `max_input_tokens` for fine-grained control
 - **Clear Error Messages**: Provides detailed information about limits and measured token counts
 - **Model-Specific Tokenizers**: Uses model-specific tokenizers when available for accurate counting
+- **Registry-Backed Modality Checks**: Rejects requests with unsupported input modalities (image/audio) when registry metadata is available
 
 ## Configuration
 
 Context windows are configured in backend-specific YAML files or model defaults.
+
+When the model registry is enabled, the proxy can also enforce modality support based on registry metadata. If the registry is missing, a model entry is missing, or modalities are not provided, modality validation is skipped (fail-open).
 
 ### Backend-Specific Configuration
 

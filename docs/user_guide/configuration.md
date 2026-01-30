@@ -105,6 +105,17 @@ context_window_override: null  # Override context window size (int)
 disable_health_checks: false   # Disable /health endpoint (not the health monitoring system)
 gcp_project_id: null           # Google Cloud Project ID
 gemini_credentials_path: null  # Path to Gemini credentials JSON
+
+# Model Registry & Limit Enforcement
+model_registry:
+  download_enabled: true        # Download model metadata updates
+  url: "https://models.dev/api.json"
+  update_interval_seconds: 86400
+  cache_path: "./var/model_registry/models.dev.json"
+  bootstrap_path: "./src/resources/model_registry/models.dev.json"
+
+model_limit_enforcement:
+  enabled: true                 # Enforce context window + modality checks when metadata exists
 ```
 
 ### Backend Settings (`backends`)

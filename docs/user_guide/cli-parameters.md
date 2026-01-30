@@ -52,6 +52,17 @@ Configuration is resolved in the following order (highest to lowest priority):
 
 ---
 
+## Model Registry & Limits
+
+| CLI Argument | Environment Variable | Description |
+| :--- | :--- | :--- |
+| `--disable-model-registry-download` | N/A | Disable downloading updates from the external model registry. |
+| `--model-registry-url URL` | N/A | Override the model registry URL (default: `https://models.dev/api.json`). |
+| `--model-registry-update-interval SECONDS` | N/A | Update interval for registry downloads (default: 86400). |
+| `--disable-model-limit-enforcement` | N/A | Disable automated model limit and modality enforcement based on registry metadata. |
+
+---
+
 ## Authentication & Security
 
 ### API Keys & Tokens
