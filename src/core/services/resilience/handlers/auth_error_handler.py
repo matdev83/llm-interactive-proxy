@@ -82,6 +82,12 @@ class AuthErrorHandler(BaseErrorHandler):
         Returns:
             ResilienceAction indicating instance was disabled
         """
+        backend_type = str(context.extra.get("backend_type", "")).lower()
+        if "oauth-auto" in backend_type:
+            return ResilienceAction(
+                type=ActionType.PROCEED,
+                reason="OAuth auto backends manage auth failures per account",
+            )
         if (
             context.extra.get("is_personal_backend") is True
             and ":" not in context.instance_id

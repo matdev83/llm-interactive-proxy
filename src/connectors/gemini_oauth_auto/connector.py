@@ -52,6 +52,22 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
     backend_type: str = "gemini-oauth-auto"
 
+    _ACCOUNT_BLOCK_MARKERS: tuple[str, ...] = (
+        "to continue, validate",
+        "to continue, verify",
+        "validate your account",
+        "verify your account",
+        "account is suspended",
+        "account suspended",
+        "account disabled",
+        "account has been disabled",
+        "account blocked",
+        "account has been blocked",
+        "suspicious activity",
+        "verify it's you",
+        "confirm your identity",
+    )
+
     def __init__(
         self,
         client: httpx.AsyncClient,
@@ -109,6 +125,49 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 "Failed to sync OAuth auto account into credential coordinator",
                 exc_info=True,
             )
+
+    @classmethod
+    def _is_account_blocked_message(
+        cls,
+        message: str | None,
+        *,
+        status_code: int | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> bool:
+        if status_code != 403:
+            return False
+
+        messages: list[str] = []
+        if isinstance(message, str) and message.strip():
+            messages.append(message)
+
+        if isinstance(details, dict):
+            direct_message = details.get("message")
+            if isinstance(direct_message, str) and direct_message.strip():
+                messages.append(direct_message)
+
+            error_detail = details.get("error")
+            if isinstance(error_detail, dict):
+                error_message = error_detail.get("message")
+                if isinstance(error_message, str) and error_message.strip():
+                    messages.append(error_message)
+            elif isinstance(error_detail, str) and error_detail.strip():
+                messages.append(error_detail)
+
+        for candidate in messages:
+            normalized = candidate.lower()
+            if any(marker in normalized for marker in cls._ACCOUNT_BLOCK_MARKERS):
+                return True
+
+        return False
+
+    @classmethod
+    def _is_account_blocked_error(cls, error: BackendError) -> bool:
+        return cls._is_account_blocked_message(
+            error.message,
+            status_code=getattr(error, "status_code", None),
+            details=getattr(error, "details", None),
+        )
 
     @staticmethod
     def _parse_accounts_allowlist(value: Any) -> set[str] | None:
@@ -696,9 +755,8 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 )
                 break  # Success
             except BackendError as e:
-                error_str = str(e)
-                if "To continue, validate" in error_str:
-                    await self._account_selector.mark_current_account_blocked(error_str)
+                if self._is_account_blocked_error(e):
+                    await self._account_selector.mark_current_account_blocked(e.message)
                     self._sync_selected_account_to_base()
                     # Ensure AuthErrorHandler doesn't disable the entire auto-pool instance
                     e.__resilience_context__ = {"is_personal_backend": True}  # type: ignore[attr-defined]
@@ -736,7 +794,11 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 error_type = str(error_info.get("type", "")).lower()
                 error_code = error_info.get("code")
                 error_msg = str(error_info.get("message", ""))
-                if "To continue, validate" in error_msg:
+                if self._is_account_blocked_message(
+                    error_msg,
+                    status_code=error_code if isinstance(error_code, int) else None,
+                    details=error_info,
+                ):
                     logger.warning(
                         "Detected account block in stream, triggering rotation"
                     )

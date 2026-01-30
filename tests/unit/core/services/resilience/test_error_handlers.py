@@ -283,6 +283,27 @@ class TestAuthErrorHandler:
             == InstanceStatus.DISABLED
         )
 
+    def test_skips_disable_for_oauth_auto_backend(self) -> None:
+        """Should not disable oauth-auto instances on auth errors."""
+        manager = RateLimitStateManager()
+        handler = AuthErrorHandler(manager)
+
+        error = AuthenticationError("Account verification required")
+        context = ErrorContext(
+            instance_id="gemini-oauth-auto:session-123",
+            model="gpt-4",
+            error=error,
+            extra={"backend_type": "gemini-oauth-auto"},
+        )
+
+        action = handler.handle(context)
+
+        assert action.type == ActionType.PROCEED
+        assert (
+            manager.get_instance_status("gemini-oauth-auto:session-123")
+            == InstanceStatus.ACTIVE
+        )
+
     def test_builds_reason_from_error(self) -> None:
         """Should build reason from error message."""
         manager = RateLimitStateManager()
