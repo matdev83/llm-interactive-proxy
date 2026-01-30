@@ -212,6 +212,9 @@ class KimiCodeConnector(OpenAIConnector):
             last_content = ""
             last_reasoning = ""
 
+            # Common reasoning fields used by Kimi and other OpenAI-compatible backends
+            reasoning_keys = ["reasoning_content", "reasoning", "thinking", "thought"]
+
             async for chunk_bytes in response.aiter_bytes():
                 chunk_text = chunk_bytes.decode("utf-8", errors="replace")
                 # DoS protection: cap buffer growth.
@@ -236,7 +239,17 @@ class KimiCodeConnector(OpenAIConnector):
                         yield (event + separator_used).encode("utf-8")
                         continue
 
-                    data_str = event[5:].strip()
+                    # OpenAI/Kimi SSE events are typically "data: {json}\n\n"
+                    # Some backends might send multiple data lines per event (standard SSE)
+                    # We normalize this by taking all data lines.
+                    event_lines = event.split("\n")
+                    data_parts = []
+                    for line in event_lines:
+                        line = line.strip()
+                        if line.startswith("data:"):
+                            data_parts.append(line[5:].strip())
+                    
+                    data_str = " ".join(data_parts)
                     if data_str == "[DONE]":
                         yield (event + separator_used).encode("utf-8")
                         continue
@@ -273,27 +286,39 @@ class KimiCodeConnector(OpenAIConnector):
                             # Delta chunk: forward as-is and update accumulator.
                             last_content += raw_content
                             delta["content"] = raw_content
+                    elif raw_content is None:
+                        # Some clients/backends omit content key if empty; preserve semantics
+                        pass
 
-                    # 2. Handle reasoning_content delta/accumulator
-                    raw_reasoning = delta.get("reasoning_content") or delta.get(
-                        "reasoning"
-                    )
-                    if isinstance(raw_reasoning, str):
+                    # 2. Handle reasoning delta/accumulator (Kimi uses multiple aliases)
+                    # We find the first available reasoning field to use as the master value.
+                    raw_reasoning = None
+                    for key in reasoning_keys:
+                        val = delta.get(key)
+                        if isinstance(val, str):
+                            raw_reasoning = val
+                            break
+
+                    if raw_reasoning is not None:
                         if last_reasoning and raw_reasoning.startswith(last_reasoning):
+                            # Accumulated chunk: forward only the new suffix.
                             delta_reasoning = raw_reasoning[len(last_reasoning) :]
                             last_reasoning = raw_reasoning
                         else:
+                            # Delta chunk: forward as-is and update accumulator.
                             last_reasoning += raw_reasoning
                             delta_reasoning = raw_reasoning
 
                         if delta_reasoning:
-                            if "reasoning_content" in delta:
-                                delta["reasoning_content"] = delta_reasoning
-                            if "reasoning" in delta:
-                                delta["reasoning"] = delta_reasoning
+                            # Update ALL reasoning fields present in the delta with the new delta text.
+                            # This prevents the client from receiving accumulated fields that would cause duplication.
+                            for key in reasoning_keys:
+                                if key in delta:
+                                    delta[key] = delta_reasoning
                         else:
-                            delta.pop("reasoning_content", None)
-                            delta.pop("reasoning", None)
+                            # If no new reasoning content, remove all reasoning fields
+                            for key in reasoning_keys:
+                                delta.pop(key, None)
 
                     rewritten_event = f"data: {json.dumps(data)}"
                     yield (rewritten_event + separator_used).encode("utf-8")

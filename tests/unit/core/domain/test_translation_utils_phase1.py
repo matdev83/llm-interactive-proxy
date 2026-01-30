@@ -91,7 +91,9 @@ def test_media_utils_process_gemini_image_part_rejects_file_scheme_and_local_pat
 
 def test_content_utils_coerce_reasoning_text_picks_common_keys() -> None:
     payload = {"thinking": [" one ", {"text": "two"}], "ignored": "three"}
-    assert content_utils._coerce_reasoning_text(payload) == "one\ntwo"
+    # Note: New behavior preserves spacing and injects newlines between separate sources
+    assert content_utils._coerce_reasoning_text(payload) == " one \ntwo"
+
 
 
 def test_content_utils_safe_string_handles_bytes_and_none() -> None:

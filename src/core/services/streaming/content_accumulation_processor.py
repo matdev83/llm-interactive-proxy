@@ -355,10 +355,10 @@ class ContentAccumulationProcessor(IStreamProcessor):
             reasoning_value = content.metadata.get(
                 "reasoning_content"
             ) or content.metadata.get("reasoning")
-            if isinstance(reasoning_value, str):
-                normalized_reasoning = reasoning_value.strip()
-                if normalized_reasoning:
-                    state.append_reasoning_chunk(normalized_reasoning)
+            if isinstance(reasoning_value, str) and reasoning_value:
+                # IMPORTANT: Do NOT strip here. Preserving whitespace is critical for streaming chunks.
+                state.append_reasoning_chunk(reasoning_value)
+
 
         if raw_chunk:
             chunk_text = ""

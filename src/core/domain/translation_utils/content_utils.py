@@ -40,14 +40,26 @@ def _collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
 
 def _coerce_reasoning_text(value: Any) -> str | None:
     """Flatten nested reasoning payloads into a normalized text snippet."""
-    parts = [
-        segment.strip()
-        for segment in _collect_reasoning_lines(value)
-        if isinstance(segment, str) and segment.strip()
-    ]
+    # IMPORTANT: Do NOT strip segments here. In streaming mode, segments are often
+    # single tokens (spaces, newlines, or words with leading/trailing spaces).
+    # Stripping them causes concatenation issues (e.g. "word word" -> "wordword").
+    parts = _collect_reasoning_lines(value)
     if not parts:
         return None
+    
+    # Filter out empty strings but keep whitespace-only strings (tokens)
+    parts = [p for p in parts if p != ""]
+    if not parts:
+        return None
+        
+    # If we have a single part, return it as-is to preserve streaming tokens
+    if len(parts) == 1:
+        return parts[0]
+        
+    # For multiple parts, join them with newlines as they likely represent 
+    # different sources or blocks of reasoning.
     return "\n".join(parts)
+
 
 
 def _safe_string(value: Any) -> str:

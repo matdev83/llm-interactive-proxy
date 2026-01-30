@@ -672,8 +672,8 @@ class ThinkTagsProcessor(IStreamProcessor):
             match.groups()
         )
 
-        # Clean up reasoning content while keeping response whitespace intact
-        reasoning_content = reasoning_content.strip() if reasoning_content else ""
+        # Keep reasoning content whitespace intact to avoid merging issues in some clients
+        reasoning_content = reasoning_content if reasoning_content else ""
         response_content = (
             f"{leading_space}{middle_space}{remaining_content}"
             if remaining_content is not None
