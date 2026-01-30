@@ -8,8 +8,6 @@ pytestmark = pytest.mark.filterwarnings(
 from typing import Any, cast
 from unittest.mock import AsyncMock, patch
 
-from fastapi import FastAPI
-
 # Ensure no module-level skips are applied - DEBUG TEST
 from starlette.testclient import TestClient
 

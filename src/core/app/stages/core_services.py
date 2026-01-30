@@ -12,10 +12,10 @@ This stage registers fundamental services that have minimal dependencies:
 from __future__ import annotations
 
 import contextlib
-import httpx
 import logging
-
 from typing import cast
+
+import httpx
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
@@ -33,7 +33,6 @@ from src.core.services.intelligent_session_resolver import IntelligentSessionRes
 from src.core.services.model_catalog_service import ModelCatalogService
 from src.core.services.model_catalog_updater import ModelCatalogUpdater
 from src.core.services.response_processor_service import ResponseProcessor
-
 from src.core.services.secure_state_service import SecureStateService
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 

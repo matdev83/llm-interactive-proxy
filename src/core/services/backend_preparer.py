@@ -385,6 +385,7 @@ class BackendPreparer(IBackendPreparer):
                                 if (
                                     max_out_limit is not None
                                     and max_out_limit > 0
+                                    and max_out_limit < context_window
                                     and measured + max_out_limit > context_window
                                 ):
                                     if logger.isEnabledFor(logging.INFO):

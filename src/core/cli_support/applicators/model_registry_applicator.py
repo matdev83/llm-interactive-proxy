@@ -9,7 +9,6 @@ This applicator handles:
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
