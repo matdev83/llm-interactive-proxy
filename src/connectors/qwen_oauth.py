@@ -59,8 +59,6 @@ QWEN_VENDOR_PREFIX = "qwen"
 TOKEN_EXPIRY_BUFFER_SECONDS = 30.0
 CLI_REFRESH_THRESHOLD_SECONDS = 120.0
 CLI_REFRESH_COOLDOWN_SECONDS = 30.0
-TOKEN_REFRESH_MAX_WAIT_SECONDS = 30.0
-TOKEN_REFRESH_POLL_INTERVAL_SECONDS = 1.0
 
 # For testing purposes, allow environment override of wait times
 import os
@@ -72,12 +70,10 @@ _DEBUG_OVERRIDE_DEFAULT = os.environ.get(
 ).lower() not in {"0", "false", "no"}
 
 TOKEN_REFRESH_MAX_WAIT_SECONDS = float(
-    os.getenv("QWEN_TOKEN_REFRESH_MAX_WAIT_SECONDS", TOKEN_REFRESH_MAX_WAIT_SECONDS)
+    os.getenv("QWEN_TOKEN_REFRESH_MAX_WAIT_SECONDS", "30.0")
 )
 TOKEN_REFRESH_POLL_INTERVAL_SECONDS = float(
-    os.getenv(
-        "QWEN_TOKEN_REFRESH_POLL_INTERVAL_SECONDS", TOKEN_REFRESH_POLL_INTERVAL_SECONDS
-    )
+    os.getenv("QWEN_TOKEN_REFRESH_POLL_INTERVAL_SECONDS", "1.0")
 )
 CLI_REFRESH_COMMAND = [
     "qwen",
@@ -123,12 +119,15 @@ def _create_file_handler(connector: "QwenOAuthConnector"):
 
         def on_modified(self, event):
             """Handle file modification events."""
-            if not event.is_directory and event.src_path == str(
-                self.connector._credentials_path
+            credentials_path = self.connector.get_credentials_path()
+            if (
+                not event.is_directory
+                and credentials_path is not None
+                and event.src_path == str(credentials_path)
             ):
                 if logger.isEnabledFor(logging.INFO):
                     logger.info("OAuth credentials file modified: %s", event.src_path)
-                self.connector._schedule_credentials_reload()
+                self.connector.schedule_credentials_reload()
 
     return QwenCredentialsFileHandler(connector)
 
@@ -218,6 +217,14 @@ class QwenOAuthConnector(OpenAIConnector):
 
         expiry_seconds = float(expiry_value) / 1000.0
         return expiry_seconds - time.time()
+
+    def get_credentials_path(self) -> Path | None:
+        """Expose credentials path for file watchers."""
+        return self._credentials_path
+
+    def schedule_credentials_reload(self) -> None:
+        """Trigger a reload after credential changes."""
+        self._schedule_credentials_reload()
 
     def _should_trigger_cli_refresh(self) -> bool:
         """Determine whether we should proactively trigger CLI token refresh."""
@@ -1424,8 +1431,10 @@ class QwenOAuthConnector(OpenAIConnector):
                         # Convert the dict to a ChatMessage object with modified content
                         from src.core.domain.chat import ChatMessage
 
-                        modified_chat_message = ChatMessage(
-                            **{**msg, "content": content + " /think"}
+                        modified_payload = dict(msg)
+                        modified_payload["content"] = content + " /think"
+                        modified_chat_message = ChatMessage.model_validate(
+                            modified_payload
                         )
                         processed_messages[last_client_message_idx] = (
                             modified_chat_message
@@ -1487,10 +1496,14 @@ class QwenOAuthConnector(OpenAIConnector):
         # Update the request with processed model name
         request.effective_model = model_name
 
-        # Call parent's canonical implementation directly
-        # Note: Tests that mock OpenAIConnector.chat_completions need to mock _chat_completions_canonical instead
+        # Call parent's canonical implementation directly.
+        # Import at call time to avoid stale base-class references after module reloads in tests.
         try:
-            response_envelope = await super()._chat_completions_canonical(request)
+            from src.connectors.openai import OpenAIConnector as OpenAIConnectorRuntime
+
+            response_envelope = (
+                await OpenAIConnectorRuntime._chat_completions_canonical(self, request)
+            )
 
             # Calculate and augment token usage if missing or has zero values
             if isinstance(response_envelope, ResponseEnvelope):
@@ -1685,13 +1698,15 @@ class QwenOAuthConnector(OpenAIConnector):
                 },
             )
 
-        # Call parent's chat_completions with legacy parameters
-        # This ensures the parent method is called (for test mocking) and will
-        # convert to canonical and call _chat_completions_canonical, which we override
-        # to do Qwen-specific processing (token refresh, credential validation, model name processing)
-        # Pass all parameters as keyword arguments to match test expectations
+        # Call the runtime OpenAIConnector implementation to avoid stale base-class
+        # references after connector reloads in tests. This keeps the legacy
+        # behavior (canonical conversion + call into _chat_completions_canonical)
+        # while honoring patches applied to OpenAIConnector.
         try:
-            return await super().chat_completions(
+            from src.connectors.openai import OpenAIConnector as OpenAIConnectorRuntime
+
+            return await OpenAIConnectorRuntime.chat_completions(
+                self,
                 request_data=request_data,
                 processed_messages=processed_messages,
                 effective_model=effective_model,

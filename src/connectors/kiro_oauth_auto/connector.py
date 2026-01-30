@@ -423,11 +423,7 @@ class KiroOAuthAutoConnector(LLMBackend):
                             code="auth_error",
                         )
                         # Prevent global instance disable
-                        setattr(
-                            exc,
-                            "__resilience_context__",
-                            {"is_personal_backend": True},
-                        )
+                        exc.__resilience_context__ = {"is_personal_backend": True}
                         raise exc
                     raise BackendError(
                         f"Auth error {resp.status_code}: {body}",

@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 class LLMProxyError(Exception):
     """Base exception class for all LLM proxy errors."""
 
+    __resilience_context__: dict[str, Any] | None
+
     def __init__(
         self,
         message: str,
@@ -37,6 +39,7 @@ class LLMProxyError(Exception):
         self.message = message
         self.details = details or {}
         self.status_code = status_code or 500
+        self.__resilience_context__ = None
         # Attach any extra attributes provided for compatibility with callers/tests
         for key, value in (kwargs or {}).items():
             setattr(self, key, value)

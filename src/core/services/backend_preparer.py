@@ -165,18 +165,16 @@ class BackendPreparer(IBackendPreparer):
                 model_name: str = parsed.model_name
 
                 model_catalog = self._model_catalog
-
-                # If registry data is unavailable or model is missing, skip enforcement
-                if model_catalog is None:
-                    return backend_request
-
-                if not model_catalog.has_model(model_name, backend_key):
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Skipping limit/modality enforcement: model not found in registry (%s)",
-                            requested_model,
-                        )
-                    return backend_request
+                model_in_catalog = False
+                if model_catalog is not None:
+                    model_in_catalog = model_catalog.has_model(model_name, backend_key)
+                    if not model_in_catalog:
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Skipping limit/modality enforcement: model not found in registry (%s)",
+                                requested_model,
+                            )
+                        return backend_request
 
                 # Candidate keys to look up defaults
                 candidate_keys: list[str] = []
@@ -209,36 +207,37 @@ class BackendPreparer(IBackendPreparer):
                     )
 
                 # Enforce input modality support when catalog data is available
-                input_modalities = model_catalog.get_input_modalities(
-                    model_name, backend_key
-                )
-                if isinstance(input_modalities, set) and input_modalities:
-                    required_modalities = _extract_required_input_modalities(
-                        backend_request
+                if model_catalog is not None and model_in_catalog:
+                    input_modalities = model_catalog.get_input_modalities(
+                        model_name, backend_key
                     )
-                    missing_modalities = required_modalities - input_modalities
-                    if missing_modalities:
-                        if logger.isEnabledFor(logging.INFO):
-                            logger.info(
-                                "Unsupported input modalities: required=%s supported=%s missing=%s model=%s",
-                                sorted(required_modalities),
-                                sorted(input_modalities),
-                                sorted(missing_modalities),
-                                requested_model,
-                            )
-                        raise InvalidRequestError(
-                            message=(
-                                "Model does not support required input modalities"
-                            ),
-                            code="unsupported_modality",
-                            param="messages",
-                            details={
-                                "model": requested_model or model_name,
-                                "required": sorted(required_modalities),
-                                "supported": sorted(input_modalities),
-                                "missing": sorted(missing_modalities),
-                            },
+                    if isinstance(input_modalities, set) and input_modalities:
+                        required_modalities = _extract_required_input_modalities(
+                            backend_request
                         )
+                        missing_modalities = required_modalities - input_modalities
+                        if missing_modalities:
+                            if logger.isEnabledFor(logging.INFO):
+                                logger.info(
+                                    "Unsupported input modalities: required=%s supported=%s missing=%s model=%s",
+                                    sorted(required_modalities),
+                                    sorted(input_modalities),
+                                    sorted(missing_modalities),
+                                    requested_model,
+                                )
+                            raise InvalidRequestError(
+                                message=(
+                                    "Model does not support required input modalities"
+                                ),
+                                code="unsupported_modality",
+                                param="messages",
+                                details={
+                                    "model": requested_model or model_name,
+                                    "required": sorted(required_modalities),
+                                    "supported": sorted(input_modalities),
+                                    "missing": sorted(missing_modalities),
+                                },
+                            )
 
                 # Check for CLI context window override first
                 cli_context_window = None
@@ -267,7 +266,7 @@ class BackendPreparer(IBackendPreparer):
                 )
 
                 # Try to get limits from model catalog if not found in model_defaults
-                if limits is None:
+                if limits is None and model_catalog is not None and model_in_catalog:
                     catalog_limits = model_catalog.get_limits(model_name, backend_key)
                     if catalog_limits:
                         limits = catalog_limits

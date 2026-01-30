@@ -81,6 +81,7 @@ class _DummyBackendRequestManager:
         backend_processor: Any,
         response_processor: Any,
         wire_capture: Any | None = None,
+        **_kwargs: Any,
     ) -> None:
         self.backend_processor = backend_processor
         self.response_processor = response_processor
@@ -118,7 +119,7 @@ def test_get_chat_controller_uses_wire_capture_when_constructing_backend_manager
 ) -> None:
     """Ensure fallback construction uses DI-provided wire capture instances."""
 
-    from src.core.app import controllers
+    from src.core.app.controllers import chat_controller as chat_controller_module
     from src.core.services import (
         backend_request_manager_service,
         request_processor_service,
@@ -178,7 +179,7 @@ def test_get_chat_controller_uses_wire_capture_when_constructing_backend_manager
         )
 
     monkeypatch.setattr(
-        controllers.chat_controller,
+        chat_controller_module,
         "resolve_request_processor",
         _dummy_resolve_request_processor,
     )

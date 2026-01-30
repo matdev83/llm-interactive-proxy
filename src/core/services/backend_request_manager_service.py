@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from src.core.common.exceptions import BackendError, DuplicateRequestError
 from src.core.domain.backend_request_manager.context_models import (
@@ -280,11 +280,14 @@ class BackendRequestManager(IBackendRequestManager):
                         backend_request.model,
                     )
             else:
-                is_duplicate, content_hash, retry_after_seconds = (
-                    await self._dedup_service.check_and_register(
-                        backend_request, session_id
-                    )
+                dedup_result = await self._dedup_service.check_and_register(
+                    backend_request, session_id
                 )
+                retry_after_seconds: float | None = None
+                try:
+                    is_duplicate, content_hash, retry_after_seconds = dedup_result
+                except ValueError:
+                    is_duplicate, content_hash = cast(tuple[bool, str], dedup_result)
                 if is_duplicate:
                     # Use debug level to avoid log spam during tight retry loops
                     if logger.isEnabledFor(logging.DEBUG):
