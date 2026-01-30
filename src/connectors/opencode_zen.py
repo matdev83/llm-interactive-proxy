@@ -365,6 +365,14 @@ class OpencodeZenConnector(OpenAIConnector):
             return f"openai/{model_name}"
         if model_name.startswith("gemini"):
             return f"google/{model_name}"
+        if model_name.startswith("minimax"):
+            return f"minimax/{model_name}"
+        if model_name.startswith("glm"):
+            return f"z-ai/{model_name}"
+        if model_name.startswith("kimi"):
+            return f"moonshotai/{model_name}"
+        if model_name.startswith("qwen"):
+            return f"qwen/{model_name}"
 
         # Return as-is if no known vendor detected
         return model_name
@@ -412,12 +420,36 @@ class OpencodeZenConnector(OpenAIConnector):
             )
 
         # Default fallback models (raw names, normalized dynamically)
+        # Based on official OpenCode Zen model list from zen.mdx
         fallback_models = [
-            "claude-opus-4.5",
-            "claude-sonnet-4.5",
+            "gpt-5.2",
+            "gpt-5.2-codex",
             "gpt-5.1",
             "gpt-5.1-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex-mini",
+            "gpt-5",
+            "gpt-5-codex",
+            "gpt-5-nano",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4",
+            "claude-haiku-4-5",
+            "claude-3-5-haiku",
+            "claude-opus-4-5",
+            "claude-opus-4-1",
             "gemini-3-pro",
+            "gemini-3-flash",
+            "minimax-m2.1",
+            "minimax-m2.1-free",
+            "glm-4.7",
+            "glm-4.7-free",
+            "glm-4.6",
+            "kimi-k2.5",
+            "kimi-k2.5-free",
+            "kimi-k2-thinking",
+            "kimi-k2",
+            "qwen3-coder",
+            "big-pickle",
         ]
         return [self._normalize_model_name(m) for m in fallback_models]
 

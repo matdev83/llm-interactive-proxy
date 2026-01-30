@@ -607,10 +607,25 @@ class TestInitialization:
     async def test_available_models_populated(self, connector, temp_credentials_file):
         """Should populate available_models on successful init."""
         await connector.initialize(credentials_path=str(temp_credentials_file))
+        # Based on official OpenCode Zen model list from zen.mdx
         expected_models = [
-            "anthropic/claude-opus-4.5",
+            "openai/gpt-5.2",
+            "openai/gpt-5.2-codex",
             "openai/gpt-5.1",
+            "openai/gpt-5.1-codex",
+            "openai/gpt-5.1-codex-max",
+            "openai/gpt-5.1-codex-mini",
+            "openai/gpt-5",
+            "openai/gpt-5-codex",
+            "openai/gpt-5-nano",
+            "anthropic/claude-sonnet-4-5",
+            "anthropic/claude-sonnet-4",
+            "anthropic/claude-haiku-4-5",
+            "anthropic/claude-3-5-haiku",
+            "anthropic/claude-opus-4-5",
+            "anthropic/claude-opus-4-1",
             "google/gemini-3-pro",
+            "google/gemini-3-flash",
         ]
         for model in expected_models:
             assert model in connector.available_models
@@ -861,15 +876,30 @@ class TestModelList:
             # Models should NOT start with backend prefix
             assert not model.startswith("opencode-zen:")
             assert not model.startswith("opencode-zen/")
-            # But should have vendor prefix from the source, OR be one of the known fallback models
+            # But should have vendor prefix from the source
             assert "/" in model
-            assert model in [
-                "openai/gpt-5.1",
-                "google/gemini-3-pro",
-                "anthropic/claude-opus-4.5",
-                "anthropic/claude-sonnet-4.5",
-                "openai/gpt-5.1-codex",
-            ]
+        # Verify expected models from official OpenCode Zen model list
+        expected_models = [
+            "openai/gpt-5.2",
+            "openai/gpt-5.2-codex",
+            "openai/gpt-5.1",
+            "openai/gpt-5.1-codex",
+            "openai/gpt-5.1-codex-max",
+            "openai/gpt-5.1-codex-mini",
+            "openai/gpt-5",
+            "openai/gpt-5-codex",
+            "openai/gpt-5-nano",
+            "anthropic/claude-sonnet-4-5",
+            "anthropic/claude-sonnet-4",
+            "anthropic/claude-haiku-4-5",
+            "anthropic/claude-3-5-haiku",
+            "anthropic/claude-opus-4-5",
+            "anthropic/claude-opus-4-1",
+            "google/gemini-3-pro",
+            "google/gemini-3-flash",
+        ]
+        for model in expected_models:
+            assert model in models
 
     @pytest.mark.asyncio
     async def test_uses_api_models_when_available(
