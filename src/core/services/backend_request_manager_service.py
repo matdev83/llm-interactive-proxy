@@ -181,7 +181,9 @@ class BackendRequestManager(IBackendRequestManager):
         client_os: str | None = None
         if context.processing_context is not None:
             processing_values = context.processing_context.values
-            client_os = processing_values.get("client_os")
+            raw_client_os = processing_values.get("client_os")
+            if isinstance(raw_client_os, str):
+                client_os = raw_client_os
 
         # Build structured output context if schema is present
         structured_output: StructuredOutputContext | None = None

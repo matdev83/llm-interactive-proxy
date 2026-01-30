@@ -248,7 +248,7 @@ class KimiCodeConnector(OpenAIConnector):
                         line = line.strip()
                         if line.startswith("data:"):
                             data_parts.append(line[5:].strip())
-                    
+
                     data_str = " ".join(data_parts)
                     if data_str == "[DONE]":
                         yield (event + separator_used).encode("utf-8")
@@ -341,8 +341,10 @@ class KimiCodeConnector(OpenAIConnector):
         Ensures 'reasoning_content' is preserved in history and not renamed to 'reasoning'.
         Also ensures all assistant tool call messages have this field present.
         """
-        payload = await super()._prepare_payload(
-            request_data, processed_messages, effective_model, context
+        from src.connectors.openai import OpenAIConnector as OpenAIConnectorRuntime
+
+        payload = await OpenAIConnectorRuntime._prepare_payload(
+            self, request_data, processed_messages, effective_model, context
         )
 
         # Kimi doesn't support the 'reasoning' (effort) top-level field from OpenAI o1/o3.

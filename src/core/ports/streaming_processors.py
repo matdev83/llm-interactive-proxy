@@ -149,7 +149,7 @@ class LoopDetectionProcessor(IStreamProcessor):
         if self._logger.isEnabledFor(logging.DEBUG):
             self._logger.debug("Loop detection processor state reset")
 
-    def _extract_text_content(self, content: str | dict | bytes) -> str:
+    def _extract_text_content(self, content: Any) -> str:
         """Extract text content for loop detection.
 
         Args:
@@ -158,22 +158,7 @@ class LoopDetectionProcessor(IStreamProcessor):
         Returns:
             Text content suitable for loop detection
         """
-        if isinstance(content, str):
-            return content
-        elif isinstance(content, bytes):
-            try:
-                return content.decode("utf-8")
-            except UnicodeDecodeError:
-                return content.decode("latin-1")
-        elif isinstance(content, dict):
-            # Extract text from dict (e.g., delta content)
-            if "content" in content:
-                return str(content["content"])
-            # Use safe_json_dumps to handle StopChunkWithUsage correctly
-            from src.core.ports.streaming_contracts import StopChunkWithUsage
-
-            return StopChunkWithUsage.safe_json_dumps(content)
-        return str(content)
+        return _extract_text_from_chunk_content(content, fallback_to_json=True)
 
 
 class ToolCallRepairProcessor(IStreamProcessor):
@@ -531,7 +516,7 @@ class ThinkTagsProcessor(IStreamProcessor):
         if self._logger.isEnabledFor(logging.DEBUG):
             self._logger.debug("Think tags processor state reset")
 
-    def _extract_text_content(self, content: str | dict | bytes) -> str:
+    def _extract_text_content(self, content: Any) -> str:
         """Extract text content for processing.
 
         Args:
@@ -540,19 +525,7 @@ class ThinkTagsProcessor(IStreamProcessor):
         Returns:
             Text content suitable for processing
         """
-        if isinstance(content, str):
-            return content
-        elif isinstance(content, bytes):
-            try:
-                return content.decode("utf-8")
-            except UnicodeDecodeError:
-                return content.decode("latin-1")
-        elif isinstance(content, dict):
-            # Extract text from dict (e.g., delta content)
-            if "content" in content:
-                return str(content["content"])
-            return ""
-        return str(content)
+        return _extract_text_from_chunk_content(content, fallback_to_json=False)
 
     def _process_streaming_chunk(
         self, chunk_content: str, session_id: str
@@ -641,7 +614,7 @@ class ThinkTagsProcessor(IStreamProcessor):
         Returns:
             ThinkTagFixResult containing response_content and reasoning_content
         """
-        if not content or not isinstance(content, str):
+        if not content:
             return ThinkTagFixResult(response_content=content, reasoning_content=None)
 
         # Check if content starts with <think> tag
@@ -654,9 +627,9 @@ class ThinkTagsProcessor(IStreamProcessor):
             # If we have opening <think> but no proper closing, treat entire content as reasoning
             if content.strip().startswith("<think>"):
                 # Remove opening tag and treat rest as reasoning
-                reasoning_content = content.replace("<think>", "", 1).strip()
+                reasoning_content = content.replace("<think>", "", 1)
                 if reasoning_content.endswith("</think>"):
-                    reasoning_content = reasoning_content[:-8].strip()
+                    reasoning_content = reasoning_content[:-8]
 
                 if self._logger.isEnabledFor(logging.INFO):
                     self._logger.info(
@@ -777,3 +750,22 @@ class ThinkTagsProcessor(IStreamProcessor):
                 oldest_session_id,
                 self._max_session_states,
             )
+
+
+def _extract_text_from_chunk_content(content: Any, *, fallback_to_json: bool) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, bytes):
+        try:
+            return content.decode("utf-8")
+        except UnicodeDecodeError:
+            return content.decode("latin-1")
+    if isinstance(content, dict):
+        if "content" in content:
+            return str(content["content"])
+        if fallback_to_json:
+            from src.core.ports.streaming_contracts import StopChunkWithUsage
+
+            return StopChunkWithUsage.safe_json_dumps(content)
+        return ""
+    return str(content)

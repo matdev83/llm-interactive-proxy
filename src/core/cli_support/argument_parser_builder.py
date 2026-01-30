@@ -842,6 +842,12 @@ class ArgumentParserBuilder:
             help="Enable the Anthropic OAuth backend connector for debugging. Reserved for internal development.",
         )
         debugging_overrides_group.add_argument(
+            "--enable-opencode-zen-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Opencode Zen backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
             "--enable-droid-path-fix",
             action="store_true",
             dest="droid_path_fix_enabled",

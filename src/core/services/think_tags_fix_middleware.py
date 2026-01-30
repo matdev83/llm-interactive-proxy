@@ -21,7 +21,6 @@ from cachetools import TTLCache
 from src.core.interfaces.response_processor_interface import (
     IResponseFeature,
     IResponseMiddleware,
-    ProcessedChunkContent,
     ProcessedResponse,
 )
 
@@ -173,7 +172,7 @@ class ThinkTagsFixFeature(IResponseFeature):
             metadata=metadata,
         )
 
-    def _content_to_str(self, content: ProcessedChunkContent) -> str:
+    def _content_to_str(self, content: Any) -> str:
         """Convert ProcessedChunkContent to str."""
         if content is None:
             return ""
@@ -193,16 +192,16 @@ class ThinkTagsFixFeature(IResponseFeature):
 
     def _fix_think_tags(self, content: str) -> ThinkTagFixResult:
         """Fix think tags in content (non-streaming)."""
-        if not content or not isinstance(content, str):
+        if not content:
             return ThinkTagFixResult(response_content=content, reasoning_content=None)
 
         match = self._THINK_TAG_PATTERN.match(content)
         if match:
             leading_ws = match.group(1)
-            reasoning = match.group(2).strip()
+            reasoning = match.group(2)
             middle_ws = match.group(3)
-            remaining = match.group(4).strip()
-            fixed_content = f"{leading_ws}{middle_ws}{remaining}".strip()
+            remaining = match.group(4)
+            fixed_content = f"{leading_ws}{middle_ws}{remaining}"
             return ThinkTagFixResult(
                 response_content=fixed_content, reasoning_content=reasoning
             )
@@ -217,7 +216,7 @@ class ThinkTagsFixFeature(IResponseFeature):
         context: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, Any] | None]:
         """Process a streaming chunk for think tags."""
-        if not content or not isinstance(content, str):
+        if not content:
             return content, None
 
         # Cleanup expired reasoning entries to prevent memory leaks
@@ -250,7 +249,7 @@ class ThinkTagsFixFeature(IResponseFeature):
                 if opening_match:
                     reasoning = reasoning[opening_match.end() :]
 
-                reasoning = reasoning.strip()
+                reasoning = reasoning
                 self._stream_states[session_id] = "after_think"
                 self._streaming_buffers[session_id] = after_close
 
@@ -264,7 +263,7 @@ class ThinkTagsFixFeature(IResponseFeature):
                 # Cleanup after adding to enforce max limit
                 self._cleanup_expired_reasoning()
 
-                return after_close.strip(), reasoning_metadata
+                return after_close, reasoning_metadata
 
             if len(current_buffer) > self._streaming_buffer_size:
                 self._stream_states[session_id] = "pass_through"
@@ -611,7 +610,7 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         # Fall back to global setting
         return self._streaming_buffer_size
 
-    def _content_to_str(self, content: ProcessedChunkContent) -> str:
+    def _content_to_str(self, content: Any) -> str:
         """Convert ProcessedChunkContent to str."""
         if content is None:
             return ""
@@ -639,7 +638,7 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             ThinkTagFixResult containing response_content and reasoning_content
             where reasoning_content is None if no think tags were found
         """
-        if not content or not isinstance(content, str):
+        if not content:
             return ThinkTagFixResult(response_content=content, reasoning_content=None)
 
         # Check if content starts with <think> tag (the problematic case)
@@ -652,9 +651,9 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             # If we have opening <think> but no proper closing, treat entire content as reasoning
             if content.strip().startswith("<think>"):
                 # Remove opening tag and treat rest as reasoning
-                reasoning_content = content.replace("<think>", "", 1).strip()
+                reasoning_content = content.replace("<think>", "", 1)
                 if reasoning_content.endswith("</think>"):
-                    reasoning_content = reasoning_content[:-8].strip()
+                    reasoning_content = reasoning_content[:-8]
 
                 self._logger.info(
                     "Fixed incomplete think tags - treating as pure reasoning"
@@ -669,8 +668,8 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             match.groups()
         )
 
-        # Keep reasoning content whitespace intact (strip for non-streaming standard metadata)
-        reasoning_content = reasoning_content.strip() if reasoning_content else ""
+        # Keep reasoning content whitespace intact to avoid merging issues
+        reasoning_content = reasoning_content if reasoning_content else ""
 
         response_content = (
             f"{leading_space}{middle_space}{remaining_content}"
@@ -825,7 +824,7 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
             }
 
             # Store reasoning for this session (with timestamp for TTL cleanup)
-            reasoning_metadata["_created_at"] = time.time()
+            reasoning_metadata["_created_at"] = int(time.time())
             self._reasoning_extracted[session_id] = reasoning_metadata
 
             if self._logger.isEnabledFor(logging.INFO):
@@ -1081,9 +1080,6 @@ class ThinkTagsFixMiddleware(IResponseMiddleware):
         processed_response.content = response_content
 
         # Add reasoning to metadata
-        if processed_response.metadata is None:
-            processed_response.metadata = {}
-
         processed_response.metadata["reasoning"] = reasoning_content
         processed_response.metadata["reasoning_format"] = "extracted_from_think_tags"
         processed_response.metadata["think_tags_fixed"] = True

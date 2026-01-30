@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 from typing import Any
 
 from src.core.ports.sse_assembler import SSEAssembler
@@ -62,10 +62,23 @@ async def safe_aclose(
         # This is critical for nested async generators where multiple callbacks
         # may attempt to close the same underlying stream sequentially.
         if asyncio.iscoroutine(res):
-            task = asyncio.create_task(res)
+            try:
+                task = asyncio.create_task(res)
+            except RuntimeError as err:
+                if "no running event loop" in str(err):
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Skipping stream aclose; no running event loop",
+                            extra={"provider": provider, "stream_id": stream_id},
+                        )
+                    return
+                raise
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=timeout_s)
             except asyncio.TimeoutError:
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Timed out waiting for stream aclose()",
@@ -73,7 +86,8 @@ async def safe_aclose(
                     )
                 return
             except asyncio.CancelledError:
-                await task
+                with suppress(asyncio.CancelledError, Exception):
+                    await asyncio.shield(task)
                 raise
         elif res is not None:
             await asyncio.wait_for(res, timeout=timeout_s)

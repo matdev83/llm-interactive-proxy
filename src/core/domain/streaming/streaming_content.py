@@ -150,11 +150,11 @@ class StreamingContent:
             return False
 
         reasoning_content = self.metadata.get("reasoning_content")
-        if isinstance(reasoning_content, str) and reasoning_content.strip():
+        if isinstance(reasoning_content, str) and len(reasoning_content) > 0:
             return False
 
         reasoning = self.metadata.get("reasoning")
-        return not (isinstance(reasoning, str) and reasoning.strip())
+        return not (isinstance(reasoning, str) and len(reasoning) > 0)
 
     def _is_empty_completion_payload(self) -> bool:
         """Detect terminal payloads that do not carry any assistant content."""
