@@ -47,7 +47,7 @@ class BackendRequestManager(IBackendRequestManager):
         self,
         backend_processor: IBackendProcessor,
         response_processor: IResponseProcessor,
-        angel_service_factory: IAngelServiceFactory,
+        angel_service_factory: IAngelServiceFactory | None,
         request_preparation: IBackendRequestPreparation,
         non_streaming_handler: INonStreamingBackendResponseHandler,
         streaming_handler: IStreamingBackendResponseHandler,
@@ -101,27 +101,44 @@ class BackendRequestManager(IBackendRequestManager):
             )
 
             extra_body = request.extra_body or {}
-            retry_count = extra_body.get(
-                ToolCallRetryCoordinator._DANGEROUS_RETRY_KEY, 0
+            dangerous_retry_key = getattr(
+                ToolCallRetryCoordinator, "_DANGEROUS_RETRY_KEY", None
             )
-            legacy = extra_body.get(
-                ToolCallRetryCoordinator._LEGACY_DANGEROUS_RETRY_KEY, 0
+            legacy_retry_key = getattr(
+                ToolCallRetryCoordinator, "_LEGACY_DANGEROUS_RETRY_KEY", None
             )
+            if not isinstance(dangerous_retry_key, str):
+                dangerous_retry_key = "dangerous_retry_count"
+            if not isinstance(legacy_retry_key, str):
+                legacy_retry_key = "dangerous_retry_count_legacy"
+            retry_count = extra_body.get(dangerous_retry_key, 0)
+            legacy = extra_body.get(legacy_retry_key, 0)
             if isinstance(legacy, int) and legacy > retry_count:
                 retry_count = legacy
             if not isinstance(retry_count, int):
                 retry_count = 0
 
             # If already at max, terminate immediately (no backend call)
-            if retry_count >= ToolCallRetryCoordinator._MAX_DANGEROUS_COMMAND_RETRIES:
+            max_retries = getattr(
+                ToolCallRetryCoordinator, "_MAX_DANGEROUS_COMMAND_RETRIES", 0
+            )
+            if retry_count >= max_retries:
                 coordinator = ToolCallRetryCoordinator(
                     backend_processor=self._backend_processor
                 )
-                return coordinator._create_terminal_response(
-                    retry_count=retry_count + 1,
-                    session_id=session_id,
-                    is_streaming=bool(request.stream),
+                create_terminal_response = getattr(
+                    coordinator, "_create_terminal_response", None
                 )
+                if callable(create_terminal_response):
+                    response = create_terminal_response(
+                        retry_count=retry_count + 1,
+                        session_id=session_id,
+                        is_streaming=bool(request.stream),
+                    )
+                    if isinstance(
+                        response, ResponseEnvelope | StreamingResponseEnvelope
+                    ):
+                        return response
         except (AttributeError, ImportError, KeyError) as e:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -164,23 +181,21 @@ class BackendRequestManager(IBackendRequestManager):
         client_os: str | None = None
         if context.processing_context is not None:
             processing_values = context.processing_context.values
-            if isinstance(processing_values, dict):
-                client_os = processing_values.get("client_os")
+            client_os = processing_values.get("client_os")
 
         # Build structured output context if schema is present
         structured_output: StructuredOutputContext | None = None
         if context.processing_context is not None:
             processing_values = context.processing_context.values
-            if isinstance(processing_values, dict):
-                response_schema = processing_values.get("response_schema")
-                if response_schema is not None:
-                    schema_name = processing_values.get("schema_name", "unnamed")
-                    request_id = processing_values.get("request_id", session_id)
-                    structured_output = StructuredOutputContext(
-                        schema=response_schema,
-                        schema_name=str(schema_name),
-                        request_id=str(request_id),
-                    )
+            response_schema = processing_values.get("response_schema")
+            if response_schema is not None:
+                schema_name = processing_values.get("schema_name", "unnamed")
+                request_id = processing_values.get("request_id", session_id)
+                structured_output = StructuredOutputContext(
+                    schema=response_schema,
+                    schema_name=str(schema_name),
+                    request_id=str(request_id),
+                )
 
         return ResponseProcessingContext(
             session_id=session_id,
@@ -265,7 +280,7 @@ class BackendRequestManager(IBackendRequestManager):
                         backend_request.model,
                     )
             else:
-                is_duplicate, content_hash = (
+                is_duplicate, content_hash, retry_after_seconds = (
                     await self._dedup_service.check_and_register(
                         backend_request, session_id
                     )
@@ -279,7 +294,11 @@ class BackendRequestManager(IBackendRequestManager):
                             session_id,
                             backend_request.model,
                         )
-                    raise DuplicateRequestError(content_hash, session_id)
+                    raise DuplicateRequestError(
+                        content_hash,
+                        session_id,
+                        retry_after_seconds=retry_after_seconds,
+                    )
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(

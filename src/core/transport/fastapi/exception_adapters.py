@@ -47,6 +47,20 @@ def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
     return {"Retry-After": str(math.ceil(delay_seconds))}
 
 
+def _resolve_retry_after_header(exc: LLMProxyError) -> dict[str, str] | None:
+    reset_at = getattr(exc, "reset_at", None)
+    if isinstance(reset_at, int | float):
+        return _build_retry_after_header(float(reset_at))
+
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        retry_after = details.get("retry_after")
+        if isinstance(retry_after, int | float):
+            return _build_retry_after_header(time.time() + float(retry_after))
+
+    return None
+
+
 def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     """Map a domain exception to a FastAPI HTTP exception.
 
@@ -59,7 +73,7 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
     # If the exception already has a status code, use it
     status_code = getattr(exc, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    headers: dict[str, str] | None = None
+    headers = _resolve_retry_after_header(exc)
 
     # Map specific exception types to specific status codes
     if isinstance(exc, AuthenticationError):
@@ -80,7 +94,6 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
         status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     elif isinstance(exc, RateLimitExceededError):
         status_code = status.HTTP_429_TOO_MANY_REQUESTS
-        headers = _build_retry_after_header(getattr(exc, "reset_at", None))
     elif isinstance(exc, BackendError):
         # Preserve specific BackendError subclasses' status_code if provided
         explicit = getattr(exc, "status_code", None)
@@ -164,3 +177,5 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=500,
             media_type="application/json",
         )
+
+    _ = generic_exception_handler

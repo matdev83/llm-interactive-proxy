@@ -701,11 +701,13 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                     await self._account_selector.mark_current_account_blocked(error_str)
                     self._sync_selected_account_to_base()
                     # Ensure AuthErrorHandler doesn't disable the entire auto-pool instance
-                    setattr(e, "__resilience_context__", {"is_personal_backend": True})
+                    e.__resilience_context__ = {"is_personal_backend": True}  # type: ignore[attr-defined]
 
                     # Try next account if available
                     if self._account_selector.get_available_count() > 0:
-                        logger.info("Account blocked; retrying with next available account")
+                        logger.info(
+                            "Account blocked; retrying with next available account"
+                        )
                         continue
 
                 if getattr(e, "status_code", None) == 429:

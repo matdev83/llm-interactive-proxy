@@ -33,7 +33,7 @@ class IRequestDeduplicationService(Protocol):
 
     async def check_and_register(
         self, request: ChatRequest, session_id: str
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, float | None]:
         """Check if request is a duplicate and register if not.
 
         Args:
@@ -41,9 +41,10 @@ class IRequestDeduplicationService(Protocol):
             session_id: The session identifier
 
         Returns:
-            Tuple of (is_duplicate, content_hash)
+            Tuple of (is_duplicate, content_hash, retry_after_seconds)
             - is_duplicate: True if this is a duplicate within the dedup window
             - content_hash: The computed hash of the request content
+            - retry_after_seconds: Suggested backoff for duplicates (seconds) or None
         """
         ...
 

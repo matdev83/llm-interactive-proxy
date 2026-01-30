@@ -59,6 +59,20 @@ def build_retry_after_header(reset_at: float | None) -> RetryAfterHeader | None:
     return RetryAfterHeader(value=str(math.ceil(delay_seconds)))
 
 
+def resolve_retry_after_header(exc: LLMProxyError) -> RetryAfterHeader | None:
+    reset_at = getattr(exc, "reset_at", None)
+    if isinstance(reset_at, int | float):
+        return build_retry_after_header(float(reset_at))
+
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        retry_after = details.get("retry_after")
+        if isinstance(retry_after, int | float):
+            return build_retry_after_header(time.time() + float(retry_after))
+
+    return None
+
+
 def create_exception_handler() -> (
     Callable[[Request, Exception], Coroutine[Any, Any, Response]]
 ):
@@ -73,10 +87,8 @@ def create_exception_handler() -> (
             content = exc.to_dict()
 
             # Add additional headers for rate limit errors
-            headers = None
-            if isinstance(exc, RateLimitExceededError):
-                header = build_retry_after_header(exc.reset_at)
-                headers = header.to_dict() if header else None
+            header = resolve_retry_after_header(exc)
+            headers = header.to_dict() if header else None
 
             return JSONResponse(
                 status_code=status_code, content=content, headers=headers

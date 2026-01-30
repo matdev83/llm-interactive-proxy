@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import Request
-from src.core.common.exceptions import LLMProxyError, RateLimitExceededError
+from src.core.common.exceptions import LLMProxyError
 from src.core.domain.client_termination import (
     ClientEndOfSessionSignal,
     ClientTerminationReason,
@@ -74,11 +74,7 @@ class DomainExceptionMiddleware:
             else:
                 self._logger.error("Domain error: %s", e, exc_info=True)
 
-            headers = _build_retry_after_header(
-                getattr(e, "reset_at", None)
-                if isinstance(e, RateLimitExceededError)
-                else None
-            )
+            headers = _resolve_retry_after_header(e)
             return JSONResponse(
                 status_code=int(getattr(e, "status_code", 500)),
                 content=e.to_dict(),
@@ -126,11 +122,7 @@ class DomainExceptionMiddleware:
                 self._logger.error("Domain error: %s", e, exc_info=True)
             content = e.to_dict()
             status_code = int(getattr(e, "status_code", 500))
-            headers = _build_retry_after_header(
-                getattr(e, "reset_at", None)
-                if isinstance(e, RateLimitExceededError)
-                else None
-            )
+            headers = _resolve_retry_after_header(e)
             await self._send_error_response(send, status_code, content, headers)
         except Exception as e:  # Fallback for unexpected errors
             self._logger.error("Unhandled exception: %s", e, exc_info=True)
@@ -324,3 +316,17 @@ def _build_retry_after_header(reset_at: float | int | None) -> dict[str, str] | 
         return {"Retry-After": "0"}
 
     return {"Retry-After": str(math.ceil(delay_seconds))}
+
+
+def _resolve_retry_after_header(exc: LLMProxyError) -> dict[str, str] | None:
+    reset_at = getattr(exc, "reset_at", None)
+    if isinstance(reset_at, int | float):
+        return _build_retry_after_header(float(reset_at))
+
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict):
+        retry_after = details.get("retry_after")
+        if isinstance(retry_after, int | float):
+            return _build_retry_after_header(time.time() + float(retry_after))
+
+    return None

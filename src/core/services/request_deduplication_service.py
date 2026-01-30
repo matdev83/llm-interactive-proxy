@@ -44,6 +44,7 @@ class TrackedRequest:
     timestamp: float
     status: RequestStatus
     status_code: int | None = None
+    duplicate_count: int = 0
 
 
 class RequestDeduplicationService:
@@ -132,7 +133,7 @@ class RequestDeduplicationService:
 
     async def check_and_register(
         self, request: ChatRequest, session_id: str
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, float | None]:
         """Check if request is a duplicate and register if not.
 
         This method implements status-aware deduplication:
@@ -145,10 +146,10 @@ class RequestDeduplicationService:
             session_id: The session identifier
 
         Returns:
-            Tuple of (is_duplicate, content_hash)
+            Tuple of (is_duplicate, content_hash, retry_after_seconds)
         """
         if not self._enabled or self._window_seconds <= 0:
-            return (False, "")
+            return (False, "", None)
 
         content_hash = self._compute_content_hash(request, session_id)
         cache_key = f"{session_id}:{content_hash}"
@@ -182,7 +183,7 @@ class RequestDeduplicationService:
                         timestamp=current_time,
                         status=RequestStatus.IN_FLIGHT,
                     )
-                    return (False, content_hash)
+                    return (False, content_hash, None)
 
                 # Check if within deduplication window and status is blockable
                 # CRITICAL: Use much longer window for 403 Forbidden to prevent
@@ -193,7 +194,7 @@ class RequestDeduplicationService:
                 if tracked.status_code == 403:
                     effective_window = max(effective_window, 300.0)  # 5 minute block
                 elif tracked.status_code == 204:
-                    effective_window = max(effective_window, 60.0)   # 1 minute block
+                    effective_window = max(effective_window, 60.0)  # 1 minute block
 
                 if age < effective_window and tracked.status in (
                     RequestStatus.IN_FLIGHT,
@@ -210,7 +211,13 @@ class RequestDeduplicationService:
                             session_id,
                             age,
                         )
-                    return (True, content_hash)
+                    tracked.duplicate_count += 1
+                    retry_after_seconds = self._compute_retry_after_seconds(
+                        age=age,
+                        effective_window=effective_window,
+                        duplicate_count=tracked.duplicate_count,
+                    )
+                    return (True, content_hash, retry_after_seconds)
 
                 # Outside window or unknown status - treat as new request
                 if logger.isEnabledFor(logging.DEBUG):
@@ -229,7 +236,19 @@ class RequestDeduplicationService:
                 timestamp=current_time,
                 status=RequestStatus.IN_FLIGHT,
             )
-            return (False, content_hash)
+            return (False, content_hash, None)
+
+    def _compute_retry_after_seconds(
+        self, *, age: float, effective_window: float, duplicate_count: int
+    ) -> float | None:
+        if effective_window <= 0:
+            return None
+
+        remaining = max(0.0, effective_window - age)
+        capped_duplicates = min(duplicate_count, 6)
+        backoff_seconds = 2.0**capped_duplicates
+        backoff_seconds = max(1.0, min(effective_window, backoff_seconds))
+        return max(remaining, backoff_seconds)
 
     async def mark_request_complete(
         self,

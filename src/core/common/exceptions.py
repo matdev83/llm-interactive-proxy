@@ -7,6 +7,7 @@ for better error handling and categorization.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -376,6 +377,7 @@ class DuplicateRequestError(BackendError):
         session_id: str,
         message: str | None = None,
         details: dict | None = None,
+        retry_after_seconds: float | None = None,
         **kwargs,
     ):
         self.content_hash = content_hash
@@ -388,6 +390,11 @@ class DuplicateRequestError(BackendError):
         det = details.copy() if details else {}
         det["content_hash"] = content_hash
         det["session_id"] = session_id
+        if isinstance(retry_after_seconds, int | float) and retry_after_seconds > 0:
+            retry_after = float(retry_after_seconds)
+            det["retry_after"] = retry_after
+            kwargs.setdefault("reset_at", time.time() + retry_after)
+            self.retry_after_seconds = retry_after
         super().__init__(
             message, backend_name=None, details=det, status_code=429, **kwargs
         )

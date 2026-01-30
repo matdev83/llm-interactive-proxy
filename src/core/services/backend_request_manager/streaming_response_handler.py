@@ -883,10 +883,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         async def gate_empty_stream() -> AsyncIterator[ProcessedResponse]:
             buffered: list[ProcessedResponse] = []
             seen_meaningful = False
-            seen_any = False
 
             async for chunk in attach_metadata_stream():
-                seen_any = True
                 meaningful = self._chunk_has_meaningful_output(chunk)
                 if not seen_meaningful:
                     if meaningful:
