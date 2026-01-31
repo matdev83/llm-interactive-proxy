@@ -5,6 +5,7 @@ Manages which account to use for API requests with round-robin rotation.
 
 import asyncio
 import logging
+import threading
 import time
 from collections import OrderedDict
 
@@ -37,6 +38,10 @@ class AccountSelectorService(IAccountSelector):
     - Proactive refresh for near-expiry accounts
     - Immediate rotation on quota exhaustion
     """
+
+    # Global rotation state to coordinate across parallel requests/connector instances
+    _global_rotation_indices: dict[str, int] = {}
+    _rotation_lock = threading.Lock()
 
     def __init__(
         self,
@@ -75,7 +80,6 @@ class AccountSelectorService(IAccountSelector):
         self._current_account: StoredAccount | None = None
         self._accounts: list[StoredAccount] = []
         self._blocked_account_ids: set[str] = set()
-        self._rotation_index: int = 0
         self._initialized: bool = False
         self._notifier: DesktopNotifier | None = None
         self._notifications_enabled = notifications_enabled
@@ -83,11 +87,15 @@ class AccountSelectorService(IAccountSelector):
     @property
     def rotation_index(self) -> int:
         """Current rotation index."""
-        return self._rotation_index
+        storage_key = str(getattr(self._storage, "_storage_path", "default"))
+        with self._rotation_lock:
+            return self._global_rotation_indices.get(storage_key, 0)
 
     @rotation_index.setter
     def rotation_index(self, value: int) -> None:
-        self._rotation_index = value
+        storage_key = str(getattr(self._storage, "_storage_path", "default"))
+        with self._rotation_lock:
+            self._global_rotation_indices[storage_key] = value
 
     @property
     def refresh_buffer_ms(self) -> int:
@@ -381,7 +389,9 @@ class AccountSelectorService(IAccountSelector):
 
             if not eligible:
                 wait_seconds = self._get_next_wait_seconds(available, now_ms)
-                if wait_seconds > 0:
+                # Respect max wait time if configured
+                max_wait = self._session_affinity_max_wait_seconds or 30.0
+                if 0 < wait_seconds <= max_wait:
                     soonest = min(
                         available,
                         key=lambda acc: getattr(acc, "rate_limited_until", None)
@@ -394,6 +404,12 @@ class AccountSelectorService(IAccountSelector):
                     )
                     await asyncio.sleep(wait_seconds)
                     continue
+                
+                logger.warning(
+                    "All accounts are rate limited and wait time (%.2fs) exceeds limit (%.2fs)",
+                    wait_seconds,
+                    max_wait,
+                )
                 return None
 
             affinity_hit = False
@@ -491,12 +507,16 @@ class AccountSelectorService(IAccountSelector):
         if selection_strategy == "first-available":
             return available[0]
 
-        if self._rotation_index >= len(available):
-            self._rotation_index = 0
+        # Use shared rotation state
+        storage_key = str(getattr(self._storage, "_storage_path", "default"))
+        with self._rotation_lock:
+            idx = self._global_rotation_indices.get(storage_key, 0)
+            if idx >= len(available):
+                idx = 0
 
-        account = available[self._rotation_index]
-        self._rotation_index = (self._rotation_index + 1) % len(available)
-        return account
+            account = available[idx]
+            self._global_rotation_indices[storage_key] = (idx + 1) % len(available)
+            return account
 
     async def mark_current_account_used(self) -> None:
         if not self._current_account:
@@ -587,10 +607,6 @@ class AccountSelectorService(IAccountSelector):
         Preserves rotation index and current account if possible.
         """
         self._accounts = await self._storage.load_all_accounts()
-        # Don't reset rotation index - preserve it across reloads
-        # Only reset if index is out of bounds
-        if self._rotation_index >= len(self._accounts):
-            self._rotation_index = 0
         # Update current account if it still exists in reloaded accounts
         if self._current_account:
             updated_current = next(
@@ -608,7 +624,7 @@ class AccountSelectorService(IAccountSelector):
         logger.debug(
             "Reloaded %d accounts (rotation_index=%d)",
             len(self._accounts),
-            self._rotation_index,
+            self.rotation_index,
         )
 
     async def _send_block_notification(self, account_id: str, reason: str) -> None:

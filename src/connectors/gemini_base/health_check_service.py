@@ -6,6 +6,7 @@ with existing endpoints and records health-checked state without altering connec
 health semantics.
 """
 
+import asyncio
 import logging
 
 import httpx
@@ -30,6 +31,17 @@ class GeminiHealthCheckService(IHealthCheckService):
     Postconditions: Health check state is updated.
     Invariants: A failed health check does not invalidate valid credentials.
     """
+
+    # Global cache of successfully health-checked backends to prevent redundant checks
+    # across connector instances (e.g. during parallel request bursts).
+    _successfully_checked_backends: set[str] = set()
+    _check_lock: asyncio.Lock | None = None
+
+    @classmethod
+    def _get_check_lock(cls) -> asyncio.Lock:
+        if cls._check_lock is None:
+            cls._check_lock = asyncio.Lock()
+        return cls._check_lock
 
     def __init__(
         self,
@@ -64,7 +76,8 @@ class GeminiHealthCheckService(IHealthCheckService):
         Raises:
             BackendError: If health check fails critically (e.g., auth failure).
         """
-        if self._health_checked:
+        if self._health_checked or self._backend_name in self._successfully_checked_backends:
+            self._health_checked = True
             return
 
         if self._disable_health_checks:
@@ -73,34 +86,45 @@ class GeminiHealthCheckService(IHealthCheckService):
             self._health_checked = True
             return
 
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Performing first-use health check for %s backend",
-                self._backend_name,
-            )
+        lock = self._get_check_lock()
+        async with lock:
+            # Re-check inside lock
+            if self._health_checked or self._backend_name in self._successfully_checked_backends:
+                self._health_checked = True
+                return
 
-        # Refresh token if needed before health check
-        refreshed = await self._credential_coordinator.refresh_if_needed()
-        if not refreshed:
-            raise BackendError(
-                message=f"Failed to refresh OAuth token during health check for {self._backend_name}",
-                backend_name=self._backend_name,
-            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Performing first-use health check for %s backend",
+                    self._backend_name,
+                )
 
-        # Perform health check (non-blocking - we only fail on token issues)
-        healthy = await self._perform_health_check()
-        if not healthy and logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                f"Health check did not pass for {self._backend_name}, but continuing with valid OAuth credentials. "
-                "The backend will be tested when the first real request is made."
-            )
-        # Mark as checked regardless - we have valid credentials
-        self._health_checked = True
-        if logger.isEnabledFor(logging.INFO):
-            logger.info(
-                "Backend health check completed for %s - ready for use",
-                self._backend_name,
-            )
+            # Refresh token if needed before health check
+            refreshed = await self._credential_coordinator.refresh_if_needed()
+            if not refreshed:
+                raise BackendError(
+                    message=f"Failed to refresh OAuth token during health check for {self._backend_name}",
+                    backend_name=self._backend_name,
+                )
+
+            # Perform health check (non-blocking - we only fail on token issues)
+            healthy = await self._perform_health_check()
+            if not healthy and logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Health check did not pass for {self._backend_name}, but continuing with valid OAuth credentials. "
+                    "The backend will be tested when the first real request is made."
+                )
+            # Mark as checked regardless - we have valid credentials
+            self._health_checked = True
+            if healthy:
+                self._successfully_checked_backends.add(self._backend_name)
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Backend health check completed for %s - ready for use",
+                    self._backend_name,
+                )
+
 
     async def _perform_health_check(self) -> bool:
         """Perform a health check by testing API connectivity.

@@ -39,6 +39,11 @@ def mock_config() -> MagicMock:
     )
 
     config.backends = backends
+    config.host = "localhost"
+    config.notifications = MagicMock()
+    config.notifications.is_enabled.return_value = False
+    config.failure_handling = MagicMock()
+    config.failure_handling.max_silent_wait = 0.1
     return config
 
 
@@ -167,7 +172,7 @@ class TestGeminiOAuthAutoIntegration:
 
             # Trigger rotation via quota exhaustion
             # Note: _mark_backend_unusable schedules a task
-            connector._mark_backend_unusable(reason="quota_exceeded")
+            connector._mark_backend_unusable(reason="quota_exceeded", retry_after_seconds=0.01)
 
             # Give it a moment to rotate
             await asyncio.sleep(0.1)
@@ -178,7 +183,7 @@ class TestGeminiOAuthAutoIntegration:
             assert creds["access_token"] == "token-2"
 
             # Rotate again (back to acc-1 in round-robin)
-            connector._mark_backend_unusable(reason="quota_exceeded")
+            connector._mark_backend_unusable(reason="quota_exceeded", retry_after_seconds=0.01)
             await asyncio.sleep(0.1)
 
             creds = connector._oauth_credentials

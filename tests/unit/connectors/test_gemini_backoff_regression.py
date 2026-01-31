@@ -24,19 +24,25 @@ async def test_exponential_backoff_logic():
     limited1 = account.mark_rate_limited(retry_after_seconds=None, default_window_seconds=default_wait)
     assert limited1.consecutive_rate_limits == 1
     # Check window (30s +/- 10% jitter)
-    diff1 = (limited1.rate_limited_until - int(time.time() * 1000)) / 1000.0
+    rate_limited_until1 = limited1.rate_limited_until
+    assert rate_limited_until1 is not None
+    diff1 = (rate_limited_until1 - int(time.time() * 1000)) / 1000.0
     assert 26.0 <= diff1 <= 34.0
     
     # Second rate limit (30s * 2^1 = 60s)
     limited2 = limited1.mark_rate_limited(retry_after_seconds=None, default_window_seconds=default_wait)
     assert limited2.consecutive_rate_limits == 2
-    diff2 = (limited2.rate_limited_until - int(time.time() * 1000)) / 1000.0
+    rate_limited_until2 = limited2.rate_limited_until
+    assert rate_limited_until2 is not None
+    diff2 = (rate_limited_until2 - int(time.time() * 1000)) / 1000.0
     assert 53.0 <= diff2 <= 67.0
     
     # Third rate limit (30s * 2^2 = 120s)
     limited3 = limited2.mark_rate_limited(retry_after_seconds=None, default_window_seconds=default_wait)
     assert limited3.consecutive_rate_limits == 3
-    diff3 = (limited3.rate_limited_until - int(time.time() * 1000)) / 1000.0
+    rate_limited_until3 = limited3.rate_limited_until
+    assert rate_limited_until3 is not None
+    diff3 = (rate_limited_until3 - int(time.time() * 1000)) / 1000.0
     assert 107.0 <= diff3 <= 133.0
 
 @pytest.mark.asyncio
@@ -54,7 +60,9 @@ async def test_explicit_retry_after_overrides_backoff():
     
     # API says 5 seconds
     limited = account.mark_rate_limited(retry_after_seconds=5.0, default_window_seconds=30.0)
-    diff = (limited.rate_limited_until - int(time.time() * 1000)) / 1000.0
+    rate_limited_until = limited.rate_limited_until
+    assert rate_limited_until is not None
+    diff = (rate_limited_until - int(time.time() * 1000)) / 1000.0
     # Should be exactly 5s (no jitter on explicit API values usually, but our impl adds it if we don't branch)
     # Actually models.py:220 shows wait_seconds = float(retry_after_seconds) directly
     assert 4.0 <= diff <= 6.0

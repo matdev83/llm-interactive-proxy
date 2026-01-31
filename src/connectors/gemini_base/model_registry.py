@@ -5,6 +5,7 @@ This module provides GeminiModelRegistry which handles model discovery, caching,
 validation, and name mapping.
 """
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -31,7 +32,19 @@ class GeminiModelRegistry(IModelRegistry):
     public-to-internal name translation.
     """
 
+    # Global cache of successfully loaded model lists to prevent redundant discovery
+    # across connector instances (e.g. during parallel request bursts).
+    _global_loaded_models: dict[str, list[str]] = {}
+    _load_lock: asyncio.Lock | None = None
+
+    @classmethod
+    def _get_load_lock(cls) -> asyncio.Lock:
+        if cls._load_lock is None:
+            cls._load_lock = asyncio.Lock()
+        return cls._load_lock
+
     def __init__(
+
         self,
         model_discovery: IModelDiscoveryStrategy,
         endpoint_config: IEndpointConfig,
@@ -72,58 +85,81 @@ class GeminiModelRegistry(IModelRegistry):
         if self._loaded:
             return
 
-        # Check if credentials are available
-        credentials = self._credential_coordinator.credentials
-        if not credentials or not credentials.access_token:
-            logger.debug("No credentials available, using fallback model list")
-            self._available_models = self._model_discovery.get_fallback_models()
-            self._available_models_set = set(self._available_models)
-            self._models_from_api = False
+        # Check global cache first
+        if self._backend_name in self._global_loaded_models:
+            models = self._global_loaded_models[self._backend_name]
+            self._available_models = sorted(models)
+            self._available_models_set = set(models)
+            self._models_from_api = True
             self._loaded = True
             return
 
-        # Try to load models from API
-        try:
-            base_url = self._endpoint_config.get_base_url()
-            headers = self._endpoint_config.get_api_headers(credentials.to_dict())
+        async with self._get_load_lock():
+            # Re-check after acquiring lock
+            if self._loaded or self._backend_name in self._global_loaded_models:
+                if self._backend_name in self._global_loaded_models:
+                    models = self._global_loaded_models[self._backend_name]
+                    self._available_models = sorted(models)
+                    self._available_models_set = set(models)
+                    self._models_from_api = True
+                self._loaded = True
+                return
 
-            models = await self._model_discovery.discover(
-                self._http_client, headers, base_url
-            )
+            # Check if credentials are available
+            credentials = self._credential_coordinator.credentials
+            if not credentials or not credentials.access_token:
+                logger.debug("No credentials available, using fallback model list")
+                self._available_models = self._model_discovery.get_fallback_models()
+                self._available_models_set = set(self._available_models)
+                self._models_from_api = False
+                self._loaded = True
+                return
 
-            if models:
-                self._available_models = sorted(models)
-                self._available_models_set = set(models)
-                self._models_from_api = True
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Loaded %d models from API discovery",
-                        len(self._available_models),
-                    )
-            else:
-                # API returned empty, use fallback
+            # Try to load models from API
+            try:
+                base_url = self._endpoint_config.get_base_url()
+                headers = self._endpoint_config.get_api_headers(credentials.to_dict())
+
+                models = await self._model_discovery.discover(
+                    self._http_client, headers, base_url
+                )
+
+                if models:
+                    self._available_models = sorted(models)
+                    self._available_models_set = set(models)
+                    self._models_from_api = True
+                    # Populate global cache
+                    self._global_loaded_models[self._backend_name] = models
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Loaded %d models from API discovery",
+                            len(self._available_models),
+                        )
+                else:
+                    # API returned empty, use fallback
+                    self._available_models = self._model_discovery.get_fallback_models()
+                    self._available_models_set = set(self._available_models)
+                    self._models_from_api = False
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "API discovery returned no models, using %d fallback models",
+                            len(self._available_models),
+                        )
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning("Failed to load models from API: %s", e, exc_info=True)
+                # Fallback to hardcoded list
                 self._available_models = self._model_discovery.get_fallback_models()
                 self._available_models_set = set(self._available_models)
                 self._models_from_api = False
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(
-                        "API discovery returned no models, using %d fallback models",
+                        "Using %d fallback models due to API error",
                         len(self._available_models),
                     )
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning("Failed to load models from API: %s", e, exc_info=True)
-            # Fallback to hardcoded list
-            self._available_models = self._model_discovery.get_fallback_models()
-            self._available_models_set = set(self._available_models)
-            self._models_from_api = False
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Using %d fallback models due to API error",
-                    len(self._available_models),
-                )
 
-        self._loaded = True
+            self._loaded = True
+
 
     def validate(self, model_name: str) -> None:
         """Raise if the model is unavailable for this backend.
