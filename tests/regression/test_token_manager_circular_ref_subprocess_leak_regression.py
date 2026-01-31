@@ -11,6 +11,7 @@ import asyncio
 import gc
 import subprocess
 import sys
+from typing import Any
 
 import pytest
 from src.connectors.gemini_base.token_manager import TokenManager
@@ -23,7 +24,11 @@ class MockCredentialProvider:
     def __init__(self):
         self._oauth_credentials = None
 
-    async def _load_oauth_credentials(self, force_reload: bool = False) -> bool:
+    @property
+    def oauth_credentials(self) -> dict[str, Any] | None:
+        return self._oauth_credentials
+
+    async def load_oauth_credentials(self, force_reload: bool = False) -> bool:
         return False
 
 

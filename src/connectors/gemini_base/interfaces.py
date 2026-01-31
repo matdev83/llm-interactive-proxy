@@ -332,11 +332,17 @@ class ICredentialCoordinator(Protocol):
         """
         ...
 
-    async def refresh_if_needed(self, *, force_reload: bool = False) -> bool:
+    async def refresh_if_needed(
+        self, 
+        *, 
+        force_reload: bool = False,
+        retry_after_seconds: float | None = None
+    ) -> bool:
         """Refresh access token if required and return success.
 
         Args:
             force_reload: If True, force reload credentials before refresh.
+            retry_after_seconds: Optional explicit retry delay suggested by the API.
 
         Returns:
             True if refresh succeeded or was not needed, False otherwise.

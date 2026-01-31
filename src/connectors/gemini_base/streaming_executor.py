@@ -110,12 +110,17 @@ class ITokenRefresher(Protocol):
     """
 
     async def refresh_token_if_needed(
-        self, *, force_reload: bool = False, session_id: str | None = None
+        self,
+        *,
+        force_reload: bool = False,
+        session_id: str | None = None,
+        retry_after_seconds: float | None = None,
     ) -> bool:
         """Refresh the OAuth token if needed.
 
         Args:
             force_reload: If True, force reload credentials before refresh.
+            retry_after_seconds: Optional explicit retry delay suggested by the API.
 
         Returns:
             True if refresh succeeded or was not needed, False otherwise.
@@ -1135,17 +1140,20 @@ class StreamingExecutor:
                     # Try account rotation for oauth-auto backends before sleeping
                     rotated_credentials = False
                     sleep_seconds = decision.sleep_seconds
-                    backend_type = (
-                        getattr(token_refresher, "backend_type", "")
-                        if token_refresher
-                        else ""
-                    )
-                    if token_refresher and "oauth-auto" in str(backend_type):
+
+                    backend_type = ""
+                    if token_refresher:
+                        backend_type = str(getattr(token_refresher, "backend_type", ""))
+
+                    if token_refresher and "oauth-auto" in backend_type:
                         try:
+                            # Pass retry delay to allow exponential backoff calculation
+                            retry_after = self._extract_retry_after_seconds(err)
                             rotated_credentials = (
                                 await token_refresher.refresh_token_if_needed(
                                     force_reload=True,
                                     session_id=prepared.session_id,
+                                    retry_after_seconds=retry_after,
                                 )
                             )
                             if logger.isEnabledFor(logging.DEBUG):

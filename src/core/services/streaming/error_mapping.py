@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 import httpx
+from starlette.exceptions import HTTPException
 
 from src.core.common.exceptions import (
     APIConnectionError,
@@ -82,6 +83,55 @@ class StreamingErrorMapper:
             # Map other HTTP errors to BackendError
             return BackendError(
                 message=f"{provider} returned HTTP {status_code}",
+                backend_name=provider,
+                details=details,
+                status_code=status_code,
+            )
+
+        # Map FastAPI/Starlette HTTP exceptions
+        if isinstance(error, HTTPException):
+            status_code = error.status_code
+            details["status_code"] = str(status_code)
+
+            detail_payload = getattr(error, "detail", None)
+            message = f"{provider} returned HTTP {status_code}"
+            response_text: str | None = None
+
+            if isinstance(detail_payload, dict):
+                detail_message = detail_payload.get("message")
+                if isinstance(detail_message, str) and detail_message.strip():
+                    response_text = detail_message
+                else:
+                    try:
+                        response_text = json.dumps(
+                            detail_payload, ensure_ascii=True, default=str
+                        )
+                    except (TypeError, ValueError):
+                        response_text = str(detail_payload)
+
+                detail_type = detail_payload.get("type")
+                if detail_type is not None:
+                    details["error_type"] = detail_type
+                detail_code = detail_payload.get("code")
+                if detail_code is not None:
+                    details["error_code"] = detail_code
+            elif detail_payload is not None:
+                response_text = str(detail_payload)
+
+            if response_text:
+                normalized = response_text.strip()
+                if normalized and "<html" not in normalized.lower():
+                    message = normalized
+                details["response_text"] = normalized[:500]
+
+            if status_code == 429:
+                return RateLimitExceededError(
+                    message=f"{provider} rate limit exceeded",
+                    details=details,
+                )
+
+            return BackendError(
+                message=message,
                 backend_name=provider,
                 details=details,
                 status_code=status_code,
@@ -172,9 +222,10 @@ async def handle_streaming_error(
     # For quota_exceeded errors, use 503 instead of 429
     error_code_attr = getattr(mapped_error, "code", None)  # type: ignore[attr-defined]
     if error_code_attr == "quota_exceeded":
-        status_code = 503
+        if status_code is None:
+            status_code = 503
         # Use status_code as string for code field (test expects integer 503 in content)
-        error_code = str(status_code) if status_code is not None else error_code
+        error_code = str(status_code)
 
     error_info = StreamingErrorInfo(
         type=type(mapped_error).__name__,
@@ -201,7 +252,7 @@ async def handle_streaming_error(
     # Test expects content["error"]["code"] to be 503 (int), not string
     error_content: dict[str, Any] | str = ""
     error_code_attr = getattr(mapped_error, "code", None)  # type: ignore[attr-defined]
-    if error_code_attr == "quota_exceeded" and status_code is not None:
+    if error_code_attr == "quota_exceeded":
         # Build OpenAI-style error chunk with integer code
         import time
 

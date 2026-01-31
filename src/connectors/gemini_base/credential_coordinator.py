@@ -121,13 +121,13 @@ class CredentialProviderAdapter:
         self._coordinator = coordinator
 
     @property
-    def _oauth_credentials(self) -> dict[str, Any] | None:
+    def oauth_credentials(self) -> dict[str, Any] | None:
         """Return the current OAuth credentials dict."""
         if self._coordinator.credentials_obj:
             return self._coordinator.credentials_obj.to_dict()
         return None
 
-    async def _load_oauth_credentials(
+    async def load_oauth_credentials(
         self, force_reload: bool = False, silent: bool = False
     ) -> bool:
         """Load or reload OAuth credentials from storage."""
@@ -265,17 +265,22 @@ class GeminiCredentialCoordinator(ICredentialCoordinator):
         refreshed = await self.refresh_if_needed(force_reload=False)
         return refreshed
 
-    async def refresh_if_needed(self, *, force_reload: bool = False) -> bool:
+    async def refresh_if_needed(
+        self, *, force_reload: bool = False, retry_after_seconds: float | None = None
+    ) -> bool:
         """Refresh access token if required and return success.
 
         Args:
             force_reload: If True, force reload credentials before refresh.
+            retry_after_seconds: Optional explicit retry delay suggested by the API.
 
         Returns:
             True if refresh succeeded or was not needed, False otherwise.
         """
         return await self._token_manager.refresh_token_if_needed(
-            self._provider_adapter, force_reload=force_reload
+            self._provider_adapter,
+            force_reload=force_reload,
+            retry_after_seconds=retry_after_seconds,
         )
 
     @property

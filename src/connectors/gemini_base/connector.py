@@ -563,6 +563,17 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         )
 
     @property
+    def oauth_credentials(self) -> dict[str, Any] | None:
+        """Public property for CredentialProvider protocol."""
+        return self._oauth_credentials
+
+    async def load_oauth_credentials(
+        self, force_reload: bool = False, silent: bool = False
+    ) -> bool:
+        """Public method for CredentialProvider protocol."""
+        return await self._load_oauth_credentials(force_reload, silent)
+
+    @property
     def _oauth_credentials(self) -> dict[str, Any] | None:  # type: ignore[redeclaration]
         """Get current OAuth credentials - implements IConnectorContext.
 
@@ -647,20 +658,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return self._extract_retry_delay(error)
 
     async def refresh_token_if_needed(
-        self, 
-        *, 
-        force_reload: bool = False, 
+        self,
+        *,
+        force_reload: bool = False,
         session_id: str | None = None,
-        retry_after_seconds: float | None = None
+        retry_after_seconds: float | None = None,
     ) -> bool:
         """Ensure a valid access token is available, refreshing when necessary.
 
         Implements ITokenRefresher interface.
         """
         return await self._refresh_token_if_needed(
-            force_reload=force_reload, 
+            force_reload=force_reload,
             session_id=session_id,
-            retry_after_seconds=retry_after_seconds
+            retry_after_seconds=retry_after_seconds,
         )
 
     # ==========================================================================
@@ -794,13 +805,12 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """
         # Base implementation does nothing by default.
         # Subclasses (like GeminiOAuthAutoConnector) override this.
-        pass
 
     def _mark_backend_unusable(
-        self, 
-        *, 
+        self,
+        *,
         reason: str = "quota_exceeded",
-        retry_after_seconds: float | None = None
+        retry_after_seconds: float | None = None,
     ) -> None:
         """Mark this backend as unusable.
 
@@ -1038,11 +1048,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return self._token_manager.get_refresh_token(self._oauth_credentials)
 
     async def _refresh_token_if_needed(
-        self, 
-        *, 
-        force_reload: bool = False, 
+        self,
+        *,
+        force_reload: bool = False,
         session_id: str | None = None,
-        retry_after_seconds: float | None = None
+        retry_after_seconds: float | None = None,
     ) -> bool:
         """Ensure a valid access token is available, refreshing when necessary.
 
@@ -1050,11 +1060,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """
         if self._credential_coordinator:
             return await self._credential_coordinator.refresh_if_needed(
-                force_reload=force_reload
+                force_reload=force_reload, retry_after_seconds=retry_after_seconds
             )
         # Fallback to token manager for backward compatibility
         return await self._token_manager.refresh_token_if_needed(
-            self, force_reload=force_reload
+            self, force_reload=force_reload, retry_after_seconds=retry_after_seconds
         )
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:

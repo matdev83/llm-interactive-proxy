@@ -12,9 +12,10 @@ import logging
 import shutil
 import subprocess
 import time
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from src.connectors.gemini_base.credentials import (
+
     CLI_REFRESH_COMMAND,
     CLI_REFRESH_COOLDOWN_SECONDS,
     CLI_REFRESH_THRESHOLD_SECONDS,
@@ -26,15 +27,17 @@ from src.connectors.gemini_base.credentials import (
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
 class CredentialProvider(Protocol):
+
     """Protocol for credential access required by TokenManager."""
 
     @property
-    def _oauth_credentials(self) -> dict[str, Any] | None:
+    def oauth_credentials(self) -> dict[str, Any] | None:
         """Return the current OAuth credentials dict."""
         ...
 
-    async def _load_oauth_credentials(
+    async def load_oauth_credentials(
         self, force_reload: bool = False, silent: bool = False
     ) -> bool:
         """Load or reload OAuth credentials from storage."""
@@ -187,7 +190,7 @@ class TokenManager:
         Returns:
             True if a valid token was obtained, False otherwise.
         """
-        credentials = credential_provider._oauth_credentials
+        credentials = credential_provider.oauth_credentials
         if not self.is_token_expired(credentials):
             return True
 
@@ -208,23 +211,23 @@ class TokenManager:
             if sleep_for > 0:
                 await asyncio.sleep(sleep_for)
             attempts += 1
-            loaded = await credential_provider._load_oauth_credentials(silent=True)
+            loaded = await credential_provider.load_oauth_credentials(silent=True)
             if loaded and not self.is_token_expired(
-                credential_provider._oauth_credentials
+                credential_provider.oauth_credentials
             ):
                 logger.debug("Token refresh succeeded after %d poll attempts", attempts)
                 return True
 
         # One final check in case the token refreshed just as the loop exited
-        loaded = await credential_provider._load_oauth_credentials(silent=True)
-        if loaded and not self.is_token_expired(credential_provider._oauth_credentials):
+        loaded = await credential_provider.load_oauth_credentials(silent=True)
+        if loaded and not self.is_token_expired(credential_provider.oauth_credentials):
             logger.debug(
                 "Token refresh finalized after max wait window (%s seconds)",
                 wait_window,
             )
             return True
 
-        return not self.is_token_expired(credential_provider._oauth_credentials)
+        return not self.is_token_expired(credential_provider.oauth_credentials)
 
     def get_refresh_token(self, credentials: dict[str, Any] | None) -> str | None:
         """Get refresh token, either from credentials or cached value.
@@ -249,6 +252,7 @@ class TokenManager:
         credential_provider: CredentialProvider,
         *,
         force_reload: bool = False,
+        retry_after_seconds: float | None = None,
     ) -> bool:
         """Ensure a valid access token is available, refreshing when necessary.
 
@@ -259,14 +263,16 @@ class TokenManager:
 
         Args:
             credential_provider: Object providing credential access and loading.
+            force_reload: If True, bypass cache and force reload.
+            retry_after_seconds: Optional explicit retry delay suggested by the API.
 
         Returns:
             True if a valid token is available, False otherwise.
         """
-        credentials = credential_provider._oauth_credentials
+        credentials = credential_provider.oauth_credentials
         if not credentials or force_reload:
-            await credential_provider._load_oauth_credentials(force_reload=force_reload)
-            credentials = credential_provider._oauth_credentials
+            await credential_provider.load_oauth_credentials(force_reload=force_reload)
+            credentials = credential_provider.oauth_credentials
 
         if not credentials:
             return False
@@ -278,10 +284,10 @@ class TokenManager:
             return True
 
         async with self._token_refresh_lock:
-            credentials = credential_provider._oauth_credentials
+            credentials = credential_provider.oauth_credentials
             if not credentials:
-                await credential_provider._load_oauth_credentials()
-                credentials = credential_provider._oauth_credentials
+                await credential_provider.load_oauth_credentials()
+                credentials = credential_provider.oauth_credentials
 
             if not credentials:
                 return False
@@ -300,8 +306,8 @@ class TokenManager:
                 "Access token expired; reloading credentials and invoking CLI refresh if needed."
             )
 
-            reloaded = await credential_provider._load_oauth_credentials()
-            credentials = credential_provider._oauth_credentials
+            reloaded = await credential_provider.load_oauth_credentials()
+            credentials = credential_provider.oauth_credentials
             if reloaded and not self.is_token_expired(credentials):
                 if self.should_trigger_cli_refresh(credentials):
                     self.launch_cli_refresh_process()

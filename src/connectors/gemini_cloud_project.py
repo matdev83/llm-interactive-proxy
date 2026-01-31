@@ -777,7 +777,11 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         return None
 
     async def _refresh_token_if_needed(
-        self, *, force_reload: bool = False, session_id: str | None = None
+        self, 
+        *, 
+        force_reload: bool = False, 
+        session_id: str | None = None,
+        retry_after_seconds: float | None = None
     ) -> bool:
         """Refresh the access token if it's expired or close to expiring."""
         if not self._oauth_credentials:
@@ -869,6 +873,17 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
                         exc_info=True,
                     )
                 return False
+
+    async def record_rate_limit(self, *, retry_after_seconds: float | None) -> None:
+        """Record a rate limit event for the current credentials.
+
+        Args:
+            retry_after_seconds: Optional explicit retry delay suggested by the API.
+        """
+        # Cloud Project connector doesn't yet support per-account cooldowns
+        # because it uses a single GCP project. Future enhancement could
+        # put the project in a temporary cooldown.
+        pass
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""
