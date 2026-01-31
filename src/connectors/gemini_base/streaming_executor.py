@@ -109,7 +109,9 @@ class ITokenRefresher(Protocol):
     execution concerns from credential lifecycle management. Supports DI and test seams.
     """
 
-    async def refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
+    async def refresh_token_if_needed(
+        self, *, force_reload: bool = False, session_id: str | None = None
+    ) -> bool:
         """Refresh the OAuth token if needed.
 
         Args:
@@ -505,7 +507,8 @@ class StreamingExecutor:
                     rotated = False
                     try:
                         rotated = await token_refresher.refresh_token_if_needed(
-                            force_reload=True
+                            force_reload=True,
+                            session_id=prepared.session_id,
                         )
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
@@ -1127,7 +1130,8 @@ class StreamingExecutor:
                         try:
                             rotated_credentials = (
                                 await token_refresher.refresh_token_if_needed(
-                                    force_reload=True
+                                    force_reload=True,
+                                    session_id=prepared.session_id,
                                 )
                             )
                             if logger.isEnabledFor(logging.DEBUG):
@@ -1402,7 +1406,8 @@ class StreamingExecutor:
                 try:
                     refreshed = await asyncio.wait_for(
                         token_refresher.refresh_token_if_needed(
-                            force_reload=decision.force_reload
+                            force_reload=decision.force_reload,
+                            session_id=prepared.session_id,
                         ),
                         timeout=decision.timeout_seconds,
                     )
@@ -1496,7 +1501,8 @@ class StreamingExecutor:
                     try:
                         rotated_credentials = (
                             await token_refresher.refresh_token_if_needed(
-                                force_reload=True
+                                force_reload=True,
+                                session_id=prepared.session_id,
                             )
                         )
                         if logger.isEnabledFor(logging.DEBUG):

@@ -6,6 +6,9 @@ Manages which account to use for API requests with round-robin rotation.
 import asyncio
 import logging
 import time
+from collections import OrderedDict
+
+from desktop_notifier import DesktopNotifier
 
 from src.connectors.gemini_oauth_auto.constants import (
     DEFAULT_RATE_LIMIT_SECONDS,
@@ -43,6 +46,8 @@ class AccountSelectorService(IAccountSelector):
         refresh_buffer_ms: int = DEFAULT_REFRESH_BUFFER_MS,
         allowed_account_ids: set[str] | None = None,
         selection_strategy: str = "round-robin",
+        session_affinity_ttl_seconds: int = 86400,
+        session_affinity_max_entries: int = 10000,
     ) -> None:
         """Initialize account selector.
 
@@ -59,12 +64,16 @@ class AccountSelectorService(IAccountSelector):
         self._refresh_buffer_ms = refresh_buffer_ms
         self._allowed_account_ids = allowed_account_ids
         self._selection_strategy = selection_strategy
+        self._session_affinity_ttl_seconds = session_affinity_ttl_seconds
+        self._session_affinity_max_entries = session_affinity_max_entries
+        self._session_affinity: OrderedDict[str, tuple[str, float]] = OrderedDict()
 
         self._current_account: StoredAccount | None = None
         self._accounts: list[StoredAccount] = []
         self._blocked_account_ids: set[str] = set()
         self._rotation_index: int = 0
         self._initialized: bool = False
+        self._notifier: DesktopNotifier | None = None
 
     @property
     def rotation_index(self) -> int:
@@ -101,6 +110,22 @@ class AccountSelectorService(IAccountSelector):
     @selection_strategy.setter
     def selection_strategy(self, value: str) -> None:
         self._selection_strategy = value
+
+    @property
+    def session_affinity_ttl_seconds(self) -> int:
+        return self._session_affinity_ttl_seconds
+
+    @session_affinity_ttl_seconds.setter
+    def session_affinity_ttl_seconds(self, value: int) -> None:
+        self._session_affinity_ttl_seconds = value
+
+    @property
+    def session_affinity_max_entries(self) -> int:
+        return self._session_affinity_max_entries
+
+    @session_affinity_max_entries.setter
+    def session_affinity_max_entries(self, value: int) -> None:
+        self._session_affinity_max_entries = value
 
     @property
     def total_count(self) -> int:
@@ -174,7 +199,97 @@ class AccountSelectorService(IAccountSelector):
             return 0.0
         return max((rate_limited_until - now_ms) / 1000.0, 0.0)
 
-    async def get_next_account(self) -> StoredAccount | None:
+    def _session_affinity_enabled(self) -> bool:
+        return (
+            self._selection_strategy == "session-affinity"
+            and self._session_affinity_max_entries > 0
+            and self._session_affinity_ttl_seconds > 0
+        )
+
+    def _clean_session_affinity_locked(self, now_s: float) -> None:
+        if not self._session_affinity:
+            return
+
+        if not self._session_affinity_enabled():
+            self._session_affinity.clear()
+            return
+
+        expire_before = now_s - float(self._session_affinity_ttl_seconds)
+        while self._session_affinity:
+            _, (_, last_used) = next(iter(self._session_affinity.items()))
+            if last_used >= expire_before:
+                break
+            self._session_affinity.popitem(last=False)
+
+        while len(self._session_affinity) > self._session_affinity_max_entries:
+            self._session_affinity.popitem(last=False)
+
+    def _record_session_affinity(
+        self, session_id: str, account_id: str, now_s: float
+    ) -> None:
+        if not self._session_affinity_enabled():
+            return
+        if not session_id:
+            return
+        self._session_affinity[session_id] = (account_id, now_s)
+        self._session_affinity.move_to_end(session_id)
+        self._clean_session_affinity_locked(now_s)
+
+    def _clear_session_affinity(self, session_id: str, reason: str) -> None:
+        if session_id in self._session_affinity:
+            self._session_affinity.pop(session_id, None)
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Session affinity cleared for session %s: %s",
+                    session_id[:8],
+                    reason,
+                )
+
+    def _get_session_affinity_account(
+        self,
+        session_id: str,
+        available: list[StoredAccount],
+        eligible: list[StoredAccount],
+        now_s: float,
+    ) -> StoredAccount | None:
+        if not self._session_affinity_enabled():
+            return None
+        if not session_id:
+            return None
+
+        self._clean_session_affinity_locked(now_s)
+        entry = self._session_affinity.get(session_id)
+        if not entry:
+            return None
+
+        account_id, _ = entry
+        available_by_id = {acc.account_id: acc for acc in available}
+        eligible_ids = {acc.account_id for acc in eligible}
+
+        candidate = available_by_id.get(account_id)
+        if not candidate:
+            self._clear_session_affinity(session_id, "account unavailable")
+            return None
+
+        if account_id not in eligible_ids:
+            self._clear_session_affinity(session_id, "account not eligible")
+            return None
+
+        self._record_session_affinity(session_id, account_id, now_s)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Session affinity hit: session=%s account=%s",
+                session_id[:8],
+                account_id,
+            )
+        return candidate
+
+    async def get_next_account(
+        self,
+        *,
+        session_id: str | None = None,
+        ignore_session_affinity: bool = False,
+    ) -> StoredAccount | None:
         """Get next valid account based on selection strategy.
 
         Advances the rotation index and returns the next usable account.
@@ -188,6 +303,7 @@ class AccountSelectorService(IAccountSelector):
 
         while True:
             now_ms = int(time.time() * 1000)
+            now_s = float(now_ms) / 1000.0
             available, eligible = self._get_rate_limit_eligible_accounts(now_ms)
             if not available:
                 logger.warning("No valid accounts available for selection")
@@ -210,7 +326,26 @@ class AccountSelectorService(IAccountSelector):
                     continue
                 return None
 
-            account = self._select_account_from_available(eligible)
+            affinity_hit = False
+            account: StoredAccount | None = None
+            if not ignore_session_affinity:
+                account = self._get_session_affinity_account(
+                    session_id or "",
+                    available,
+                    eligible,
+                    now_s,
+                )
+                affinity_hit = account is not None
+
+            if not account:
+                fallback_strategy = (
+                    "round-robin"
+                    if self._selection_strategy == "session-affinity"
+                    else self._selection_strategy
+                )
+                account = self._select_account_from_available(
+                    eligible, strategy=fallback_strategy
+                )
             if not account:
                 return None
 
@@ -227,6 +362,8 @@ class AccountSelectorService(IAccountSelector):
                     )
                     account = account.model_copy(update={"needs_reauth": True})
                     self._update_account_in_list(account)
+                    if session_id:
+                        self._clear_session_affinity(session_id, "needs reauth")
                     continue
 
                 logger.warning(
@@ -236,16 +373,40 @@ class AccountSelectorService(IAccountSelector):
                 )
 
             self._current_account = account
-            logger.debug("Selected account: %s", account.account_id)
+            if session_id and self._session_affinity_enabled():
+                previous = self._session_affinity.get(session_id)
+                previous_account_id = previous[0] if previous else None
+                self._record_session_affinity(session_id, account.account_id, now_s)
+                if previous_account_id != account.account_id and logger.isEnabledFor(
+                    logging.INFO
+                ):
+                    label = (
+                        "Session affinity rotated"
+                        if ignore_session_affinity
+                        else "Session affinity assigned"
+                    )
+                    logger.info(
+                        "%s: session=%s account=%s",
+                        label,
+                        session_id[:8],
+                        account.account_id,
+                    )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Selected account: %s (affinity=%s)",
+                    account.account_id,
+                    affinity_hit,
+                )
             return account
 
     def _select_account_from_available(
-        self, available: list[StoredAccount]
+        self, available: list[StoredAccount], *, strategy: str | None = None
     ) -> StoredAccount | None:
         if not available:
             return None
 
-        if self._selection_strategy == "random":
+        selection_strategy = strategy or self._selection_strategy
+        if selection_strategy == "random":
             import random
 
             if len(available) > 1 and self._current_account:
@@ -257,7 +418,7 @@ class AccountSelectorService(IAccountSelector):
                 return random.choice(others)
             return random.choice(available)
 
-        if self._selection_strategy == "first-available":
+        if selection_strategy == "first-available":
             return available[0]
 
         if self._rotation_index >= len(available):
@@ -310,7 +471,9 @@ class AccountSelectorService(IAccountSelector):
         """Get currently selected account without advancing."""
         return self._current_account
 
-    async def rotate_on_quota(self) -> StoredAccount | None:
+    async def rotate_on_quota(
+        self, *, session_id: str | None = None
+    ) -> StoredAccount | None:
         """Rotate to next account due to quota exhaustion."""
         await self._ensure_accounts_loaded()
 
@@ -327,7 +490,10 @@ class AccountSelectorService(IAccountSelector):
         )
 
         # Get next account (get_next_account already advances index)
-        return await self.get_next_account()
+        return await self.get_next_account(
+            session_id=session_id,
+            ignore_session_affinity=True,
+        )
 
     def get_available_count(self) -> int:
         """Count of accounts not marked needs_reauth."""
@@ -372,6 +538,23 @@ class AccountSelectorService(IAccountSelector):
             self._rotation_index,
         )
 
+    async def _send_block_notification(self, account_id: str, reason: str) -> None:
+        """Send OS notification when account gets blocked.
+
+        Args:
+            account_id: The account ID that was blocked.
+            reason: Reason why the account is being blocked.
+        """
+        try:
+            if self._notifier is None:
+                self._notifier = DesktopNotifier()
+            await self._notifier.send(
+                title="Gemini OAuth Account Blocked",
+                message=f"Account {account_id[:8]}... requires verification: {reason[:100]}",
+            )
+        except Exception as e:
+            logger.debug("Failed to send block notification: %s", e)
+
     async def mark_current_account_blocked(self, reason: str) -> None:
         """Mark the currently selected account as blocked/unusable until restart.
 
@@ -389,6 +572,22 @@ class AccountSelectorService(IAccountSelector):
                 account_id,
                 reason,
             )
+            # Send OS notification (only once per blocking event)
+            await self._send_block_notification(account_id, reason)
+            if self._session_affinity:
+                sessions_to_clear = [
+                    session
+                    for session, (acc_id, _) in self._session_affinity.items()
+                    if acc_id == account_id
+                ]
+                for session in sessions_to_clear:
+                    self._session_affinity.pop(session, None)
+                if sessions_to_clear and logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Cleared %d session affinity mapping(s) for account %s",
+                        len(sessions_to_clear),
+                        account_id,
+                    )
             # Advancing index is not strictly necessary here as get_next_account
             # will skip this account next time, but clearing current ensures
             # we don't try to use it again for the same request if logic repeats.

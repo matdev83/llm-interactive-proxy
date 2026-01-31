@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -49,13 +48,6 @@ class _TranslationShim:
         return chunk
 
 
-@dataclass
-class _ScenarioResult:
-    """Container describing the outcome returned by the mock connector."""
-
-    content: str
-
-
 class ClientExperienceConnector(GeminiOAuthBaseConnector):
     """Test double that exercises graceful degradation logic without real HTTP calls."""
 
@@ -70,7 +62,6 @@ class ClientExperienceConnector(GeminiOAuthBaseConnector):
             name="client-experience",
         )
 
-        self.translation_service = translation  # tighten type for mypy
         self.gemini_api_base_url = "https://mocked.example.com"
 
         self._behavior: dict[str, list[Any]] = {}
@@ -93,7 +84,9 @@ class ClientExperienceConnector(GeminiOAuthBaseConnector):
         self._behavior[model] = outcomes
         self._call_count[model] = 0
 
-    async def _refresh_token_if_needed(self) -> bool:
+    async def _refresh_token_if_needed(
+        self, *, force_reload: bool = False, session_id: str | None = None
+    ) -> bool:
         return True
 
     async def _discover_project_id(self, auth_session: Any) -> str:
@@ -104,6 +97,9 @@ class ClientExperienceConnector(GeminiOAuthBaseConnector):
         request_data: CanonicalChatRequest,
         processed_messages: list[Any],
         effective_model: str,
+        _in_graceful_degradation: bool = False,
+        _auth_retry_attempted: bool = False,
+        _rate_limit_retry_attempted: bool = False,
         **kwargs: Any,
     ) -> ResponseEnvelope:
         index = self._call_count.get(effective_model, 0)
@@ -114,13 +110,14 @@ class ClientExperienceConnector(GeminiOAuthBaseConnector):
         if isinstance(outcome, Exception):
             raise outcome
         content = outcome if isinstance(outcome, str) else str(outcome)
-        return ResponseEnvelope(content=_ScenarioResult(content=content))
+        return ResponseEnvelope(content=content)
 
     async def _chat_completions_code_assist_streaming(
         self,
         request_data: CanonicalChatRequest,
         processed_messages: list[Any],
         effective_model: str,
+        _rate_limit_retry_attempted: bool = False,
         **kwargs: Any,
     ) -> StreamingResponseEnvelope:
         try:
@@ -132,16 +129,24 @@ class ClientExperienceConnector(GeminiOAuthBaseConnector):
             )
         except BackendError as exc:  # pragma: no cover - mirrors parent behavior
             if getattr(exc, "status_code", None) == 429:
-                response = await self._handle_429_with_graceful_degradation(
+                degraded = await self._handle_429_with_graceful_degradation(
                     original_model=effective_model,
                     request_data=request_data,
                     processed_messages=processed_messages,
                     **kwargs,
                 )
+                if isinstance(degraded, StreamingResponseEnvelope):
+                    return degraded
+                response = degraded
             else:
                 raise
 
         async def iterator() -> AsyncGenerator[ProcessedResponse, None]:
+            response_text = (
+                response.content
+                if isinstance(response.content, str)
+                else str(response.content)
+            )
             yield ProcessedResponse(
                 content={
                     "id": "chatcmpl-1",
@@ -151,7 +156,7 @@ class ClientExperienceConnector(GeminiOAuthBaseConnector):
                     "choices": [
                         {
                             "index": 0,
-                            "delta": {"content": response.content.content},
+                            "delta": {"content": response_text},
                             "finish_reason": "stop",
                         }
                     ],
@@ -314,6 +319,18 @@ async def test_streaming_envelope_carries_response_text(
     collected = []
 
     async for chunk in stream_envelope.content:  # type: ignore[union-attr]
-        collected.append(chunk.content["choices"][0]["delta"].get("content"))
+        payload = chunk.content
+        if not isinstance(payload, dict):
+            continue
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+        first = choices[0]
+        if not isinstance(first, dict):
+            continue
+        delta = first.get("delta")
+        if not isinstance(delta, dict):
+            continue
+        collected.append(delta.get("content"))
 
     assert "streamed-response" in collected

@@ -139,7 +139,12 @@ class IAccountSelector(ABC):
     """
 
     @abstractmethod
-    async def get_next_account(self) -> StoredAccount | None:
+    async def get_next_account(
+        self,
+        *,
+        session_id: str | None = None,
+        ignore_session_affinity: bool = False,
+    ) -> StoredAccount | None:
         """Get next valid account in rotation.
 
         Advances the rotation index and returns the next usable account.
@@ -165,7 +170,9 @@ class IAccountSelector(ABC):
         ...
 
     @abstractmethod
-    async def rotate_on_quota(self) -> StoredAccount | None:
+    async def rotate_on_quota(
+        self, *, session_id: str | None = None
+    ) -> StoredAccount | None:
         """Rotate to next account due to quota exhaustion.
 
         Called when HTTP 429 is received. Immediately advances to

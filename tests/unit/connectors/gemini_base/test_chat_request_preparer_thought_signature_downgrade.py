@@ -29,7 +29,9 @@ class MockConnectorContext(IConnectorContext):
     def __init__(self) -> None:
         self._creds = {"access_token": "fake-token"}
 
-    async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
+    async def _refresh_token_if_needed(
+        self, *, force_reload: bool = False, session_id: str | None = None
+    ) -> bool:
         return True
 
     @property

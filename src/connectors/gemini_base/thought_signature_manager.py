@@ -55,6 +55,9 @@ class ThoughtSignatureManager:
         self._persist_min_interval_seconds = 5.0
         self._persist_last_write = 0.0
         self._persist_dirty = False
+        self._persist_namespaced = False
+        self._persist_namespaced_last_write: dict[str, float] = {}
+        self._persist_namespaced_dirty: set[str] = set()
         self._configure_persistence()
 
         # OrderedDict for LRU eviction with timestamps.
@@ -73,12 +76,35 @@ class ThoughtSignatureManager:
         """Return True if the session id includes a signature namespace."""
         return bool(session_id) and self._NAMESPACE_SEPARATOR in session_id
 
+    def _split_session_id(self, session_id: str) -> tuple[str, str | None]:
+        """Split a session id into base and namespace parts."""
+        if not session_id:
+            return "", None
+        if self._NAMESPACE_SEPARATOR in session_id:
+            base, namespace = session_id.split(self._NAMESPACE_SEPARATOR, 1)
+            return base, namespace or None
+        return session_id, None
+
     def _is_namespaced_cache_key(self, cache_key: str) -> bool:
         """Return True if a cache key belongs to a namespaced session."""
         if cache_key.startswith("anon:"):
             return False
         session_part = cache_key.split(":", 1)[0]
         return self._is_namespaced_session_id(session_part)
+
+    def _extract_namespace_from_session_id(self, session_id: str) -> str | None:
+        if not session_id or self._NAMESPACE_SEPARATOR not in session_id:
+            return None
+        base, namespace = session_id.rsplit(self._NAMESPACE_SEPARATOR, 1)
+        if not base or not namespace:
+            return None
+        return namespace
+
+    def _extract_namespace_from_cache_key(self, cache_key: str) -> str | None:
+        if cache_key.startswith("anon:"):
+            return None
+        session_part = cache_key.split(":", 1)[0]
+        return self._extract_namespace_from_session_id(session_part)
 
     def _configure_persistence(self) -> None:
         """Configure optional on-disk persistence.
@@ -98,6 +124,7 @@ class ThoughtSignatureManager:
             self._persist_path = None
             self._persist_dir = None
             self._load_legacy_persist_file = False
+            self._persist_namespaced = False
             return
 
         # During pytest runs, do not persist by default to avoid polluting the repo.
@@ -107,6 +134,7 @@ class ThoughtSignatureManager:
             self._persist_path = None
             self._persist_dir = None
             self._load_legacy_persist_file = False
+            self._persist_namespaced = False
             return
 
         raw_path = os.environ.get("LLM_PROXY_THOUGHT_SIGNATURE_PERSIST_PATH")
@@ -125,6 +153,7 @@ class ThoughtSignatureManager:
                 self._persist_path = (
                     configured / f"thought_signatures_{os.getpid()}.json"
                 )
+            self._configure_namespaced_persistence()
             return
 
         # Default persistence location (per-process shard files).
@@ -132,6 +161,24 @@ class ThoughtSignatureManager:
         self._persist_path = (
             self._persist_dir / f"thought_signatures_{os.getpid()}.json"
         )
+        self._configure_namespaced_persistence()
+
+    def _configure_namespaced_persistence(self) -> None:
+        if self._persist_dir is None:
+            self._persist_namespaced = False
+            return
+
+        setting = os.environ.get("LLM_PROXY_THOUGHT_SIGNATURE_PERSIST_NAMESPACED")
+        if setting is None:
+            self._persist_namespaced = True
+            return
+
+        self._persist_namespaced = setting.strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
 
     def _iter_persist_files(self) -> list[pathlib.Path]:
         """Return all persistence files to load for this process."""
@@ -168,7 +215,8 @@ class ThoughtSignatureManager:
             return
 
         current_time = time.time()
-        merged: dict[str, tuple[str, float]] = {}
+        merged_anon: dict[str, tuple[str, float]] = {}
+        merged_namespaced: dict[str, tuple[str, float]] = {}
         loaded_files = 0
 
         for path in persist_files:
@@ -183,9 +231,13 @@ class ThoughtSignatureManager:
                 continue
 
             entries: dict[str, Any] = {}
+            namespace_hint: str | None = None
             if isinstance(data, dict):
                 if isinstance(data.get("entries"), dict):
                     entries = data["entries"]
+                    namespace_raw = data.get("namespace")
+                    if isinstance(namespace_raw, str) and namespace_raw.strip():
+                        namespace_hint = namespace_raw.strip()
                 else:
                     # Legacy format: {tool_call_id: signature}
                     entries = data
@@ -195,8 +247,8 @@ class ThoughtSignatureManager:
 
             loaded_files += 1
 
-            for tc_id, entry in entries.items():
-                if not isinstance(tc_id, str) or not tc_id:
+            for key, entry in entries.items():
+                if not isinstance(key, str) or not key:
                     continue
 
                 if isinstance(entry, dict):
@@ -213,47 +265,105 @@ class ThoughtSignatureManager:
                 if current_time - timestamp > self._ttl_seconds:
                     continue
 
-                existing = merged.get(tc_id)
-                if existing is None or timestamp > existing[1]:
-                    merged[tc_id] = (sig, timestamp)
+                if key.startswith("anon:"):
+                    tc_id = key.split(":", 1)[1]
+                    existing = merged_anon.get(tc_id)
+                    if existing is None or timestamp > existing[1]:
+                        merged_anon[tc_id] = (sig, timestamp)
+                    continue
 
-        if not merged:
+                if self._is_namespaced_cache_key(key):
+                    if not self._persist_namespaced:
+                        continue
+                    namespace = self._extract_namespace_from_cache_key(key)
+                    if not namespace:
+                        continue
+                    if namespace_hint and namespace != namespace_hint:
+                        continue
+                    existing = merged_namespaced.get(key)
+                    if existing is None or timestamp > existing[1]:
+                        merged_namespaced[key] = (sig, timestamp)
+                    continue
+
+                tc_id = key.split(":", 1)[1] if ":" in key else key
+                existing = merged_anon.get(tc_id)
+                if existing is None or timestamp > existing[1]:
+                    merged_anon[tc_id] = (sig, timestamp)
+
+        if not merged_anon and not merged_namespaced:
             return
 
-        loaded = [(tc_id, sig, ts) for tc_id, (sig, ts) in merged.items()]
-        loaded.sort(key=lambda x: x[2])
+        loaded_anon = [(tc_id, sig, ts) for tc_id, (sig, ts) in merged_anon.items()]
+        loaded_anon.sort(key=lambda x: x[2])
+        loaded_namespaced = [
+            (cache_key, sig, ts) for cache_key, (sig, ts) in merged_namespaced.items()
+        ]
+        loaded_namespaced.sort(key=lambda x: x[2])
 
         with self._lock:
-            for tc_id, sig, timestamp in loaded[-self._max_cache_size :]:
+            for tc_id, sig, timestamp in loaded_anon[-self._max_cache_size :]:
                 key = f"anon:{tc_id}"
                 self._cache[key] = (sig, timestamp)
                 self._cache.move_to_end(key)
                 self._by_tool_call[tc_id] = sig
+
+            for cache_key, sig, timestamp in loaded_namespaced[-self._max_cache_size :]:
+                self._cache[cache_key] = (sig, timestamp)
+                self._cache.move_to_end(cache_key)
+
             self._enforce_size_limit_locked()
 
         if logger.isEnabledFor(logging.INFO):
+            namespaces: set[str] = set()
+            for cache_key, _, _ in loaded_namespaced:
+                namespace = self._extract_namespace_from_cache_key(cache_key)
+                if namespace:
+                    namespaces.add(namespace)
             logger.info(
-                "Loaded %d persisted thought_signature(s) from %d file(s)",
-                len(loaded),
+                "Loaded %d persisted thought_signature(s) from %d file(s) (anon=%d namespaced=%d namespaces=%d)",
+                len(loaded_anon) + len(loaded_namespaced),
                 loaded_files,
+                len(loaded_anon),
+                len(loaded_namespaced),
+                len(namespaces),
             )
+
+    def _namespace_cache_filename(self, namespace: str) -> str:
+        digest = hashlib.sha256(namespace.encode("utf-8")).hexdigest()[:16]
+        return f"{self._PERSIST_NAMESPACE_PREFIX}{digest}.json"
+
+    def _get_namespaced_persist_path(self, namespace: str) -> pathlib.Path | None:
+        persist_dir = self._persist_dir
+        if persist_dir is None:
+            return None
+        return persist_dir / self._namespace_cache_filename(namespace)
+
+    def _mark_namespace_dirty(self, session_id: str) -> None:
+        if not self._persist_namespaced:
+            return
+        namespace = self._extract_namespace_from_session_id(session_id)
+        if not namespace:
+            return
+        self._persist_namespaced_dirty.add(namespace)
 
     def _maybe_persist_locked(self, current_time: float | None = None) -> None:
         """Persist anonymous thought signatures to disk (must hold lock)."""
+        if current_time is None:
+            current_time = time.time()
 
         path = self._persist_path
         if path is None:
+            self._maybe_persist_namespaced_locked(current_time)
             return
 
         if not self._persist_dirty:
+            self._maybe_persist_namespaced_locked(current_time)
             return
-
-        if current_time is None:
-            current_time = time.time()
 
         if (
             current_time - self._persist_last_write
         ) < self._persist_min_interval_seconds:
+            self._maybe_persist_namespaced_locked(current_time)
             return
 
         try:
@@ -297,6 +407,70 @@ class ThoughtSignatureManager:
             logger.debug("Failed to persist thought signatures", exc_info=True)
             with contextlib.suppress(Exception):
                 tmp_path.unlink(missing_ok=True)
+
+        self._maybe_persist_namespaced_locked(current_time)
+
+    def _maybe_persist_namespaced_locked(self, current_time: float) -> None:
+        if not self._persist_namespaced or not self._persist_namespaced_dirty:
+            return
+
+        for namespace in list(self._persist_namespaced_dirty):
+            last_write = self._persist_namespaced_last_write.get(namespace, 0.0)
+            if (current_time - last_write) < self._persist_min_interval_seconds:
+                continue
+
+            path = self._get_namespaced_persist_path(namespace)
+            if path is None:
+                continue
+
+            entries_out: dict[str, dict[str, Any]] = {}
+            for key, entry in self._cache.items():
+                if not self._is_namespaced_cache_key(key):
+                    continue
+                if self._extract_namespace_from_cache_key(key) != namespace:
+                    continue
+
+                if isinstance(entry, tuple) and len(entry) == 2:
+                    sig, ts = entry
+                else:
+                    sig, ts = str(entry), current_time
+                if not sig:
+                    continue
+                if current_time - float(ts) > self._ttl_seconds:
+                    continue
+                entries_out[key] = {"sig": sig, "ts": float(ts)}
+
+            payload = {
+                "version": 2,
+                "generated_at": float(current_time),
+                "ttl_seconds": int(self._ttl_seconds),
+                "namespace": namespace,
+                "entries": entries_out,
+            }
+
+            tmp_path = path.with_suffix(path.suffix + ".tmp")
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path.write_text(
+                    json.dumps(payload, separators=(",", ":")), encoding="utf-8"
+                )
+                os.replace(str(tmp_path), str(path))
+                self._persist_namespaced_last_write[namespace] = float(current_time)
+                self._persist_namespaced_dirty.discard(namespace)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Persisted %d namespaced thought_signature(s) for namespace %s",
+                        len(entries_out),
+                        namespace,
+                    )
+            except Exception:
+                logger.debug(
+                    "Failed to persist thought signatures for namespace %s",
+                    namespace,
+                    exc_info=True,
+                )
+                with contextlib.suppress(Exception):
+                    tmp_path.unlink(missing_ok=True)
 
     @property
     def cache(self) -> dict[str, str]:
@@ -427,6 +601,8 @@ class ThoughtSignatureManager:
                 cache_key = f"{session_id}:{tc_id}"
                 self._cache[cache_key] = (sig, current_time)
                 self._cache.move_to_end(cache_key)
+                if self._is_namespaced_session_id(session_id):
+                    self._mark_namespace_dirty(session_id)
 
             if use_anonymous_cache:
                 # Always keep an anonymous copy so signatures survive session-id changes
@@ -440,6 +616,8 @@ class ThoughtSignatureManager:
             self._enforce_size_limit_locked()
             if use_anonymous_cache:
                 self._maybe_persist_locked(current_time)
+            elif session_id and self._is_namespaced_session_id(session_id):
+                self._maybe_persist_namespaced_locked(current_time)
 
     def _lookup_signature(self, tc_id: str, session_id: str) -> str | None:
         """Look up a signature by tool_call_id and session_id.
@@ -452,47 +630,29 @@ class ThoughtSignatureManager:
         with self._lock:
             cache_key = f"{session_id}:{tc_id}"
 
-            cache_entry = self._cache.get(cache_key)
-            sig: str | None = None
+            sig = self._get_cache_entry_locked(cache_key, current_time)
 
-            if cache_entry:
-                if isinstance(cache_entry, tuple) and len(cache_entry) == 2:
-                    cached_sig, timestamp = cache_entry
-                else:
-                    cached_sig, timestamp = str(cache_entry), current_time
-                    # Normalize legacy entry to include a timestamp
-                    self._cache[cache_key] = (cached_sig, timestamp)
-                if current_time - timestamp > self._ttl_seconds:
-                    # Expired, remove it
-                    del self._cache[cache_key]
-                    self._by_tool_call.pop(tc_id, None)
-                    sig = None
-                else:
-                    sig = cached_sig
-                    # Sliding TTL: refresh timestamp on use.
-                    self._cache[cache_key] = (cached_sig, current_time)
-                    self._cache.move_to_end(cache_key)
+            if not sig and namespaced:
+                base_session_id, _ = self._split_session_id(session_id)
+                if base_session_id and base_session_id != session_id:
+                    base_key = f"{base_session_id}:{tc_id}"
+                    sig = self._get_cache_entry_locked(base_key, current_time)
+                    if not sig:
+                        sig = self._lookup_namespaced_fallback_locked(
+                            base_session_id, tc_id, current_time
+                        )
+                    if sig:
+                        self._cache[cache_key] = (sig, current_time)
+                        self._cache.move_to_end(cache_key)
+                        self._enforce_size_limit_locked()
 
             if not sig and not namespaced:
                 # Try anonymous cache if session_id was missing at store time
-                anon_entry = self._cache.get(f"anon:{tc_id}")
-                if anon_entry:
-                    if isinstance(anon_entry, tuple) and len(anon_entry) == 2:
-                        anon_sig, anon_timestamp = anon_entry
-                    else:
-                        anon_sig, anon_timestamp = str(anon_entry), current_time
-                        self._cache[f"anon:{tc_id}"] = (anon_sig, anon_timestamp)
-                    if current_time - anon_timestamp > self._ttl_seconds:
-                        del self._cache[f"anon:{tc_id}"]
-                        self._by_tool_call.pop(tc_id, None)
-                        sig = None
-                    else:
-                        sig = anon_sig
-                        # Sliding TTL on anonymous entries as well.
-                        self._cache[f"anon:{tc_id}"] = (anon_sig, current_time)
-                        self._cache.move_to_end(f"anon:{tc_id}")
-                        self._persist_dirty = True
-                        self._maybe_persist_locked(current_time)
+                anon_key = f"anon:{tc_id}"
+                sig = self._get_cache_entry_locked(anon_key, current_time)
+                if sig:
+                    self._persist_dirty = True
+                    self._maybe_persist_locked(current_time)
 
             if not sig and not namespaced:
                 # Fallback to global index by tool_call_id (handles session re-keying)
@@ -514,6 +674,65 @@ class ThoughtSignatureManager:
 
             return sig
 
+    def _get_cache_entry_locked(
+        self, cache_key: str, current_time: float
+    ) -> str | None:
+        """Return cached signature for a key (lock must be held)."""
+        cache_entry = self._cache.get(cache_key)
+        if not cache_entry:
+            return None
+
+        if isinstance(cache_entry, tuple) and len(cache_entry) == 2:
+            cached_sig, timestamp = cache_entry
+        else:
+            cached_sig, timestamp = str(cache_entry), current_time
+            # Normalize legacy entry to include a timestamp
+            self._cache[cache_key] = (cached_sig, timestamp)
+
+        if current_time - timestamp > self._ttl_seconds:
+            del self._cache[cache_key]
+            return None
+
+        # Sliding TTL: refresh timestamp on use.
+        self._cache[cache_key] = (cached_sig, current_time)
+        self._cache.move_to_end(cache_key)
+        return cached_sig
+
+    def _lookup_namespaced_fallback_locked(
+        self, base_session_id: str, tc_id: str, current_time: float
+    ) -> str | None:
+        """Search for a signature under any namespace for the same base session."""
+        if not base_session_id or not tc_id:
+            return None
+
+        prefix = f"{base_session_id}{self._NAMESPACE_SEPARATOR}"
+        suffix = f":{tc_id}"
+        best_sig: str | None = None
+        best_ts: float | None = None
+        best_key: str | None = None
+
+        for cache_key, entry in self._cache.items():
+            if not cache_key.startswith(prefix) or not cache_key.endswith(suffix):
+                continue
+            if isinstance(entry, tuple) and len(entry) == 2:
+                cached_sig, timestamp = entry
+            else:
+                cached_sig, timestamp = str(entry), current_time
+                self._cache[cache_key] = (cached_sig, timestamp)
+            if current_time - timestamp > self._ttl_seconds:
+                continue
+            if best_ts is None or timestamp > best_ts:
+                best_sig = cached_sig
+                best_ts = timestamp
+                best_key = cache_key
+
+        if best_sig and best_key:
+            self._cache[best_key] = (best_sig, current_time)
+            self._cache.move_to_end(best_key)
+            return best_sig
+
+        return None
+
     def store_signatures_from_tool_calls(
         self,
         tool_calls: list[dict[str, Any]],
@@ -527,10 +746,11 @@ class ThoughtSignatureManager:
         """
         with self._lock:
             anonymous_key = None if session_id else "anon"
-            use_anonymous_cache = session_id is None or not self._is_namespaced_session_id(
-                session_id
+            use_anonymous_cache = (
+                session_id is None or not self._is_namespaced_session_id(session_id)
             )
             current_time = time.time()
+            namespaced_dirty = False
 
             # Clean expired entries first
             self._clean_expired_entries_locked(current_time)
@@ -556,6 +776,8 @@ class ThoughtSignatureManager:
                     self._cache[cache_key] = (sig, current_time)
                     if use_anonymous_cache:
                         self._by_tool_call[tc_id] = sig
+                    elif session_id and self._is_namespaced_session_id(session_id):
+                        namespaced_dirty = True
 
                     # Always store an anonymous copy for restart/session-id safety.
                     if use_anonymous_cache:
@@ -581,6 +803,9 @@ class ThoughtSignatureManager:
 
             if use_anonymous_cache:
                 self._maybe_persist_locked(current_time)
+            elif namespaced_dirty and session_id:
+                self._mark_namespace_dirty(session_id)
+                self._maybe_persist_namespaced_locked(current_time)
 
     def log_signature_state(
         self,
@@ -734,8 +959,9 @@ class ThoughtSignatureManager:
             keys_to_remove: list[str] = [
                 key
                 for key in self._cache
-                if key.startswith(prefix) or key.startswith(namespaced_prefix)
+                if key.startswith((prefix, namespaced_prefix))
             ]
+            namespaces_to_dirty: set[str] = set()
 
             # Also collect tool_call_ids to remove from secondary index
             tool_call_ids_to_remove: list[str] = []
@@ -744,14 +970,21 @@ class ThoughtSignatureManager:
                 parts = key.split(":", 1)
                 if len(parts) == 2:
                     tool_call_ids_to_remove.append(parts[1])
+                namespace = self._extract_namespace_from_cache_key(key)
+                if namespace:
+                    namespaces_to_dirty.add(namespace)
 
             # Remove from primary cache and anonymous cache
             for key in keys_to_remove:
                 del self._cache[key]
-            
+
             for tc_id in tool_call_ids_to_remove:
                 self._cache.pop(f"anon:{tc_id}", None)
                 self._by_tool_call.pop(tc_id, None)
+
+            if self._persist_namespaced and namespaces_to_dirty:
+                self._persist_namespaced_dirty.update(namespaces_to_dirty)
+                self._maybe_persist_namespaced_locked(time.time())
 
             if keys_to_remove and logger.isEnabledFor(logging.INFO):
                 logger.info(

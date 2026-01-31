@@ -20,33 +20,45 @@ from src.connectors.gemini_base.connector_context import (
 class MockConnectorContext(IConnectorContext):
     def __init__(self):
         self._creds = {"access_token": "fake-token"}
-        self._get_session_headers = dict
-        self._refresh_token_if_needed = AsyncMock(return_value=True)
-        self._discover_project_id = AsyncMock(return_value="fake-project")
+        self._refresh_token_if_needed_mock = AsyncMock(return_value=True)
 
     @property
     def _oauth_credentials(self):
         return self._creds
 
+    def _get_session_headers(self) -> dict[str, str]:
+        return {}
+
+    async def _discover_project_id(self, auth_session):
+        return "fake-project"
+
+    async def _refresh_token_if_needed(
+        self, *, force_reload: bool = False, session_id: str | None = None
+    ) -> bool:
+        result = await self._refresh_token_if_needed_mock(
+            force_reload=force_reload, session_id=session_id
+        )
+        return bool(result)
+
 
 class MockMessageConverter(IMessageConverter):
-    def _convert_system_messages_for_code_assist(self, request):
-        return request.get("contents", [])
+    def _convert_system_messages_for_code_assist(self, gemini_request):
+        return gemini_request.get("contents", [])
 
-    def _build_code_assist_request(self, gemini_request, contents):
+    def _build_code_assist_request(self, gemini_request, final_contents):
         # Return a request that HAS empty tools to test stripping
-        return {"contents": contents, "tools": {}, "toolConfig": {}}
+        return {"contents": final_contents, "tools": {}, "toolConfig": {}}
 
-    def _sanitize_code_assist_tools(self, canonical, request):
+    def _sanitize_code_assist_tools(self, canonical_request, code_assist_request):
         # Simulate sanitizer NOT removing them (worst case)
         pass
 
 
 class MockPromptLimiter(IPromptLimiter):
-    def _estimate_prompt_tokens(self, request):
+    def _estimate_prompt_tokens(self, code_assist_request):
         return 100
 
-    def _enforce_prompt_limit(self, tokens, model, request_id=None):
+    def _enforce_prompt_limit(self, prompt_tokens, effective_model, *, request_id=None):
         pass
 
 
@@ -66,16 +78,17 @@ async def test_prepare_strips_empty_tools_safety_net() -> None:
     limiter = MockPromptLimiter()
     builder = MockRequestBodyBuilder()
 
+    translation_service = MagicMock()
     preparer = ChatRequestPreparer(
         connector_context=context,
         message_converter=converter,
         prompt_limiter=limiter,
         request_body_builder=builder,
-        translation_service=MagicMock(),  # Mock translation service
+        translation_service=translation_service,
     )
 
     # Mock translation service return
-    preparer._translation_service.from_domain_to_gemini_request = MagicMock(
+    translation_service.from_domain_to_gemini_request = MagicMock(
         return_value={"contents": [{"parts": [{"text": "test"}]}]}
     )
 

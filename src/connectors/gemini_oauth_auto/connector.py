@@ -250,6 +250,8 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         refresh_buffer_seconds = auto_config.refresh_buffer_seconds
         accounts_allowlist = self._parse_accounts_allowlist(auto_config.accounts)
         selection_strategy = auto_config.selection_strategy
+        session_affinity_ttl_seconds = auto_config.session_affinity_ttl_seconds
+        session_affinity_max_entries = auto_config.session_affinity_max_entries
 
         refresh_buffer_ms = int(refresh_buffer_seconds * 1000)
 
@@ -268,10 +270,12 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 refresh_buffer_ms=refresh_buffer_ms,
                 allowed_account_ids=accounts_allowlist,
                 selection_strategy=selection_strategy,
+                session_affinity_ttl_seconds=session_affinity_ttl_seconds,
+                session_affinity_max_entries=session_affinity_max_entries,
             )
 
             await self._account_selector.reload_accounts()
-            account = await self._account_selector.get_next_account()
+            account = await self._account_selector.get_next_account(session_id=None)
             self._is_initialized = True
         else:
             # Re-initialization - preserve rotation state but update configuration
@@ -283,11 +287,17 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             self._account_selector.refresh_buffer_ms = refresh_buffer_ms
             self._account_selector.allowed_account_ids = accounts_allowlist
             self._account_selector.selection_strategy = selection_strategy
+            self._account_selector.session_affinity_ttl_seconds = (
+                session_affinity_ttl_seconds
+            )
+            self._account_selector.session_affinity_max_entries = (
+                session_affinity_max_entries
+            )
             await self._account_selector.reload_accounts()
             # Use current account if available, otherwise get next
             account = self._account_selector.get_current_account()
             if not account:
-                account = await self._account_selector.get_next_account()
+                account = await self._account_selector.get_next_account(session_id=None)
         self._sync_selected_account_to_base()
 
         if account:
@@ -306,7 +316,9 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         if self.is_functional:
             await self._ensure_models_loaded()
 
-    async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
+    async def _refresh_token_if_needed(
+        self, *, force_reload: bool = False, session_id: str | None = None
+    ) -> bool:
         """Ensure a valid access token is available.
 
         For auto-connector, we use account rotation and refresh.
@@ -329,7 +341,9 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 total_accounts,
             )
 
-            new_account = await self._account_selector.rotate_on_quota()
+            new_account = await self._account_selector.rotate_on_quota(
+                session_id=session_id
+            )
 
             if (
                 new_account
@@ -360,6 +374,13 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 self._sync_selected_account_to_base()
                 return False
 
+        if self._account_selector.selection_strategy == "session-affinity":
+            account = await self._account_selector.get_next_account(
+                session_id=session_id
+            )
+            self._sync_selected_account_to_base()
+            return account is not None
+
         account = self._account_selector.get_current_account()
 
         # For round-robin strategy, rotate before each request
@@ -372,7 +393,9 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             should_rotate = True
 
         if should_rotate:
-            account = await self._account_selector.get_next_account()
+            account = await self._account_selector.get_next_account(
+                session_id=session_id
+            )
 
         self._sync_selected_account_to_base()
         return account is not None

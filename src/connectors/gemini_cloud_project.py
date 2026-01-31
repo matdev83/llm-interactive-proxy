@@ -221,13 +221,16 @@ class GeminiCredentialsFileHandler(FileSystemEventHandler):
 
     def on_modified(self, event):
         """Handle file modification events."""
-        if not event.is_directory and event.src_path == str(
-            self.connector._credentials_path
+        credentials_path = self.connector.oauth_credentials_path
+        if (
+            not event.is_directory
+            and credentials_path
+            and event.src_path == str(credentials_path)
         ):
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Credentials file modified: %s", event.src_path)
             # Schedule credential reload in the connector's event loop
-            self.connector._schedule_credentials_reload()
+            self.connector.schedule_credentials_reload()
 
 
 class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
@@ -286,6 +289,13 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         # Check if health checks should be disabled
         self._health_checked: bool = getattr(config, "disable_health_checks", False)
+
+    @property
+    def oauth_credentials_path(self) -> Path | None:
+        return self._credentials_path
+
+    def schedule_credentials_reload(self) -> None:
+        self._schedule_credentials_reload()
 
     def is_backend_functional(self) -> bool:
         """Check if backend is functional and ready to handle requests.
@@ -622,7 +632,10 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         # callback), joining would raise `RuntimeError: cannot join current thread`.
         import threading
 
-        if observer is threading.current_thread():
+        if (
+            isinstance(observer, threading.Thread)
+            and observer is threading.current_thread()
+        ):
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
                     "Skipping credentials watcher join because stop was called from the observer thread"
@@ -763,7 +776,9 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
 
         return None
 
-    async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
+    async def _refresh_token_if_needed(
+        self, *, force_reload: bool = False, session_id: str | None = None
+    ) -> bool:
         """Refresh the access token if it's expired or close to expiring."""
         if not self._oauth_credentials:
             await self._load_oauth_credentials()

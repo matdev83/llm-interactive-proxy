@@ -258,9 +258,22 @@ class GeminiOAuthAutoConfig(BaseModel):
         default=300,
         description="Seconds before expiry to proactively refresh the access token.",
     )
-    selection_strategy: Literal["round-robin", "random", "first-available"] = Field(
+    selection_strategy: Literal[
+        "round-robin",
+        "random",
+        "first-available",
+        "session-affinity",
+    ] = Field(
         default="round-robin",
         description="Strategy for selecting which account to use for the next request.",
+    )
+    session_affinity_ttl_seconds: int = Field(
+        default=86400,
+        description="Seconds to keep session->account affinity mappings in memory.",
+    )
+    session_affinity_max_entries: int = Field(
+        default=10000,
+        description="Maximum number of session->account affinity mappings to retain.",
     )
     storage_path: str = Field(
         default="var/gemini_oauth_accounts",

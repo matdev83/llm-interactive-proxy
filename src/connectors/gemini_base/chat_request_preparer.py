@@ -194,9 +194,13 @@ class ChatRequestPreparer:
         """
         log_prefix = "[STREAMING] " if is_streaming else ""
 
+        session_id = getattr(request_data, "session_id", None) or ""
+
         # Ensure token is refreshed before making the API call
         # Uses IConnectorContext interface
-        if not await self._connector_context._refresh_token_if_needed():
+        if not await self._connector_context._refresh_token_if_needed(
+            session_id=session_id
+        ):
             raise AuthenticationError(
                 f"Failed to refresh OAuth token for {'streaming ' if is_streaming else ''}API call"
             )
@@ -315,12 +319,18 @@ class ChatRequestPreparer:
 
         # Inject stored thought_signatures for clients that don't preserve extra_content
         # Uses IThoughtSignatureService interface
-        session_id = getattr(request_data, "session_id", None) or ""
         signature_namespace = self._resolve_thought_signature_namespace()
         signature_session_id = self._compose_signature_session_id(
             session_id, signature_namespace
         )
         strict_signature_validation = bool(signature_namespace and session_id)
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Thought signature namespace resolved: %s (session=%s)",
+                signature_namespace or "none",
+                session_id[:8] if session_id else "none",
+            )
 
         # Only inject cached signatures when we have a real session identifier.
         # Using an empty key risks cross-session leakage and "corrupted thought signature" errors.
@@ -345,12 +355,15 @@ class ChatRequestPreparer:
             strict_signature_validation,
         )
         if missing_signatures:
+            total_tool_calls = self._count_tool_calls(canonical_request)
             logger.warning(
                 "Downgrading tool calls to plain text due to missing Gemini thought signatures",
                 extra={
                     "missing_signatures": missing_signatures,
+                    "tool_calls_total": total_tool_calls,
                     "effective_model": effective_model,
                     "session_id": session_id[:8] if session_id else "none",
+                    "signature_namespace": signature_namespace or "none",
                 },
             )
             canonical_request = self._downgrade_tool_calls_to_text(
@@ -476,6 +489,28 @@ class ChatRequestPreparer:
 
     def _has_tool_calls_missing_thought_signature(self, canonical_request: Any) -> bool:
         return self._count_tool_calls_missing_thought_signature(canonical_request) > 0
+
+    def _count_tool_calls(self, canonical_request: Any) -> int:
+        messages = getattr(canonical_request, "messages", None)
+        if not isinstance(messages, list) or not messages:
+            return 0
+
+        total = 0
+        for msg in messages:
+            if isinstance(msg, dict):
+                role = msg.get("role")
+                tool_calls = msg.get("tool_calls")
+            else:
+                role = getattr(msg, "role", None)
+                tool_calls = getattr(msg, "tool_calls", None)
+
+            if role != "assistant" or not tool_calls:
+                continue
+            if not isinstance(tool_calls, list):
+                continue
+            total += len(tool_calls)
+
+        return total
 
     def _count_tool_calls_missing_thought_signature(
         self,

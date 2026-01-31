@@ -348,6 +348,65 @@ class TestAccountSelectorService:
         assert result is None
 
     @pytest.mark.asyncio
+    async def test_session_affinity_reuses_account(
+        self,
+        mock_storage: MagicMock,
+        mock_refresh_service: MagicMock,
+    ) -> None:
+        accounts = [
+            create_valid_account("account-1"),
+            create_valid_account("account-2"),
+        ]
+        mock_storage.load_all_accounts = AsyncMock(return_value=accounts)
+
+        selector = AccountSelectorService(
+            storage=mock_storage,
+            refresh_service=mock_refresh_service,
+            selection_strategy="session-affinity",
+        )
+
+        first = await selector.get_next_account(session_id="session-a")
+        second = await selector.get_next_account(session_id="session-a")
+        third = await selector.get_next_account(session_id="session-b")
+
+        assert first is not None
+        assert second is not None
+        assert third is not None
+        assert first.account_id == second.account_id
+        assert third.account_id != first.account_id
+
+    @pytest.mark.asyncio
+    async def test_session_affinity_rotates_when_rate_limited(
+        self,
+        mock_storage: MagicMock,
+        mock_refresh_service: MagicMock,
+    ) -> None:
+        base_time = 1768780800.0
+        base_ms = int(base_time * 1000)
+        account1 = create_valid_account("account-1")
+        account2 = create_valid_account("account-2")
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account1, account2])
+
+        selector = AccountSelectorService(
+            storage=mock_storage,
+            refresh_service=mock_refresh_service,
+            selection_strategy="session-affinity",
+        )
+
+        first = await selector.get_next_account(session_id="session-a")
+        assert first is not None
+        assert first.account_id == "account-1"
+
+        rate_limited = account1.model_copy(
+            update={"rate_limited_until": base_ms + 5000}
+        )
+        selector.update_account(rate_limited)
+
+        second = await selector.get_next_account(session_id="session-a")
+        assert second is not None
+        assert second.account_id == "account-2"
+
+    @pytest.mark.asyncio
     async def test_mark_current_account_used_no_current(
         self,
         selector: AccountSelectorService,
@@ -384,3 +443,137 @@ class TestAccountSelectorService:
     ) -> None:
         """Test _select_account_from_available returns None for empty list."""
         assert selector._select_account_from_available([]) is None
+
+    @pytest.mark.asyncio
+    async def test_mark_current_account_blocked_sends_notification(
+        self,
+        selector: AccountSelectorService,
+        mock_storage: MagicMock,
+    ) -> None:
+        """Test that blocking an account sends OS notification exactly once."""
+        from unittest.mock import patch
+
+        account = create_valid_account("account-blocked-1")
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account])
+
+        await selector.get_next_account()
+        current = selector.get_current_account()
+        assert current is not None
+        assert current.account_id == "account-blocked-1"
+
+        with patch(
+            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
+        ) as mock_notifier:
+            mock_instance = MagicMock()
+            mock_instance.send = AsyncMock(return_value="notification-id-123")
+            mock_notifier.return_value = mock_instance
+
+            await selector.mark_current_account_blocked("Account requires verification")
+
+            mock_instance.send.assert_called_once()
+            call_args = mock_instance.send.call_args
+            assert call_args is not None
+            assert call_args.kwargs["title"] == "Gemini OAuth Account Blocked"
+            assert "account-blocked-1"[:8] in call_args.kwargs["message"]
+            assert "Account requires verification" in call_args.kwargs["message"]
+
+    @pytest.mark.asyncio
+    async def test_mark_current_account_blocked_no_duplicate_notification(
+        self,
+        selector: AccountSelectorService,
+        mock_storage: MagicMock,
+    ) -> None:
+        """Test that blocking same account twice only sends one notification."""
+        from unittest.mock import patch
+
+        account = create_valid_account("account-blocked-2")
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account])
+
+        await selector.get_next_account()
+
+        with patch(
+            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
+        ) as mock_notifier:
+            mock_instance = MagicMock()
+            mock_instance.send = AsyncMock(return_value="notification-id-456")
+            mock_notifier.return_value = mock_instance
+
+            await selector.mark_current_account_blocked("First block reason")
+            assert mock_instance.send.call_count == 1
+
+            selector._current_account = account
+            await selector.mark_current_account_blocked("Second block reason")
+            assert mock_instance.send.call_count == 1
+
+    @pytest.mark.asyncio
+    async def test_mark_current_account_blocked_different_accounts_send_separate_notifications(
+        self,
+        selector: AccountSelectorService,
+        mock_storage: MagicMock,
+    ) -> None:
+        """Test that blocking different accounts sends separate notifications."""
+        from unittest.mock import patch
+
+        account1 = create_valid_account("account-1")
+        account2 = create_valid_account("account-2")
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account1, account2])
+
+        with patch(
+            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
+        ) as mock_notifier:
+            mock_instance = MagicMock()
+            mock_instance.send = AsyncMock(return_value="notification-id")
+            mock_notifier.return_value = mock_instance
+
+            await selector.get_next_account()
+            await selector.mark_current_account_blocked("Account 1 blocked")
+            assert mock_instance.send.call_count == 1
+
+            await selector.get_next_account()
+            await selector.mark_current_account_blocked("Account 2 blocked")
+            assert mock_instance.send.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_mark_current_account_blocked_no_current_account(
+        self,
+        selector: AccountSelectorService,
+    ) -> None:
+        """Test that blocking with no current account does not send notification."""
+        from unittest.mock import patch
+
+        with patch(
+            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
+        ) as mock_notifier:
+            mock_instance = MagicMock()
+            mock_instance.send = AsyncMock()
+            mock_notifier.return_value = mock_instance
+
+            await selector.mark_current_account_blocked("Some reason")
+
+            mock_instance.send.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_mark_current_account_blocked_notification_failure_is_non_blocking(
+        self,
+        selector: AccountSelectorService,
+        mock_storage: MagicMock,
+    ) -> None:
+        """Test that notification failure does not block account blocking."""
+        from unittest.mock import patch
+
+        account = create_valid_account("account-fail-test")
+        mock_storage.load_all_accounts = AsyncMock(return_value=[account])
+
+        await selector.get_next_account()
+
+        with patch(
+            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
+        ) as mock_notifier:
+            mock_instance = MagicMock()
+            mock_instance.send = AsyncMock(side_effect=Exception("Notification failed"))
+            mock_notifier.return_value = mock_instance
+
+            await selector.mark_current_account_blocked("Block reason")
+
+            mock_instance.send.assert_called_once()
+            assert account.account_id in selector._blocked_account_ids

@@ -646,9 +646,13 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Extract retry delay from error - implements IRetryDelayExtractor."""
         return self._extract_retry_delay(error)
 
-    async def refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
+    async def refresh_token_if_needed(
+        self, *, force_reload: bool = False, session_id: str | None = None
+    ) -> bool:
         """Refresh token if needed - implements ITokenRefresher."""
-        return await self._refresh_token_if_needed(force_reload=force_reload)
+        return await self._refresh_token_if_needed(
+            force_reload=force_reload, session_id=session_id
+        )
 
     # ==========================================================================
     # DEPRECATED: Backward-compatible properties for internal component access
@@ -1009,7 +1013,9 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Get refresh token, either from credentials or cached value."""
         return self._token_manager.get_refresh_token(self._oauth_credentials)
 
-    async def _refresh_token_if_needed(self, *, force_reload: bool = False) -> bool:
+    async def _refresh_token_if_needed(
+        self, *, force_reload: bool = False, session_id: str | None = None
+    ) -> bool:
         """Ensure a valid access token is available, refreshing when necessary.
 
         Implements IConnectorContext interface by delegating to credential coordinator.
