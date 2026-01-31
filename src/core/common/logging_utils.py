@@ -79,6 +79,12 @@ def _get_environment_tag() -> str:
     return "test" if _is_running_under_pytest() else "prod"
 
 
+def get_environment_tag() -> str:
+    """Public wrapper for environment tag lookup."""
+
+    return _get_environment_tag()
+
+
 class EnvironmentTaggingFilter(logging.Filter):
     """Logging filter that adds environment tags to log records."""
 
@@ -459,9 +465,11 @@ class ApiKeyRedactionFilter(logging.Filter):
             # Sanitize any args
             if record.args:
                 if isinstance(record.args, dict):
-                    record.args = self._sanitize(record.args)  # type: ignore[assignment]
+                    sanitized_args = self._sanitize(record.args)
+                    record.args = cast(dict[str, object], sanitized_args)
                 elif isinstance(record.args, tuple):
-                    record.args = tuple(self._sanitize(a) for a in record.args)
+                    sanitized_args = tuple(self._sanitize(a) for a in record.args)
+                    record.args = cast(tuple[object, ...], sanitized_args)
 
             # Also attempt to sanitize other common record attributes
             for attr in ("message", "exc_text", "stack_info"):

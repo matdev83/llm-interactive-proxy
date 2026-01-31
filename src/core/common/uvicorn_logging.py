@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from src.core.common.logging_utils import _get_environment_tag
+from src.core.common.logging_utils import get_environment_tag
 
 
 class UvicornEnvironmentTaggingFormatter(logging.Formatter):
@@ -23,7 +23,7 @@ class UvicornEnvironmentTaggingFormatter(logging.Formatter):
         if fmt is None:
             fmt = "%(asctime)s [%(levelname)s] [%(env_tag)s] [pid=%(process)d] %(name)s:%(lineno)d %(message)s"
         super().__init__(fmt, datefmt)
-        self._env_tag = _get_environment_tag()
+        self._env_tag = get_environment_tag()
         self._use_colors = use_colors
 
     def format(self, record: logging.LogRecord) -> str:
@@ -33,7 +33,10 @@ class UvicornEnvironmentTaggingFormatter(logging.Formatter):
 
 
 def get_uvicorn_logging_config(
-    use_colors: bool = False, *, log_level: str = "INFO"
+    use_colors: bool = False,
+    *,
+    log_level: str = "INFO",
+    log_file: str | None = None,
 ) -> dict[str, Any]:
     """
     Generate Uvicorn logging configuration.
@@ -61,7 +64,7 @@ def get_uvicorn_logging_config(
     level_text = str(log_level).upper()
     valid_levels = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
     level = level_text if level_text in valid_levels else "INFO"
-    return {
+    config: dict[str, Any] = {
         "version": 1,
         "disable_existing_loggers": False,
         "formatters": {
@@ -89,11 +92,35 @@ def get_uvicorn_logging_config(
             },
         },
         "loggers": {
-            "uvicorn": {"handlers": ["default"], "level": level, "propagate": False},
-            "uvicorn.error": {"level": level},
-            "uvicorn.access": {"handlers": [], "level": level, "propagate": False},
+            "uvicorn": {
+                "handlers": ["default"],
+                "level": level,
+                "propagate": False,
+            },
+            "uvicorn.error": {
+                "handlers": ["default"],
+                "level": level,
+                "propagate": False,
+            },
+            "uvicorn.access": {
+                "handlers": ["access"],
+                "level": level,
+                "propagate": False,
+            },
         },
     }
+
+    if log_file:
+        config["handlers"]["file"] = {
+            "formatter": "default",
+            "class": "logging.FileHandler",
+            "filename": log_file,
+        }
+        config["loggers"]["uvicorn"]["handlers"].append("file")
+        config["loggers"]["uvicorn.error"]["handlers"].append("file")
+        config["loggers"]["uvicorn.access"]["handlers"].append("file")
+
+    return config
 
 
 # Backward compatibility for existing imports

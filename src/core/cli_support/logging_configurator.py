@@ -11,6 +11,7 @@ Validates Requirements: 4.1, 4.2, 4.3, 4.4
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Callable
 from datetime import datetime
@@ -23,8 +24,8 @@ if TYPE_CHECKING:
 # Import the actual logging configuration function
 from src.core.common.logging_utils import configure_logging_with_environment_tagging
 
-# Pattern to detect already-suffixed paths (YYYYMMDD_HHMM at end of stem)
-TIMESTAMP_SUFFIX_PATTERN = re.compile(r"-\d{8}_\d{4}$")
+# Pattern to detect already-suffixed paths (YYYYMMDD_HHMM[SS][-pPID] at end of stem)
+TIMESTAMP_SUFFIX_PATTERN = re.compile(r"-\d{8}_\d{4}(?:\d{2})?(?:-p\d+)?$")
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,7 @@ class LoggingConfigurator:
     def apply_timestamp_suffix(self, path: str | None) -> str | None:
         """Apply timestamp suffix to log file path.
 
-        Appends a timestamp suffix in the format `-YYYYMMDD_HHMM` to the
+        Appends a timestamp suffix in the format `-YYYYMMDD_HHMMSS-pPID` to the
         filename portion of a path. If the path already has such a suffix,
         returns the original path unchanged to avoid double-suffixing.
 
@@ -97,21 +98,22 @@ class LoggingConfigurator:
         Example:
             >>> configurator = LoggingConfigurator()
             >>> configurator.apply_timestamp_suffix("logs/proxy.log")
-            'logs/proxy-20251212_1430.log'
+            'logs/proxy-20251212_143045-p12345.log'
 
         Validates: Requirement 4.2 - timestamp suffixes applied consistently.
         """
         if not path:
             return None
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        pid = os.getpid()
         p = Path(path)
 
         # Check if already has a timestamp-like suffix to avoid double appending
         if TIMESTAMP_SUFFIX_PATTERN.search(p.stem):
             return str(p)
 
-        new_name = f"{p.stem}-{timestamp}{p.suffix}"
+        new_name = f"{p.stem}-{timestamp}-p{pid}{p.suffix}"
         return str(p.with_name(new_name))
 
     def apply_pid_suffixes(self, config: AppConfig) -> AppConfig:

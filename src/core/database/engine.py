@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -118,8 +119,11 @@ class DatabaseEngine:
 
         async with self.engine.begin() as conn:
             # Import all models to register them with SQLModel
-            from src.core.database.models import memory, sso, usage  # noqa: F401
+            import src.core.database.models.memory as memory_models
+            import src.core.database.models.sso as sso_models
+            import src.core.database.models.usage as usage_models
 
+            _ = (memory_models, sso_models, usage_models)
             await conn.run_sync(SQLModel.metadata.create_all)
 
         self._initialized = True
@@ -145,30 +149,35 @@ class DatabaseEngine:
         Yields:
             AsyncSession: Database session that auto-commits on success
         """
-        async with self.session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except sqlalchemy.exc.SQLAlchemyError as exc:
-                # Log SQLAlchemy-specific errors with full context for debugging
-                logger.error(
-                    "SQLAlchemy error in database session, rolling back: %s",
-                    exc,
-                    exc_info=True,
-                )
-                await session.rollback()
-                raise
-            except Exception as exc:
-                # Catch all other exceptions to ensure rollback, then re-raise
-                # This preserves transaction safety for non-SQLAlchemy errors
-                # Log with full context to aid debugging of unexpected errors
-                logger.error(
-                    "Non-SQLAlchemy error in database session, rolling back: %s",
-                    exc,
-                    exc_info=True,
-                )
-                await session.rollback()
-                raise
+        session = self.session_factory()
+        try:
+            yield session
+            await session.commit()
+        except sqlalchemy.exc.SQLAlchemyError as exc:
+            # Log SQLAlchemy-specific errors with full context for debugging
+            logger.error(
+                "SQLAlchemy error in database session, rolling back: %s",
+                exc,
+                exc_info=True,
+            )
+            await asyncio.shield(session.rollback())
+            raise
+        except asyncio.CancelledError:
+            await asyncio.shield(session.rollback())
+            raise
+        except Exception as exc:
+            # Catch all other exceptions to ensure rollback, then re-raise
+            # This preserves transaction safety for non-SQLAlchemy errors
+            # Log with full context to aid debugging of unexpected errors
+            logger.error(
+                "Non-SQLAlchemy error in database session, rolling back: %s",
+                exc,
+                exc_info=True,
+            )
+            await asyncio.shield(session.rollback())
+            raise
+        finally:
+            await asyncio.shield(session.close())
 
 
 # Module-level convenience functions

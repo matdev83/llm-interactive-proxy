@@ -3,7 +3,7 @@
 **Feature: cli-god-object-refactoring, Property 5: Timestamp Suffix Format Validity**
 
 For any file path, applying `LoggingConfigurator.apply_timestamp_suffix` SHALL produce
-a path matching the pattern `{stem}-YYYYMMDD_HHMM{suffix}` or return the original if
+a path matching the pattern `{stem}-YYYYMMDD_HHMMSS-pPID{suffix}` or return the original if
 already suffixed.
 
 Validates Requirements: 4.2, 4.4
@@ -25,7 +25,8 @@ valid_stem_chars = st.sampled_from(
 # File stem: 1-100 valid characters, not starting with a dot
 # Also filter out stems that look like they already have timestamp suffixes
 file_stem_strategy = st.text(valid_stem_chars, min_size=1, max_size=100).filter(
-    lambda s: not s.startswith(".") and not re.search(r"-\d{8}_\d{4}$", s)
+    lambda s: not s.startswith(".")
+    and not re.search(r"-\d{8}_\d{4}(?:\d{2})?(?:-p\d+)?$", s)
 )
 
 # Common file extensions
@@ -38,7 +39,7 @@ directory_component_strategy = st.text(valid_stem_chars, min_size=1, max_size=20
 timestamp_pattern = re.compile(r"^-\d{8}_\d{4}$")
 
 # Pattern to match a valid timestamp suffix in a path
-TIMESTAMP_SUFFIX_REGEX = re.compile(r"-\d{8}_\d{4}")
+TIMESTAMP_SUFFIX_REGEX = re.compile(r"-(\d{8}_\d{6})-p(\d+)")
 
 
 class TestTimestampSuffixFormatProperty:
@@ -52,7 +53,7 @@ class TestTimestampSuffixFormatProperty:
     def test_apply_timestamp_suffix_produces_valid_format(
         self, stem: str, ext: str
     ) -> None:
-        """**Property 5**: For any file path, timestamp suffix matches YYYYMMDD_HHMM pattern.
+        """**Property 5**: For any file path, timestamp suffix matches YYYYMMDD_HHMMSS-pPID pattern.
 
         GIVEN a valid file stem and extension
         WHEN apply_timestamp_suffix is called
@@ -67,14 +68,15 @@ class TestTimestampSuffixFormatProperty:
 
         assert result is not None, f"Expected non-None result for '{filename}'"
 
-        # The result should contain a timestamp in YYYYMMDD_HHMM format
+        # The result should contain a timestamp in YYYYMMDD_HHMMSS-pPID format
         match = TIMESTAMP_SUFFIX_REGEX.search(result)
         assert match is not None, f"No timestamp found in '{result}'"
 
-        # Extract the timestamp and verify it matches expected format
-        timestamp = match.group(0)[1:]  # Remove leading dash
-        assert len(timestamp) == 13, f"Timestamp '{timestamp}' should be 13 chars"
+        timestamp = match.group(1)
+        pid = match.group(2)
+        assert len(timestamp) == 15, f"Timestamp '{timestamp}' should be 15 chars"
         assert timestamp[8] == "_", "Timestamp should have underscore at position 8"
+        assert pid.isdigit(), f"PID '{pid}' should be digits"
 
         # Verify the original extension is preserved
         if ext:
@@ -164,7 +166,7 @@ class TestTimestampSuffixFormatProperty:
         match = TIMESTAMP_SUFFIX_REGEX.search(result)
         assert match is not None
 
-        timestamp = match.group(0)[1:]  # Remove leading dash
+        timestamp = match.group(1)
         date_part = timestamp[:8]
         time_part = timestamp[9:]
 
@@ -174,6 +176,7 @@ class TestTimestampSuffixFormatProperty:
         day = int(date_part[6:8])
         hour = int(time_part[:2])
         minute = int(time_part[2:4])
+        second = int(time_part[4:6])
 
         # Validate ranges (loose validation)
         assert 2020 <= year <= 2100, f"Year {year} out of reasonable range"
@@ -181,6 +184,7 @@ class TestTimestampSuffixFormatProperty:
         assert 1 <= day <= 31, f"Day {day} out of range"
         assert 0 <= hour <= 23, f"Hour {hour} out of range"
         assert 0 <= minute <= 59, f"Minute {minute} out of range"
+        assert 0 <= second <= 59, f"Second {second} out of range"
 
 
 class TestNoneHandlingProperty:

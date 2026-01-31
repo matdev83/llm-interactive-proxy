@@ -51,8 +51,8 @@ class TestApplyTimestampSuffix:
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("logs/proxy.log")
         assert result is not None
-        # Verify format: stem-YYYYMMDD_HHMM.suffix
-        assert re.match(r"logs[\\/]proxy-\d{8}_\d{4}\.log$", result)
+        # Verify format: stem-YYYYMMDD_HHMMSS-pPID.suffix
+        assert re.match(r"logs[\\/]proxy-\d{8}_\d{6}-p\d+\.log$", result)
 
     def test_path_with_subdirectories(self) -> None:
         """GIVEN a path with subdirectories WHEN apply_timestamp_suffix is called THEN directory preserved."""
@@ -63,7 +63,7 @@ class TestApplyTimestampSuffix:
         assert result is not None
         # Directory structure should be preserved
         assert "var" in result or "logs" in result
-        assert re.search(r"application-\d{8}_\d{4}\.log$", result)
+        assert re.search(r"application-\d{8}_\d{6}-p\d+\.log$", result)
 
     def test_already_suffixed_path_not_double_suffixed(self) -> None:
         """GIVEN an already-suffixed path WHEN apply_timestamp_suffix is called THEN original returned."""
@@ -72,6 +72,7 @@ class TestApplyTimestampSuffix:
         configurator = LoggingConfigurator()
         already_suffixed = "logs/proxy-20251212_1430.log"
         result = configurator.apply_timestamp_suffix(already_suffixed)
+        assert result is not None
         # Should return unchanged - no double suffixing (normalize paths for cross-platform)
         assert Path(result) == Path(already_suffixed)
 
@@ -83,7 +84,7 @@ class TestApplyTimestampSuffix:
         result = configurator.apply_timestamp_suffix("logs/proxy")
         assert result is not None
         # Should have timestamp but no trailing extension
-        assert re.match(r"logs[\\/]proxy-\d{8}_\d{4}$", result)
+        assert re.match(r"logs[\\/]proxy-\d{8}_\d{6}-p\d+$", result)
 
     def test_path_with_multiple_extensions(self) -> None:
         """GIVEN a path with multiple extensions WHEN apply_timestamp_suffix is called THEN only last extension handled."""
@@ -94,7 +95,7 @@ class TestApplyTimestampSuffix:
         assert result is not None
         # The .cbor extension should be preserved
         assert result.endswith(".cbor")
-        assert re.search(r"-\d{8}_\d{4}\.cbor$", result)
+        assert re.search(r"-\d{8}_\d{6}-p\d+\.cbor$", result)
 
     def test_absolute_path_preserved(self) -> None:
         """GIVEN an absolute path WHEN apply_timestamp_suffix is called THEN absolute path returned."""
@@ -105,7 +106,7 @@ class TestApplyTimestampSuffix:
         result = configurator.apply_timestamp_suffix("C:\\var\\logs\\proxy.log")
         assert result is not None
         assert result.startswith("C:")
-        assert re.search(r"proxy-\d{8}_\d{4}\.log$", result)
+        assert re.search(r"proxy-\d{8}_\d{6}-p\d+\.log$", result)
 
     def test_unix_absolute_path_preserved(self) -> None:
         """GIVEN a Unix absolute path WHEN apply_timestamp_suffix is called THEN absolute path returned."""
@@ -123,20 +124,24 @@ class TestApplyTimestampSuffix:
             assert "var" in str(result_path)
         else:
             assert result.startswith("/")
-        assert re.search(r"proxy-\d{8}_\d{4}\.log$", result)
+        assert re.search(r"proxy-\d{8}_\d{6}-p\d+\.log$", result)
 
     def test_timestamp_format_matches_pattern(self) -> None:
-        """GIVEN a path WHEN apply_timestamp_suffix is called THEN timestamp matches YYYYMMDD_HHMM pattern."""
+        """GIVEN a path WHEN apply_timestamp_suffix is called THEN timestamp matches YYYYMMDD_HHMMSS-pPID pattern."""
         from src.core.cli_support.logging_configurator import LoggingConfigurator
 
         configurator = LoggingConfigurator()
-        with patch("src.core.cli_support.logging_configurator.datetime") as mock_dt:
+        with (
+            patch("src.core.cli_support.logging_configurator.datetime") as mock_dt,
+            patch("src.core.cli_support.logging_configurator.os.getpid") as mock_getpid,
+        ):
             mock_now = MagicMock()
-            mock_now.strftime.return_value = "20251212_1830"
+            mock_now.strftime.return_value = "20251212_183045"
             mock_dt.now.return_value = mock_now
+            mock_getpid.return_value = 12345
 
             result = configurator.apply_timestamp_suffix("test.log")
-            assert result == "test-20251212_1830.log"
+            assert result == "test-20251212_183045-p12345.log"
 
 
 class TestApplyPidSuffixes:
@@ -226,7 +231,7 @@ class TestApplyPidSuffixes:
         assert result is not config
         # Log file should have timestamp suffix
         assert result.logging.log_file is not None
-        assert re.search(r"test-\d{8}_\d{4}\.log$", result.logging.log_file)
+        assert re.search(r"test-\d{8}_\d{6}-p\d+\.log$", result.logging.log_file)
 
 
 class TestConfigure:
@@ -393,7 +398,8 @@ class TestLoggingConfiguratorIntegration:
         # Verify timestamp was applied
         assert timestamped_config.logging.log_file is not None
         assert re.search(
-            r"integration-\d{8}_\d{4}\.log$", timestamped_config.logging.log_file
+            r"integration-\d{8}_\d{6}-p\d+\.log$",
+            timestamped_config.logging.log_file,
         )
 
         # Then configure logging (with mock to avoid side effects)
@@ -420,7 +426,7 @@ class TestTimestampSuffixEdgeCases:
         long_name = "a" * 200 + ".log"
         result = configurator.apply_timestamp_suffix(long_name)
         assert result is not None
-        assert re.search(r"-\d{8}_\d{4}\.log$", result)
+        assert re.search(r"-\d{8}_\d{6}-p\d+\.log$", result)
 
     def test_special_characters_in_path(self) -> None:
         """GIVEN path with special chars WHEN apply_timestamp_suffix called THEN handled correctly."""
@@ -429,7 +435,7 @@ class TestTimestampSuffixEdgeCases:
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("logs/my-special_file.log")
         assert result is not None
-        assert re.search(r"my-special_file-\d{8}_\d{4}\.log$", result)
+        assert re.search(r"my-special_file-\d{8}_\d{6}-p\d+\.log$", result)
 
     def test_path_with_dots_in_directory(self) -> None:
         """GIVEN path with dots in directory names WHEN apply_timestamp_suffix called THEN handled correctly."""
@@ -438,7 +444,7 @@ class TestTimestampSuffixEdgeCases:
         configurator = LoggingConfigurator()
         result = configurator.apply_timestamp_suffix("./var/logs/proxy.log")
         assert result is not None
-        assert re.search(r"proxy-\d{8}_\d{4}\.log$", result)
+        assert re.search(r"proxy-\d{8}_\d{6}-p\d+\.log$", result)
 
     def test_cbor_capture_file_extension(self) -> None:
         """GIVEN a CBOR capture file WHEN apply_timestamp_suffix called THEN .cbor extension preserved."""
@@ -448,4 +454,4 @@ class TestTimestampSuffixEdgeCases:
         result = configurator.apply_timestamp_suffix("var/wire_captures/proxy.cbor")
         assert result is not None
         assert result.endswith(".cbor")
-        assert re.search(r"proxy-\d{8}_\d{4}\.cbor$", result)
+        assert re.search(r"proxy-\d{8}_\d{6}-p\d+\.cbor$", result)

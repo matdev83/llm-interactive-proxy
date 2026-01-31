@@ -13,6 +13,7 @@ import os
 import socket
 import sys
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import uvicorn
@@ -293,6 +294,13 @@ class ServerLifecycleManager:
 
         servers = []
 
+        uvicorn_log_file = None
+        if cfg.logging.log_file:
+            log_path = Path(cfg.logging.log_file)
+            uvicorn_name = f"uvicorn-{log_path.stem}{log_path.suffix}"
+            uvicorn_log_file = str(log_path.with_name(uvicorn_name))
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+
         # Main server
         main_config = uvicorn.Config(
             app,
@@ -301,6 +309,7 @@ class ServerLifecycleManager:
             log_config=get_uvicorn_logging_config(
                 use_colors=cfg.logging.use_colors,
                 log_level=getattr(getattr(cfg.logging, "level", None), "value", "INFO"),
+                log_file=uvicorn_log_file,
             ),
         )
         main_server = uvicorn.Server(main_config)
@@ -322,6 +331,7 @@ class ServerLifecycleManager:
                     log_level=getattr(
                         getattr(cfg.logging, "level", None), "value", "INFO"
                     ),
+                    log_file=uvicorn_log_file,
                 ),
             )
             anthropic_server = uvicorn.Server(anthropic_config)
