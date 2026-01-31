@@ -189,10 +189,10 @@ class CodeAssistOrchestrator:
             content = getattr(processed, "content", None)
             metadata = (
                 dict(processed.metadata)
-                if hasattr(processed, "metadata")
-                and isinstance(processed.metadata, dict)
+                if hasattr(processed, "metadata") and processed.metadata
                 else {}
             )
+
             if isinstance(content, dict):
                 choices = content.get("choices", [])
                 if choices and isinstance(choices[0], dict):

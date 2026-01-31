@@ -1108,8 +1108,10 @@ class StreamingExecutor:
         except BackendError as err:
             if getattr(err, "status_code", None) == 429:
                 await self._record_rate_limit(
-                    token_refresher, self._extract_retry_after_seconds(err)
+                    token_refresher, 
+                    retry_after_seconds=self._extract_retry_after_seconds(err)
                 )
+
             # Handle quota_exceeded errors by yielding error chunk with code 503
             if hasattr(err, "code") and err.code == "quota_exceeded":
                 # Use standardized message for quota errors
