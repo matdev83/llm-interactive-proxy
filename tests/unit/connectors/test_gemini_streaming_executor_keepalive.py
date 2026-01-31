@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import requests  # type: ignore[import-untyped]
+from requests.structures import CaseInsensitiveDict  # type: ignore[import-untyped]
 from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
 from src.connectors.gemini_base.policies import RateLimitRetryPolicy, RetryDecision
 from src.connectors.gemini_base.retry_delay_parser import extract_retry_delay
@@ -33,7 +34,8 @@ async def test_streaming_executor_emits_keepalive_during_internal_429_wait(
     # Avoid real sleep in unit test.
     from src.connectors.gemini_base import streaming_executor as module_under_test
 
-    monkeypatch.setattr(module_under_test.asyncio, "sleep", AsyncMock())
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
 
     prepared = PreparedChatRequest(
         auth_session=None,
@@ -43,6 +45,7 @@ async def test_streaming_executor_emits_keepalive_during_internal_429_wait(
         prompt_tokens_estimate=0,
         effective_model="google/gemini-3-pro-high",
         session_id="sess-1",
+        signature_session_id="sess-1",
         build_request_body=dict,
     )
 
@@ -65,7 +68,7 @@ async def test_streaming_executor_emits_keepalive_during_internal_429_wait(
     response._content = (
         b'{"error":{"status":"RESOURCE_EXHAUSTED","message":"Rate limited"}}'
     )
-    response.headers = {"Retry-After": "0.1"}
+    response.headers = CaseInsensitiveDict({"Retry-After": "0.1"})
 
     retry_policy = _RetryPolicyStub(sleep_seconds=0.1)
 
@@ -90,7 +93,8 @@ async def test_streaming_executor_retries_on_message_based_retry_after(
 ) -> None:
     from src.connectors.gemini_base import streaming_executor as module_under_test
 
-    monkeypatch.setattr(module_under_test.asyncio, "sleep", AsyncMock())
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
 
     prepared = PreparedChatRequest(
         auth_session=None,
@@ -100,6 +104,7 @@ async def test_streaming_executor_retries_on_message_based_retry_after(
         prompt_tokens_estimate=0,
         effective_model="google/gemini-3-pro-high",
         session_id="sess-2",
+        signature_session_id="sess-2",
         build_request_body=dict,
     )
 
@@ -120,7 +125,7 @@ async def test_streaming_executor_retries_on_message_based_retry_after(
     response = requests.Response()
     response.status_code = 429
     response._content = b'{"error":{"status":"RESOURCE_EXHAUSTED","message":"You have exhausted your capacity on this model. Your quota will reset after 0.1s."}}'
-    response.headers = {}
+    response.headers = CaseInsensitiveDict({})
 
     retry_policy = RateLimitRetryPolicy(retry_delay_extractor=extract_retry_delay)
 
@@ -145,7 +150,8 @@ async def test_streaming_executor_retries_on_zero_retry_after(
 ) -> None:
     from src.connectors.gemini_base import streaming_executor as module_under_test
 
-    monkeypatch.setattr(module_under_test.asyncio, "sleep", AsyncMock())
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
 
     prepared = PreparedChatRequest(
         auth_session=None,
@@ -155,6 +161,7 @@ async def test_streaming_executor_retries_on_zero_retry_after(
         prompt_tokens_estimate=0,
         effective_model="google/gemini-3-pro-high",
         session_id="sess-3",
+        signature_session_id="sess-3",
         build_request_body=dict,
     )
 
@@ -175,7 +182,7 @@ async def test_streaming_executor_retries_on_zero_retry_after(
     response = requests.Response()
     response.status_code = 429
     response._content = b'{"error":{"status":"RESOURCE_EXHAUSTED","message":"You have exhausted your capacity on this model. Your quota will reset after 0s."}}'
-    response.headers = {}
+    response.headers = CaseInsensitiveDict({})
 
     retry_policy = RateLimitRetryPolicy(retry_delay_extractor=extract_retry_delay)
 
@@ -191,8 +198,9 @@ async def test_streaming_executor_retries_on_zero_retry_after(
         chunks.append(chunk)
 
     # Zero retry-after windows must not result in a hot retry loop.
-    module_under_test.asyncio.sleep.assert_awaited()
-    sleep_args = module_under_test.asyncio.sleep.await_args.args
+    sleep_mock.assert_awaited()
+    assert sleep_mock.await_args is not None
+    sleep_args = sleep_mock.await_args.args
     assert sleep_args[0] >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
 
     assert any(chunk.content == "ok" for chunk in chunks)
@@ -210,6 +218,7 @@ async def test_streaming_executor_emits_keepalive_when_upstream_idle(
         prompt_tokens_estimate=0,
         effective_model="google/gemini-3-pro-high",
         session_id="sess-keepalive",
+        signature_session_id="sess-keepalive",
         build_request_body=lambda: {"request": {}},
     )
 

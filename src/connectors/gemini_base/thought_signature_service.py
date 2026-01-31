@@ -115,6 +115,10 @@ class ThoughtSignatureService:
             canonical_request, session_id, effective_model
         )
 
+    def get_cached_signature(self, session_id: str, tool_call_id: str) -> str | None:
+        """Return cached signature for a session/tool call pair."""
+        return self._manager.get_cached_signature(session_id, tool_call_id)
+
     def clear_session_cache(self, session_id: str) -> int:
         """Clear all cached signatures for a session.
 

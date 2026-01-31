@@ -80,7 +80,10 @@ class PreparedChatRequest:
     """The effective model name to use."""
 
     session_id: str
-    """Session ID for thought signature caching."""
+    """Session ID for response metadata."""
+
+    signature_session_id: str
+    """Session ID scoped for thought signature caching."""
 
     build_request_body: Callable[[], dict[str, Any]]
     """Function to build the final request body."""
@@ -313,11 +316,17 @@ class ChatRequestPreparer:
         # Inject stored thought_signatures for clients that don't preserve extra_content
         # Uses IThoughtSignatureService interface
         session_id = getattr(request_data, "session_id", None) or ""
+        signature_namespace = self._resolve_thought_signature_namespace()
+        signature_session_id = self._compose_signature_session_id(
+            session_id, signature_namespace
+        )
+        strict_signature_validation = bool(signature_namespace and session_id)
+
         # Only inject cached signatures when we have a real session identifier.
         # Using an empty key risks cross-session leakage and "corrupted thought signature" errors.
         if session_id:
             self._thought_signature_service.inject_signatures(
-                canonical_request, session_id
+                canonical_request, signature_session_id
             )
         self._thought_signature_service.log_signature_state(
             canonical_request, session_id, effective_model
@@ -331,7 +340,9 @@ class ChatRequestPreparer:
         # Best-effort mitigation: downgrade such tool calls to plain text transcript and
         # convert `role=tool` messages into normal user text, so the session can continue.
         missing_signatures = self._count_tool_calls_missing_thought_signature(
-            canonical_request
+            canonical_request,
+            signature_session_id if strict_signature_validation else None,
+            strict_signature_validation,
         )
         if missing_signatures:
             logger.warning(
@@ -342,7 +353,11 @@ class ChatRequestPreparer:
                     "session_id": session_id[:8] if session_id else "none",
                 },
             )
-            canonical_request = self._downgrade_tool_calls_to_text(canonical_request)
+            canonical_request = self._downgrade_tool_calls_to_text(
+                canonical_request,
+                signature_session_id if strict_signature_validation else None,
+                strict_signature_validation,
+            )
 
         # Convert from canonical/domain format to Gemini API format
         if self._translation_service is None:
@@ -430,14 +445,43 @@ class ChatRequestPreparer:
             prompt_tokens_estimate=prompt_tokens_estimate,
             effective_model=effective_model,
             session_id=session_id,
+            signature_session_id=signature_session_id,
             build_request_body=build_request_body,
         )
+
+    def _resolve_thought_signature_namespace(self) -> str | None:
+        connector_context = self._connector_context
+
+        getter = getattr(connector_context, "get_thought_signature_namespace", None)
+        if callable(getter):
+            try:
+                namespace = getter()
+            except Exception:
+                namespace = None
+            if isinstance(namespace, str) and namespace.strip():
+                return namespace.strip()
+
+        namespace = getattr(connector_context, "thought_signature_namespace", None)
+        if isinstance(namespace, str) and namespace.strip():
+            return namespace.strip()
+
+        return None
+
+    def _compose_signature_session_id(
+        self, session_id: str, signature_namespace: str | None
+    ) -> str:
+        if session_id and signature_namespace:
+            return f"{session_id}|{signature_namespace}"
+        return session_id
 
     def _has_tool_calls_missing_thought_signature(self, canonical_request: Any) -> bool:
         return self._count_tool_calls_missing_thought_signature(canonical_request) > 0
 
     def _count_tool_calls_missing_thought_signature(
-        self, canonical_request: Any
+        self,
+        canonical_request: Any,
+        signature_session_id: str | None = None,
+        strict_validation: bool = False,
     ) -> int:
         messages = getattr(canonical_request, "messages", None)
         if not isinstance(messages, list) or not messages:
@@ -458,11 +502,24 @@ class ChatRequestPreparer:
                 continue
 
             for tc in tool_calls:
-                sig = self._extract_thought_signature(tc)
-                if not sig:
+                if not self._is_signature_valid(
+                    tc,
+                    signature_session_id=signature_session_id,
+                    strict_validation=strict_validation,
+                ):
                     missing += 1
 
         return missing
+
+    def _extract_tool_call_id(self, tc: Any) -> str | None:
+        if isinstance(tc, dict):
+            tc_id = tc.get("id")
+        else:
+            tc_id = getattr(tc, "id", None)
+
+        if isinstance(tc_id, str) and tc_id:
+            return tc_id
+        return None
 
     def _extract_thought_signature(self, tc: Any) -> str | None:
         extra_content: Any | None = None
@@ -487,7 +544,39 @@ class ChatRequestPreparer:
 
         return None
 
-    def _downgrade_tool_calls_to_text(self, canonical_request: Any) -> Any:
+    def _is_signature_valid(
+        self,
+        tc: Any,
+        *,
+        signature_session_id: str | None,
+        strict_validation: bool,
+    ) -> bool:
+        sig = self._extract_thought_signature(tc)
+        if not sig:
+            return False
+
+        if not strict_validation or not signature_session_id:
+            return True
+
+        tc_id = self._extract_tool_call_id(tc)
+        if not tc_id:
+            return False
+
+        cached_sig = self._thought_signature_service.get_cached_signature(
+            signature_session_id,
+            tc_id,
+        )
+        if not cached_sig:
+            return False
+
+        return cached_sig == sig
+
+    def _downgrade_tool_calls_to_text(
+        self,
+        canonical_request: Any,
+        signature_session_id: str | None = None,
+        strict_validation: bool = False,
+    ) -> Any:
         """Downgrade tool calls/results to plain text for signature-required backends.
 
         Vertex Code Assist requires thought signatures on functionCall parts.
@@ -499,9 +588,19 @@ class ChatRequestPreparer:
         if not isinstance(messages, list) or not messages:
             return canonical_request
 
+        signature_checker: Callable[[Any], bool]
+        if strict_validation:
+            signature_checker = lambda tc: self._is_signature_valid(
+                tc,
+                signature_session_id=signature_session_id,
+                strict_validation=True,
+            )
+        else:
+            signature_checker = lambda tc: bool(self._extract_thought_signature(tc))
+
         downgraded = stringify_tool_calls_and_results(
             list(messages),
-            signature_checker=lambda tc: bool(self._extract_thought_signature(tc)),
+            signature_checker=signature_checker,
             include_descriptions=False,
         )
 

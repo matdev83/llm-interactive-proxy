@@ -33,9 +33,9 @@ class MockChatRequest(ChatRequest):
 
     model: str = "gemini-2.5-pro"  # Default model
     messages: list = []  # Default empty list
-    stream: bool = False
-    max_tokens: int = 100
-    temperature: float = 0.0
+    stream: bool | None = False
+    max_tokens: int | None = 100
+    temperature: float | None = 0.0
 
 
 class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
@@ -61,7 +61,10 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         from src.connectors.gemini_base.models import GeminiOAuthCredentials
 
         self._credential_coordinator._credentials = GeminiOAuthCredentials(
-            access_token="test-token"
+            access_token="test-token",
+            refresh_token=None,
+            expiry_date=None,
+            project_id=None,
         )
 
         # Initialize with minimal required components
@@ -104,6 +107,7 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
                 prompt_tokens_estimate=None,
                 effective_model="gemini-2.5-pro",
                 session_id="test-session",
+                signature_session_id="test-session",
                 build_request_body=dict,
             )
         )
@@ -151,7 +155,14 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         self._recovery_timeline[model] = recovery_time
 
     async def _chat_completions_code_assist(
-        self, request_data, processed_messages, effective_model, **kwargs
+        self,
+        request_data,
+        processed_messages,
+        effective_model,
+        _in_graceful_degradation: bool = False,
+        _auth_retry_attempted: bool = False,
+        _rate_limit_retry_attempted: bool = False,
+        **kwargs,
     ) -> ResponseEnvelope:  # Changed return type
         """Mock API call that simulates real recovery behavior."""
         call_count = self._api_call_count.get(effective_model, 0)
@@ -196,7 +207,12 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
             yield item
 
     async def _chat_completions_code_assist_streaming(
-        self, request_data, processed_messages, effective_model, **kwargs
+        self,
+        request_data,
+        processed_messages,
+        effective_model,
+        _rate_limit_retry_attempted: bool = False,
+        **kwargs,
     ) -> StreamingResponseEnvelope:
         """Mock streaming API call that returns a StreamingResponseEnvelope."""
         # Use retry logic to simulate Orchestrator behavior which was removed from the base connector
@@ -254,6 +270,16 @@ class MockGeminiOAuthConnector(GeminiOAuthBaseConnector):
         request_data,
         processed_messages,
         effective_model,
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        openrouter_api_base_url: str | None = None,
+        openrouter_headers_provider=None,
+        key_name: str | None = None,
+        api_key: str | None = None,
+        project: str | None = None,
+        agent: str | None = None,
+        gemini_api_base_url: str | None = None,
         **kwargs,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Override chat_completions to call mock _chat_completions_code_assist directly.

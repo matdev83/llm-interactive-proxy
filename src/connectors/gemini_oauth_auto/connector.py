@@ -202,6 +202,19 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
     def _oauth_credentials(self, value: dict[str, Any] | None) -> None:
         """Setter for backward compatibility, currently no-op for auto-connector."""
 
+    def get_thought_signature_namespace(self) -> str | None:
+        """Return a namespace identifier for thought signature caching."""
+        selector = getattr(self, "_account_selector", None)
+        if selector is None:
+            return None
+        try:
+            account = selector.get_current_account()
+        except Exception:
+            return None
+        if not account or not getattr(account, "account_id", None):
+            return None
+        return f"{self.backend_type}:{account.account_id}"
+
     async def initialize(self, **kwargs: Any) -> None:
         """Initialize connector and load accounts."""
         backend_config = self.config.backends.get("gemini-oauth-auto")

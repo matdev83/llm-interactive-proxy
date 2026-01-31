@@ -1,0 +1,367 @@
+# Example configuration for LLM Interactive Proxy
+
+# Server settings
+host: "127.0.0.1"
+port: 8000
+# Publicly accessible URL for the proxy (required for correct SSO redirects when deployed)
+# If not set, defaults to http://{host}:{port}. Required if binding to 0.0.0.0 or behind a reverse proxy.
+public_url: null  
+proxy_timeout: 120
+command_prefix: "!/"
+
+# Activity tracking (disabled by default for performance)
+# Enable via CLI: --enable-activity-tracking
+# Enable via env: ENABLE_ACTIVITY_TRACKING=1
+enable_activity_tracking: false
+
+# Authentication
+auth:
+  disable_auth: false  # Set to true to disable API key authentication
+  # NOTE: API keys should NEVER be stored in config files for security reasons
+  # Instead, set them via environment variables (see README.md)
+  api_keys: []  # API keys are read from environment variables only
+  auth_token: null  # Optional auth token
+  brute_force_protection:
+    enabled: true  # Enable automatic blocking for repeated invalid API keys
+    max_failed_attempts: 5  # Allow this many failures before blocking begins
+    ttl_seconds: 900  # Window (seconds) for counting failures per IP
+    initial_block_seconds: 30  # First block duration once threshold is exceeded
+    block_multiplier: 2.0  # Each subsequent block grows by this multiplier
+    max_block_seconds: 3600  # Cap the block duration to one hour
+
+# File Access Sandboxing
+# Security feature that restricts LLM agents from performing file-changing operations
+# outside detected project root directory. This prevents agents from accidentally
+# or maliciously modifying files in sensitive system locations.
+# See docs/user_guide/features/file-sandboxing.md for complete documentation.
+# Enable via CLI: --enable-sandboxing
+# Enable via env: ENABLE_SANDBOXING=true
+sandboxing:
+  enabled: false  # Enable/disable file access sandboxing
+  strict_mode: false  # Block tool calls with unparseable paths (default: false)
+  allow_parent_access: false  # Allow access to parent directories of project root (default: false)
+  # Additional regex patterns for file-changing tools (optional)
+  custom_tool_patterns: []
+  # Regex patterns for tools to exempt from sandboxing (optional)
+  excluded_tools: []
+
+# Session management
+session:
+  cleanup_enabled: true
+  cleanup_interval: 3600  # 1 hour
+
+  # Session continuity (proxy-side heuristic session reuse when clients do not send session ids)
+  session_continuity:
+    enabled: true
+    fuzzy_matching: true
+    max_session_age_seconds: 604800  # 7 days
+    fingerprint_message_count: 5
+    client_key_includes_ip: false  # IPs are ignored for session continuity
+    # Topic similarity is inherently weaker and can increase risk of cross-session merges.
+    # Disabled by default. Enable only if you understand the trade-offs.
+    enable_topic_similarity_matching: false
+
+  max_age: 86400  # 1 day
+  default_interactive_mode: true
+  force_set_project: false
+  project_dir_resolution_model: null  # Optional BACKEND:MODEL for auto-detecting project directories
+
+  # Pytest output compression (reduces verbose test output to preserve context window)
+  pytest_compression_enabled: true  # Default: true
+  pytest_compression_min_lines: 30  # Only compress output with 30+ lines (default: 30)
+
+  # Tool call reactor steering for pytest full-suite runs (requires opt-in)
+  pytest_full_suite_steering_enabled: false
+
+  # Test execution reminder system
+  # Tracks file modifications and test executions, reminding agents to run tests
+  # before completing tasks when code changes haven't been verified.
+  # When enabled, the system:
+  # - Detects file modification tool calls (write_file, str_replace, etc.)
+  # - Detects test execution commands across multiple languages
+  # - Reminds agents to run tests before task completion if changes are unverified
+  # Default: false (opt-in feature)
+  test_execution_reminder_enabled: false
+  # Optional custom reminder message. If not set, uses default message:
+  # "You have made code changes but haven't run tests yet. Please run the test
+  # suite to verify your changes before completing this task. Once tests pass,
+  # you can proceed with task completion."
+  test_execution_reminder_message: null
+
+  # Fix improperly formatted <think> tags in model responses
+  fix_think_tags_enabled: false  # Set to true to enable think tags correction
+
+  # Planning phase: Route initial requests to a strong model for better planning
+  planning_phase:
+    enabled: false  # Set to true to enable planning phase
+    strong_model: "openai:gpt-4"  # Strong model for planning (backend:model format)
+    max_turns: 10  # Maximum turns before switching back to default model
+    max_file_writes: 1  # Maximum file writes before switching back to default model
+
+  # Angel verification model (experimental)
+  # When set, the proxy will submit each assistant response to the Angel model for verification
+  # and may request a correction before delivering to the client.
+  # Format: BACKEND:MODEL with optional URI params, e.g.:
+  #   "openai:gpt-4o-mini?temperature=1&reasoning_effort=high"
+  angel_model: null
+  # Angel verification frequency (1 = every user turn, 5 = every 5th user turn, etc.)
+  # Note: verification runs only on eligible turns (main-model turns). Tool-result
+  # continuations and random replacement-model turns are excluded.
+  angel_frequency: 10
+  # Truncate history for Angel verification to N messages (optional, default: unlimited)
+  angel_max_history: null
+
+  # Tool call processing behavior
+  # These settings control how tool calls are processed to prevent re-processing of historical messages
+  # 
+  # By default, the system tracks which messages have been processed and skips re-processing
+  # historical tool calls on subsequent requests. This significantly improves performance
+  # when dealing with long conversation histories (70+ messages).
+  #
+  # force_reprocess_tool_calls: Controls whether to bypass the processing marker checks
+  #   - Default: false (recommended for production)
+  #   - Set to true to force reprocessing of all tool calls
+  #   - Use cases:
+  #     * Debugging tool call processing issues
+  #     * Testing changes to tool call repair logic
+  #     * Investigating unexpected behavior in tool call handling
+  #   - Note: Enabling this will reduce performance with long conversation histories
+  #
+  # log_skipped_tool_calls: Controls visibility of skipped message logging
+  #   - Default: false (recommended for production to reduce log noise)
+  #   - Set to true to log when messages are skipped
+  #   - Use cases:
+  #     * Understanding which messages are being optimized
+  #     * Verifying the optimization is working correctly
+  #     * Development and debugging of the processing system
+  #   - Note: Logs are emitted at TRACE level (level 5) to minimize noise
+  force_reprocess_tool_calls: false
+  log_skipped_tool_calls: false
+
+# ProxyMem (Cross-Session Memory)
+memory:
+  available: false
+  default_enabled: false
+  summary_model: null  # backend:model
+  context_model: null  # backend:model
+  summary_prompt: null  # Path to custom prompt (.txt or .md)
+  context_prompt: null  # Path to custom prompt (.txt or .md)
+  database_path: "./var/memory.sqlite3"
+  session_timeout_minutes: 30
+  summarization_delay_seconds: 120
+  max_sessions_to_consider: 10
+  max_context_tokens: 2000
+  max_summary_tokens: 800
+  max_transcript_chars: 50000
+  summary_completion_tokens: 10000
+  context_relevance_threshold: 0.5
+  retention_days: 90
+  max_buffer_size_bytes: 10485760
+  analysis_queue_maxsize: 100
+  analysis_timeout_seconds: 30
+  max_concurrent_analyses: 4
+  context_template: null  # Use {context} placeholder
+  redaction_patterns: []
+  persist_transcript: false
+  disabled_users: []
+  disabled_clients: []
+  single_user_mode: false
+  fixed_user_id: null
+  summary_prompt_version: "v1"
+  summary_schema_version: "v1"
+  require_project_discovery: true
+  project_discovery_mode: "any"
+
+# History Compaction
+# Reduces context size by compacting stale tool outputs in long conversations.
+# This helps maintain performance and stay within context limits.
+compaction:
+  enabled: false  # Default: false. usage: true to enable.
+  token_threshold: 100000  # Minimum tokens required to trigger compaction. Default: 100,000.
+  # redact_resource_identifiers: false  # Set to true to redact file paths/commands in stubs (more secure, less debuggable)
+
+# Logging
+logging:
+  level: "INFO"  # TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL
+  request_logging: false
+  response_logging: false
+  log_file: null  # Optional log file path
+
+# Backend settings
+# IMPORTANT SECURITY NOTE:
+# API keys should NEVER be stored in configuration files!
+# All API keys must be set via environment variables only:
+# - OPENROUTER_API_KEY for OpenRouter
+# - GEMINI_API_KEY for Gemini
+# - ANTHROPIC_API_KEY for Anthropic
+# - ZAI_API_KEY for ZAI
+# - GOOGLE_CLOUD_PROJECT for Google Cloud Project ID
+# See README.md and config/sample.env for examples
+
+backends:
+  default_backend: "openai"
+  # hybrid_backend_repeat_messages: false  # Set to true to repeat reasoning output as an artificial message in the session
+
+  openai:
+    # API key set via OPENROUTER_API_KEY environment variable
+    api_url: null  # Optional custom API URL
+    timeout: 120
+    models:
+      - "gpt-3.5-turbo"
+      - "gpt-4"
+      - "gpt-4-turbo"
+
+  openrouter:
+    # API key set via OPENROUTER_API_KEY environment variable
+    api_url: "https://openrouter.ai/api/v1"
+    timeout: 180
+
+  anthropic:
+    # API key set via ANTHROPIC_API_KEY environment variable
+    timeout: 150
+
+  gemini:
+    # GEMINI_API_KEY environment variable
+    timeout: 120
+
+  gemini_oauth_auto:
+    # Multi-account Gemini connector with automatic token refresh and rotation.
+    # To add accounts, run: python scripts/manage_gemini_accounts.py add
+    timeout: 120
+    extra:
+      accounts: all  # List of account IDs or "all"
+      refresh_buffer_seconds: 300
+      selection_strategy: "round-robin"
+      storage_path: "var/gemini_oauth_accounts"
+
+
+  qwen_oauth:
+    # API key set via environment variables (OAuth flow)
+    timeout: 120
+
+  zai:
+    # API key set via ZAI_API_KEY environment variable
+    timeout: 120
+
+  openai_codex:
+    # API key set via OpenAI OAuth flow (see docs)
+    timeout: 120
+    # Enthusiast mode defaults: client tools only, no server-side execution, no environment leakage
+    # These settings make the connector behave as a transparent proxy for third-party agents
+    extra:
+      codex:
+        default_capabilities:
+          protocol: openai-chat
+          codex_passthrough: false
+          prompt_mode: codex_default
+          tool_schema_mode: custom_only
+          tool_text_format: none
+          bypass_tool_call_reactor: true
+          include_environment_context: false
+    # For Responses API clients (Profile B), use:
+    #   default_capabilities:
+    #     protocol: openai-responses
+    #     codex_passthrough: true
+    #     prompt_mode: codex_default
+    #     tool_schema_mode: custom_only
+    #     tool_text_format: none
+    #     bypass_tool_call_reactor: true
+    #     include_environment_context: false
+
+# Model-specific defaults
+model_defaults:
+  "gpt-4":  # Exact model name
+    temperature: 0.7
+  
+  "openrouter:claude-3-opus":  # Backend:model format
+    reasoning_effort: "high"
+
+# Failover routes
+failover_routes:
+  default:
+   policy: "ordered"
+   elements:
+     - "openai:gpt-4"
+     - "openrouter:anthropic/claude-3-opus-20240229"
+
+# Resilience scoping (personal vs shared backends)
+# Defaults treat oauth/codex backends as personal without configuration.
+resilience:
+  # Force personal scoping for selected backends (optional override).
+  # Example: ["openai-codex", "qwen-oauth"]
+  personal_backend_types: []
+  # Force shared scoping for selected backends (optional override).
+  shared_backend_types: []
+
+# Model name rewrite rules (optional)
+# These rules allow you to dynamically rewrite model names before they are processed
+# Rules are processed in order, and the first matching rule is applied
+# model_aliases:
+#   # Statically replace a specific model
+#   - pattern: "^claude-3-sonnet-20240229$"
+#     replacement: "gemini-oauth-plan:gemini-1.5-flash"
+#
+#   # Dynamically replace any GPT model, keeping the version
+#   - pattern: "^gpt-(.*)"
+#     replacement: "openrouter:openai/gpt-\\1"
+#
+#   # Catch-all for any other model
+#   - pattern: "^(.*)$"
+#     replacement: "gemini-oauth-plan:gemini-1.5-pro"
+
+# Random Model/Backend Replacement
+# Probabilistically replace user-specified backend:model with an alternative
+# to improve session diversity and provide resilience when models encounter difficulties
+# See docs/user_guide/features/random-model-replacement.md for complete documentation
+# replacement:
+#   enabled: false  # Set to true to enable random model replacement
+#   probability: 0.3  # Probability (0.0-1.0) of triggering replacement (0.3 = 30% chance)
+#   replacement_rules:
+#     - from_pattern: "*"  # Wildcard: matches all models
+#       to_backend: "qwen-oauth"
+#       to_model: "qwen3-coder-plus"
+#     - from_pattern: "gpt-4"  # Partial match: matches any model containing "gpt-4"
+#       to_backend: "openai"
+#       to_model: "gpt-3.5-turbo"
+#     - from_pattern: "openai:gpt-4"  # Exact match: matches specific backend:model
+#       to_backend: "anthropic"
+#       to_model: "claude-3-5-sonnet"
+#   # Legacy format (automatically converted to wildcard rule if replacement_rules is empty):
+#   # backend_model: "qwen-oauth:qwen3-coder-plus"
+#   turn_count: 3  # Number of consecutive turns to use replacement model once activated
+
+# LLM Assessment Configuration
+# Enables an LLM-based conversation assessment system to detect cognitive loops
+# and provide steering interventions. See dev/features/llm-assessment/ for details.
+# assessment:
+#   enabled: false  # Set to true to enable LLM assessment
+#   turn_threshold: 30  # Number of turns before assessment begins
+#   confidence_threshold: 0.9  # Threshold for triggering interventions
+#   backend: "openai"  # Backend to use for assessment
+#   model: "gpt-4o-mini"  # Model to use for assessment
+#   history_window: 20  # Number of recent turns to include
+
+# Model Registry & Limit Enforcement
+# External registry for model metadata (context windows, pricing, capabilities)
+# and automated request limit enforcement.
+model_registry:
+  download_enabled: true  # Whether to download updates from external registry
+  url: "https://models.dev/api.json"  # Registry URL
+  update_interval_seconds: 86400  # Check for updates every 24 hours
+  # cache_path: "./var/model_registry/models.dev.json"
+  # bootstrap_path: "./src/resources/model_registry/models.dev.json"
+
+model_limit_enforcement:
+  enabled: true  # Enforce context window and token limits based on registry data
+
+# Codebuff WebSocket server settings
+
+# Enables WebSocket server implementing the Codebuff protocol for coding agents
+# See docs/user_guide/features/codebuff-backend.md for complete documentation
+codebuff:
+  enabled: false  # Set to true to enable Codebuff WebSocket server
+  websocket_path: "/ws"  # WebSocket endpoint path
+  heartbeat_timeout_seconds: 60  # Timeout for client heartbeat (seconds)
+  session_cleanup_hours: 1  # Hours of inactivity before session cleanup
+  max_connections: 1000  # Maximum concurrent WebSocket connections
+  max_message_size_bytes: 1048576  # Maximum message size (1MB)

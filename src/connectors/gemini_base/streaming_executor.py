@@ -816,7 +816,11 @@ class StreamingExecutor:
                         and isinstance(raw_tool_calls, list)
                         and thought_signature_callback
                     ):
-                        thought_signature_callback(raw_tool_calls, prepared.session_id)
+                        signature_session_id = (
+                            getattr(prepared, "signature_session_id", None)
+                            or prepared.session_id
+                        )
+                        thought_signature_callback(raw_tool_calls, signature_session_id)
 
                     yield ProcessedResponse(content=domain_chunk, metadata=metadata)
                     return

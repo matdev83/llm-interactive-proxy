@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import requests  # type: ignore[import-untyped]
+from requests.structures import CaseInsensitiveDict  # type: ignore[import-untyped]
 from src.connectors.gemini_base.chat_request_preparer import PreparedChatRequest
 from src.connectors.gemini_base.policies import RetryDecision
 from src.connectors.gemini_base.streaming_executor import (
@@ -18,7 +19,7 @@ class _RetryPolicyStub:
         self._sleep_seconds = sleep_seconds
 
     def should_retry(
-        self, _error, _attempt: int, *, is_streaming: bool = False
+        self, error, attempt: int, *, is_streaming: bool = False
     ) -> RetryDecision:
         return RetryDecision(should_retry=True, sleep_seconds=self._sleep_seconds)
 
@@ -42,6 +43,7 @@ async def test_streaming_executor_rotates_oauth_auto_on_429_before_retry(
         prompt_tokens_estimate=0,
         effective_model="google/gemini-3-pro-high",
         session_id="sess-oauth-auto",
+        signature_session_id="sess-oauth-auto",
         build_request_body=dict,
     )
     prepared.auth_session.headers = {"Authorization": "Bearer OLD"}
@@ -66,7 +68,7 @@ async def test_streaming_executor_rotates_oauth_auto_on_429_before_retry(
     response._content = (
         b'{"error":{"status":"RESOURCE_EXHAUSTED","message":"Rate limited"}}'
     )
-    response.headers = {"Retry-After": "42"}
+    response.headers = CaseInsensitiveDict({"Retry-After": "42"})
 
     retry_policy = _RetryPolicyStub(sleep_seconds=42.0)
 

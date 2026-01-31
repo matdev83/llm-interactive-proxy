@@ -6,6 +6,7 @@ for clients (like Droid) that don't preserve extra_content.
 """
 
 import contextlib
+import hashlib
 import json
 import logging
 import os
@@ -29,6 +30,9 @@ class ThoughtSignatureManager:
 
     Key format: "session_id:tool_call_id" -> thought_signature
     """
+
+    _NAMESPACE_SEPARATOR = "|"
+    _PERSIST_NAMESPACE_PREFIX = "thought_signatures_ns_"
 
     def __init__(self, max_cache_size: int = 10000, ttl_seconds: int = 86400) -> None:
         # Allow runtime overrides for long-running interactive sessions.
@@ -64,6 +68,17 @@ class ThoughtSignatureManager:
 
         # Load persisted signatures after initializing state.
         self._load_persisted_signatures()
+
+    def _is_namespaced_session_id(self, session_id: str) -> bool:
+        """Return True if the session id includes a signature namespace."""
+        return bool(session_id) and self._NAMESPACE_SEPARATOR in session_id
+
+    def _is_namespaced_cache_key(self, cache_key: str) -> bool:
+        """Return True if a cache key belongs to a namespaced session."""
+        if cache_key.startswith("anon:"):
+            return False
+        session_part = cache_key.split(":", 1)[0]
+        return self._is_namespaced_session_id(session_part)
 
     def _configure_persistence(self) -> None:
         """Configure optional on-disk persistence.
@@ -362,6 +377,12 @@ class ThoughtSignatureManager:
             )
             existing_sig = google_extra.get("thought_signature")
             if isinstance(existing_sig, str) and existing_sig:
+                if self._is_namespaced_session_id(session_id):
+                    cached_sig = self._lookup_signature(tc_id, session_id)
+                    if cached_sig and cached_sig == existing_sig:
+                        self._store_or_touch_signature(tc_id, session_id, existing_sig)
+                    return
+
                 # Already has a signature. Refresh the cache entry so long-running
                 # sessions don't lose signatures due to TTL cleanup.
                 self._store_or_touch_signature(tc_id, session_id, existing_sig)
@@ -399,21 +420,26 @@ class ThoughtSignatureManager:
 
         current_time = time.time()
         with self._lock:
+            use_anonymous_cache = session_id and not self._is_namespaced_session_id(
+                session_id
+            )
             if session_id:
                 cache_key = f"{session_id}:{tc_id}"
                 self._cache[cache_key] = (sig, current_time)
                 self._cache.move_to_end(cache_key)
 
-            # Always keep an anonymous copy so signatures survive session-id changes
-            # and can optionally be persisted across restarts.
-            anon_key = f"anon:{tc_id}"
-            self._cache[anon_key] = (sig, current_time)
-            self._cache.move_to_end(anon_key)
-            self._by_tool_call[tc_id] = sig
-            self._enforce_size_limit_locked()
+            if use_anonymous_cache:
+                # Always keep an anonymous copy so signatures survive session-id changes
+                # and can optionally be persisted across restarts.
+                anon_key = f"anon:{tc_id}"
+                self._cache[anon_key] = (sig, current_time)
+                self._cache.move_to_end(anon_key)
+                self._by_tool_call[tc_id] = sig
+                self._persist_dirty = True
 
-            self._persist_dirty = True
-            self._maybe_persist_locked(current_time)
+            self._enforce_size_limit_locked()
+            if use_anonymous_cache:
+                self._maybe_persist_locked(current_time)
 
     def _lookup_signature(self, tc_id: str, session_id: str) -> str | None:
         """Look up a signature by tool_call_id and session_id.
@@ -422,6 +448,7 @@ class ThoughtSignatureManager:
             The signature if found and not expired, None otherwise.
         """
         current_time = time.time()
+        namespaced = self._is_namespaced_session_id(session_id)
         with self._lock:
             cache_key = f"{session_id}:{tc_id}"
 
@@ -446,7 +473,7 @@ class ThoughtSignatureManager:
                     self._cache[cache_key] = (cached_sig, current_time)
                     self._cache.move_to_end(cache_key)
 
-            if not sig:
+            if not sig and not namespaced:
                 # Try anonymous cache if session_id was missing at store time
                 anon_entry = self._cache.get(f"anon:{tc_id}")
                 if anon_entry:
@@ -467,7 +494,7 @@ class ThoughtSignatureManager:
                         self._persist_dirty = True
                         self._maybe_persist_locked(current_time)
 
-            if not sig:
+            if not sig and not namespaced:
                 # Fallback to global index by tool_call_id (handles session re-keying)
                 sig = self._by_tool_call.get(tc_id)
 
@@ -500,6 +527,9 @@ class ThoughtSignatureManager:
         """
         with self._lock:
             anonymous_key = None if session_id else "anon"
+            use_anonymous_cache = session_id is None or not self._is_namespaced_session_id(
+                session_id
+            )
             current_time = time.time()
 
             # Clean expired entries first
@@ -524,19 +554,22 @@ class ThoughtSignatureManager:
                 if cache_key:
                     # Store with timestamp for TTL
                     self._cache[cache_key] = (sig, current_time)
-                    self._by_tool_call[tc_id] = sig
+                    if use_anonymous_cache:
+                        self._by_tool_call[tc_id] = sig
 
                     # Always store an anonymous copy for restart/session-id safety.
-                    anon_key = f"anon:{tc_id}"
-                    self._cache[anon_key] = (sig, current_time)
-                    self._cache.move_to_end(anon_key)
+                    if use_anonymous_cache:
+                        anon_key = f"anon:{tc_id}"
+                        self._cache[anon_key] = (sig, current_time)
+                        self._cache.move_to_end(anon_key)
 
                     # Move to end for LRU
                     self._cache.move_to_end(cache_key)
 
                     self._enforce_size_limit_locked()
 
-                    self._persist_dirty = True
+                    if use_anonymous_cache:
+                        self._persist_dirty = True
 
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -546,7 +579,8 @@ class ThoughtSignatureManager:
                             len(self._cache),
                         )
 
-            self._maybe_persist_locked(current_time)
+            if use_anonymous_cache:
+                self._maybe_persist_locked(current_time)
 
     def log_signature_state(
         self,
@@ -696,8 +730,11 @@ class ThoughtSignatureManager:
 
         with self._lock:
             prefix = f"{session_id}:"
+            namespaced_prefix = f"{session_id}{self._NAMESPACE_SEPARATOR}"
             keys_to_remove: list[str] = [
-                key for key in self._cache if key.startswith(prefix)
+                key
+                for key in self._cache
+                if key.startswith(prefix) or key.startswith(namespaced_prefix)
             ]
 
             # Also collect tool_call_ids to remove from secondary index
@@ -744,6 +781,8 @@ class ThoughtSignatureManager:
         """Rebuild secondary index from cache (must hold lock)."""
         new_by_tool_call: dict[str, str] = {}
         for cache_key, entry in self._cache.items():
+            if self._is_namespaced_cache_key(cache_key):
+                continue
             if isinstance(entry, tuple) and len(entry) == 2:
                 sig = entry[0]
             else:
@@ -752,6 +791,12 @@ class ThoughtSignatureManager:
             tc_id = cache_key.split(":", 1)[1] if ":" in cache_key else cache_key
             new_by_tool_call[tc_id] = sig
         self._by_tool_call = new_by_tool_call
+
+    def get_cached_signature(self, session_id: str, tool_call_id: str) -> str | None:
+        """Return cached signature for session and tool call id."""
+        if not session_id or not tool_call_id:
+            return None
+        return self._lookup_signature(tool_call_id, session_id)
 
 
 # Global instance for backward compatibility with class-level cache

@@ -75,6 +75,10 @@ class IThoughtSignatureService(Protocol):
         """Log presence/absence of thought signatures on assistant tool calls."""
         ...
 
+    def get_cached_signature(self, session_id: str, tool_call_id: str) -> str | None:
+        """Return cached signature for a session/tool call pair."""
+        ...
+
 
 @runtime_checkable
 class IMessageConverter(Protocol):

@@ -29,7 +29,21 @@ class UvicornEnvironmentTaggingFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         """Add environment tag to the log record before formatting."""
         record.env_tag = self._env_tag
+        if not hasattr(record, "client_addr"):
+            self._maybe_populate_access_fields(record)
         return super().format(record)
+
+    @staticmethod
+    def _maybe_populate_access_fields(record: logging.LogRecord) -> None:
+        if record.name != "uvicorn.access":
+            return
+        args = record.args
+        if not isinstance(args, tuple) or len(args) < 5:
+            return
+        client_addr, method, path, http_version, status_code = args[:5]
+        record.client_addr = client_addr
+        record.request_line = f"{method} {path} HTTP/{http_version}"
+        record.status_code = status_code
 
 
 def get_uvicorn_logging_config(

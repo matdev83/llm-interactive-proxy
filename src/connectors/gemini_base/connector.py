@@ -2121,6 +2121,10 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
 
         return callback
 
+    def get_thought_signature_namespace(self) -> str | None:
+        """Return a namespace identifier for thought signature caching."""
+        return None
+
     def _response_envelope_to_stream_chunk(
         self, response: ResponseEnvelope, model: str
     ) -> ProcessedResponse:

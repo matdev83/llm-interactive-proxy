@@ -140,13 +140,16 @@ class GeminiChatCompletionCoordinator(IChatCompletionCoordinator):
             ) = None
             thought_signature_service = self._thought_signature_service
             if thought_signature_service is not None:
+                signature_session_id = getattr(
+                    prepared, "signature_session_id", None
+                ) or getattr(request_data, "session_id", None)
 
                 def callback(
                     tool_calls: list[dict[str, Any]], session_id: str | None
                 ) -> None:
                     thought_signature_service.store_signatures_from_tool_calls(
                         tool_calls,
-                        session_id,
+                        signature_session_id or session_id,
                     )
 
                 thought_signature_callback = callback
