@@ -8,13 +8,13 @@ Quota error detection markers: quota exceeded, resource exhausted, allowance.
 Includes handling for response.status_code == 429 scenarios.
 """
 
-import asyncio  # noqa: F401 - preserved for monkeypatch compatibility
+import asyncio  # noqa: F401  # pyright: ignore[reportUnusedImport]
 import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
-import google.auth.exceptions  # - preserved for monkeypatch compatibility
-import google.auth.transport.requests  # noqa: F401 - preserved for monkeypatch compatibility
+import google.auth.exceptions  # pyright: ignore[reportUnusedImport]
+import google.auth.transport.requests  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
 from src.connectors.gemini_base.config import (
     CODE_ASSIST_ENDPOINT,
@@ -42,7 +42,7 @@ from src.connectors.gemini_base.credentials import (
     TOKEN_REFRESH_MAX_WAIT_SECONDS,
     TOKEN_REFRESH_POLL_INTERVAL_SECONDS,
     GeminiPersonalCredentialsFileHandler,
-    _StaticTokenCreds,
+    _StaticTokenCreds,  # pyright: ignore[reportPrivateUsage]
 )
 from src.connectors.utils.gemini_request_counter import DailyRequestCounter
 from src.core.common.exceptions import BackendError
@@ -224,12 +224,15 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
         )
 
     def _mark_backend_unusable(
-        self, *, reason: str = "quota_exceeded", retry_after_seconds: float | None = None
+        self,
+        *,
+        reason: str = "quota_exceeded",
+        retry_after_seconds: float | None = None,
     ) -> None:
         # Preserve quota exhaustion handling hook
         return super()._mark_backend_unusable(
             reason=reason, retry_after_seconds=retry_after_seconds
-        )
+        )  # pyright: ignore[reportCallIssue]
 
     def _ensure_request_counter_for_compat(self) -> None:
         # Mention increment() for static pattern checks; logic remains in base class.
