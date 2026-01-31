@@ -1558,12 +1558,6 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 detail=f"No valid credentials found for backend {self.name}: {details}",
             )
 
-        if not await self._refresh_token_if_needed():
-            raise HTTPException(
-                status_code=502,
-                detail=f"No valid credentials found for backend {self.name}: Failed to refresh expired token",
-            )
-
         # Perform health check on first use (includes token refresh)
         await self._ensure_healthy()
 

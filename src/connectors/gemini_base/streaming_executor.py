@@ -876,52 +876,114 @@ class StreamingExecutor:
             threading.Thread(target=_reader, daemon=True).start()
 
             try:
-                while True:
-                    if done:
-                        break
+                try:
+                    while True:
+                        if done:
+                            break
 
-                    try:
-                        item = await asyncio.wait_for(
-                            queue.get(), timeout=keepalive_interval
-                        )
-                    except asyncio.TimeoutError:
-                        yield _build_keepalive()
-                        continue
+                        try:
+                            item = await asyncio.wait_for(
+                                queue.get(), timeout=keepalive_interval
+                            )
+                        except asyncio.TimeoutError:
+                            yield _build_keepalive()
+                            continue
 
-                    if item is sentinel:
-                        break
+                        if item is sentinel:
+                            break
 
-                    if isinstance(item, Exception):
-                        raise item
+                        if isinstance(item, Exception):
+                            raise item
 
-                    raw_chunk = item
-                    try:
-                        chunk_str = (
-                            raw_chunk
-                            if isinstance(raw_chunk, bytes)
-                            else str(raw_chunk).encode()
-                        ).decode("utf-8")
-                    except (UnicodeDecodeError, AttributeError):
-                        continue
+                        raw_chunk = item
+                        try:
+                            if isinstance(raw_chunk, str):
+                                chunk_str = raw_chunk
+                            elif isinstance(raw_chunk, bytes | bytearray | memoryview):
+                                chunk_str = bytes(raw_chunk).decode("utf-8")
+                            else:
+                                chunk_str = str(raw_chunk)
+                        except (UnicodeDecodeError, AttributeError):
+                            continue
 
-                    # Optimize: avoid O(n) string concatenation by joining
-                    line_buffer = "".join([line_buffer, chunk_str])
-                    lines = line_buffer.splitlines(keepends=True)
+                        # Optimize: avoid O(n) string concatenation by joining
+                        line_buffer = "".join([line_buffer, chunk_str])
+                        lines = line_buffer.splitlines(keepends=True)
 
-                    if lines and not lines[-1].endswith(("\n", "\r")):
-                        line_buffer = lines.pop()
-                    else:
-                        line_buffer = ""
+                        if lines and not lines[-1].endswith(("\n", "\r")):
+                            line_buffer = lines.pop()
+                        else:
+                            line_buffer = ""
 
-                    for line in lines:
-                        decoded_line = line.rstrip("\r\n")
+                        for line in lines:
+                            decoded_line = line.rstrip("\r\n")
 
-                        for processed_chunk in _process_decoded_line(decoded_line):
+                            for processed_chunk in _process_decoded_line(decoded_line):
+                                content = processed_chunk.content
+                                is_stop_chunk = False
+                                finish_reason: str | None = None
+                                choices: list[dict[str, Any]] = []
+
+                                if isinstance(content, dict):
+                                    choices_raw = content.get("choices", [])
+                                    if (
+                                        isinstance(choices_raw, list)
+                                        and choices_raw
+                                        and all(
+                                            isinstance(item, dict)
+                                            for item in choices_raw
+                                        )
+                                    ):
+                                        choices = [
+                                            item
+                                            for item in choices_raw
+                                            if isinstance(item, dict)
+                                        ]
+                                        finish_reason = choices[0].get("finish_reason")
+                                        if finish_reason is None:
+                                            finish_reason = (
+                                                choices[0].get("delta", {}) or {}
+                                            ).get("finish_reason")
+
+                                if finish_reason is not None and finish_reason in (
+                                    "stop",
+                                    "stop_sequence",
+                                ):
+                                    is_stop_chunk = True
+
+                                # Defensive: capture stop chunks even if above branch misses
+                                if not is_stop_chunk and choices:
+                                    fallback_finish = (
+                                        choices[0].get("delta", {}) or {}
+                                    ).get("finish_reason") or choices[0].get(
+                                        "finish_reason"
+                                    )
+                                    if fallback_finish in ("stop", "stop_sequence"):
+                                        is_stop_chunk = True
+
+                                if is_stop_chunk:
+                                    if logger.isEnabledFor(TRACE_LEVEL):
+                                        logger.log(
+                                            TRACE_LEVEL,
+                                            "[STREAMING] Buffering stop chunk",
+                                        )
+                                    final_stop_chunk = processed_chunk
+                                    continue
+
+                                yield processed_chunk
+                                await asyncio.sleep(0)
+
+                            if done:
+                                break
+
+                    # Process remaining buffer
+                    if not done and line_buffer:
+                        for processed_chunk in _process_decoded_line(
+                            line_buffer.rstrip("\r\n")
+                        ):
                             content = processed_chunk.content
                             is_stop_chunk = False
-                            finish_reason: str | None = None
-                            choices: list[dict[str, Any]] = []
-
+                            chunk_choices: list[dict[str, Any]] = []
                             if isinstance(content, dict):
                                 choices_raw = content.get("choices", [])
                                 if (
@@ -931,80 +993,32 @@ class StreamingExecutor:
                                         isinstance(item, dict) for item in choices_raw
                                     )
                                 ):
-                                    choices = [
+                                    chunk_choices = [
                                         item
                                         for item in choices_raw
                                         if isinstance(item, dict)
                                     ]
-                                    finish_reason = choices[0].get("finish_reason")
-                                    if finish_reason is None:
-                                        finish_reason = (
-                                            choices[0].get("delta", {}) or {}
-                                        ).get("finish_reason")
-
-                            if finish_reason is not None and finish_reason in (
-                                "stop",
-                                "stop_sequence",
-                            ):
-                                is_stop_chunk = True
-
-                            # Defensive: capture stop chunks even if above branch misses
-                            if not is_stop_chunk and choices:
-                                fallback_finish = (
-                                    choices[0].get("delta", {}) or {}
-                                ).get("finish_reason") or choices[0].get(
-                                    "finish_reason"
-                                )
-                                if fallback_finish in ("stop", "stop_sequence"):
-                                    is_stop_chunk = True
+                                    finish_reason = chunk_choices[0].get(
+                                        "finish_reason"
+                                    )
+                                    if finish_reason in ("stop", "stop_sequence"):
+                                        is_stop_chunk = True
 
                             if is_stop_chunk:
-                                if logger.isEnabledFor(TRACE_LEVEL):
-                                    logger.log(
-                                        TRACE_LEVEL, "[STREAMING] Buffering stop chunk"
-                                    )
                                 final_stop_chunk = processed_chunk
                                 continue
 
                             yield processed_chunk
                             await asyncio.sleep(0)
 
-                        if done:
-                            break
-
-                # Process remaining buffer
-                if not done and line_buffer:
-                    for processed_chunk in _process_decoded_line(
-                        line_buffer.rstrip("\r\n")
-                    ):
-                        content = processed_chunk.content
-                        is_stop_chunk = False
-                        chunk_choices: list[dict[str, Any]] = []
-                        if isinstance(content, dict):
-                            choices_raw = content.get("choices", [])
-                            if (
-                                isinstance(choices_raw, list)
-                                and choices_raw
-                                and all(isinstance(item, dict) for item in choices_raw)
-                            ):
-                                chunk_choices = [
-                                    item
-                                    for item in choices_raw
-                                    if isinstance(item, dict)
-                                ]
-                                finish_reason = chunk_choices[0].get("finish_reason")
-                                if finish_reason in ("stop", "stop_sequence"):
-                                    is_stop_chunk = True
-
-                        if is_stop_chunk:
-                            final_stop_chunk = processed_chunk
-                            continue
-
-                        yield processed_chunk
-                        await asyncio.sleep(0)
-
-            except GeneratorExit:
-                logger.debug("Stream closed by consumer before completion")
+                except GeneratorExit:
+                    logger.debug("Stream closed by consumer before completion")
+                    raise
+                finally:
+                    with contextlib.suppress(Exception):
+                        response.close()
+            except Exception:
+                # Re-raise exceptions from the loop after ensuring response is closed
                 raise
 
             # Calculate usage and yield final chunk

@@ -6,9 +6,10 @@ The `gemini-oauth-auto` backend provides a multi-account, self-managed OAuth sol
 
 - **Multi-Account Management**: Store and use multiple Google accounts simultaneously.
 - **Automatic Rotation**: Seamlessly switches to the next available account when a "Quota Exceeded" (429) error is detected.
-- **Selection Strategies**: Choose between `round-robin`, `random`, or `first-available` strategies to manage how accounts are picked.
+- **Selection Strategies**: Choose between `round-robin`, `random`, `first-available`, or `session-affinity` strategies to manage how accounts are picked.
 - **Usage Tracking**: Automatically tracks the `last_used` timestamp for each account to monitor distribution.
 - **Self-Contained OAuth**: Handles the entire browser-based authorization flow without requiring external CLI tools like `gcloud` or `gemini`.
+ - **Thought Signature Persistence (Per Account)**: Namespaced signature cache files keep Gemini tool call signatures per account for better interleaved session quality across restarts.
 
 ## Setup and Configuration
 
@@ -53,8 +54,10 @@ backends:
   gemini-oauth-auto:
     type: gemini-oauth-auto
     extra:
-      selection_strategy: "round-robin"  # Options: round-robin, random, first-available
-      refresh_buffer_seconds: 300       # Refresh tokens 5 minutes before expiry
+      selection_strategy: "round-robin"  # Options: round-robin, random, first-available, session-affinity
+      session_affinity_ttl_seconds: 86400  # Optional (session-affinity only)
+      session_affinity_max_entries: 10000  # Optional (session-affinity only)
+      refresh_buffer_seconds: 300          # Refresh tokens 5 minutes before expiry
 ```
 
 ### 3. Launching the Proxy
@@ -102,6 +105,7 @@ You can configure how the proxy selects the next account using the `selection_st
 - `round-robin` (Default): Cycles through all healthy accounts in order. Best for even load distribution.
 - `random`: Picks a random account from the available pool. When rotating due to quota, it attempts to select a different account than the current one.
 - `first-available`: Always uses the first registered account in the list until it hits a quota limit or expires, then moves to the next.
+- `session-affinity`: Keeps a session mapped to a single account when possible, but still rotates on quota or auth failures. Uses LRU + TTL eviction.
 
 ### Account Rotation
 When a request fails with a `429 Quota Exceeded` error, the connector:
@@ -118,6 +122,8 @@ The backend's health status (visible via `/health` or CLI) reflects:
 ## Storage and Security
 
 - **Persistence**: Accounts are stored as individual JSON files in `var/gemini_oauth_accounts/`.
+- **Per-Account Thought Signatures**: Namespaced thought signature caches are stored in `var/cache/thought_signatures/`.
+- **Opt-Out**: Set `LLM_PROXY_THOUGHT_SIGNATURE_PERSIST_NAMESPACED=0` to disable namespaced signature persistence.
 - **Permissions**: On POSIX systems, files are created with `0600` permissions (readable/writable only by the owner).
 - **Secrets**: Refresh tokens are stored locally to allow for automatic background refreshing. Ensure the `var/` directory is protected.
 

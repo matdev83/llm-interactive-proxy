@@ -28,7 +28,9 @@ backends:
     type: kiro-oauth-auto
     extra:
       storage_path: var/kiro_oauth_accounts
-      selection_strategy: first-available   # or round-robin
+      selection_strategy: first-available   # or round-robin, session-affinity
+      session_affinity_ttl_seconds: 86400
+      session_affinity_max_entries: 10000
       refresh_buffer_seconds: 300
       preferred_endpoint: codewhisperer     # or amazonq
       origin: AI_EDITOR                     # or CLI
@@ -45,4 +47,3 @@ backends:
 The backend reports models with the `amazon/` vendor prefix. Example:
 
 - `amazon/claude-sonnet-4.5`
-

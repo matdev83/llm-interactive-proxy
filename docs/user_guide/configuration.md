@@ -146,6 +146,12 @@ backends:
   gemini:
     api_key: "..."
     api_url: "https://generativelanguage.googleapis.com"
+
+  gemini-oauth-auto:
+    selection_strategy: "round-robin"     # round-robin, random, first-available, session-affinity
+    session_affinity_ttl_seconds: 86400   # Only used with session-affinity
+    session_affinity_max_entries: 10000   # Only used with session-affinity
+    refresh_buffer_seconds: 300
     
   openrouter:
     api_key: "sk-or-..."

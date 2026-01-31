@@ -356,11 +356,15 @@ class ChatRequestPreparer:
         )
         if missing_signatures:
             total_tool_calls = self._count_tool_calls(canonical_request)
+            with_signatures = self._count_tool_calls_with_thought_signature(
+                canonical_request
+            )
             logger.warning(
                 "Downgrading tool calls to plain text due to missing Gemini thought signatures",
                 extra={
                     "missing_signatures": missing_signatures,
                     "tool_calls_total": total_tool_calls,
+                    "tool_calls_with_signatures": with_signatures,
                     "effective_model": effective_model,
                     "session_id": session_id[:8] if session_id else "none",
                     "signature_namespace": signature_namespace or "none",
@@ -509,6 +513,31 @@ class ChatRequestPreparer:
             if not isinstance(tool_calls, list):
                 continue
             total += len(tool_calls)
+
+        return total
+
+    def _count_tool_calls_with_thought_signature(self, canonical_request: Any) -> int:
+        messages = getattr(canonical_request, "messages", None)
+        if not isinstance(messages, list) or not messages:
+            return 0
+
+        total = 0
+        for msg in messages:
+            if isinstance(msg, dict):
+                role = msg.get("role")
+                tool_calls = msg.get("tool_calls")
+            else:
+                role = getattr(msg, "role", None)
+                tool_calls = getattr(msg, "tool_calls", None)
+
+            if role != "assistant" or not tool_calls:
+                continue
+            if not isinstance(tool_calls, list):
+                continue
+
+            for tc in tool_calls:
+                if self._extract_thought_signature(tc):
+                    total += 1
 
         return total
 

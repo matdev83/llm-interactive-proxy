@@ -89,7 +89,7 @@ class ThoughtSignatureManager:
         """Return True if a cache key belongs to a namespaced session."""
         if cache_key.startswith("anon:"):
             return False
-        session_part = cache_key.split(":", 1)[0]
+        session_part = cache_key.rsplit(":", 1)[0]
         return self._is_namespaced_session_id(session_part)
 
     def _extract_namespace_from_session_id(self, session_id: str) -> str | None:
@@ -103,7 +103,7 @@ class ThoughtSignatureManager:
     def _extract_namespace_from_cache_key(self, cache_key: str) -> str | None:
         if cache_key.startswith("anon:"):
             return None
-        session_part = cache_key.split(":", 1)[0]
+        session_part = cache_key.rsplit(":", 1)[0]
         return self._extract_namespace_from_session_id(session_part)
 
     def _configure_persistence(self) -> None:
@@ -266,7 +266,7 @@ class ThoughtSignatureManager:
                     continue
 
                 if key.startswith("anon:"):
-                    tc_id = key.split(":", 1)[1]
+                    tc_id = key.rsplit(":", 1)[1]
                     existing = merged_anon.get(tc_id)
                     if existing is None or timestamp > existing[1]:
                         merged_anon[tc_id] = (sig, timestamp)
@@ -285,7 +285,7 @@ class ThoughtSignatureManager:
                         merged_namespaced[key] = (sig, timestamp)
                     continue
 
-                tc_id = key.split(":", 1)[1] if ":" in key else key
+                tc_id = key.rsplit(":", 1)[1] if ":" in key else key
                 existing = merged_anon.get(tc_id)
                 if existing is None or timestamp > existing[1]:
                     merged_anon[tc_id] = (sig, timestamp)
@@ -377,7 +377,7 @@ class ThoughtSignatureManager:
         for key, entry in self._cache.items():
             if not key.startswith("anon:"):
                 continue
-            tc_id = key.split(":", 1)[1]
+            tc_id = key.rsplit(":", 1)[1]
             if isinstance(entry, tuple) and len(entry) == 2:
                 sig, ts = entry
             else:
@@ -967,7 +967,7 @@ class ThoughtSignatureManager:
             tool_call_ids_to_remove: list[str] = []
             for key in keys_to_remove:
                 # Key format is "session_id:tool_call_id"
-                parts = key.split(":", 1)
+                parts = key.rsplit(":", 1)
                 if len(parts) == 2:
                     tool_call_ids_to_remove.append(parts[1])
                 namespace = self._extract_namespace_from_cache_key(key)
@@ -1021,7 +1021,7 @@ class ThoughtSignatureManager:
             else:
                 sig = str(entry)
 
-            tc_id = cache_key.split(":", 1)[1] if ":" in cache_key else cache_key
+            tc_id = cache_key.rsplit(":", 1)[1] if ":" in cache_key else cache_key
             new_by_tool_call[tc_id] = sig
         self._by_tool_call = new_by_tool_call
 

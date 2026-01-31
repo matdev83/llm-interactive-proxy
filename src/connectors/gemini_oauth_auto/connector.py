@@ -398,13 +398,10 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
         account = self._account_selector.get_current_account()
 
-        # For round-robin strategy, rotate before each request
-        # For other strategies, only rotate if account is missing or expired
+        # For round-robin strategy, we only rotate if account is missing or expired.
+        # Rotation between requests is handled in chat_completions entry point.
         should_rotate = False
         if not account or account.is_expired():
-            should_rotate = True
-        elif self._account_selector.selection_strategy == "round-robin":
-            # Round-robin: rotate before each request to distribute load
             should_rotate = True
 
         if should_rotate:
@@ -792,6 +789,16 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         prefix = f"{self.backend_type}:"
         if effective_model.startswith(prefix):
             effective_model = effective_model[len(prefix) :]
+
+        # For round-robin strategy, rotate account before each request to distribute load.
+        # We do this here instead of _refresh_token_if_needed to ensure exactly one
+        # rotation per request, even if _refresh_token_if_needed is called multiple times
+        # (e.g. for health checks, request preparation, and actual execution).
+        if self._account_selector.selection_strategy == "round-robin":
+            logger.debug("Round-robin: rotating account before request")
+            session_id = request.context.session_id if request.context else None
+            await self._account_selector.get_next_account(session_id=session_id)
+            self._sync_selected_account_to_base()
 
         while True:
             try:
