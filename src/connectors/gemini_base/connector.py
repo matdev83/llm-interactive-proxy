@@ -1532,6 +1532,8 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         Delegates to health check service for first-use health checks.
         """
         if self._health_check_service:
+            # Refresh token if needed before health check to maintain contract
+            await self._refresh_token_if_needed()
             await self._health_check_service.ensure_healthy()
             # Sync health checked state for backward compatibility
             self._health_checked = True
