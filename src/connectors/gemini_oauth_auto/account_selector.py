@@ -542,10 +542,13 @@ class AccountSelectorService(IAccountSelector):
         return self._current_account
 
     async def rotate_on_quota(
-        self, *, session_id: str | None = None
+        self, *, session_id: str | None = None, retry_after_seconds: float | None = None
     ) -> StoredAccount | None:
         """Rotate to next account due to quota exhaustion."""
         await self._ensure_accounts_loaded()
+
+        if self._current_account:
+            await self.mark_current_account_rate_limited(retry_after_seconds)
 
         available = self._get_available_accounts()
         if len(available) <= 1:

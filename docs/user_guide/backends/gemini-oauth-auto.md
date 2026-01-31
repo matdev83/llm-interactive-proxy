@@ -54,7 +54,7 @@ backends:
   gemini-oauth-auto:
     type: gemini-oauth-auto
     extra:
-      selection_strategy: "round-robin"  # Options: round-robin, random, first-available, session-affinity
+      selection_strategy: "session-affinity"  # Options: session-affinity, round-robin, random, first-available
       session_affinity_ttl_seconds: 86400  # Optional (session-affinity only)
       session_affinity_max_entries: 10000  # Optional (session-affinity only)
       refresh_buffer_seconds: 300          # Refresh tokens 5 minutes before expiry
@@ -102,7 +102,8 @@ By using this proxy with the Gemini OAuth Auto backend configuration, you acknow
 
 You can configure how the proxy selects the next account using the `selection_strategy` parameter:
 
-- `round-robin` (Default): Cycles through all healthy accounts in order. Best for even load distribution.
+- `session-affinity` (Default): Keeps a session mapped to a single account when possible, but still rotates on quota or auth failures. Uses LRU + TTL eviction.
+- `round-robin`: Cycles through all healthy accounts in order. Best for even load distribution.
 - `random`: Picks a random account from the available pool. When rotating due to quota, it attempts to select a different account than the current one.
 - `first-available`: Always uses the first registered account in the list until it hits a quota limit or expires, then moves to the next.
 - `session-affinity`: Keeps a session mapped to a single account when possible, but still rotates on quota or auth failures. Uses LRU + TTL eviction.

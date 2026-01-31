@@ -647,11 +647,20 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return self._extract_retry_delay(error)
 
     async def refresh_token_if_needed(
-        self, *, force_reload: bool = False, session_id: str | None = None
+        self, 
+        *, 
+        force_reload: bool = False, 
+        session_id: str | None = None,
+        retry_after_seconds: float | None = None
     ) -> bool:
-        """Refresh token if needed - implements ITokenRefresher."""
+        """Ensure a valid access token is available, refreshing when necessary.
+
+        Implements ITokenRefresher interface.
+        """
         return await self._refresh_token_if_needed(
-            force_reload=force_reload, session_id=session_id
+            force_reload=force_reload, 
+            session_id=session_id,
+            retry_after_seconds=retry_after_seconds
         )
 
     # ==========================================================================
@@ -777,7 +786,22 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 status_code=response.status_code,
             )
 
-    def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:
+    async def record_rate_limit(self, *, retry_after_seconds: float | None) -> None:
+        """Record a rate limit event for the current credentials.
+
+        Args:
+            retry_after_seconds: Optional explicit retry delay suggested by the API.
+        """
+        # Base implementation does nothing by default.
+        # Subclasses (like GeminiOAuthAutoConnector) override this.
+        pass
+
+    def _mark_backend_unusable(
+        self, 
+        *, 
+        reason: str = "quota_exceeded",
+        retry_after_seconds: float | None = None
+    ) -> None:
         """Mark this backend as unusable.
 
         For quota-style errors, we only set a flag but keep the backend functional
@@ -1014,7 +1038,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         return self._token_manager.get_refresh_token(self._oauth_credentials)
 
     async def _refresh_token_if_needed(
-        self, *, force_reload: bool = False, session_id: str | None = None
+        self, 
+        *, 
+        force_reload: bool = False, 
+        session_id: str | None = None,
+        retry_after_seconds: float | None = None
     ) -> bool:
         """Ensure a valid access token is available, refreshing when necessary.
 

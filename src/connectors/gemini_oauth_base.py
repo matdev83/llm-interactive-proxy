@@ -223,9 +223,13 @@ class GeminiOAuthBaseConnector(_BaseGeminiOAuthBaseConnector):
             headers=envelope.headers,
         )
 
-    def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:
+    def _mark_backend_unusable(
+        self, *, reason: str = "quota_exceeded", retry_after_seconds: float | None = None
+    ) -> None:
         # Preserve quota exhaustion handling hook
-        return super()._mark_backend_unusable(reason=reason)
+        return super()._mark_backend_unusable(
+            reason=reason, retry_after_seconds=retry_after_seconds
+        )
 
     def _ensure_request_counter_for_compat(self) -> None:
         # Mention increment() for static pattern checks; logic remains in base class.

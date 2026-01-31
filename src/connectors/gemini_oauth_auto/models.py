@@ -73,6 +73,10 @@ class StoredAccount(BaseModel):
         default=None,
         description="Epoch ms until which this account is rate limited",
     )
+    consecutive_rate_limits: int = Field(
+        default=0,
+        description="Number of consecutive times this account was rate limited",
+    )
     project_id: str | None = Field(
         default=None,
         description="Cached Google Cloud project ID for Code Assist API",
@@ -182,13 +186,16 @@ class StoredAccount(BaseModel):
         )
 
     def mark_used(self) -> "StoredAccount":
-        """Create new instance with updated last_used timestamp.
+        """Create new instance with updated last_used timestamp and reset rate limit counter.
 
         Returns:
             New StoredAccount instance with current time as last_used.
         """
         return self.model_copy(
-            update={"last_used": datetime.now(timezone.utc).isoformat()}
+            update={
+                "last_used": datetime.now(timezone.utc).isoformat(),
+                "consecutive_rate_limits": 0,
+            }
         )
 
     def mark_rate_limited(
@@ -197,19 +204,46 @@ class StoredAccount(BaseModel):
         retry_after_seconds: float | None,
         default_window_seconds: float,
     ) -> "StoredAccount":
-        """Create new instance marked as rate limited until a future time."""
+        """Create new instance marked as rate limited until a future time.
+
+        Implements exponential backoff when retry_after_seconds is not specified.
+        """
+        import random
+
         now_ms = int(time.time() * 1000)
-        wait_seconds = (
-            float(retry_after_seconds)
-            if isinstance(retry_after_seconds, int | float) and retry_after_seconds > 0
-            else float(default_window_seconds)
-        )
+
+        # Increment consecutive rate limits
+        new_consecutive = self.consecutive_rate_limits + 1
+
+        if isinstance(retry_after_seconds, int | float) and retry_after_seconds > 0:
+            # Use explicit retry-after if provided
+            wait_seconds = float(retry_after_seconds)
+        else:
+            # Apply exponential backoff: default * (2 ^ (consecutive - 1))
+            # 1st time: 30s * 1 = 30s
+            # 2nd time: 30s * 2 = 60s
+            # 3rd time: 30s * 4 = 120s
+            # ...
+            backoff_factor = 2 ** (new_consecutive - 1)
+            base_wait = float(default_window_seconds) * backoff_factor
+
+            # Add jitter (±10%)
+            jitter = base_wait * 0.1
+            wait_seconds = base_wait + random.uniform(-jitter, jitter)
+
+            # Cap at 1 hour
+            wait_seconds = min(wait_seconds, 3600.0)
+
         new_until = now_ms + int(wait_seconds * 1000)
+
+        # Don't decrease rate limit time if already set further in future
         if self.rate_limited_until and self.rate_limited_until > new_until:
             new_until = self.rate_limited_until
+
         return self.model_copy(
             update={
                 "rate_limited_until": new_until,
+                "consecutive_rate_limits": new_consecutive,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -264,7 +298,7 @@ class GeminiOAuthAutoConfig(BaseModel):
         "first-available",
         "session-affinity",
     ] = Field(
-        default="round-robin",
+        default="session-affinity",
         description="Strategy for selecting which account to use for the next request.",
     )
     session_affinity_ttl_seconds: int = Field(

@@ -4,7 +4,7 @@ ACCOUNT_ID_MAX_LENGTH = 64
 ACCOUNT_ID_PATTERN = r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$"
 
 DEFAULT_STORAGE_PATH = "var/kiro_oauth_accounts"
-DEFAULT_RATE_LIMIT_SECONDS = 10.0
+DEFAULT_RATE_LIMIT_SECONDS = 30.0
 
 DEFAULT_REGION = "us-east-1"
 DEFAULT_START_URL = "https://view.awsapps.com/start"

@@ -29,9 +29,27 @@ class IConnectorContext(Protocol):
         ...
 
     async def _refresh_token_if_needed(
-        self, *, force_reload: bool = False, session_id: str | None = None
+        self, 
+        *, 
+        force_reload: bool = False, 
+        session_id: str | None = None,
+        retry_after_seconds: float | None = None
     ) -> bool:
-        """Ensure a valid access token is available."""
+        """Ensure a valid access token is available.
+        
+        Args:
+            force_reload: If True, bypasses local caches and forces a reload/refresh.
+            session_id: Optional session identifier for telemetry and affinity.
+            retry_after_seconds: Optional explicit retry delay suggested by the API.
+        """
+        ...
+
+    async def record_rate_limit(self, *, retry_after_seconds: float | None) -> None:
+        """Record a rate limit event for the current credentials.
+        
+        Args:
+            retry_after_seconds: Optional explicit retry delay suggested by the API.
+        """
         ...
 
     def _get_session_headers(self) -> dict[str, str]:

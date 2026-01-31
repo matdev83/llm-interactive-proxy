@@ -332,7 +332,11 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             await self._ensure_models_loaded()
 
     async def _refresh_token_if_needed(
-        self, *, force_reload: bool = False, session_id: str | None = None
+        self, 
+        *, 
+        force_reload: bool = False, 
+        session_id: str | None = None,
+        retry_after_seconds: float | None = None
     ) -> bool:
         """Ensure a valid access token is available.
 
@@ -357,7 +361,8 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             )
 
             new_account = await self._account_selector.rotate_on_quota(
-                session_id=session_id
+                session_id=session_id,
+                retry_after_seconds=retry_after_seconds
             )
 
             if (
@@ -866,13 +871,21 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                     logger.warning(
                         "Detected quota error in stream, triggering rotation"
                     )
-                    self._mark_backend_unusable(reason="quota_exceeded")
+                    # Extract retry delay from chunk if available
+                    retry_delay = error_info.get("retry_after")
+                    if not isinstance(retry_delay, int | float):
+                        retry_delay = None
+                    
+                    self._mark_backend_unusable(
+                        reason="quota_exceeded", 
+                        retry_after_seconds=retry_delay
+                    )
 
             yield chunk
 
-    async def _rotate_and_sync(self) -> None:
+    async def _rotate_and_sync(self, retry_after_seconds: float | None = None) -> None:
         """Rotate to next account and sync credentials into gemini_base."""
-        await self._account_selector.rotate_on_quota()
+        await self._account_selector.rotate_on_quota(retry_after_seconds=retry_after_seconds)
         self._sync_selected_account_to_base()
 
     @staticmethod
@@ -891,12 +904,17 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         )
         self._sync_selected_account_to_base()
 
-    def _mark_backend_unusable(self, *, reason: str = "quota_exceeded") -> None:
+    def _mark_backend_unusable(
+        self, 
+        *, 
+        reason: str = "quota_exceeded", 
+        retry_after_seconds: float | None = None
+    ) -> None:
         """Override to handle quota exhaustion via account rotation."""
         if reason == "quota_exceeded":
             logger.warning("Quota exceeded for account, triggering rotation")
             # Schedule rotation task and keep reference to prevent GC
-            task = asyncio.create_task(self._rotate_and_sync())
+            task = asyncio.create_task(self._rotate_and_sync(retry_after_seconds=retry_after_seconds))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
         else:
