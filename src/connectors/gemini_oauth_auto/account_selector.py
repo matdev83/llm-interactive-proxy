@@ -48,6 +48,8 @@ class AccountSelectorService(IAccountSelector):
         selection_strategy: str = "round-robin",
         session_affinity_ttl_seconds: int = 86400,
         session_affinity_max_entries: int = 10000,
+        session_affinity_max_wait_seconds: float | None = None,
+        notifications_enabled: bool = True,
     ) -> None:
         """Initialize account selector.
 
@@ -58,6 +60,7 @@ class AccountSelectorService(IAccountSelector):
             allowed_account_ids: Optional allowlist of account IDs. If set, only these
                 accounts will be used for selection.
             selection_strategy: Strategy for account selection (round-robin, random, first-available).
+            notifications_enabled: Whether to send OS notifications when accounts are blocked.
         """
         self._storage = storage
         self._refresh_service = refresh_service
@@ -66,6 +69,7 @@ class AccountSelectorService(IAccountSelector):
         self._selection_strategy = selection_strategy
         self._session_affinity_ttl_seconds = session_affinity_ttl_seconds
         self._session_affinity_max_entries = session_affinity_max_entries
+        self._session_affinity_max_wait_seconds = session_affinity_max_wait_seconds
         self._session_affinity: OrderedDict[str, tuple[str, float]] = OrderedDict()
 
         self._current_account: StoredAccount | None = None
@@ -74,6 +78,7 @@ class AccountSelectorService(IAccountSelector):
         self._rotation_index: int = 0
         self._initialized: bool = False
         self._notifier: DesktopNotifier | None = None
+        self._notifications_enabled = notifications_enabled
 
     @property
     def rotation_index(self) -> int:
@@ -126,6 +131,23 @@ class AccountSelectorService(IAccountSelector):
     @session_affinity_max_entries.setter
     def session_affinity_max_entries(self, value: int) -> None:
         self._session_affinity_max_entries = value
+
+    @property
+    def session_affinity_max_wait_seconds(self) -> float | None:
+        return self._session_affinity_max_wait_seconds
+
+    @session_affinity_max_wait_seconds.setter
+    def session_affinity_max_wait_seconds(self, value: float | None) -> None:
+        self._session_affinity_max_wait_seconds = value
+
+    @property
+    def notifications_enabled(self) -> bool:
+        """Whether OS notifications are enabled."""
+        return self._notifications_enabled
+
+    @notifications_enabled.setter
+    def notifications_enabled(self, value: bool) -> None:
+        self._notifications_enabled = value
 
     @property
     def total_count(self) -> int:
@@ -284,6 +306,38 @@ class AccountSelectorService(IAccountSelector):
             )
         return candidate
 
+    def _get_session_affinity_wait_seconds(
+        self, session_id: str, available: list[StoredAccount], now_ms: int
+    ) -> float | None:
+        if not self._session_affinity_enabled():
+            return None
+        if not session_id:
+            return None
+        max_wait = self._session_affinity_max_wait_seconds
+        if max_wait is None or max_wait <= 0:
+            return None
+
+        entry = self._session_affinity.get(session_id)
+        if not entry:
+            return None
+
+        account_id, _ = entry
+        candidate = next(
+            (acc for acc in available if acc.account_id == account_id), None
+        )
+        if not candidate:
+            return None
+
+        rate_limited_until = getattr(candidate, "rate_limited_until", None)
+        if not isinstance(rate_limited_until, int):
+            return None
+
+        wait_seconds = max((rate_limited_until - now_ms) / 1000.0, 0.0)
+        if wait_seconds <= 0:
+            return None
+
+        return wait_seconds if wait_seconds <= max_wait else None
+
     async def get_next_account(
         self,
         *,
@@ -308,6 +362,22 @@ class AccountSelectorService(IAccountSelector):
             if not available:
                 logger.warning("No valid accounts available for selection")
                 return None
+
+            if not ignore_session_affinity:
+                wait_seconds = self._get_session_affinity_wait_seconds(
+                    session_id or "",
+                    available,
+                    now_ms,
+                )
+                if wait_seconds is not None:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "Session affinity waiting %.1fs for rate-limited account (session=%s)",
+                            wait_seconds,
+                            (session_id or "")[:8] or "none",
+                        )
+                    await asyncio.sleep(wait_seconds)
+                    continue
 
             if not eligible:
                 wait_seconds = self._get_next_wait_seconds(available, now_ms)
@@ -545,12 +615,29 @@ class AccountSelectorService(IAccountSelector):
             account_id: The account ID that was blocked.
             reason: Reason why the account is being blocked.
         """
+        if not self._notifications_enabled:
+            return
+
         try:
             if self._notifier is None:
                 self._notifier = DesktopNotifier()
+
+            # Count other available accounts (excluding the one just blocked)
+            available_accounts = self._get_available_accounts()
+            other_accounts_count = len(available_accounts)
+
+            # Build message with other available accounts info
+            message = (
+                f"Account {account_id[:8]}... requires verification: {reason[:80]}"
+            )
+            if other_accounts_count > 0:
+                message += f" (Other available accounts: {other_accounts_count})"
+            else:
+                message += " (No other accounts available!)"
+
             await self._notifier.send(
                 title="Gemini OAuth Account Blocked",
-                message=f"Account {account_id[:8]}... requires verification: {reason[:100]}",
+                message=message,
             )
         except Exception as e:
             logger.debug("Failed to send block notification: %s", e)

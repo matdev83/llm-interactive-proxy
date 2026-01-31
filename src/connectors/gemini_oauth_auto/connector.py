@@ -252,6 +252,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         selection_strategy = auto_config.selection_strategy
         session_affinity_ttl_seconds = auto_config.session_affinity_ttl_seconds
         session_affinity_max_entries = auto_config.session_affinity_max_entries
+        session_affinity_max_wait_seconds = self.config.failure_handling.max_silent_wait
 
         refresh_buffer_ms = int(refresh_buffer_seconds * 1000)
 
@@ -264,6 +265,11 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 http_client=self.client,
             )
 
+            # Determine if notifications should be enabled based on config and host
+            notifications_enabled = self.config.notifications.is_enabled(
+                self.config.host
+            )
+
             self._account_selector = AccountSelectorService(
                 storage=self._token_storage,
                 refresh_service=self._token_refresh,
@@ -272,6 +278,8 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 selection_strategy=selection_strategy,
                 session_affinity_ttl_seconds=session_affinity_ttl_seconds,
                 session_affinity_max_entries=session_affinity_max_entries,
+                session_affinity_max_wait_seconds=session_affinity_max_wait_seconds,
+                notifications_enabled=notifications_enabled,
             )
 
             await self._account_selector.reload_accounts()
@@ -292,6 +300,13 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             )
             self._account_selector.session_affinity_max_entries = (
                 session_affinity_max_entries
+            )
+            self._account_selector.session_affinity_max_wait_seconds = (
+                session_affinity_max_wait_seconds
+            )
+            # Update notifications enabled status based on current config
+            self._account_selector.notifications_enabled = (
+                self.config.notifications.is_enabled(self.config.host)
             )
             await self._account_selector.reload_accounts()
             # Use current account if available, otherwise get next

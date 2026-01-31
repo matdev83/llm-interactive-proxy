@@ -16,6 +16,7 @@ from src.core.config.models.misc import (
     UsageTrackingConfig,
 )
 from src.core.config.models.non_forwardable_config import NonForwardableTaggingConfig
+from src.core.config.models.notification import NotificationConfig
 from src.core.config.models.rewriting import (
     EditPrecisionConfig,
     ModelAliasRule,
@@ -43,6 +44,7 @@ __all__ = [
     "LogLevel",
     "LoggingConfig",
     "ModelAliasRule",
+    "NotificationConfig",
     "PlanningPhaseConfig",
     "RewritingConfig",
     "ResilienceConfig",

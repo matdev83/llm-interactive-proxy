@@ -20,6 +20,7 @@ from src.core.config.models.misc import (
     UsageTrackingConfig,
 )
 from src.core.config.models.non_forwardable_config import NonForwardableTaggingConfig
+from src.core.config.models.notification import NotificationConfig
 from src.core.config.models.rewriting import (
     EditPrecisionConfig,
     ModelAliasRule,
@@ -113,6 +114,8 @@ class AppConfigModel(DomainModel, IConfig):
     model_limit_enforcement: ModelLimitEnforcementConfig = Field(
         default_factory=ModelLimitEnforcementConfig
     )
+
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
 
     vtc_client_patterns: list[str] = Field(
         default_factory=lambda: ["cline", "kilo", "roo"]

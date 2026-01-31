@@ -55,6 +55,9 @@ from src.core.cli_support.applicators.memory_applicator import MemoryApplicator
 from src.core.cli_support.applicators.model_registry_applicator import (
     ModelRegistryApplicator,
 )
+from src.core.cli_support.applicators.notification_applicator import (
+    NotificationApplicator,
+)
 from src.core.cli_support.applicators.replacement_applicator import (
     ReplacementApplicator,
 )
@@ -77,6 +80,7 @@ __all__ = [
     "LoggingApplicator",
     "MemoryApplicator",
     "ModelRegistryApplicator",
+    "NotificationApplicator",
     "ResilienceApplicator",
     "RoutingApplicator",
     "ReplacementApplicator",

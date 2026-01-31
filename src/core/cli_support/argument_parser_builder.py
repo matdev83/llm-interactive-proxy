@@ -603,6 +603,20 @@ class ArgumentParserBuilder:
             help="Disable LLM accounting (usage tracking and audit logging) (alias for --disable-accounting)",
         )
         parser.add_argument(
+            "--enable-notifications",
+            dest="notifications_enabled",
+            action="store_true",
+            default=None,
+            help="Enable desktop notifications (overrides auto-detect based on bind address)",
+        )
+        parser.add_argument(
+            "--disable-notifications",
+            dest="notifications_enabled",
+            action="store_false",
+            default=None,
+            help="Disable desktop notifications (overrides auto-detect based on bind address)",
+        )
+        parser.add_argument(
             "--strict-command-detection",
             action="store_true",
             default=None,

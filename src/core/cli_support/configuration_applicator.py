@@ -290,6 +290,7 @@ class ConfigurationApplicator:
             LoggingApplicator,
             MemoryApplicator,
             ModelRegistryApplicator,
+            NotificationApplicator,
             ReplacementApplicator,
             ResilienceApplicator,
             RoutingApplicator,
@@ -301,6 +302,7 @@ class ConfigurationApplicator:
         return [
             ServerApplicator(),
             LoggingApplicator(),
+            NotificationApplicator(),
             BackendApplicator(),
             SessionApplicator(),
             AuthApplicator(),

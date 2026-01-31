@@ -387,6 +387,20 @@ def apply_config_part3(
         ),
     }
 
+    # Notification settings
+    if "LLM_PROXY_ENABLE_NOTIFICATIONS" in env:
+        notifications_value = env["LLM_PROXY_ENABLE_NOTIFICATIONS"].strip().lower()
+        config["notifications"] = {
+            "enabled": notifications_value in {"1", "true", "yes", "on"}
+        }
+        if resolution is not None:
+            resolution.record(
+                "notifications.enabled",
+                config["notifications"]["enabled"],
+                ParameterSource.ENVIRONMENT,
+                origin="LLM_PROXY_ENABLE_NOTIFICATIONS",
+            )
+
     sso_enabled = _env_to_bool(
         "SSO_ENABLED",
         False,
