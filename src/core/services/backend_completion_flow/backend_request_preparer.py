@@ -140,7 +140,6 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         backend_type: str,
     ) -> dict[str, JsonValue]:
         """Prepare kwargs for backend call."""
-        from pydantic.types import JsonValue
 
         backend_call_kwargs: dict[str, JsonValue] = {}
 

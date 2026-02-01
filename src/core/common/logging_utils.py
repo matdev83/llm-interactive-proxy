@@ -468,8 +468,7 @@ class ApiKeyRedactionFilter(logging.Filter):
                     sanitized_args = self._sanitize(record.args)
                     record.args = cast(dict[str, object], sanitized_args)
                 elif isinstance(record.args, tuple):
-                    sanitized_args = tuple(self._sanitize(a) for a in record.args)
-                    record.args = cast(tuple[object, ...], sanitized_args)
+                    record.args = tuple(self._sanitize(a) for a in record.args)
 
             # Also attempt to sanitize other common record attributes
             for attr in ("message", "exc_text", "stack_info"):

@@ -1107,6 +1107,7 @@ class ArgumentParserBuilder:
         aux_routing_group.add_argument(
             "--enable-auxiliary-routing",
             action="store_true",
+            default=None,
             dest="auxiliary_routing_enabled",
             help="Enable routing of auxiliary requests (title/summary generation) to an alternative backend",
         )
