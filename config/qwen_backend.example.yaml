@@ -27,8 +27,8 @@ logging:
   level: "INFO"
   request_logging: true
   response_logging: true
-  log_file: null  # General application logs (optional)
-  capture_file: "logs/wire_capture.log"  # Wire-level HTTP capture
+  log_file: "var/logs/proxy.log"  # General application logs (optional)
+  capture_file: "var/logs/wire_capture.log"  # Wire-level HTTP capture
   # High-performance buffered wire capture settings
   capture_buffer_size: 65536  # 64KB buffer for performance
   capture_flush_interval: 1.0  # Flush every 1 second
