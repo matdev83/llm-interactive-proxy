@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from collections.abc import Sequence
@@ -10,6 +11,24 @@ logger = logging.getLogger(__name__)
 # Cache tiktoken encoding for better performance
 _tiktoken_encoding = None
 _tiktoken_lock = threading.Lock()
+
+
+async def count_tokens_async(text: str, model: str | None = None) -> int:
+    """Count tokens for the provided text using tiktoken in a background thread.
+
+    Offloads CPU-intensive tokenization to a thread pool to avoid blocking the
+    event loop, especially for large texts (~170k-1M+ tokens).
+
+    Args:
+        text: The text to count tokens for
+        model: Optional model name to select encoding (best-effort)
+
+    Returns:
+        Estimated number of tokens in the text
+    """
+    if not text:
+        return 0
+    return await asyncio.to_thread(count_tokens, text, model=model)
 
 
 def count_tokens(text: str, model: str | None = None) -> int:

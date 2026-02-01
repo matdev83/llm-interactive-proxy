@@ -61,6 +61,7 @@ class SSEAssembler(IStreamAssembler):
 
         done_emitted = False
         last_stream_id: str | None = None
+        chunk_count = 0
         metrics = get_metrics_instance()
 
         sampler = get_sampler_instance()
@@ -235,24 +236,13 @@ class SSEAssembler(IStreamAssembler):
                 chunk_contains_done = b"data: [DONE]" in chunk_bytes
 
                 if has_content:
+                    chunk_count += 1
                     # Track chunk emission (only for chunks with actual content)
                     _ensure_stream_started(stream_id_for_metrics)
                     metrics.increment_chunks_sent(stream_id_for_metrics)
                     if not sample_emitted:
                         _maybe_sample("chunk", chunk_bytes, stream_id_for_metrics)
                         sample_emitted = True
-
-                    # CRITICAL: Final safety check for steering message leaks
-                    # This is the last line of defense before bytes reach the client
-                    protector = get_steering_leak_protector()
-                    result = protector.sanitize_bytes(chunk_bytes)
-                    chunk_bytes = result.data
-                    if result.had_leak and logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "[STREAMING][SSE] Steering leak detected and sanitized "
-                            "for stream %s - this indicates a bug in upstream processing",
-                            stream_id_for_metrics,
-                        )
 
                     if logger.isEnabledFor(TRACE_LEVEL):
                         logger.log(
@@ -262,7 +252,9 @@ class SSEAssembler(IStreamAssembler):
                             len(chunk_bytes),
                         )
                     yield chunk_bytes
-                    if not chunk.is_done:
+
+                    # Yield to event loop periodically to maintain responsiveness
+                    if not chunk.is_done and chunk_count % 100 == 0:
                         await asyncio.sleep(0)
 
                     # If chunk already contains [DONE], mark as emitted

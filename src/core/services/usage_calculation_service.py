@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 from src.core.domain.openrouter_usage import (
     OpenRouterUsage,
 )
-from src.core.utils.token_count import count_tokens, extract_prompt_text
+from src.core.utils.token_count import count_tokens, count_tokens_async, extract_prompt_text
 
 if TYPE_CHECKING:
     from src.core.domain.request_context import (
@@ -45,6 +45,22 @@ class UsageCalculationService:
     4. Preserving extended usage fields from backends
     """
 
+    async def calculate_prompt_tokens_async(
+        self,
+        messages: list[Any],
+        model: str | None = None,
+    ) -> int:
+        """Calculate prompt tokens from messages in a background thread."""
+        try:
+            prompt_text = extract_prompt_text(messages)
+            return await count_tokens_async(prompt_text, model=model)
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to calculate prompt tokens async: %s", e, exc_info=True
+                )
+            return 0
+
     def calculate_prompt_tokens(
         self,
         messages: list[Any],
@@ -66,6 +82,24 @@ class UsageCalculationService:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
                     "Failed to calculate prompt tokens: %s", e, exc_info=True
+                )
+            return 0
+
+    async def calculate_completion_tokens_async(
+        self,
+        content: str | dict[str, Any] | Any,
+        model: str | None = None,
+    ) -> int:
+        """Calculate completion tokens from response content in a background thread."""
+        try:
+            text = self._extract_completion_text(content)
+            if not text:
+                return 0
+            return await count_tokens_async(text, model=model)
+        except (AttributeError, KeyError, TypeError, ValueError) as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to calculate completion tokens async: %s", e, exc_info=True
                 )
             return 0
 

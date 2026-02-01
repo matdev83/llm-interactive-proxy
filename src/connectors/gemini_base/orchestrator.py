@@ -80,8 +80,11 @@ class CodeAssistOrchestrator:
         key_name: str | None = None,
         stream_wrapper: StreamWrapper | None = None,
     ) -> StreamingResponseEnvelope:
-        """Execute a streaming request with prefetch and optional wrapping."""
-        start = time.monotonic()
+        """Execute a streaming request with optional wrapping.
+
+        Note: Prefetching was removed to prevent blocking response headers and keepalives
+        during long backend wait times (e.g. large prompts or cold starts).
+        """
         base_generator = self._streaming_executor.execute(
             prepared=prepared,
             url=url,
@@ -91,19 +94,7 @@ class CodeAssistOrchestrator:
             retry_policy=self._retry_policy,
         )
 
-        prefetched: list[ProcessedResponse] = []
-        # Empty generator is a valid state - no error, just no data to prefetch
-        with contextlib.suppress(StopAsyncIteration):
-            first_chunk = await base_generator.__anext__()
-            prefetched.append(first_chunk)
-
-        async def continue_from_prefetch() -> AsyncGenerator[ProcessedResponse, None]:
-            for chunk in prefetched:
-                yield chunk
-            async for chunk in base_generator:
-                yield chunk
-
-        generator: AsyncIterator[ProcessedResponse] = continue_from_prefetch()
+        generator: AsyncIterator[ProcessedResponse] = base_generator
         if stream_wrapper is not None:
             generator = stream_wrapper(generator)
 
@@ -114,7 +105,6 @@ class CodeAssistOrchestrator:
                 yield item
 
         generator_as_gen = to_generator(generator)
-
         generator_as_gen = self._drop_plain_stop(generator_as_gen)
 
         envelope = StreamingResponseEnvelope(
@@ -126,15 +116,6 @@ class CodeAssistOrchestrator:
         processed = await self._response_post_processor.process_streaming(
             envelope, prepared.effective_model
         )
-
-        duration = time.monotonic() - start
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Streaming orchestration completed in %.3fs (model=%s, session=%s)",
-                duration,
-                prepared.effective_model,
-                prepared.session_id,
-            )
 
         return cast(StreamingResponseEnvelope, processed)
 

@@ -640,10 +640,16 @@ def to_fastapi_streaming_response(
             coordinator = _get_wire_capture_coordinator(wire_capture)
             sse_bytes_iter = coordinator.wrap_stream(domain_response, sse_bytes_iter)
 
+        # Counter for chunk-based yielding to event loop
+        chunk_count = 0
         try:
             async for sse_chunk in sse_bytes_iter:
+                chunk_count += 1
                 yield sse_chunk
-                await asyncio.sleep(0)  # Yield to event loop
+                
+                # Yield to event loop periodically to maintain responsiveness
+                if chunk_count % 100 == 0:
+                    await asyncio.sleep(0)
         except GeneratorExit:
             # Client disconnected - clean up the SSE iterator
             await safe_aclose(sse_bytes_iter)

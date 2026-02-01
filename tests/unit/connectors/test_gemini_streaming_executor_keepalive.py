@@ -263,3 +263,146 @@ async def test_streaming_executor_emits_keepalive_when_upstream_idle(
     assert any(
         chunk.content for chunk in chunks if not chunk.metadata.get("_keepalive")
     )
+
+
+@pytest.mark.asyncio
+async def test_streaming_executor_emits_keepalive_before_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify keepalives are sent while waiting for the initial HTTP response."""
+    prepared = PreparedChatRequest(
+        auth_session=MagicMock(),
+        project_id="p",
+        canonical_request=None,
+        code_assist_request={},
+        prompt_tokens_estimate=0,
+        effective_model="google/gemini-3-pro-high",
+        session_id="sess-pre-headers",
+        signature_session_id="sess-pre-headers",
+        build_request_body=lambda: {"request": {}},
+    )
+
+    translation_service = MagicMock()
+    # Mock successful response
+    response = MagicMock()
+    response.status_code = 200
+    response.iter_content = lambda **_: [b'data: {"choices": []}\n', b"data: [DONE]\n"]
+    response.close = MagicMock()
+
+    # Simulate slow response headers (e.g. backend processing a large prompt)
+    def _slow_request(*args, **kwargs):
+        time.sleep(0.1)  # Longer than keepalive interval
+        return response
+
+    prepared.auth_session.request = _slow_request
+
+    executor = StreamingExecutor(translation_service=translation_service)
+    # Set a very short keepalive interval for the test
+    monkeypatch.setattr(executor, "STREAMING_KEEPALIVE_INTERVAL_SECONDS", 0.02)
+
+    processor = SSELineProcessor(
+        translation_service=translation_service,
+        effective_model=prepared.effective_model,
+        retry_delay_extractor=None,
+        backend_type="gemini",
+    )
+
+    chunks: list[ProcessedResponse] = []
+    async for chunk in executor._stream_generator(
+        prepared=prepared,
+        url="https://example.invalid",
+        processor=processor,
+        prompt_tokens=0,
+    ):
+        chunks.append(chunk)
+
+    # We expect at least one keepalive before the actual response starts
+    keepalives = [c for c in chunks if c.metadata.get("_keepalive")]
+    assert len(keepalives) >= 1
+    assert all(c.content == "" for c in keepalives)
+    assert all(c.metadata["model"] == prepared.effective_model for c in keepalives)
+
+
+@pytest.mark.asyncio
+async def test_streaming_executor_handles_429_after_keepalive_during_header_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify 429 is handled correctly even if keepalives were sent while waiting for headers."""
+    from src.connectors.gemini_base import streaming_executor as module_under_test
+
+    # Mock sleep to avoid waiting during retry
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
+
+    prepared = PreparedChatRequest(
+        auth_session=MagicMock(),
+        project_id="p",
+        canonical_request=None,
+        code_assist_request={},
+        prompt_tokens_estimate=0,
+        effective_model="google/gemini-3-pro-high",
+        session_id="sess-429-after-keepalive",
+        signature_session_id="sess-429-after-keepalive",
+        build_request_body=lambda: {"request": {}},
+    )
+
+    translation_service = MagicMock()
+    translation_service.to_domain_stream_chunk.side_effect = lambda chunk, **_: (
+        {"choices": [{"delta": {"content": "final"}}]} if chunk else None
+    )
+    
+    # First response is a 429
+    error_response = requests.Response()
+    error_response.status_code = 429
+    error_response._content = b'{"error":{"message":"Rate limited"}}'
+    error_response.headers = CaseInsensitiveDict({"Retry-After": "0.01"})
+
+    # Second response (retry) is a 200
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.iter_content = lambda **_: [b'data: {"candidates": [{"content": {"parts": [{"text": "final"}]}}]}\n', b"data: [DONE]\n"]
+    success_response.close = MagicMock()
+
+    request_calls = 0
+
+    def _slow_request(*args, **kwargs):
+        nonlocal request_calls
+        request_calls += 1
+        time.sleep(0.05)  # Longer than keepalive interval
+        if request_calls == 1:
+            return error_response
+        return success_response
+
+    prepared.auth_session.request = _slow_request
+
+    executor = StreamingExecutor(translation_service=translation_service)
+    monkeypatch.setattr(executor, "STREAMING_KEEPALIVE_INTERVAL_SECONDS", 0.02)
+    
+    # Ensure we use a retry policy that allows at least one retry
+    retry_policy = _RetryPolicyStub(sleep_seconds=0.01)
+
+    processor = SSELineProcessor(
+        translation_service=translation_service,
+        effective_model=prepared.effective_model,
+        retry_delay_extractor=None,
+        backend_type="gemini",
+    )
+
+    chunks: list[ProcessedResponse] = []
+    async for chunk in executor._stream_generator(
+        prepared=prepared,
+        url="https://example.invalid",
+        processor=processor,
+        prompt_tokens=0,
+        retry_policy=retry_policy,
+    ):
+        chunks.append(chunk)
+
+    # Should have keepalives from the first (slow) request attempt
+    keepalives = [c for c in chunks if c.metadata.get("_keepalive")]
+    assert len(keepalives) >= 1
+    
+    # Should have the final successful content from the second attempt
+    assert any("final" in str(c.content) for c in chunks)
+    assert request_calls == 2
+

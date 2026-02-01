@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import time
@@ -142,13 +143,15 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                     type(request).__name__,
                 )
 
-            outbound_tokens = calculate_outbound_tokens(
+            outbound_tokens = await asyncio.to_thread(
+                calculate_outbound_tokens,
                 domain_request, model=effective_model, label="outbound"
             )
 
             # Calculate verbatim tokens (from original request)
             # Always calculate for logging/debugging purposes
-            verbatim_tokens = calculate_outbound_tokens(
+            verbatim_tokens = await asyncio.to_thread(
+                calculate_outbound_tokens,
                 request, model=effective_model, label="verbatim"
             )
 
@@ -533,14 +536,24 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
 
                         # Capture canonical usage to wire capture (streaming completion)
                         if self._wire_capture_orchestrator is not None:
-                            await self._wire_capture_orchestrator.capture_stream_completion(
-                                context=context,
-                                session_id=session_id,
-                                backend_type=backend_type,
-                                effective_model=effective_model,
-                                key_name=key_name,
-                                canonical_usage=canonical_usage,
-                            )
+                            # Use create_task to avoid blocking the stream cleanup/closing for wire capture I/O
+                            try:
+                                loop = asyncio.get_running_loop()
+                                capture_task = loop.create_task(
+                                    self._wire_capture_orchestrator.capture_stream_completion(
+                                        context=context,
+                                        session_id=session_id,
+                                        backend_type=backend_type,
+                                        effective_model=effective_model,
+                                        key_name=key_name,
+                                        canonical_usage=canonical_usage,
+                                    )
+                                )
+                                # Ensure task is not garbage collected and handle potential exceptions
+                                capture_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                            except RuntimeError:
+                                # Fallback if no event loop (unlikely here)
+                                pass
                     except Exception as e:
                         logger.warning(
                             f"Failed to build canonical usage for streaming response: {e}",

@@ -886,7 +886,10 @@ class BufferedWireCapture(IWireCapture):
             return payload
 
     async def _buffer_entry(self, entry: WireCaptureEntry) -> None:
-        """Add entry to buffer for eventual flushing."""
+        """Add entry to buffer for eventual flushing.
+        
+        Does not block the caller for flushing unless explicitly requested.
+        """
         async with self._buffer_lock:
             # Use session_id or 'default' as key
             key = entry.session_id or "default"
@@ -897,12 +900,9 @@ class BufferedWireCapture(IWireCapture):
                 self._cleanup_empty_buffers_locked()
 
             # Enforce limit: if still at capacity with a new key, force flush to free space
-            # This preserves all entries by flushing them to disk before evicting
             if len(self._buffers) >= self._max_buffer_keys and key not in self._buffers:
-                # At capacity with new key - flush to free up space
-                # This ensures we don't lose entries by evicting non-empty buffers
-                await self._flush_buffer()
-                # After flush, buffers are cleared, so we can add the new key
+                # Snapshot and flush in background
+                await self._flush_buffer_no_lock()
 
             self._buffers[key].append(entry)
 
@@ -914,20 +914,14 @@ class BufferedWireCapture(IWireCapture):
             )
 
             if should_flush:
-                await self._flush_buffer()
+                # Snapshot and flush in background to avoid blocking the stream
+                await self._flush_buffer_no_lock()
 
-    def _cleanup_empty_buffers_locked(self) -> None:
-        """Remove empty buffers to free up space. Must be called with lock held."""
-        empty_keys = [
-            key for key, buffer_list in self._buffers.items() if not buffer_list
-        ]
-        for key in empty_keys:
-            del self._buffers[key]
-        if empty_keys and logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Cleaned up %d empty buffer keys", len(empty_keys))
-
-    async def _flush_buffer(self) -> None:
-        """Flush buffered entries to file."""
+    async def _flush_buffer_no_lock(self) -> None:
+        """Internal helper to flush buffer without blocking the caller.
+        
+        Assumes buffer lock is held by the caller.
+        """
         if not self._buffers or not self._file_path:
             return
 
@@ -940,11 +934,7 @@ class BufferedWireCapture(IWireCapture):
 
         # Remove empty keys to prevent dict from growing indefinitely
         self._buffers.clear()
-
         self._last_flush_time = time.time()
-
-        # Write entries (do this outside the lock? No, we are inside the lock here)
-        # The writing happens in run_in_executor, which is fine.
 
         if not entries_to_write:
             return
@@ -952,14 +942,35 @@ class BufferedWireCapture(IWireCapture):
         # Sort by timestamp and sequence to maintain stable order in file
         entries_to_write.sort(key=lambda x: (x.timestamp_unix, x.sequence))
 
-        import contextlib
-
-        with contextlib.suppress(Exception):
+        try:
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
+            # Schedule write in executor without awaiting it
+            loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
+        except RuntimeError:
+            # No event loop; fallback to sync write
+            self._write_entries_sync(entries_to_write)
 
-        # Check for rotation after writing
-        await self._check_rotation()
+        # Check for rotation after writing (must be done in a thread or task)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._check_rotation())
+        except RuntimeError:
+            pass
+
+    def _cleanup_empty_buffers_locked(self) -> None:
+        """Remove empty buffers to free up space. Must be called with lock held."""
+        empty_keys = [
+            key for key, buffer_list in self._buffers.items() if not buffer_list
+        ]
+        for key in empty_keys:
+            del self._buffers[key]
+        if empty_keys and logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Cleaned up %d empty buffer keys", len(empty_keys))
+
+    async def _flush_buffer(self) -> None:
+        """Public async flush method (with locking)."""
+        async with self._buffer_lock:
+            await self._flush_buffer_no_lock()
 
     def _write_entries_sync(self, entries: list[WireCaptureEntry]) -> None:
         """Synchronously write entries to file."""

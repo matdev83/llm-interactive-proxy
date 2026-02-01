@@ -440,6 +440,7 @@ class StreamingExecutor:
     ) -> AsyncGenerator[ProcessedResponse, None]:
         """Internal generator that handles the streaming loop."""
         response = None
+        chunk_count = 0
         # PERFORMANCE: Use list accumulators to avoid O(n²) string concatenation in streaming hot path
         generated_text_parts: list[str] = []
         error_json_buffer_parts: list[str] | None = None
@@ -477,16 +478,67 @@ class StreamingExecutor:
                                 exc_info=True,
                             )
 
-                response = await asyncio.to_thread(
-                    prepared.auth_session.request,
-                    method="POST",
-                    url=url,
-                    params={"alt": "sse"},
-                    json=request_body,
-                    headers={"Content-Type": "application/json"},
-                    timeout=int(self._read_timeout),
-                    stream=True,
+                # Use a loop with timeout to allow yielding keepalives while waiting for the response headers.
+                # This prevents the client from stalling during long backend processing (e.g. large prompts).
+                keepalive_interval = self.STREAMING_KEEPALIVE_INTERVAL_SECONDS
+                keepalive_id = f"chatcmpl-keepalive-{uuid.uuid4().hex}"
+                keepalive_created = int(time.time())
+
+                def _build_initial_keepalive() -> ProcessedResponse:
+                    return ProcessedResponse(
+                        content="",
+                        metadata={
+                            "_keepalive": True,
+                            "id": keepalive_id,
+                            "model": prepared.effective_model,
+                            "created": keepalive_created,
+                            "session_id": prepared.session_id,
+                            "stream_id": prepared.session_id,
+                        },
+                    )
+
+                request_task = asyncio.create_task(
+                    asyncio.to_thread(
+                        prepared.auth_session.request,
+                        method="POST",
+                        url=url,
+                        params={"alt": "sse"},
+                        json=request_body,
+                        headers={"Content-Type": "application/json"},
+                        timeout=int(self._read_timeout),
+                        stream=True,
+                    )
                 )
+
+                response = None
+                while not request_task.done():
+                    try:
+                        # Wait for the task to complete, or time out to send a keepalive
+                        done_set, _ = await asyncio.wait(
+                            [request_task], timeout=keepalive_interval
+                        )
+                        if request_task in done_set:
+                            response = await request_task
+                            break
+                        else:
+                            # Still waiting for backend; yield keepalive to maintain connection
+                            yield _build_initial_keepalive()
+                    except Exception:
+                        if request_task.done():
+                            # Ensure we propagate the actual exception from the task
+                            await request_task
+                        raise
+
+                if response is None:
+                    # Defensive: ensure response is valid before proceeding
+                    raise BackendError(
+                        message="Failed to receive response from Code Assist API",
+                        backend_name=self._backend_type,
+                    )
+
+                # Help static analysis
+                assert response is not None
+
                 if logger.isEnabledFor(TRACE_LEVEL):
                     logger.log(
                         TRACE_LEVEL,
@@ -730,17 +782,17 @@ class StreamingExecutor:
                         if text_piece:
                             generated_text_parts.append(text_piece)
                             # Handle error JSON detection in content
-                            if error_json_buffer_parts is None:
+                            if error_json_buffer_parts is None and len(generated_text_parts) <= 3:
                                 stripped_piece = text_piece.lstrip()
                                 if stripped_piece.startswith("{"):
                                     error_json_buffer_parts = [stripped_piece]
-                            elif (
+                            elif error_json_buffer_parts is not None and (
                                 sum(len(p) for p in error_json_buffer_parts)
                                 < self.MAX_ERROR_JSON_SIZE
                             ):
                                 error_json_buffer_parts.append(text_piece)
                             else:
-                                # Stop buffering if too large - likely valid content, not an error
+                                # Stop buffering if too large or not started - likely valid content, not an error
                                 error_json_buffer_parts = None
 
                             # Try to parse accumulated error JSON
@@ -753,9 +805,10 @@ class StreamingExecutor:
                                 except json.JSONDecodeError:
                                     if logger.isEnabledFor(logging.DEBUG):
                                         logger.debug(
-                                            "Failed to parse error JSON from streaming content",
-                                            exc_info=True,
+                                            "Failed to parse error JSON from streaming content (partial JSON?)"
                                         )
+
+
                                 else:
                                     error_json_buffer_parts = None
                                     if (
@@ -924,6 +977,7 @@ class StreamingExecutor:
                             decoded_line = line.rstrip("\r\n")
 
                             for processed_chunk in _process_decoded_line(decoded_line):
+                                chunk_count += 1
                                 content = processed_chunk.content
                                 is_stop_chunk = False
                                 finish_reason: str | None = None
@@ -976,7 +1030,10 @@ class StreamingExecutor:
                                     continue
 
                                 yield processed_chunk
-                                await asyncio.sleep(0)
+                                
+                                # Yield to event loop periodically to maintain responsiveness
+                                if chunk_count % 100 == 0:
+                                    await asyncio.sleep(0)
 
                             if done:
                                 break
@@ -986,6 +1043,7 @@ class StreamingExecutor:
                         for processed_chunk in _process_decoded_line(
                             line_buffer.rstrip("\r\n")
                         ):
+                            chunk_count += 1
                             content = processed_chunk.content
                             is_stop_chunk = False
                             chunk_choices: list[dict[str, Any]] = []
@@ -1034,7 +1092,9 @@ class StreamingExecutor:
             try:
                 # Join accumulated text parts once for token estimation
                 generated_text = "".join(generated_text_parts)
-                completion_tokens = self._token_estimator.estimate_tokens(
+                # Offload token counting to a thread to avoid blocking the event loop for large responses
+                completion_tokens = await asyncio.to_thread(
+                    self._token_estimator.estimate_tokens,
                     generated_text
                 )
                 usage = {
@@ -1305,7 +1365,6 @@ class StreamingExecutor:
             logger.debug(
                 "Failed to parse error response as JSON, falling back to text: %s",
                 e,
-                exc_info=True,
             )
             error_detail = response.text
         except Exception as e:
@@ -1313,9 +1372,9 @@ class StreamingExecutor:
             logger.warning(
                 "Unexpected error parsing error response as JSON: %s",
                 e,
-                exc_info=True,
             )
             error_detail = response.text
+
 
         detail_payload: dict[str, Any] = (
             error_detail if isinstance(error_detail, dict) else {"raw": error_detail}

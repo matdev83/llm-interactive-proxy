@@ -736,13 +736,28 @@ class CborWireCaptureService(IWireCapture):
         return _capture_stream()
 
     async def _buffer_entry(self, entry: CaptureEntry) -> None:
-        """Add entry to buffer for eventual flushing."""
+        """Add entry to buffer for eventual flushing.
+        
+        Does not block the caller for flushing unless explicitly requested
+        via force_flush_sync().
+        """
         async with self._buffer_lock:
             self._buffer.append(entry)
 
             # Flush if buffer is full
             if len(self._buffer) >= self._max_buffer_entries:
-                await self._flush_buffer()
+                # Snapshot and flush in background thread to avoid blocking the stream task
+                # for disk I/O (Requirement 7.1, 7.2 - performance and responsiveness)
+                entries_to_write = self._buffer.copy()
+                self._buffer.clear()
+                
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Schedule write in executor without awaiting it
+                    loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
+                except RuntimeError:
+                    # No event loop; fallback to sync write
+                    self._write_entries_sync(entries_to_write)
 
     async def _flush_buffer(self) -> None:
         """Flush buffered entries to file."""

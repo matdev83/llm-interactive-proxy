@@ -600,7 +600,8 @@ class StreamingContentConverter:
                         )
 
                         service = get_usage_calculation_service()
-                        computed_usage_raw: Any = service.merge_streaming_usage(
+                        computed_usage_raw: Any = await asyncio.to_thread(
+                            service.merge_streaming_usage,
                             accumulated_content=accumulated_content or "",
                             final_chunk_usage=computed_usage,
                             context=request_context,
@@ -722,9 +723,10 @@ class StreamingContentConverter:
                 )
 
                 yield streaming_content
-
-                # Yield to event loop
-                await asyncio.sleep(0)
+                
+                # Yield to event loop periodically to maintain responsiveness without excessive overhead
+                if chunk_count % 100 == 0:
+                    await asyncio.sleep(0)
 
                 if is_done:
                     break
@@ -762,10 +764,7 @@ class StreamingContentConverter:
                     error_dict = e.to_dict().get("error")
                     if isinstance(error_dict, dict):
                         error_payload = error_dict
-                        if (
-                            isinstance(e.status_code, int)
-                            and "status_code" not in error_payload
-                        ):
+                        if "status_code" not in error_payload:
                             error_payload["status_code"] = e.status_code
             except Exception:
                 # Keep fallback error payload on conversion failures.

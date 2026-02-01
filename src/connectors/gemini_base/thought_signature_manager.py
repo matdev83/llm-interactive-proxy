@@ -224,9 +224,8 @@ class ThoughtSignatureManager:
                 data = json.loads(path.read_text(encoding="utf-8"))
             except Exception:
                 logger.debug(
-                    "Failed to load persisted thought signatures from %s",
+                    "Failed to load persisted thought signatures from %s (file may be corrupted or truncated)",
                     str(path),
-                    exc_info=True,
                 )
                 continue
 
@@ -366,12 +365,6 @@ class ThoughtSignatureManager:
             self._maybe_persist_namespaced_locked(current_time)
             return
 
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            logger.debug("Failed to create persistence directory", exc_info=True)
-            return
-
         # Serialize only anonymous entries, which are session-id independent.
         entries_out: dict[str, dict[str, Any]] = {}
         for key, entry in self._cache.items():
@@ -395,18 +388,24 @@ class ThoughtSignatureManager:
             "entries": entries_out,
         }
 
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
-        try:
-            tmp_path.write_text(
-                json.dumps(payload, separators=(",", ":")), encoding="utf-8"
-            )
-            os.replace(str(tmp_path), str(path))
-            self._persist_last_write = float(current_time)
-            self._persist_dirty = False
-        except Exception:
-            logger.debug("Failed to persist thought signatures", exc_info=True)
-            with contextlib.suppress(Exception):
-                tmp_path.unlink(missing_ok=True)
+        # Offload write to background thread to avoid blocking event loop
+        def _write_task(p: pathlib.Path, data: dict[str, Any], timestamp: float) -> None:
+            try:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = p.with_suffix(p.suffix + ".tmp")
+                tmp_path.write_text(
+                    json.dumps(data, separators=(",", ":")), encoding="utf-8"
+                )
+                os.replace(str(tmp_path), str(p))
+            except Exception:
+                logger.debug("Failed to persist thought signatures")
+
+        threading.Thread(
+            target=_write_task, args=(path, payload, current_time), daemon=True
+        ).start()
+        
+        self._persist_last_write = float(current_time)
+        self._persist_dirty = False
 
         self._maybe_persist_namespaced_locked(current_time)
 
@@ -448,29 +447,34 @@ class ThoughtSignatureManager:
                 "entries": entries_out,
             }
 
-            tmp_path = path.with_suffix(path.suffix + ".tmp")
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                tmp_path.write_text(
-                    json.dumps(payload, separators=(",", ":")), encoding="utf-8"
-                )
-                os.replace(str(tmp_path), str(path))
-                self._persist_namespaced_last_write[namespace] = float(current_time)
-                self._persist_namespaced_dirty.discard(namespace)
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Persisted %d namespaced thought_signature(s) for namespace %s",
-                        len(entries_out),
-                        namespace,
+            # Offload write to background thread
+            def _write_ns_task(p: pathlib.Path, data: dict[str, Any], ns: str) -> None:
+                try:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                    tmp_path = p.with_suffix(p.suffix + ".tmp")
+                    tmp_path.write_text(
+                        json.dumps(data, separators=(",", ":")), encoding="utf-8"
                     )
-            except Exception:
+                    os.replace(str(tmp_path), str(p))
+                except Exception:
+                    logger.debug(
+                        "Failed to persist thought signatures for namespace %s",
+                        ns,
+                        exc_info=True,
+                    )
+
+            threading.Thread(
+                target=_write_ns_task, args=(path, payload, namespace), daemon=True
+            ).start()
+
+            self._persist_namespaced_last_write[namespace] = float(current_time)
+            self._persist_namespaced_dirty.discard(namespace)
+            if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "Failed to persist thought signatures for namespace %s",
+                    "Scheduled persistence of %d namespaced thought_signature(s) for namespace %s",
+                    len(entries_out),
                     namespace,
-                    exc_info=True,
                 )
-                with contextlib.suppress(Exception):
-                    tmp_path.unlink(missing_ok=True)
 
     @property
     def cache(self) -> dict[str, str]:
@@ -871,7 +875,7 @@ class ThoughtSignatureManager:
             # - ValueError: string slice indices invalid
             # - IndexError: string slice out of bounds
             # - UnicodeError: encoding/decoding failures
-            logger.debug("Failed to log tool call signature state", exc_info=True)
+            logger.debug("Failed to log tool call signature state")
 
     def _clean_expired_entries(self, current_time: float | None = None) -> int:
         """Remove expired entries from cache.
