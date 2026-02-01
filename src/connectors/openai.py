@@ -835,6 +835,7 @@ class OpenAIConnector(LLMBackend):
             response = await self.client.post(
                 url, json=payload, headers=guarded_headers
             )
+            self.update_quota_headers(response.headers)
         except httpx.RequestError as e:
             logger.error(
                 f"DEBUG: Request failed to {url}. Error: {e}",
@@ -950,6 +951,7 @@ class OpenAIConnector(LLMBackend):
         )
         try:
             response = await self.client.send(request, stream=True)
+            self.update_quota_headers(response.headers)
         except httpx.RequestError as exc:  # Normalize network failures
             raise ServiceUnavailableError(
                 message=f"Could not connect to backend ({exc})"

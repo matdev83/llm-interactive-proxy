@@ -175,6 +175,7 @@ class ResponseExecutor(IResponseExecutor):
                     response = await self._base_connector.client.post(
                         url, json=payload_dict, headers=guarded_headers
                     )
+                    self._base_connector.update_quota_headers(response.headers)
                 except httpx.RequestError as e:
                     logger.error(
                         "Request failed to %s. Error: %s",
