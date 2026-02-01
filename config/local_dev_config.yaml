@@ -15,8 +15,8 @@ logging:
   level: "DEBUG"
   request_logging: true
   response_logging: true
-  log_file: "var/proxy-debug.log"
-  cbor_capture_dir: "var/wire_captures_cbor"
+  log_file: "var/logs/proxy-debug.log"
+  cbor_capture_dir: "var/logs/wire_captures_cbor"
   cbor_capture_session_id: "client-debug"
 
 backends:

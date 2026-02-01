@@ -185,7 +185,8 @@ logging:
   level: "INFO"  # TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL
   request_logging: false
   response_logging: false
-  log_file: null  # Optional log file path
+  log_file: null  # Optional log file path (e.g., "var/logs/proxy.log")
+  cbor_capture_dir: null # Optional directory for CBOR captures (e.g., "var/logs/wire_captures_cbor")
 
 # Backend settings
 # IMPORTANT SECURITY NOTE:
