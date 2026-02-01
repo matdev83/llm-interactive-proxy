@@ -15,6 +15,12 @@ from src.connectors.gemini_base.models import GeminiOAuthCredentials
 from src.core.common.exceptions import AuthenticationError, BackendError
 
 
+@pytest.fixture(autouse=True)
+def clear_health_check_cache():
+    """Clear GeminiHealthCheckService global cache before each test for isolation."""
+    GeminiHealthCheckService._successfully_checked_backends.clear()
+
+
 @pytest.fixture
 def mock_credential_coordinator() -> Mock:
     """Create a mock ICredentialCoordinator."""

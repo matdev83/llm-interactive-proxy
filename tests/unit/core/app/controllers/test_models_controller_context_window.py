@@ -44,13 +44,14 @@ async def test_list_models_populates_context_window():
 
         backend_factory.create_backend.side_effect = mock_create_backend
 
-        response = await _list_models_impl(
+        response, _ = await _list_models_impl(
             backend_service=backend_service,
             config=config,
             backend_factory=backend_factory,
         )
 
         assert isinstance(response, ModelsListingResponse)
+
 
         # Check if we got the models from the backends
         model_ids = [m.id for m in response.data]
@@ -78,11 +79,12 @@ async def test_list_models_fallback_populates_context_window(mock_registry):
     config = MagicMock()
     backend_factory = MagicMock()
 
-    response = await _list_models_impl(
+    response, _ = await _list_models_impl(
         backend_service=backend_service, config=config, backend_factory=backend_factory
     )
 
     # Ensure it's not empty
+
     assert len(response.data) > 0
 
     # Check fallback models

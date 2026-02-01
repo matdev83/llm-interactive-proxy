@@ -1,10 +1,12 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
 from fastapi import Request
 from src.core.app.controllers.responses_controller import ResponsesController
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.translation_service_interface import ITranslationService
+
 
 @pytest.mark.asyncio
 async def test_handle_responses_request_propagates_streaming_headers():

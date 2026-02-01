@@ -61,7 +61,7 @@ def test_model_listing_includes_oauth_backends(monkeypatch) -> None:
 
     from unittest.mock import Mock
 
-    result = asyncio.run(
+    result, _ = asyncio.run(
         _list_models_impl(
             backend_service=Mock(),
             config=config,
@@ -70,6 +70,7 @@ def test_model_listing_includes_oauth_backends(monkeypatch) -> None:
     )
 
     model_ids = {model.id for model in result.data}
+
 
     assert "gemini-oauth-plan:gemini-2.5-pro" in model_ids
     assert created_backends == ["gemini-oauth-plan"]

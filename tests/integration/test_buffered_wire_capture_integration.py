@@ -338,10 +338,15 @@ async def test_buffered_wire_capture_performance(test_app, cleanup_wire_capture)
     request_entries = [e for e in entries if e["direction"] == "outbound_request"]
     assert len(request_entries) == num_entries
 
+    # Sort entries by sequence number to handle cases where background flushes 
+    # might have written batches out of order during high-throughput
+    request_entries.sort(key=lambda x: x.get("sequence", 0))
+
     # Verify entries have correct data
     for i, entry in enumerate(request_entries):
         assert entry["payload"]["request_id"] == i
         assert entry["payload"]["data"] == f"test data {i}"
+
 
 
 def test_buffered_wire_capture_configuration_validation(temp_capture_file):

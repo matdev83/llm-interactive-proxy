@@ -313,17 +313,17 @@ class TestAccountSelectorReloadPreservesRotation:
 
         # Initial load
         await selector.reload_accounts()
-        assert selector._rotation_index == 0
+        assert selector.rotation_index == 0
 
         # Advance rotation
         await selector.get_next_account()
-        assert selector._rotation_index == 1
+        assert selector.rotation_index == 1
 
         # Reload accounts (simulates re-initialization)
         await selector.reload_accounts()
 
         # Rotation index should be preserved (not reset to 0)
-        assert selector._rotation_index == 1
+        assert selector.rotation_index == 1
 
     @pytest.mark.asyncio
     async def test_reload_accounts_resets_index_if_out_of_bounds(self) -> None:
@@ -355,13 +355,13 @@ class TestAccountSelectorReloadPreservesRotation:
         await selector.reload_accounts()
 
         # Set rotation index beyond bounds
-        selector._rotation_index = 5
+        selector.rotation_index = 5
 
         # Reload accounts
         await selector.reload_accounts()
 
         # Index should be reset to 0 (within bounds)
-        assert selector._rotation_index == 0
+        assert selector.rotation_index == 0
 
     @pytest.mark.asyncio
     async def test_reload_accounts_updates_current_account(self) -> None:

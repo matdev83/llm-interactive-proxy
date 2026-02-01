@@ -19,8 +19,15 @@ from src.connectors.gemini_base.models import GeminiOAuthCredentials
 from src.core.common.exceptions import BackendError
 
 
+@pytest.fixture(autouse=True)
+def clear_global_cache():
+    """Clear GeminiModelRegistry global cache before each test to ensure test isolation."""
+    GeminiModelRegistry._global_loaded_models.clear()
+
+
 @pytest.fixture
 def mock_model_discovery():
+
     """Create a mock IModelDiscoveryStrategy."""
     discovery = Mock(spec=IModelDiscoveryStrategy)
     discovery.discover = AsyncMock(return_value=["gemini-2.5-pro", "gemini-2.5-flash"])

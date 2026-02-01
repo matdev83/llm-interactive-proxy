@@ -115,7 +115,9 @@ class TestOpenAIResponsesConnector:
         # Mock the streaming response
         mock_response = Mock()
         mock_response.status_code = 200
+        mock_response.headers = {}
         mock_response.aiter_text = AsyncMock()
+
         mock_response.aiter_text.return_value = [
             'data: {"id": "resp-123", "object": "response.chunk", "choices": [{"delta": {"content": "{"}}]}\n\n',
             'data: {"id": "resp-123", "object": "response.chunk", "choices": [{"delta": {"content": "\\"name\\""}}]}\n\n',
@@ -291,7 +293,9 @@ class TestOpenAIResponsesConnector:
         # Mock an error response
         mock_response = Mock()
         mock_response.status_code = 400
+        mock_response.headers = {}
         mock_response.json.return_value = {
+
             "error": {"message": "Invalid request", "type": "invalid_request_error"}
         }
         mock_client.post.return_value = mock_response

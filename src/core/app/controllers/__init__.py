@@ -1248,13 +1248,13 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
     ) -> dict[str, Any]:
         """Get available models in Anthropic API format."""
         try:
-            from src.core.app.controllers.models_controller import list_models
-
             # Get models in OpenAI format first
             # We don't have a Response object here, so we create a dummy one
             # to satisfy the list_models signature if needed, or just let it be None
             # if we make it optional in the signature again but correctly.
             from fastapi import Response as DummyResponse
+
+            from src.core.app.controllers.models_controller import list_models
             dummy_response = DummyResponse()
             models_response = await list_models(
                 dummy_response,

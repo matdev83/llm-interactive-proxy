@@ -7,7 +7,7 @@ import time
 
 import pytest
 import requests
-from freezegun import freeze_time
+
 
 from tests.unit.fixtures.markers import real_time
 
@@ -30,22 +30,20 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 60.0) -> Non
     Raises:
         RuntimeError: If the port did not become ready in time
     """
-    # Use freezegun to control time progression instead of sleeping
-    with freeze_time() as frozen_time:
-        end = time.time() + timeout
-        # Use exponential backoff for more efficient waiting
-        backoff_time = 0.01  # Start with 10ms
-        max_backoff = 1.0  # Max 1 second between attempts
+    end = time.time() + timeout
+    # Use exponential backoff for more efficient waiting
+    backoff_time = 0.01  # Start with 10ms
+    max_backoff = 1.0  # Max 1 second between attempts
 
-        while time.time() < end:
-            try:
-                with socket.create_connection((host, port), timeout=1):
-                    return
-            except OSError:
-                # Advance time instead of sleeping
-                frozen_time.tick(delta=backoff_time)
-                backoff_time = min(backoff_time * 1.5, max_backoff)
+    while time.time() < end:
+        try:
+            with socket.create_connection((host, port), timeout=1):
+                return
+        except OSError:
+            time.sleep(backoff_time)
+            backoff_time = min(backoff_time * 1.5, max_backoff)
     raise RuntimeError("server did not start")
+
 
 
 def _start_server(port: int, log_file: str) -> subprocess.Popen:
@@ -57,8 +55,9 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
             del env[key]
 
     # Ensure at least one backend is functional for smoke test
-    env["OPENROUTER_API_KEY_1"] = "test-key-for-smoke-test"
+    env["OPENAI_API_KEY"] = "test-key-for-smoke-test"
     env["COMMAND_PREFIX"] = "!/"
+
     # Optimize startup with faster logging and reduced checks
     env["PYTHONUNBUFFERED"] = "1"
     env["LOG_LEVEL"] = "WARNING"  # Reduce logging overhead
@@ -79,8 +78,9 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
             "--log-level",  # Add log level to reduce startup overhead
             "WARNING",
             "--default-backend",
-            "openrouter",
+            "openai",
         ],
+
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

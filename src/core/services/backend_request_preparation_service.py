@@ -210,7 +210,7 @@ class BackendRequestPreparationService(IBackendRequestPreparation):
                         )
                         if budget.exceeds_max:
                             overflow = budget.current_estimate - budget.max_tokens
-                            logger.info(
+                            logger.warning(
                                 "Context compaction could not reduce tokens below maximum - overflow risk",
                                 extra={
                                     "current_estimate": budget.current_estimate,

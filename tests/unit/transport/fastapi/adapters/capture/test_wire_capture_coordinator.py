@@ -49,6 +49,7 @@ class MockWireCapture(IWireCapture):
         model=None,
         key_name=None,
         response_content=None,
+        capture_metadata=None,
     ) -> None:
         self.captured_responses.append(
             {
@@ -57,6 +58,7 @@ class MockWireCapture(IWireCapture):
                 "model": model,
                 "key_name": key_name,
                 "response_content": response_content,
+                "capture_metadata": capture_metadata,
             }
         )
 
@@ -69,6 +71,7 @@ class MockWireCapture(IWireCapture):
         model=None,
         key_name=None,
         stream=None,
+        capture_metadata=None,
     ) -> AsyncIterator[bytes]:
         self.wrapped_streams.append(
             {
@@ -76,9 +79,11 @@ class MockWireCapture(IWireCapture):
                 "backend": backend,
                 "model": model,
                 "key_name": key_name,
+                "capture_metadata": capture_metadata,
             }
         )
         return stream
+
 
     async def capture_stream_completion(
         self,
@@ -89,8 +94,11 @@ class MockWireCapture(IWireCapture):
         model=None,
         key_name=None,
         canonical_usage=None,
+        eos_metadata=None,
+        capture_metadata=None,
     ) -> None:
         """Capture stream completion."""
+
 
     async def shutdown(self) -> None:
         """Shutdown mock capture."""
@@ -214,8 +222,10 @@ class TestWireCaptureCoordinator:
         class MockContext:
             def __init__(self):
                 self.request_id = "request-456"
+                self.extensions = {}
 
         context = MockContext()
+
 
         envelope = ResponseEnvelope(
             content={"test": "data"},

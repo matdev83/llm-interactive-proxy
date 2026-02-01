@@ -85,6 +85,9 @@ def _register_repositories(services: ServiceCollection) -> None:
     """Register all repository types with DatabaseEngine dependency."""
     # Local imports to avoid import-time side effects
     from src.core.database.engine import DatabaseEngine
+    from src.core.database.repositories.backend_quota_repository import (
+        BackendQuotaRepository,
+    )
     from src.core.database.repositories.memory_repository import (
         SQLModelMemoryRepository,
     )
@@ -96,9 +99,6 @@ def _register_repositories(services: ServiceCollection) -> None:
     from src.core.database.repositories.usage_repository import (
         SessionMetricsRepository,
         UsageRecordRepository,
-    )
-    from src.core.database.repositories.backend_quota_repository import (
-        BackendQuotaRepository,
     )
 
     def usage_record_repository_factory(

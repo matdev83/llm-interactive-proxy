@@ -1161,8 +1161,9 @@ class BufferedWireCapture(IWireCapture):
                 try:
                     async with self._buffer_lock:
                         if any(self._buffers.values()):
-                            await self._flush_buffer()
+                            await self._flush_buffer_no_lock()
                 except OSError as e:
+
                     logger.warning(
                         "Final wire capture flush failed due to OS error (continuing): %s",
                         e,
@@ -1206,9 +1207,10 @@ class BufferedWireCapture(IWireCapture):
         # Final flush
         async with self._buffer_lock:
             if any(self._buffers.values()):
-                await self._flush_buffer()
+                await self._flush_buffer_no_lock()
 
         # PERFORMANCE OPTIMIZATION: Clean up cache to prevent memory leaks
+
         self._content_length_cache.clear()
 
     def force_shutdown_sync(self) -> None:

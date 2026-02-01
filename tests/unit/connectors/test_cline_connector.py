@@ -30,8 +30,10 @@ class _DummyResponse:
         self.status_code = status_code
         self._data = data or {"data": []}
         self.text = json.dumps(self._data)
+        self.headers: dict[str, str] = {}
 
     def json(self) -> dict:
+
         return self._data
 
 

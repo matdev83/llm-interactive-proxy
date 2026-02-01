@@ -87,6 +87,8 @@ class TestWireCaptureOrchestrator:
         request = Mock(spec=ChatRequest)
         context = Mock(spec=RequestContext)
         context.session_id = "sess_123"
+        context.extensions = {}
+
 
         # Act
         await orchestrator.capture_wire_outbound(
@@ -136,7 +138,9 @@ class TestWireCaptureOrchestrator:
         wire_capture.enabled.return_value = True
 
         context = Mock(spec=RequestContext)
+        context.extensions = {}
         response_content = {"foo": "bar"}
+
 
         # Act
         await orchestrator.capture_inbound_response(
@@ -164,7 +168,9 @@ class TestWireCaptureOrchestrator:
         wire_capture.enabled.return_value = True
 
         context = Mock(spec=RequestContext)
+        context.extensions = {}
         response_content = {"foo": "bar"}
+
         canonical_usage = {
             "provider_id": "openai",
             "model_id": "gpt-4",

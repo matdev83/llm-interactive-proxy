@@ -27,7 +27,9 @@ def mock_client():
 def mock_config():
     """Create a mock app config."""
     config = MagicMock(spec=AppConfig)
+    config.streaming_yield_interval = 0.0
     return config
+
 
 
 @pytest.fixture

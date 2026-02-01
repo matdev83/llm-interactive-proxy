@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,7 @@ class QuotaStatusService:
         self._quotas: dict[str, dict[str, str]] = {}
         self._lock = threading.Lock()
         self._repository = repository
+        self._pending_tasks: set[asyncio.Task[Any]] = set()
 
     def set_repository(self, repository: Any) -> None:
         """Set the repository for persistent storage and load existing quotas.
@@ -29,15 +32,18 @@ class QuotaStatusService:
             repository: BackendQuotaRepository instance
         """
         self._repository = repository
-        
+
         # Load existing quotas from DB
         import asyncio
+
         try:
             loop = asyncio.get_running_loop()
             if loop.is_running():
                 # We need to load quotas but we are in a sync method
                 # Spawn a task to load them
-                loop.create_task(self._load_quotas())
+                task = loop.create_task(self._load_quotas())
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
         except RuntimeError:
             pass
 
@@ -106,7 +112,11 @@ class QuotaStatusService:
                 try:
                     loop = asyncio.get_running_loop()
                     if loop.is_running():
-                        loop.create_task(self._repository.upsert_quota(backend_type, current_quota))
+                        task = loop.create_task(
+                            self._repository.upsert_quota(backend_type, current_quota)
+                        )
+                        self._pending_tasks.add(task)
+                        task.add_done_callback(self._pending_tasks.discard)
                 except RuntimeError:
                     # No running loop, skip persistent update
                     pass

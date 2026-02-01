@@ -4,9 +4,11 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 from src.core.config.app_config import AppConfig, BackendConfig
+from src.core.domain.responses import ResponseEnvelope
 
 
 class MockBackend:
+
     """Mock LLM backend for testing."""
 
     def __init__(self):
@@ -26,16 +28,21 @@ class MockBackend:
                 self.last_request_headers = {}
         else:
             self.last_request_headers = {}
-        return {
-            "choices": [
-                {
-                    "message": {
-                        "role": "assistant",
-                        "content": "Mock response",
+        return ResponseEnvelope(
+            content={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "Mock response",
+                        }
                     }
-                }
-            ]
-        }
+                ]
+            },
+            status_code=200,
+            headers={},
+        )
+
 
 
 class MockBackendFactory:

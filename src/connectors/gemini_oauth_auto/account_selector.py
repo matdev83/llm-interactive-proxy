@@ -631,6 +631,11 @@ class AccountSelectorService(IAccountSelector):
         Preserves rotation index and current account if possible.
         """
         self._accounts = await self._storage.load_all_accounts()
+
+        # Ensure rotation index is within bounds of newly loaded accounts
+        if self._accounts and self.rotation_index >= len(self._accounts):
+            self.rotation_index = 0
+
         # Update current account if it still exists in reloaded accounts
         if self._current_account:
             updated_current = next(

@@ -891,7 +891,10 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                         retry_after_seconds=self._extract_retry_after_seconds(e)
                     )
                 if e.code == "quota_exceeded":
-                    self._mark_backend_unusable(reason="quota_exceeded")
+                    self._mark_backend_unusable(
+                        reason="quota_exceeded",
+                        retry_after_seconds=self._extract_retry_after_seconds(e),
+                    )
                 raise
 
         if isinstance(result, StreamingResponseEnvelope) and result.content:

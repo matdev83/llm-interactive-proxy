@@ -245,6 +245,8 @@ class TestOpenAIResponsesBackendIntegration:
         # Mock streaming response
         mock_response = Mock()
         mock_response.status_code = 200
+        mock_response.headers = {}
+
 
         # Simulate streaming chunks
         streaming_chunks = [
@@ -304,7 +306,9 @@ class TestOpenAIResponsesBackendIntegration:
         # Test 400 Bad Request
         mock_response = Mock()
         mock_response.status_code = 400
+        mock_response.headers = {}
         mock_response.json.return_value = {
+
             "error": {
                 "message": "Invalid JSON schema provided",
                 "type": "invalid_request_error",

@@ -56,6 +56,7 @@ class MockWireCapture(IWireCapture):
         model=None,
         key_name=None,
         response_content=None,
+        capture_metadata=None,
     ) -> None:
         self.captured_responses.append(
             {
@@ -64,6 +65,7 @@ class MockWireCapture(IWireCapture):
                 "model": model,
                 "key_name": key_name,
                 "response_content": response_content,
+                "capture_metadata": capture_metadata,
             }
         )
 
@@ -76,6 +78,7 @@ class MockWireCapture(IWireCapture):
         model=None,
         key_name=None,
         stream=None,
+        capture_metadata=None,
     ) -> AsyncIterator[bytes]:
         self.wrapped_streams.append(
             {
@@ -83,6 +86,7 @@ class MockWireCapture(IWireCapture):
                 "backend": backend,
                 "model": model,
                 "key_name": key_name,
+                "capture_metadata": capture_metadata,
             }
         )
         # Pass through the stream
@@ -97,7 +101,10 @@ class MockWireCapture(IWireCapture):
         model=None,
         key_name=None,
         canonical_usage=None,
+        eos_metadata=None,
+        capture_metadata=None,
     ) -> None:
+
         """Capture canonical usage for completed streaming response."""
         # Mock implementation - no-op for testing
 

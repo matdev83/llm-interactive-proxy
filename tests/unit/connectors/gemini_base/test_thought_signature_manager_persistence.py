@@ -19,6 +19,13 @@ def test_thought_signature_persists_across_restarts(tmp_path, monkeypatch) -> No
         session_id="s1",
     )
 
+    # Give the background persistence thread time to write the file.
+    import time
+    for _ in range(50):
+        if persist_path.exists():
+            break
+        time.sleep(0.1)
+
     # Simulate process restart with a new manager instance.
     manager2 = ThoughtSignatureManager(ttl_seconds=86400)
     msg = ChatMessage(
@@ -53,6 +60,15 @@ def test_namespaced_signature_persists_with_colon_namespace(
         ],
         session_id=session_id,
     )
+
+    # Give the background persistence thread time to write the file.
+    import time
+    for _ in range(50):
+        # For namespaced persistence, we don't know the exact filename easily here,
+        # but we can check if any json file exists in the directory.
+        if any(tmp_path.glob("*.json")):
+            break
+        time.sleep(0.1)
 
     manager2 = ThoughtSignatureManager(ttl_seconds=86400)
     assert manager2.get_cached_signature(session_id, "t-ns") == "sig-ns"

@@ -1,11 +1,13 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
 from fastapi import Response
 from src.core.app.controllers.models_controller import list_models
 from src.core.interfaces.backend_service_interface import IBackendService
 from src.core.interfaces.configuration_interface import IConfig
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.quota_status_service import get_quota_status_service
+
 
 @pytest.mark.asyncio
 async def test_list_models_propagates_quota_headers(monkeypatch):
