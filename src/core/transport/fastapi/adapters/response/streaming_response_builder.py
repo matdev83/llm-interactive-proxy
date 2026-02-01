@@ -61,33 +61,36 @@ class StreamingResponseBuilder:
             content: AsyncIterator[bytes] = empty_gen()
         else:
             # Ensure content is an async iterator of bytes
-            if isinstance(envelope_content, AsyncIterator):
-                # Already an async iterator - assume it yields bytes
-                content = envelope_content  # type: ignore[assignment]
-            else:
-                # If it's a regular iterator or iterable, convert it
-                async def convert_gen() -> AsyncIterator[bytes]:
-                    for item in envelope_content:  # type: ignore[union-attr]
-                        if isinstance(item, bytes):
-                            yield item
-                        elif isinstance(item, str):
-                            yield item.encode("utf-8")
-                        else:
-                            yield str(item).encode("utf-8")
-
-                content = convert_gen()
+            # Already an async iterator - assume it yields bytes or is handled by body_iterator
+            content = envelope_content  # type: ignore[assignment]
 
         # Inject canonical usage headers if available (Requirement 5.5)
         # Note: StreamingResponseEnvelope doesn't have a usage field, only canonical_usage
-        headers = envelope.headers or {}
+        envelope_headers = envelope.headers or {}
         headers = self._usage_header_injector.inject_headers(
-            headers, {}, canonical_usage=envelope.canonical_usage
+            envelope_headers, {}, canonical_usage=envelope.canonical_usage
         )
+
+        # Build streaming headers with defaults
+        final_headers = {
+            "cache-control": "no-cache",
+            "connection": "keep-alive",
+            "content-type": "text/event-stream",
+            "access-control-allow-origin": "*",
+            "access-control-allow-headers": "*",
+        }
+
+        # Filter and merge headers (consistent with JSONResponseBuilder)
+        # Allow provider-specific headers for usage tracking and rate limiting
+        allowed_prefixes = ("x-", "access-control-", "anthropic-", "openai-", "zenmux-")
+        for k, v in headers.items():
+            if k.lower().startswith(allowed_prefixes):
+                final_headers[k] = v
 
         # Create streaming response with text/event-stream media type
         return StreamingResponse(
             content=content,
             status_code=envelope.status_code or 200,
             media_type="text/event-stream",
-            headers=headers,
+            headers=final_headers,
         )

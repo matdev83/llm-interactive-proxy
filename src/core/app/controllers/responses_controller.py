@@ -240,17 +240,22 @@ class ResponsesController:
                     context=ctx,
                 )
 
+                # Build streaming headers, merging backend headers if available (Goal 1)
+                streaming_headers = {
+                    "cache-control": "no-cache",
+                    "connection": "keep-alive",
+                    "content-type": "text/event-stream",
+                    "access-control-allow-origin": "*",
+                    "access-control-allow-headers": "*",
+                }
+                if response.headers:
+                    streaming_headers.update(response.headers)
+
                 return StreamingResponse(
                     content=stream_generator,
                     status_code=200,
                     media_type="text/event-stream",
-                    headers={
-                        "cache-control": "no-cache",
-                        "connection": "keep-alive",
-                        "content-type": "text/event-stream",
-                        "access-control-allow-origin": "*",
-                        "access-control-allow-headers": "*",
-                    },
+                    headers=streaming_headers,
                 )
 
             # Convert domain response to Responses API format using TranslationService

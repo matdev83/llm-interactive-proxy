@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 import logging
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
@@ -92,6 +92,47 @@ class LLMBackend(abc.ABC, IHealthAware):
         # Activity tracking (optional)
         self._activity_tracker: IConnectionActivityTracker | None = None
         self._instance_name: str | None = None
+        # Quota headers captured from the last backend response
+        self._last_quota_headers: dict[str, str] = {}
+
+    @property
+    def last_quota_headers(self) -> dict[str, str]:
+        """Get the quota headers captured from the last backend response.
+
+        Returns:
+            Dictionary of quota headers (e.g., x-codex-*)
+        """
+        return getattr(self, "_last_quota_headers", {})
+
+    def update_quota_headers(self, headers: Mapping[str, str]) -> None:
+        """Update captured quota headers from a response.
+
+        Args:
+            headers: Response headers from the backend
+        """
+        if not hasattr(self, "_last_quota_headers"):
+            self._last_quota_headers = {}
+
+        quota_prefixes = ("x-codex-", "x-ratelimit-", "x-usage-")
+        captured = {}
+        for k, v in headers.items():
+            k_lower = k.lower()
+            if k_lower.startswith(quota_prefixes):
+                val = str(v)
+                self._last_quota_headers[k_lower] = val
+                captured[k_lower] = val
+
+        # Also update global quota status service
+        if captured:
+            try:
+                from src.core.services.quota_status_service import (
+                    get_quota_status_service,
+                )
+
+                service = get_quota_status_service()
+                service.update_quota(self.backend_type, captured)
+            except ImportError:
+                pass
 
     @property
     def api_url(self) -> str | None:

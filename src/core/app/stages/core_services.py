@@ -334,6 +334,37 @@ class CoreServicesStage(InitializationStage):
         # Register usage normalization service
         self._register_usage_normalization_service(services)
 
+        # Register quota status service
+        self._register_quota_status_service(services)
+
+    def _register_quota_status_service(self, services: ServiceCollection) -> None:
+        """Register quota status service for global quota tracking."""
+        from src.core.database.repositories.backend_quota_repository import (
+            BackendQuotaRepository,
+        )
+        from src.core.services.quota_status_service import (
+            QuotaStatusService,
+            get_quota_status_service,
+        )
+
+        # Register repository first
+        services.add_singleton(BackendQuotaRepository)
+
+        def quota_service_factory(provider: IServiceProvider) -> QuotaStatusService:
+            service = get_quota_status_service()
+            # Link repository if database is available
+            repo = provider.get_service(BackendQuotaRepository)
+            if repo:
+                service.set_repository(repo)
+            return service
+
+        services.add_singleton(
+            QuotaStatusService, implementation_factory=quota_service_factory
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered quota status service")
+
     def _register_activity_tracker(
         self, services: ServiceCollection, config: AppConfig
     ) -> None:

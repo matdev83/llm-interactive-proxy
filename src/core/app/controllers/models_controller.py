@@ -15,7 +15,7 @@ from collections.abc import Awaitable
 from typing import Any, cast
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 # Import HTTP status constants
 from src.core.common.exceptions import (
@@ -63,17 +63,21 @@ class ModelsController:
         self._config = config
         self._backend_factory = backend_factory
 
-    async def list_models(self) -> ModelsListingResponse:
+    async def list_models(self, response: Response | None = None) -> ModelsListingResponse:
         """List all available models using shared discovery logic."""
 
         config = self._config or get_config_service()
         backend_factory = self._backend_factory or get_backend_factory_service()
 
-        return await _list_models_impl(
+        result, headers = await _list_models_impl(
             backend_service=self.backend_service,
             config=config,
             backend_factory=backend_factory,
         )
+        if response is not None:
+            for k, v in headers.items():
+                response.headers[k] = v
+        return result
 
 
 async def get_backend_service() -> IBackendService:
@@ -400,7 +404,7 @@ async def _list_models_impl(
     backend_service: IBackendService,
     config: IConfig,
     backend_factory: BackendFactory,
-) -> ModelsListingResponse:
+) -> tuple[ModelsListingResponse, dict[str, str]]:
     """Shared implementation that discovers available models."""
 
     try:
@@ -409,6 +413,7 @@ async def _list_models_impl(
 
         all_models: list[ModelInfo] = []
         discovered_models: set[str] = set()
+        all_quota_headers: dict[str, str] = {}
 
         # Use the injected config service
         from src.core.config.app_config import AppConfig
@@ -504,8 +509,13 @@ async def _list_models_impl(
                         # Depending on the backend, failure to initialize might mean it's unusable.
                         # For opencode-zen, initialize sets is_functional.
 
+                # Capture quota headers from initialized backend (Goal 3)
+                if hasattr(backend_instance, "last_quota_headers"):
+                    all_quota_headers.update(backend_instance.last_quota_headers)
+
                 # Get available models from the backend
                 models = await _get_backend_models(backend_instance)
+
 
                 # Add models to the list with proper formatting
                 for model in models:
@@ -649,7 +659,15 @@ async def _list_models_impl(
         if logger.isEnabledFor(logging.INFO):
             logger.info("Returning %d models", len(all_models))
 
-        return ModelsListingResponse(object="list", data=all_models)
+        # Get global quota headers (Goal 2)
+        from src.core.services.quota_status_service import get_quota_status_service
+
+        service = get_quota_status_service()
+        # Merge global headers, ensuring current discovery headers take precedence
+        final_headers = service.get_quota_headers()
+        final_headers.update(all_quota_headers)
+
+        return ModelsListingResponse(object="list", data=all_models), final_headers
 
     except Exception as e:  # type: ignore[misc]
         if logger.isEnabledFor(logging.ERROR):
@@ -659,14 +677,18 @@ async def _list_models_impl(
 
 @router.get("/models")
 async def list_models(
+    response: Response,
     backend_service: IBackendService = Depends(get_backend_service),
     config: IConfig = Depends(get_config_service),
     backend_factory: BackendFactory = Depends(get_backend_factory_service),
 ) -> ModelsListingResponse:
     """List available models from all configured backends."""
 
-    return await _list_models_impl(
+    result, headers = await _list_models_impl(
         backend_service=backend_service,
         config=config,
         backend_factory=backend_factory,
     )
+    for k, v in headers.items():
+        response.headers[k] = v
+    return result

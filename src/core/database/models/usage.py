@@ -255,3 +255,25 @@ class SessionMetricsTable(SQLModel, table=True):
         Index("idx_session_metrics_user_activity", "proxy_user", "last_activity"),
         Index("idx_session_metrics_eos_emitted_at", "eos_emitted_at"),
     )
+
+
+class BackendQuotaTable(SQLModel, table=True):
+    """SQLModel table for backend quotas and rate limits.
+
+    Stores captured quota headers (e.g., x-codex-*) persistently.
+    """
+
+    __tablename__ = "backend_quotas"  # type: ignore[assignment]
+
+    # Primary key: backend_type (e.g., "openai")
+    backend_type: str = Field(primary_key=True, max_length=64)
+
+    # Quota details stored as JSON
+    quota_headers_json: str = Field(sa_column=SAColumn(Text, nullable=False))
+
+    last_updated: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
+    __table_args__ = (Index("idx_backend_quotas_updated", "last_updated"),)

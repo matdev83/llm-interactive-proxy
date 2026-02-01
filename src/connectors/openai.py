@@ -188,6 +188,7 @@ class OpenAIConnector(LLMBackend):
                 response = await self.client.get(
                     f"{self.api_base_url}/models", headers=headers
                 )
+                self.update_quota_headers(response.headers)
                 data = self._decode_json_payload(response)
                 if isinstance(data, dict):
                     self.available_models = [
@@ -515,6 +516,7 @@ class OpenAIConnector(LLMBackend):
                     model_name=effective_model,
                     vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
                     yield_interval=self.config.streaming_yield_interval,
+                    headers=headers,
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))
@@ -1473,7 +1475,7 @@ class OpenAIConnector(LLMBackend):
             return StreamingResponseEnvelope(
                 content=stream_handle.iterator,
                 media_type="text/event-stream",
-                headers={},
+                headers=stream_handle.headers or {},
                 cancel_callback=stream_handle.cancel_callback,
             )
         else:
@@ -1506,6 +1508,7 @@ class OpenAIConnector(LLMBackend):
             response = await self.client.post(
                 url, json=payload, headers=guarded_headers
             )
+            self.update_quota_headers(response.headers)
         except httpx.RequestError as e:
             raise ServiceUnavailableError(
                 message=f"Could not connect to backend ({e})"
@@ -1589,6 +1592,7 @@ class OpenAIConnector(LLMBackend):
         base = api_base_url or self.api_base_url
         logger.info("OpenAIConnector list_models - base URL: %s", base)
         response = await self.client.get(f"{base.rstrip('/')}/models", headers=headers)
+        self.update_quota_headers(response.headers)
         response.raise_for_status()
         result = response.json()
         return ModelsListingResponse.model_validate(result)
@@ -1661,6 +1665,7 @@ class OpenAIConnector(LLMBackend):
 
         try:
             response = await self.client.send(http_request, stream=True)
+            self.update_quota_headers(response.headers)
         except httpx.RequestError as exc:
             raise ServiceUnavailableError(
                 message=f"Could not connect to backend ({exc})"

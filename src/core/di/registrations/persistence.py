@@ -97,6 +97,9 @@ def _register_repositories(services: ServiceCollection) -> None:
         SessionMetricsRepository,
         UsageRecordRepository,
     )
+    from src.core.database.repositories.backend_quota_repository import (
+        BackendQuotaRepository,
+    )
 
     def usage_record_repository_factory(
         provider: IServiceProvider,
@@ -104,6 +107,14 @@ def _register_repositories(services: ServiceCollection) -> None:
         """Factory to create UsageRecordRepository."""
         engine = provider.get_required_service(DatabaseEngine)
         return UsageRecordRepository(engine)
+
+    def backend_quota_repository_factory(
+        provider: IServiceProvider,
+    ) -> BackendQuotaRepository:
+        """Factory to create BackendQuotaRepository."""
+        engine = provider.get_required_service(DatabaseEngine)
+        return BackendQuotaRepository(engine)
+
 
     def session_metrics_repository_factory(
         provider: IServiceProvider,
@@ -150,6 +161,11 @@ def _register_repositories(services: ServiceCollection) -> None:
         services,
         SessionMetricsRepository,
         implementation_factory=session_metrics_repository_factory,
+    )
+    register_singleton_if_absent(
+        services,
+        BackendQuotaRepository,
+        implementation_factory=backend_quota_repository_factory,
     )
     register_singleton_if_absent(
         services,
