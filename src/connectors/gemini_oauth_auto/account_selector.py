@@ -107,6 +107,7 @@ class AccountSelectorService(IAccountSelector):
         self._initialized: bool = False
         self._notifier: DesktopNotifier | None = None
         self._notifications_enabled = notifications_enabled
+        self._last_rate_limit_updates: dict[str, float] = {}  # account_id -> unix_timestamp
 
     @property
     def rotation_index(self) -> int:
@@ -557,11 +558,27 @@ class AccountSelectorService(IAccountSelector):
     ) -> None:
         if not self._current_account:
             return
+
+        # Logic amplification protection: Avoid duplicate marking of the same account
+        # within a short window (e.g. 2s) when nested generators unwind.
+        account_id = self._current_account.account_id
+        now = time.time()
+        last_update = self._last_rate_limit_updates.get(account_id, 0.0)
+        if now - last_update < 2.0:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping redundant rate limit marking for account %s (cooldown active)",
+                    account_id,
+                )
+            return
+
+        self._last_rate_limit_updates[account_id] = now
         updated = self._current_account.mark_rate_limited(
             retry_after_seconds=retry_after_seconds,
             default_window_seconds=DEFAULT_RATE_LIMIT_SECONDS,
         )
         self._current_account = updated
+
         self._update_account_in_list(updated)
         await self._storage.save_account(updated)
         logger.info(

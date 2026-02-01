@@ -887,9 +887,13 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                         continue
 
                 if getattr(e, "status_code", None) == 429:
-                    await self.record_rate_limit(
-                        retry_after_seconds=self._extract_retry_after_seconds(e)
-                    )
+                    # Logic amplification: Avoid duplicate rate limit recording
+                    if not getattr(e, "__rate_limit_recorded__", False):
+                        with contextlib.suppress(AttributeError, TypeError):
+                            setattr(e, "__rate_limit_recorded__", True)
+                        await self.record_rate_limit(
+                            retry_after_seconds=self._extract_retry_after_seconds(e)
+                        )
                 if e.code == "quota_exceeded":
                     self._mark_backend_unusable(
                         reason="quota_exceeded",

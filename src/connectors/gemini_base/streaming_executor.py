@@ -344,11 +344,9 @@ class StreamingExecutor:
         self._yield_interval = yield_interval
 
     def _mark_retry_attempt(self, context: IRetryContext | None) -> None:
-        if context is None or not isinstance(context, IRetryContext):
+        if context is None:
             return
         extensions = context.extensions
-        if not isinstance(extensions, dict):
-            return
         current = extensions.get("retry_attempt")
         if isinstance(current, int):
             extensions["retry_attempt"] = current + 1
@@ -1106,7 +1104,14 @@ class StreamingExecutor:
                                 await asyncio.sleep(0)
 
                 except GeneratorExit:
-                    logger.debug("Stream closed by consumer before completion")
+                    # Logic amplification: Avoid duplicate logs when nested generators unwind
+                    if context is not None:
+                        extensions = context.extensions
+                        if not extensions.get("__stream_closed_logged__"):
+                            logger.debug("Stream closed by consumer before completion")
+                            extensions["__stream_closed_logged__"] = True
+                    else:
+                        logger.debug("Stream closed by consumer before completion")
                     raise
                 finally:
                     with contextlib.suppress(Exception):
@@ -1196,7 +1201,14 @@ class StreamingExecutor:
                 )
 
         except BackendError as err:
-            if getattr(err, "status_code", None) == 429:
+            # Logic amplification: Avoid duplicate rate limit recording when nested generators unwind
+            is_429 = getattr(err, "status_code", None) == 429
+            already_recorded = getattr(err, "__rate_limit_recorded__", False)
+
+            if is_429 and not already_recorded:
+                with contextlib.suppress(AttributeError, TypeError):
+                    setattr(err, "__rate_limit_recorded__", True)
+
                 await self._record_rate_limit(
                     token_refresher,
                     retry_after_seconds=self._extract_retry_after_seconds(err),
@@ -1497,7 +1509,10 @@ class StreamingExecutor:
             backend_name=self._backend_type,
         )
 
-        if response.status_code == 429:
+        if response.status_code == 429 and not getattr(backend_error, "__rate_limit_recorded__", False):
+            with contextlib.suppress(AttributeError, TypeError):
+                setattr(backend_error, "__rate_limit_recorded__", True)
+
             retry_after = retry_hint_seconds or self._extract_retry_after_seconds(
                 backend_error
             )
