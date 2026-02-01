@@ -332,9 +332,9 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             await self._ensure_models_loaded()
 
     async def _refresh_token_if_needed(
-        self, 
-        *, 
-        force_reload: bool = False, 
+        self,
+        *,
+        force_reload: bool = False,
         session_id: str | None = None,
         retry_after_seconds: float | None = None
     ) -> bool:
@@ -347,6 +347,11 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
         When force_reload=True (typically from rate limit retry), performs account
         rotation to switch to a different account that may not be rate-limited.
+
+        Raises:
+            AuthenticationError: When no account is available due to rate limiting
+                or other account availability issues. This provides better error
+                messages than the generic "Failed to refresh OAuth token" error.
         """
         if force_reload:
             # force_reload=True is called by streaming executor on 429 rate limits
@@ -383,6 +388,14 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                     logger.warning(
                         "Account rotation failed: no account available after rotation"
                     )
+                    # Check if all accounts are rate-limited for better error message
+                    available_count = self._account_selector.get_available_count()
+                    if available_count == 0:
+                        from src.core.common.exceptions import AuthenticationError
+                        raise AuthenticationError(
+                            "All OAuth accounts are currently unavailable "
+                            "(likely all accounts are rate-limited)"
+                        )
                 elif not old_account:
                     logger.warning("Account rotation skipped: no current account")
                 else:
@@ -399,7 +412,17 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 session_id=session_id
             )
             self._sync_selected_account_to_base()
-            return account is not None
+            if account is None:
+                # Check if all accounts are rate-limited
+                available_count = self._account_selector.get_available_count()
+                if available_count == 0:
+                    from src.core.common.exceptions import AuthenticationError
+                    raise AuthenticationError(
+                        "All OAuth accounts are currently unavailable "
+                        "(likely all accounts are rate-limited)"
+                    )
+                return False
+            return True
 
         account = self._account_selector.get_current_account()
 
@@ -415,7 +438,19 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             )
 
         self._sync_selected_account_to_base()
-        return account is not None
+
+        if account is None:
+            # Check if all accounts are rate-limited
+            available_count = self._account_selector.get_available_count()
+            if available_count == 0:
+                from src.core.common.exceptions import AuthenticationError
+                raise AuthenticationError(
+                    "All OAuth accounts are currently unavailable "
+                    "(likely all accounts are rate-limited)"
+                )
+            return False
+
+        return True
 
     async def _load_oauth_credentials(
         self, force_reload: bool = False, silent: bool = False
