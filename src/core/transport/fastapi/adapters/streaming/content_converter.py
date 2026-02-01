@@ -58,6 +58,7 @@ class StreamingContentConverter:
         reasoning_injector: IReasoningInjector | None = None,
         usage_normalizer: IUsageNormalizer | None = None,
         tool_block_buffer: IToolBlockBuffer | None = None,
+        yield_interval: int = 100,
     ) -> None:
         """Initialize streaming content converter.
 
@@ -70,11 +71,13 @@ class StreamingContentConverter:
                              If not provided, creates default UsageNormalizer.
             tool_block_buffer: Optional tool block buffer instance.
                               If not provided, creates default ToolBlockBuffer.
+            yield_interval: Number of chunks to batch before yielding to event loop.
         """
         self._sse_decoder = sse_decoder
         self._reasoning_injector = reasoning_injector
         self._usage_normalizer = usage_normalizer
         self._tool_block_buffer = tool_block_buffer
+        self._yield_interval = yield_interval
 
     async def convert_stream(
         self,
@@ -725,7 +728,7 @@ class StreamingContentConverter:
                 yield streaming_content
                 
                 # Yield to event loop periodically to maintain responsiveness without excessive overhead
-                if chunk_count % 100 == 0:
+                if chunk_count % self._yield_interval == 0:
                     await asyncio.sleep(0)
 
                 if is_done:

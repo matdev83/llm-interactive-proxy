@@ -33,9 +33,17 @@ class SSEAssembler(IStreamAssembler):
 
     This assembler handles the final conversion from internal StreamingContent
     representation to Server-Sent Events (SSE) format suitable for client
-    transmission. It adds proper SSE framing (data: prefix and \\n\\n) and
+    transmission. It adds proper SSE framing (data: prefix and \n\n) and
     emits the final [DONE] sentinel using SentinelManager.
     """
+
+    def __init__(self, yield_interval: int = 100) -> None:
+        """Initialize SSE assembler.
+
+        Args:
+            yield_interval: Number of chunks to batch before yielding to event loop.
+        """
+        self._yield_interval = yield_interval
 
     async def assemble_stream(
         self, stream: AsyncIterator[StreamingContent], format: str = "sse"
@@ -254,7 +262,7 @@ class SSEAssembler(IStreamAssembler):
                     yield chunk_bytes
 
                     # Yield to event loop periodically to maintain responsiveness
-                    if not chunk.is_done and chunk_count % 100 == 0:
+                    if not chunk.is_done and chunk_count % self._yield_interval == 0:
                         await asyncio.sleep(0)
 
                     # If chunk already contains [DONE], mark as emitted

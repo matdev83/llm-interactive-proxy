@@ -135,6 +135,7 @@ class StreamingPipeline:
         normalizer: IStreamNormalizer,
         processors: list[IStreamProcessor] | None = None,
         assembler: IStreamAssembler | None = None,
+        yield_interval: int = 100,
     ) -> None:
         """Initialize the streaming pipeline.
 
@@ -142,11 +143,13 @@ class StreamingPipeline:
             normalizer: The normalizer for converting backend chunks
             processors: Optional list of middleware processors
             assembler: Optional assembler for output formatting (defaults to SSE)
+            yield_interval: Number of chunks to batch before yielding to event loop
         """
         self.normalizer = normalizer
         self.processors = processors or []
-        self.assembler = assembler or SSEAssembler()
+        self.assembler = assembler or SSEAssembler(yield_interval=yield_interval)
         self._metrics = get_metrics_instance()
+        self._yield_interval = yield_interval
 
     async def process_stream(
         self,
@@ -305,6 +308,7 @@ def create_pipeline_for_provider(
     provider: str,
     processors: list[IStreamProcessor] | None = None,
     normalizer: IProviderStreamNormalizer | None = None,
+    yield_interval: int = 100,
 ) -> StreamingPipeline:
     """Factory function to create a pipeline for a specific provider.
 
@@ -315,6 +319,7 @@ def create_pipeline_for_provider(
         provider: Provider name ("openai", "anthropic", "gemini", etc.) - used for validation/logging
         processors: Optional list of middleware processors
         normalizer: Provider normalizer instance (required)
+        yield_interval: Number of chunks to batch before yielding to event loop
 
     Returns:
         Configured StreamingPipeline instance
@@ -332,4 +337,5 @@ def create_pipeline_for_provider(
     return StreamingPipeline(
         normalizer=normalizer,
         processors=processors,
+        yield_interval=yield_interval,
     )

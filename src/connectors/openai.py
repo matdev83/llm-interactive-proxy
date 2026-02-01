@@ -514,6 +514,7 @@ class OpenAIConnector(LLMBackend):
                     prompt_tokens=prompt_tokens,
                     model_name=effective_model,
                     vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
+                    yield_interval=self.config.streaming_yield_interval,
                 )
             except AuthenticationError as e:
                 raise HTTPException(status_code=401, detail=str(e))

@@ -619,6 +619,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 retry_policy=self._retry_policy,
                 backend_type=self.backend_type,
                 read_timeout=read_timeout,
+                yield_interval=self.config.streaming_yield_interval,
             )
         return self._streaming_executor_instance
 

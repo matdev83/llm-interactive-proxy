@@ -99,7 +99,8 @@ async def test_property_28_event_loop_yielding() -> None:
     SSEAssembler must yield control to the event loop between chunk emissions.
     """
 
-    assembler = SSEAssembler()
+    # Set yield_interval=1 to ensure yielding on every chunk for testing
+    assembler = SSEAssembler(yield_interval=1)
     chunks = [
         StreamingContent(
             content="first",

@@ -230,14 +230,8 @@ class AnthropicBackend(LLMBackend):
         )
 
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
-        if not isinstance(domain_request, ChatRequest):
-            raise TypeError(
-                f"Expected ChatRequest or CanonicalChatRequest, got {type(domain_request).__name__}. "
-                "Backend connectors should only receive domain-format requests."
-            )
-        # Cast to CanonicalChatRequest for mypy compatibility with translation service signature
-        domain_request = cast(CanonicalChatRequest, domain_request)
-
+        # request_headers = ... (existing code)
+        
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(
             request_data=domain_request,
@@ -357,6 +351,7 @@ class AnthropicBackend(LLMBackend):
                     prompt_tokens=prompt_tokens,
                     model_name=effective_model,
                     vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
+                    yield_interval=self.config.streaming_yield_interval,
                 )
             except AuthenticationError:
                 raise
@@ -1195,9 +1190,8 @@ class AnthropicBackend(LLMBackend):
 
         from src.core.domain.chat import CanonicalChatRequest
 
-        if not isinstance(request, CanonicalChatRequest):
-            request = cast(CanonicalChatRequest, request)
-
+        # request is expected to be CanonicalChatRequest from StreamProducer protocol
+        
         # Get processed messages and effective model
         processed_messages = getattr(request, "messages", [])
         effective_model = getattr(request, "model", "claude-3-5-sonnet-20241022")

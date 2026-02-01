@@ -763,6 +763,7 @@ class GeminiBackend(LLMBackend, UsageCalculationMixin):
                 prompt_tokens=prompt_tokens,
                 model_name=effective_model,
                 vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
+                yield_interval=self.config.streaming_yield_interval,
             )
 
         response_envelope = await self._handle_gemini_non_streaming_response(

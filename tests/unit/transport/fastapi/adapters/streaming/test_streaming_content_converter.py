@@ -270,7 +270,8 @@ class TestStreamingContentConverter:
     @pytest.mark.asyncio
     async def test_event_loop_yielding(self) -> None:
         """Test event loop yielding with asyncio.sleep(0)."""
-        converter = StreamingContentConverter()
+        # Set yield_interval=1 to ensure yielding on every chunk for testing
+        converter = StreamingContentConverter(yield_interval=1)
 
         async def raw_stream() -> AsyncIterator[ProcessedResponse]:
             yield ProcessedResponse(content="test", metadata={})

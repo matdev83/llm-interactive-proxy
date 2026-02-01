@@ -58,6 +58,7 @@ class AppConfigModel(DomainModel, IConfig):
     command_prefix: str = "!/"
     strict_command_detection: bool = False
     context_window_override: int | None = None
+    streaming_yield_interval: int = 100  # Number of chunks to batch before yielding to event loop
     gcp_project_id: str | None = None
     gemini_credentials_path: str | None = None
     gemini_read_timeout: float = 120.0  # Default 2 minutes

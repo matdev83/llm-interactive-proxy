@@ -227,6 +227,7 @@ class KiroOAuthAutoConnector(LLMBackend):
                 prompt_tokens=prompt_tokens,
                 model_name=effective_model,
                 vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
+                yield_interval=self.config.streaming_yield_interval,
             )
             await self._selector.mark_current_account_used()
             return envelope

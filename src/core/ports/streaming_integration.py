@@ -50,6 +50,7 @@ async def integrate_streaming_pipeline(
     prompt_tokens: int | None = None,
     model_name: str | None = None,
     vtc_enabled: bool = False,
+    yield_interval: int = 100,
 ) -> StreamingResponseEnvelope:
     """Integrate a raw backend stream with the streaming pipeline.
 
@@ -71,6 +72,7 @@ async def integrate_streaming_pipeline(
         prompt_tokens: Optional prompt token count for usage calculation
         model_name: Optional model name for usage calculation
         vtc_enabled: Whether Virtual Tool Calling is enabled for this session
+        yield_interval: Number of chunks to batch before yielding to event loop
 
     Returns:
         StreamingResponseEnvelope with processed chunks
@@ -196,7 +198,10 @@ async def integrate_streaming_pipeline(
     # Create pipeline for the provider
     try:
         pipeline = create_pipeline_for_provider(
-            provider, processors=processors, normalizer=normalizer
+            provider,
+            processors=processors,
+            normalizer=normalizer,
+            yield_interval=yield_interval,
         )
     except ValueError as e:
         logger.error(

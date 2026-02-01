@@ -309,6 +309,7 @@ class StreamingExecutor:
         *,
         session_factory: Any | None = None,
         read_timeout: float | None = None,
+        yield_interval: int = 100,
     ) -> None:
         """Initialize the executor.
 
@@ -322,6 +323,7 @@ class StreamingExecutor:
             backend_type: The backend type for error reporting.
             session_factory: Legacy hook retained for compatibility (unused).
             read_timeout: Optional read timeout override.
+            yield_interval: Number of chunks to batch before yielding to event loop.
         """
         self._translation_service = translation_service
         self._token_estimator = token_estimator or get_default_token_estimator()
@@ -332,6 +334,8 @@ class StreamingExecutor:
         self._backend_type = backend_type
         self._session_factory = session_factory
         self._read_timeout = read_timeout or DEFAULT_READ_TIMEOUT
+        self._yield_interval = yield_interval
+
 
     def _extract_retry_after_seconds(self, error: BackendError) -> float | None:
         details = getattr(error, "details", None)
@@ -1032,7 +1036,7 @@ class StreamingExecutor:
                                 yield processed_chunk
                                 
                                 # Yield to event loop periodically to maintain responsiveness
-                                if chunk_count % 100 == 0:
+                                if chunk_count % self._yield_interval == 0:
                                     await asyncio.sleep(0)
 
                             if done:
@@ -1072,7 +1076,8 @@ class StreamingExecutor:
                                 continue
 
                             yield processed_chunk
-                            await asyncio.sleep(0)
+                            if chunk_count % self._yield_interval == 0:
+                                await asyncio.sleep(0)
 
                 except GeneratorExit:
                     logger.debug("Stream closed by consumer before completion")

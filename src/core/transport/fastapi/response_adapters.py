@@ -164,7 +164,7 @@ def _get_other_builder() -> OtherResponseBuilder:
     return _other_builder
 
 
-def _get_content_converter() -> StreamingContentConverter:
+def _get_content_converter(yield_interval: int = 100) -> StreamingContentConverter:
     """Get or create streaming content converter singleton."""
     global _content_converter
     if _content_converter is None:
@@ -190,20 +190,23 @@ def _get_content_converter() -> StreamingContentConverter:
                         tool_block_buffer = ToolBlockBuffer(registry=registry)
 
                     converter = StreamingContentConverter(
-                        tool_block_buffer=tool_block_buffer
+                        tool_block_buffer=tool_block_buffer,
+                        yield_interval=yield_interval,
                     )
 
                 _content_converter = converter
     return _content_converter
 
 
-def _get_sse_assembler() -> SSEAssembler:
+def _get_sse_assembler(yield_interval: int = 100) -> SSEAssembler:
     """Get or create SSE assembler singleton."""
     global _sse_assembler
     if _sse_assembler is None:
         with _sse_assembler_lock:
             if _sse_assembler is None:
-                _sse_assembler = _resolve_service(SSEAssembler) or SSEAssembler()
+                _sse_assembler = _resolve_service(SSEAssembler) or SSEAssembler(
+                    yield_interval=yield_interval
+                )
     return _sse_assembler
 
 
@@ -535,6 +538,7 @@ def to_fastapi_streaming_response(
     *,
     wire_capture: IWireCapture | None = None,
     context: RequestContext | None = None,
+    yield_interval: int = 100,
 ) -> StreamingResponse:
     """Convert a domain streaming response envelope to a FastAPI streaming response.
 
@@ -555,10 +559,38 @@ def to_fastapi_streaming_response(
         domain_response: The domain streaming response envelope
         wire_capture: Optional wire capture instance
         context: Optional request context
+        yield_interval: Optional yield interval (overrides global config)
 
     Returns:
         A FastAPI streaming response
     """
+    # Resolve yield interval from config if using default
+    if yield_interval == 100:
+        config_to_use: Any | None = None
+        if context is not None:
+            # Try to get config from app state if available
+            try:
+                # Use DI to get IApplicationState service instead of direct context.app_state access
+                from src.core.di.services import get_service_provider
+                from src.core.interfaces.application_state_interface import IApplicationState
+
+                provider = get_service_provider()
+                app_state_svc = provider.get_service(IApplicationState)  # type: ignore[type-abstract]
+                if app_state_svc and hasattr(app_state_svc, "app_config"):
+                    config_to_use = app_state_svc.app_config
+            except (ImportError, RuntimeError, AttributeError):
+                # Fallback to direct access if DI not initialized or service not found
+                # Note: The linter prefers service access, but some tests may not have DI.
+                # Use a safer getattr access to satisfy basic patterns
+                app_state_legacy = getattr(context, "app_state", None)
+                if app_state_legacy:
+                    config_to_use = getattr(app_state_legacy, "config", None)
+
+        if config_to_use:
+            val = getattr(config_to_use, "streaming_yield_interval", 100)
+            if isinstance(val, int):
+                yield_interval = val
+
     envelope_metadata: dict[str, JsonValue] = (
         domain_response.metadata if isinstance(domain_response.metadata, dict) else {}
     )
@@ -589,7 +621,7 @@ def to_fastapi_streaming_response(
         )
 
     # Convert raw stream to StreamingContent using StreamingContentConverter
-    converter = _get_content_converter()
+    converter = _get_content_converter(yield_interval=yield_interval)
     # Context dict contains RequestContext for usage recalculation.
     # Protocol allows RequestContext | None in context dict for this purpose.
     conversion_context: dict[str, JsonValue | RequestContext | None] = {
@@ -632,7 +664,7 @@ def to_fastapi_streaming_response(
         )
 
         # Convert StreamingContent to SSE bytes
-        assembler = _get_sse_assembler()
+        assembler = _get_sse_assembler(yield_interval=yield_interval)
         sse_bytes_iter = assembler.assemble_stream(streaming_content_iter, format="sse")
 
         # Wrap stream for wire capture if enabled
@@ -648,7 +680,7 @@ def to_fastapi_streaming_response(
                 yield sse_chunk
                 
                 # Yield to event loop periodically to maintain responsiveness
-                if chunk_count % 100 == 0:
+                if chunk_count % yield_interval == 0:
                     await asyncio.sleep(0)
         except GeneratorExit:
             # Client disconnected - clean up the SSE iterator
