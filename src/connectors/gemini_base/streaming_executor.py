@@ -64,6 +64,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
+class IRetryContext(Protocol):
+    """Protocol for request contexts that carry retry metadata."""
+
+    extensions: dict[str, JsonValue]
+
+
 class ErrorMetadata(pydantic.BaseModel):
     """Metadata for error responses in streaming.
 
@@ -294,7 +301,7 @@ class StreamingExecutor:
     # Guardrail: avoid hammering the backend when the server reports a retry window
     # of 0s (this happens in practice with some Gemini RESOURCE_EXHAUSTED responses).
     # We still want to retry, but never in a hot loop.
-    MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS = 1.0
+    MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS = 5.0
     STREAMING_KEEPALIVE_INTERVAL_SECONDS = 8.0
 
     def __init__(
@@ -336,6 +343,18 @@ class StreamingExecutor:
         self._read_timeout = read_timeout or DEFAULT_READ_TIMEOUT
         self._yield_interval = yield_interval
 
+    def _mark_retry_attempt(self, context: IRetryContext | None) -> None:
+        if context is None or not isinstance(context, IRetryContext):
+            return
+        extensions = context.extensions
+        if not isinstance(extensions, dict):
+            return
+        current = extensions.get("retry_attempt")
+        if isinstance(current, int):
+            extensions["retry_attempt"] = current + 1
+        else:
+            extensions["retry_attempt"] = 1
+        extensions["is_retry"] = True
 
     def _extract_retry_after_seconds(self, error: BackendError) -> float | None:
         details = getattr(error, "details", None)
@@ -372,6 +391,7 @@ class StreamingExecutor:
         url: str,
         *,
         token_refresher: ITokenRefresher | None = None,
+        context: IRetryContext | None = None,
         thought_signature_callback: (
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
@@ -415,6 +435,7 @@ class StreamingExecutor:
             processor=processor,
             prompt_tokens=prompt_tokens,
             token_refresher=token_refresher,
+            context=context,
             thought_signature_callback=thought_signature_callback,
             key_name=key_name,
             auth_refresh_policy=self._auth_refresh_policy,
@@ -430,6 +451,7 @@ class StreamingExecutor:
         prompt_tokens: int,
         *,
         token_refresher: ITokenRefresher | None = None,
+        context: IRetryContext | None = None,
         thought_signature_callback: (
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
@@ -607,6 +629,7 @@ class StreamingExecutor:
                             prompt_tokens=prompt_tokens,
                             retry_policy=retry_policy,
                             token_refresher=token_refresher,
+                            context=context,
                             thought_signature_callback=thought_signature_callback,
                             key_name=key_name,
                             auth_refresh_policy=auth_refresh_policy,
@@ -670,6 +693,7 @@ class StreamingExecutor:
                     url=url,
                     prompt_tokens=prompt_tokens,
                     token_refresher=token_refresher,
+                    context=context,
                     thought_signature_callback=thought_signature_callback,
                     key_name=key_name,
                     auth_refresh_policy=auth_refresh_policy,
@@ -786,7 +810,10 @@ class StreamingExecutor:
                         if text_piece:
                             generated_text_parts.append(text_piece)
                             # Handle error JSON detection in content
-                            if error_json_buffer_parts is None and len(generated_text_parts) <= 3:
+                            if (
+                                error_json_buffer_parts is None
+                                and len(generated_text_parts) <= 3
+                            ):
                                 stripped_piece = text_piece.lstrip()
                                 if stripped_piece.startswith("{"):
                                     error_json_buffer_parts = [stripped_piece]
@@ -811,7 +838,6 @@ class StreamingExecutor:
                                         logger.debug(
                                             "Failed to parse error JSON from streaming content (partial JSON?)"
                                         )
-
 
                                 else:
                                     error_json_buffer_parts = None
@@ -1034,7 +1060,7 @@ class StreamingExecutor:
                                     continue
 
                                 yield processed_chunk
-                                
+
                                 # Yield to event loop periodically to maintain responsiveness
                                 if chunk_count % self._yield_interval == 0:
                                     await asyncio.sleep(0)
@@ -1099,8 +1125,7 @@ class StreamingExecutor:
                 generated_text = "".join(generated_text_parts)
                 # Offload token counting to a thread to avoid blocking the event loop for large responses
                 completion_tokens = await asyncio.to_thread(
-                    self._token_estimator.estimate_tokens,
-                    generated_text
+                    self._token_estimator.estimate_tokens, generated_text
                 )
                 usage = {
                     "prompt_tokens": prompt_tokens,
@@ -1173,8 +1198,8 @@ class StreamingExecutor:
         except BackendError as err:
             if getattr(err, "status_code", None) == 429:
                 await self._record_rate_limit(
-                    token_refresher, 
-                    retry_after_seconds=self._extract_retry_after_seconds(err)
+                    token_refresher,
+                    retry_after_seconds=self._extract_retry_after_seconds(err),
                 )
 
             # Handle quota_exceeded errors by yielding error chunk with code 503
@@ -1264,6 +1289,8 @@ class StreamingExecutor:
                             attempt + 1,
                         )
 
+                    self._mark_retry_attempt(context)
+
                     # Log progress during long waits (every 10 seconds)
                     if sleep_seconds > 10.0:
                         elapsed = 0.0
@@ -1288,6 +1315,7 @@ class StreamingExecutor:
                         processor=processor,
                         prompt_tokens=prompt_tokens,
                         token_refresher=token_refresher,
+                        context=context,
                         thought_signature_callback=thought_signature_callback,
                         key_name=key_name,
                         retry_policy=retry_policy,
@@ -1351,6 +1379,7 @@ class StreamingExecutor:
         prompt_tokens: int,
         *,
         token_refresher: ITokenRefresher | None = None,
+        context: IRetryContext | None = None,
         thought_signature_callback: (
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
@@ -1379,7 +1408,6 @@ class StreamingExecutor:
                 e,
             )
             error_detail = response.text
-
 
         detail_payload: dict[str, Any] = (
             error_detail if isinstance(error_detail, dict) else {"raw": error_detail}
@@ -1509,6 +1537,7 @@ class StreamingExecutor:
                             processor=processor,
                             prompt_tokens=prompt_tokens,
                             token_refresher=token_refresher,
+                            context=context,
                             thought_signature_callback=thought_signature_callback,
                             key_name=key_name,
                             auth_refresh_policy=auth_policy,
@@ -1632,6 +1661,7 @@ class StreamingExecutor:
                     sleep_seconds,
                     attempt + 1,
                 )
+                self._mark_retry_attempt(context)
                 # Keep the client connection alive while we wait for the retry window.
                 # The BackendService-level failure strategy may not see this 429 because
                 # the connector retries internally; emit OpenAI-compatible keepalive
@@ -1675,6 +1705,7 @@ class StreamingExecutor:
                     processor=processor,
                     prompt_tokens=prompt_tokens,
                     token_refresher=token_refresher,
+                    context=context,
                     thought_signature_callback=thought_signature_callback,
                     key_name=key_name,
                     auth_refresh_policy=auth_refresh_policy,

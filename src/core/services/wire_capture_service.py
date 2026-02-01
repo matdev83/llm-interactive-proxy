@@ -93,6 +93,7 @@ class WireCapture(IWireCapture):
         session_id: str | None,
         request_payload: Any,
         raw_body: bytes | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound request from client to proxy."""
         if not self.enabled():
@@ -137,6 +138,7 @@ class WireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         request_payload: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         if not self.enabled():
             return
@@ -161,6 +163,7 @@ class WireCapture(IWireCapture):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         if not self.enabled():
             return
@@ -184,6 +187,7 @@ class WireCapture(IWireCapture):
         model: str | None,
         key_name: str | None,
         response_content: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture the response leaving the proxy toward the client."""
         if not self.enabled():
@@ -209,6 +213,7 @@ class WireCapture(IWireCapture):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
         # Allow EoS metadata even without canonical_usage
@@ -244,6 +249,7 @@ class WireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         if not self.enabled():
             return stream
@@ -290,6 +296,7 @@ class WireCapture(IWireCapture):
         model: str | None,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         if not self.enabled():
             return stream

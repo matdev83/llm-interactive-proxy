@@ -91,6 +91,7 @@ class StructuredWireCapture(IWireCapture):
         session_id: str | None,
         request_payload: Any,
         raw_body: bytes | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound request from client to proxy."""
         if not self.enabled():
@@ -121,6 +122,7 @@ class StructuredWireCapture(IWireCapture):
             model=model,
             key_name=None,
             payload=payload,
+            extra_metadata=capture_metadata,
         )
 
         # Serialize and write to file
@@ -135,6 +137,7 @@ class StructuredWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         request_payload: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         if not self.enabled():
             return
@@ -149,6 +152,7 @@ class StructuredWireCapture(IWireCapture):
             model=model,
             key_name=key_name,
             payload=request_payload,
+            extra_metadata=capture_metadata,
         )
 
         # Serialize and write to file
@@ -164,6 +168,7 @@ class StructuredWireCapture(IWireCapture):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         if not self.enabled():
             return
@@ -181,6 +186,7 @@ class StructuredWireCapture(IWireCapture):
             model=model,
             key_name=key_name,
             payload=response_content,
+            extra_metadata=capture_metadata,
         )
 
         # Add canonical usage to metadata if present
@@ -190,6 +196,8 @@ class StructuredWireCapture(IWireCapture):
             if "metadata" not in entry:
                 entry["metadata"] = {}
             entry["metadata"]["canonical_usage"] = canonical_usage_dict
+            if capture_metadata:
+                entry["metadata"].update(capture_metadata)
 
         # Serialize and write to file
         await self._append_json(entry)
@@ -203,6 +211,7 @@ class StructuredWireCapture(IWireCapture):
         model: str | None,
         key_name: str | None,
         response_content: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture the response being sent to the client."""
         if not self.enabled():
@@ -217,6 +226,7 @@ class StructuredWireCapture(IWireCapture):
             model=model or "unknown",
             key_name=key_name,
             payload=response_content,
+            extra_metadata=capture_metadata,
         )
 
         # Mark as outbound for clarity without changing schema
@@ -234,6 +244,7 @@ class StructuredWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         if not self.enabled():
             return stream
@@ -249,6 +260,7 @@ class StructuredWireCapture(IWireCapture):
                 model=model,
                 key_name=key_name,
                 payload={},
+                extra_metadata=capture_metadata,
             )
             await self._append_json(header_entry)
 
@@ -306,6 +318,7 @@ class StructuredWireCapture(IWireCapture):
                 key_name=key_name,
                 payload={},
                 byte_count=total_bytes,
+                extra_metadata=capture_metadata,
             )
             await self._append_json(end_entry)
 
@@ -321,6 +334,7 @@ class StructuredWireCapture(IWireCapture):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
         if not self.enabled() or (canonical_usage is None and eos_metadata is None):
@@ -339,6 +353,7 @@ class StructuredWireCapture(IWireCapture):
             model=model,
             key_name=key_name,
             payload={},
+            extra_metadata=capture_metadata,
         )
 
         # Add canonical usage and/or EoS metadata to metadata
@@ -349,6 +364,8 @@ class StructuredWireCapture(IWireCapture):
                 entry["metadata"]["canonical_usage"] = canonical_usage_dict
             if eos_metadata:
                 entry["metadata"]["eos_metadata"] = eos_metadata
+            if capture_metadata:
+                entry["metadata"].update(capture_metadata)
 
         await self._append_json(entry)
 
@@ -361,6 +378,7 @@ class StructuredWireCapture(IWireCapture):
         model: str | None,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         if not self.enabled():
             return stream
@@ -375,6 +393,7 @@ class StructuredWireCapture(IWireCapture):
                 model=model or "unknown",
                 key_name=key_name,
                 payload={},
+                extra_metadata=capture_metadata,
             )
             if isinstance(
                 header_entry, dict
@@ -438,6 +457,7 @@ class StructuredWireCapture(IWireCapture):
                 key_name=key_name,
                 payload={},
                 byte_count=total_bytes,
+                extra_metadata=capture_metadata,
             )
             if isinstance(
                 end_entry, dict
@@ -461,6 +481,7 @@ class StructuredWireCapture(IWireCapture):
         key_name: str | None,
         payload: Any,
         byte_count: int | None = None,
+        extra_metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a structured JSON entry with all required fields."""
         # Calculate byte count if not provided
@@ -502,6 +523,7 @@ class StructuredWireCapture(IWireCapture):
             payload=self._redact_payload(payload),
             byte_count=byte_count,
             time_source=self._time_source,
+            extra_metadata=extra_metadata,
         )
 
         # Extract and include system prompts if present

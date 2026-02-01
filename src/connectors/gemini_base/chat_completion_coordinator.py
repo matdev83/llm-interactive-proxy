@@ -81,6 +81,7 @@ class GeminiChatCompletionCoordinator(IChatCompletionCoordinator):
         processed_messages: list["ChatMessage"],
         *,
         effective_model: str,
+        context: Any | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Return a streaming or non-streaming response envelope.
 
@@ -161,6 +162,7 @@ class GeminiChatCompletionCoordinator(IChatCompletionCoordinator):
                     prepared=prepared,
                     url=url,
                     token_refresher=self._token_refresher,
+                    context=context,
                     thought_signature_callback=thought_signature_callback,
                     key_name=self._key_name,
                     stream_wrapper=stream_wrapper,
@@ -170,6 +172,7 @@ class GeminiChatCompletionCoordinator(IChatCompletionCoordinator):
                     prepared=prepared,
                     url=url,
                     token_refresher=self._token_refresher,
+                    context=context,
                     thought_signature_callback=thought_signature_callback,
                     key_name=self._key_name,
                 )

@@ -883,7 +883,6 @@ class GeminiCloudProjectConnector(GeminiBackend, GeminiCodeAssistMixin):
         # Cloud Project connector doesn't yet support per-account cooldowns
         # because it uses a single GCP project. Future enhancement could
         # put the project in a temporary cooldown.
-        pass
 
     async def _save_oauth_credentials(self, credentials: dict[str, Any]) -> None:
         """Save OAuth credentials to oauth_creds.json file."""

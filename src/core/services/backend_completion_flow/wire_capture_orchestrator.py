@@ -117,6 +117,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     model=effective_model,
                     key_name=key_name,
                     request_payload=domain_request,
+                    capture_metadata=self._extract_capture_metadata(context),
                 )
         except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
             if logger.isEnabledFor(logging.DEBUG):
@@ -179,6 +180,18 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                 )
         return backend_type
 
+    @staticmethod
+    def _extract_capture_metadata(
+        context: RequestContext | None,
+    ) -> dict[str, JsonValue] | None:
+        if context is None:
+            return None
+        metadata: dict[str, JsonValue] = {}
+        for key in ("account_id", "retry_attempt", "is_retry"):
+            if key in context.extensions:
+                metadata[key] = context.extensions[key]
+        return metadata or None
+
     async def capture_inbound_response(
         self,
         context: RequestContext | None,
@@ -188,6 +201,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound response payload (best-effort).
 
@@ -210,6 +224,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     key_name=key_name,
                     response_content=response_content,
                     canonical_usage=canonical_usage,
+                    capture_metadata=capture_metadata,
                 )
         except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
             if logger.isEnabledFor(logging.DEBUG):
@@ -237,6 +252,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         effective_model: str,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap inbound stream for wire capture.
 
@@ -260,6 +276,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     model=effective_model,
                     key_name=key_name,
                     stream=stream,
+                    capture_metadata=capture_metadata,
                 )
         except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
             if logger.isEnabledFor(logging.DEBUG):
@@ -289,6 +306,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response (best-effort).
 
@@ -311,6 +329,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
                     key_name=key_name,
                     canonical_usage=canonical_usage,
                     eos_metadata=eos_metadata,
+                    capture_metadata=capture_metadata,
                 )
         except (ValueError, TypeError, AttributeError, RuntimeError, OSError):
             if logger.isEnabledFor(logging.DEBUG):

@@ -43,6 +43,16 @@ class CaptureMetadata:
     total_chunks: int | None = None  # Set on stream_end
     total_bytes: int | None = None  # Set on stream_end
     canonical_usage: dict[str, Any] | None = None  # Canonical usage record
+    status_code: int | None = None  # HTTP status code from backend or proxy
+    retry_after_seconds: float | None = None  # Retry-After hint in seconds
+    retry_attempt: int | None = None  # Retry attempt index (0-based)
+    is_retry: bool = False  # True if this entry is from a retry attempt
+    account_id: str | None = None  # Backend account identifier (redacted)
+    request_timestamp: float | None = None  # Request start timestamp (epoch seconds)
+    response_timestamp: float | None = None  # Response timestamp (epoch seconds)
+    latency_ms: float | None = None  # End-to-end latency in milliseconds
+    ttfb_ms: float | None = None  # Time-to-first-byte in milliseconds
+    stream_duration_ms: float | None = None  # Streaming duration in milliseconds
     # End-of-Session (EoS) metadata
     eos: bool = False  # True if this entry represents an EoS event
     eos_signal: str | None = None  # EoS signal type (e.g., "done_sentinel")
@@ -82,6 +92,26 @@ class CaptureMetadata:
             result["tb"] = self.total_bytes
         if self.canonical_usage is not None:
             result["cu"] = self.canonical_usage
+        if self.status_code is not None:
+            result["sc"] = self.status_code
+        if self.retry_after_seconds is not None:
+            result["ra"] = self.retry_after_seconds
+        if self.retry_attempt is not None:
+            result["rat"] = self.retry_attempt
+        if self.is_retry:
+            result["rtry"] = True
+        if self.account_id is not None:
+            result["acct"] = self.account_id
+        if self.request_timestamp is not None:
+            result["rts"] = self.request_timestamp
+        if self.response_timestamp is not None:
+            result["pts"] = self.response_timestamp
+        if self.latency_ms is not None:
+            result["lat"] = self.latency_ms
+        if self.ttfb_ms is not None:
+            result["ttfb"] = self.ttfb_ms
+        if self.stream_duration_ms is not None:
+            result["sdur"] = self.stream_duration_ms
         if self.eos:
             result["eos"] = True
         if self.eos_signal is not None:
@@ -113,6 +143,16 @@ class CaptureMetadata:
             total_chunks=data.get("tc"),
             total_bytes=data.get("tb"),
             canonical_usage=data.get("cu"),
+            status_code=data.get("sc"),
+            retry_after_seconds=data.get("ra"),
+            retry_attempt=data.get("rat"),
+            is_retry=data.get("rtry", False),
+            account_id=data.get("acct"),
+            request_timestamp=data.get("rts"),
+            response_timestamp=data.get("pts"),
+            latency_ms=data.get("lat"),
+            ttfb_ms=data.get("ttfb"),
+            stream_duration_ms=data.get("sdur"),
             eos=data.get("eos", False),
             eos_signal=data.get("eos_sig"),
             eos_reason=data.get("eos_reason"),

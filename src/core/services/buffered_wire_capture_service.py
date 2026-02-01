@@ -406,6 +406,7 @@ class BufferedWireCapture(IWireCapture):
         session_id: str | None,
         request_payload: Any,
         raw_body: bytes | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound request from client to proxy.
 
@@ -447,6 +448,7 @@ class BufferedWireCapture(IWireCapture):
             model=model,
             key_name=None,
             payload=payload,
+            metadata=capture_metadata,
         )
 
         await self._buffer_entry(entry)
@@ -460,6 +462,7 @@ class BufferedWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         request_payload: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture outbound request to backend."""
         if not self.enabled():
@@ -477,6 +480,7 @@ class BufferedWireCapture(IWireCapture):
             model=model,
             key_name=key_name,
             payload=request_payload,
+            metadata=capture_metadata,
         )
 
         await self._buffer_entry(entry)
@@ -491,6 +495,7 @@ class BufferedWireCapture(IWireCapture):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound response from backend."""
         if not self.enabled():
@@ -502,6 +507,8 @@ class BufferedWireCapture(IWireCapture):
         metadata: dict[str, JsonValue] = {}
         if canonical_usage is not None:
             metadata["canonical_usage"] = canonical_usage.model_dump()
+        if capture_metadata:
+            metadata.update(capture_metadata)
 
         entry = await self._create_entry(
             direction="inbound_response",
@@ -527,6 +534,7 @@ class BufferedWireCapture(IWireCapture):
         model: str | None,
         key_name: str | None,
         response_content: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture outbound response as it is sent to the client."""
         if not self.enabled():
@@ -543,6 +551,7 @@ class BufferedWireCapture(IWireCapture):
             model=model or "unknown",
             key_name=key_name,
             payload=response_content,
+            metadata=capture_metadata,
         )
 
         await self._buffer_entry(entry)
@@ -556,6 +565,7 @@ class BufferedWireCapture(IWireCapture):
         model: str,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap streaming response for capture."""
         if not self.enabled():
@@ -576,6 +586,7 @@ class BufferedWireCapture(IWireCapture):
                 model=model,
                 key_name=key_name,
                 payload={"stream_type": "inbound_response"},
+                metadata=capture_metadata,
             )
             await self._buffer_entry(start_entry)
 
@@ -615,6 +626,7 @@ class BufferedWireCapture(IWireCapture):
                 model=model,
                 key_name=key_name,
                 payload={"total_bytes": total_bytes, "total_chunks": chunk_count},
+                metadata=capture_metadata,
             )
             await self._buffer_entry(end_entry)
 
@@ -630,6 +642,7 @@ class BufferedWireCapture(IWireCapture):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
         # Allow EoS metadata even without canonical_usage
@@ -650,6 +663,8 @@ class BufferedWireCapture(IWireCapture):
             metadata["canonical_usage"] = canonical_usage_dict
         if eos_metadata:
             metadata["eos_metadata"] = eos_metadata
+        if capture_metadata:
+            metadata.update(capture_metadata)
         completion_entry = await self._create_entry(
             direction="stream_completion",
             source=backend,
@@ -673,6 +688,7 @@ class BufferedWireCapture(IWireCapture):
         model: str | None,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap streaming bytes flowing from proxy to client."""
         if not self.enabled():
@@ -691,6 +707,7 @@ class BufferedWireCapture(IWireCapture):
                 model=model or "unknown",
                 key_name=key_name,
                 payload={"stream_type": "outbound_response"},
+                metadata=capture_metadata,
             )
             await self._buffer_entry(start_entry)
 
@@ -734,6 +751,7 @@ class BufferedWireCapture(IWireCapture):
                     "total_chunks": chunk_count,
                     "stream_type": "outbound_response",
                 },
+                metadata=capture_metadata,
             )
             await self._buffer_entry(end_entry)
 
@@ -887,7 +905,7 @@ class BufferedWireCapture(IWireCapture):
 
     async def _buffer_entry(self, entry: WireCaptureEntry) -> None:
         """Add entry to buffer for eventual flushing.
-        
+
         Does not block the caller for flushing unless explicitly requested.
         """
         async with self._buffer_lock:
@@ -919,7 +937,7 @@ class BufferedWireCapture(IWireCapture):
 
     async def _flush_buffer_no_lock(self) -> None:
         """Internal helper to flush buffer without blocking the caller.
-        
+
         Assumes buffer lock is held by the caller.
         """
         if not self._buffers or not self._file_path:
@@ -953,7 +971,8 @@ class BufferedWireCapture(IWireCapture):
         # Check for rotation after writing (must be done in a thread or task)
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self._check_rotation())
+            rotation_task = loop.create_task(self._check_rotation())
+            rotation_task.add_done_callback(lambda t: t.exception())
         except RuntimeError:
             pass
 

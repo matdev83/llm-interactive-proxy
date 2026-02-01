@@ -7,6 +7,8 @@ import logging
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from pydantic.types import JsonValue
+
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.wire_capture_interface import IWireCapture
 
@@ -14,6 +16,30 @@ if TYPE_CHECKING:
     from src.core.domain.request_context import RequestContext
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_retry_after(headers: dict[str, str] | None) -> float | None:
+    if not headers:
+        return None
+    value = headers.get("Retry-After") or headers.get("retry-after")
+    if not value:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_context_capture_metadata(
+    context: RequestContext | None,
+) -> dict[str, JsonValue]:
+    if context is None:
+        return {}
+    metadata: dict[str, JsonValue] = {}
+    for key in ("account_id", "retry_attempt", "is_retry"):
+        if key in context.extensions:
+            metadata[key] = context.extensions[key]
+    return metadata
 
 
 class WireCaptureCoordinator:
@@ -58,6 +84,14 @@ class WireCaptureCoordinator:
             # No event loop running, cannot schedule task
             return
 
+        capture_metadata: dict[str, JsonValue] = {
+            "status_code": envelope.status_code,
+        }
+        capture_metadata.update(_extract_context_capture_metadata(context))
+        retry_after = _extract_retry_after(envelope.headers)
+        if retry_after is not None:
+            capture_metadata["retry_after_seconds"] = retry_after
+
         task = loop.create_task(
             self._wire_capture.capture_outbound_response(
                 context=context,
@@ -66,6 +100,7 @@ class WireCaptureCoordinator:
                 model=model,
                 key_name=key_name,
                 response_content=response_content,
+                capture_metadata=capture_metadata,
             )
         )
         # Ensure task is stored and handle exceptions to avoid "not awaited" warnings
@@ -97,6 +132,14 @@ class WireCaptureCoordinator:
         )
         session_value = self._resolve_capture_session_id(session_id, context)
 
+        capture_metadata: dict[str, JsonValue] = {
+            "status_code": envelope.status_code,
+        }
+        capture_metadata.update(_extract_context_capture_metadata(context))
+        retry_after = _extract_retry_after(envelope.headers)
+        if retry_after is not None:
+            capture_metadata["retry_after_seconds"] = retry_after
+
         return self._wire_capture.wrap_outbound_stream(
             context=context,
             session_id=session_value,
@@ -104,6 +147,7 @@ class WireCaptureCoordinator:
             model=model,
             key_name=key_name,
             stream=stream,
+            capture_metadata=capture_metadata,
         )
 
     def _infer_capture_fields(

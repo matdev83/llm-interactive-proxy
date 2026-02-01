@@ -46,6 +46,33 @@ class WireCaptureMetadata(BaseModel):
     system_prompt: str | None = Field(
         default=None, description="Extracted system prompt"
     )
+    status_code: int | None = Field(default=None, description="HTTP status code")
+    retry_after_seconds: float | None = Field(
+        default=None, description="Retry-After hint in seconds"
+    )
+    retry_attempt: int | None = Field(default=None, description="Retry attempt index")
+    is_retry: bool | None = Field(default=None, description="Whether this is a retry")
+    account_id: str | None = Field(
+        default=None, description="Backend account identifier"
+    )
+    request_timestamp: float | None = Field(
+        default=None, description="Request timestamp (epoch seconds)"
+    )
+    response_timestamp: float | None = Field(
+        default=None, description="Response timestamp (epoch seconds)"
+    )
+    latency_ms: float | None = Field(
+        default=None, description="End-to-end latency in milliseconds"
+    )
+    ttfb_ms: float | None = Field(
+        default=None, description="Time to first byte in milliseconds"
+    )
+    stream_duration_ms: float | None = Field(
+        default=None, description="Streaming duration in milliseconds"
+    )
+    extensions: dict[str, Any] | None = Field(
+        default=None, description="Additional metadata"
+    )
 
 
 class WireCaptureEntry(BaseModel):
@@ -138,6 +165,7 @@ def create_wire_capture_entry(
     byte_count: int | None = None,
     system_prompt: str | None = None,
     time_source: Any = None,
+    extra_metadata: dict[str, Any] | None = None,
 ) -> WireCaptureEntry:
     """
     Create a wire capture entry using Pydantic models.
@@ -209,6 +237,27 @@ def create_wire_capture_entry(
         ),
     )
 
+    known_fields = {
+        "status_code",
+        "retry_after_seconds",
+        "retry_attempt",
+        "is_retry",
+        "account_id",
+        "request_timestamp",
+        "response_timestamp",
+        "latency_ms",
+        "ttfb_ms",
+        "stream_duration_ms",
+    }
+    extensions: dict[str, Any] = {}
+    metadata_kwargs: dict[str, Any] = {}
+    if extra_metadata:
+        for key, value in extra_metadata.items():
+            if key in known_fields:
+                metadata_kwargs[key] = value
+            else:
+                extensions[key] = value
+
     # Create metadata
     metadata = WireCaptureMetadata(
         session_id=session_id,
@@ -218,6 +267,8 @@ def create_wire_capture_entry(
         key_name=key_name,
         byte_count=byte_count,
         system_prompt=system_prompt,
+        extensions=extensions if extensions else None,
+        **metadata_kwargs,
     )
 
     # Create the complete entry

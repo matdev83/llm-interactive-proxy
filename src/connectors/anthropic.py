@@ -9,7 +9,7 @@ import contextlib
 import json
 import logging
 from collections.abc import AsyncGenerator
-from typing import Any, cast
+from typing import Any
 
 import httpx
 
@@ -1188,7 +1188,6 @@ class AnthropicBackend(LLMBackend):
 
         # Prepare payload
 
-        from src.core.domain.chat import CanonicalChatRequest
 
         # request is expected to be CanonicalChatRequest from StreamProducer protocol
         

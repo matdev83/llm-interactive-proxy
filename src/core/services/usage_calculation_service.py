@@ -19,7 +19,11 @@ from typing import TYPE_CHECKING, Any
 from src.core.domain.openrouter_usage import (
     OpenRouterUsage,
 )
-from src.core.utils.token_count import count_tokens, count_tokens_async, extract_prompt_text
+from src.core.utils.token_count import (
+    count_tokens,
+    count_tokens_async,
+    extract_prompt_text,
+)
 
 if TYPE_CHECKING:
     from src.core.domain.request_context import (

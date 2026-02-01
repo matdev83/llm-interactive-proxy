@@ -272,6 +272,16 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         if self._cancellation_coordinator is not None and session_key is not None:
             self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
+        if context is not None:
+            retry_value = context.extensions.get("retry_attempt")
+            retry_attempt = 0
+            if isinstance(retry_value, int):
+                retry_attempt = retry_value
+            elif isinstance(retry_value, float) and retry_value.is_integer():
+                retry_attempt = int(retry_value)
+            context.extensions["retry_attempt"] = retry_attempt + 1
+            context.extensions["is_retry"] = True
+
         if wait_seconds is not None and wait_seconds > 0:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(

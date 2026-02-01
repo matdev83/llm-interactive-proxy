@@ -12,6 +12,7 @@ import copy
 import inspect
 import logging
 from collections.abc import Sequence
+from typing import Any
 
 from pydantic.types import JsonValue
 
@@ -313,7 +314,9 @@ class ConnectorInvoker:
             # - Remove legacy kwargs expansion entirely (Phase 3: optional, requires approval)
             #
             # This exception is time-bounded and documented per Requirement 2.7/3.5.
-            kwargs = dict(options)
+            kwargs: dict[str, Any] = dict(options)
+            if self._supports_context_kwarg(backend):
+                kwargs["context"] = connector_context
 
             # Invoke legacy API with canonical domain models
             return await backend.chat_completions(
@@ -325,3 +328,19 @@ class ConnectorInvoker:
                 cancellation_coordinator=cancellation_coordinator,
                 **kwargs,  # Options expanded here only
             )
+
+    def _supports_context_kwarg(self, backend: LLMBackend) -> bool:
+        """Return True if backend.chat_completions accepts a context kwarg."""
+        if not hasattr(backend, "chat_completions"):
+            return False
+        method = backend.chat_completions
+        if not callable(method):
+            return False
+        try:
+            sig = inspect.signature(method)
+        except (ValueError, TypeError):
+            return False
+        params = sig.parameters.values()
+        if "context" in sig.parameters:
+            return True
+        return any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params)

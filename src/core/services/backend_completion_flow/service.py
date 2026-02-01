@@ -10,6 +10,8 @@ from collections.abc import Awaitable, Callable, Coroutine
 from typing import Any, cast
 from uuid import uuid4
 
+from pydantic.types import JsonValue
+
 from src.core.common.exceptions import (
     AuthenticationError,
     BackendError,
@@ -291,6 +293,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         session_id = getattr(context, "session_id", None)
 
         if result.content is not None:
+            capture_metadata = self._build_capture_metadata(
+                context=context,
+                status_code=result.status_code,
+                headers=result.headers,
+                response_metadata=result.metadata,
+            )
+
             # Adapt domain stream to bytes for capture
             byte_stream = self._stream_formatting_service.stream_as_sse_bytes(
                 result.content
@@ -302,6 +311,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 effective_model=effective_model,
                 key_name=key_name,
                 stream=byte_stream,
+                capture_metadata=capture_metadata,
             )
 
             # Convert back to ProcessedResponse stream for adapters
@@ -404,6 +414,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         if hasattr(result, "canonical_usage") and result.canonical_usage is not None:
             canonical_usage_for_capture = result.canonical_usage
 
+        capture_metadata = self._build_capture_metadata(
+            context=context,
+            status_code=result.status_code,
+            headers=result.headers,
+            response_metadata=result.metadata,
+        )
+
         await self._wire_capture_orchestrator.capture_inbound_response(
             context=context,
             session_id=getattr(context, "session_id", None),
@@ -412,6 +429,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             key_name=key_name,
             response_content=response_content,  # type: ignore[reportUnknownArgumentType]
             canonical_usage=canonical_usage_for_capture,
+            capture_metadata=capture_metadata,
         )
 
         # Check cancellation status before returning
@@ -435,6 +453,51 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             session_id_for_backend=session_id_for_backend,
             context=context,
         )
+
+    @staticmethod
+    def _extract_retry_after(headers: dict[str, str] | None) -> float | None:
+        if not headers:
+            return None
+        value = headers.get("Retry-After") or headers.get("retry-after")
+        if not value:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _initialize_retry_metadata(context: RequestContext) -> None:
+        extensions = context.extensions
+        if "retry_attempt" not in extensions:
+            extensions["retry_attempt"] = 0
+        if "is_retry" not in extensions:
+            extensions["is_retry"] = False
+
+    def _build_capture_metadata(
+        self,
+        *,
+        context: RequestContext | None,
+        status_code: int,
+        headers: dict[str, str] | None,
+        response_metadata: dict[str, JsonValue] | None = None,
+    ) -> dict[str, JsonValue]:
+        capture_metadata: dict[str, JsonValue] = {"status_code": status_code}
+        retry_after = self._extract_retry_after(headers)
+        if retry_after is not None:
+            capture_metadata["retry_after_seconds"] = retry_after
+
+        if context is not None:
+            for key in ("account_id", "retry_attempt", "is_retry"):
+                if key in context.extensions:
+                    capture_metadata[key] = context.extensions[key]
+
+        if response_metadata is not None:
+            for key in ("account_id", "retry_attempt", "is_retry"):
+                if key in response_metadata:
+                    capture_metadata[key] = response_metadata[key]
+
+        return capture_metadata
 
     async def call_completion(
         self,
@@ -506,6 +569,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             if isinstance(request, CanonicalChatRequest)
             else CanonicalChatRequest.model_validate(request.model_dump())
         )
+
+        if context is not None:
+            self._initialize_retry_metadata(context)
         # Step 1: Prepare request (resolve target + synchronize)
         target = await self._request_preparer.prepare_request(
             canonical_request, context

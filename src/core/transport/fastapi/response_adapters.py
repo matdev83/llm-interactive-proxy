@@ -572,7 +572,9 @@ def to_fastapi_streaming_response(
             try:
                 # Use DI to get IApplicationState service instead of direct context.app_state access
                 from src.core.di.services import get_service_provider
-                from src.core.interfaces.application_state_interface import IApplicationState
+                from src.core.interfaces.application_state_interface import (
+                    IApplicationState,
+                )
 
                 provider = get_service_provider()
                 app_state_svc = provider.get_service(IApplicationState)  # type: ignore[type-abstract]

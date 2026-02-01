@@ -7,7 +7,6 @@ wrapping the prepare -> execute -> accumulate/post-process steps.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
@@ -74,6 +73,7 @@ class CodeAssistOrchestrator:
         prepared: PreparedChatRequest,
         url: str,
         token_refresher: ITokenRefresher,
+        context: Any | None = None,
         thought_signature_callback: (
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
@@ -89,6 +89,7 @@ class CodeAssistOrchestrator:
             prepared=prepared,
             url=url,
             token_refresher=token_refresher,
+            context=context,
             thought_signature_callback=thought_signature_callback,
             key_name=key_name,
             retry_policy=self._retry_policy,
@@ -125,6 +126,7 @@ class CodeAssistOrchestrator:
         prepared: PreparedChatRequest,
         url: str,
         token_refresher: ITokenRefresher,
+        context: Any | None = None,
         thought_signature_callback: (
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
@@ -136,6 +138,7 @@ class CodeAssistOrchestrator:
             prepared=prepared,
             url=url,
             token_refresher=token_refresher,
+            context=context,
             thought_signature_callback=thought_signature_callback,
             key_name=key_name,
         )

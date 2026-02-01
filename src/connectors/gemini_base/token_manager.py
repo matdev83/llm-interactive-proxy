@@ -15,7 +15,6 @@ import time
 from typing import Any, Protocol, runtime_checkable
 
 from src.connectors.gemini_base.credentials import (
-
     CLI_REFRESH_COMMAND,
     CLI_REFRESH_COOLDOWN_SECONDS,
     CLI_REFRESH_THRESHOLD_SECONDS,

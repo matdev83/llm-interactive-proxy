@@ -1,10 +1,12 @@
 
 import time
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock
-from src.connectors.gemini_oauth_auto.models import StoredAccount
 from src.connectors.gemini_oauth_auto.connector import GeminiOAuthAutoConnector
+from src.connectors.gemini_oauth_auto.models import StoredAccount
 from src.core.common.exceptions import BackendError
+
 
 @pytest.mark.asyncio
 async def test_exponential_backoff_logic():

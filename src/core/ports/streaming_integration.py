@@ -51,6 +51,7 @@ async def integrate_streaming_pipeline(
     model_name: str | None = None,
     vtc_enabled: bool = False,
     yield_interval: int = 100,
+    headers: dict[str, str] | None = None,
 ) -> StreamingResponseEnvelope:
     """Integrate a raw backend stream with the streaming pipeline.
 
@@ -73,6 +74,7 @@ async def integrate_streaming_pipeline(
         model_name: Optional model name for usage calculation
         vtc_enabled: Whether Virtual Tool Calling is enabled for this session
         yield_interval: Number of chunks to batch before yielding to event loop
+        headers: Optional response headers from backend
 
     Returns:
         StreamingResponseEnvelope with processed chunks
@@ -189,7 +191,7 @@ async def integrate_streaming_pipeline(
         return StreamingResponseEnvelope(
             content=error_stream(),
             media_type="text/event-stream",
-            headers={},
+            headers=headers or {},
         )
 
     # Construct normalizer explicitly at call site (requirement 5.2)
@@ -222,7 +224,7 @@ async def integrate_streaming_pipeline(
         return StreamingResponseEnvelope(
             content=error_stream(),
             media_type="text/event-stream",
-            headers={},
+            headers=headers or {},
         )
 
     # Process stream through pipeline
@@ -264,6 +266,6 @@ async def integrate_streaming_pipeline(
     return StreamingResponseEnvelope(
         content=processed_stream(),
         media_type="text/event-stream",
-        headers={},
+        headers=headers or {},
         cancel_callback=cancel_callback,
     )

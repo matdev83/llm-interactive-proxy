@@ -33,6 +33,7 @@ class IWireCapture(ABC):
         session_id: str | None,
         request_payload: Any,
         raw_body: bytes | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound request from client to proxy."""
 
@@ -46,6 +47,7 @@ class IWireCapture(ABC):
         model: str,
         key_name: str | None,
         request_payload: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture the outbound request payload before sending to backend."""
 
@@ -60,6 +62,7 @@ class IWireCapture(ABC):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture a full non-streaming inbound response.
 
@@ -83,6 +86,7 @@ class IWireCapture(ABC):
         model: str,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap a streaming iterator to tee all bytes to the capture sink."""
 
@@ -96,6 +100,7 @@ class IWireCapture(ABC):
         model: str | None,
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture a full non-streaming outbound response to the client.
 
@@ -118,6 +123,7 @@ class IWireCapture(ABC):
         model: str | None,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap a streaming iterator to capture bytes sent to the client."""
 
@@ -132,6 +138,7 @@ class IWireCapture(ABC):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for a completed streaming response.
 

@@ -58,6 +58,9 @@ Examples:
     # Auto-detect issues
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --detect-issues
 
+    # Show HTTP status summary from capture metadata
+    python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --status-summary
+
     # Group by session
     python scripts/inspect_cbor_capture.py var/wire_captures_cbor/session.cbor --group-by-session
 
@@ -171,7 +174,12 @@ def load_capture_file(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
     return header, entries
 
 
-def print_summary(header: dict[str, Any], entries: list[dict[str, Any]]) -> None:
+def print_summary(
+    header: dict[str, Any],
+    entries: list[dict[str, Any]],
+    *,
+    show_status_summary: bool = False,
+) -> None:
     """Print a summary of the capture file."""
     print("=" * 70)
     print("CAPTURE FILE SUMMARY")
@@ -200,6 +208,46 @@ def print_summary(header: dict[str, Any], entries: list[dict[str, Any]]) -> None
         last_ts = entries[-1].get("ts", 0)
         duration = last_ts - first_ts
         print(f"Duration: {duration:.2f}s")
+
+    if show_status_summary:
+        # Status codes (if present in metadata)
+        status_counts: dict[int, int] = {}
+        for e in entries:
+            meta = e.get("meta", {})
+            status = meta.get("sc")
+            if isinstance(status, int):
+                status_counts[status] = status_counts.get(status, 0) + 1
+
+        if status_counts:
+            total_status = sum(status_counts.values())
+            print("\nHTTP Status Summary (from metadata):")
+            for code, count in sorted(status_counts.items()):
+                ratio = (count / total_status) * 100 if total_status else 0
+                print(f"  {code}: {count} ({ratio:.1f}%)")
+
+            backend_status: dict[str, dict[int, int]] = {}
+            for e in entries:
+                meta = e.get("meta", {})
+                backend = meta.get("be")
+                status = meta.get("sc")
+                if not isinstance(backend, str) or not backend:
+                    continue
+                if not isinstance(status, int):
+                    continue
+                backend_status.setdefault(backend, {})
+                backend_status[backend][status] = (
+                    backend_status[backend].get(status, 0) + 1
+                )
+
+            if backend_status:
+                print("\nHTTP Status by Backend (from metadata):")
+                for backend, counts in sorted(backend_status.items()):
+                    total_backend = sum(counts.values())
+                    rate_limited = counts.get(429, 0)
+                    ratio = (rate_limited / total_backend) * 100 if total_backend else 0
+                    print(
+                        f"  {backend}: 429 {rate_limited}/{total_backend} ({ratio:.1f}%)"
+                    )
 
 
 def format_timestamp(ts: float) -> str:
@@ -1342,6 +1390,11 @@ def main() -> int:
         help="Maximum bytes of data to show per entry (default: 200)",
     )
     parser.add_argument(
+        "--status-summary",
+        action="store_true",
+        help="Show HTTP status summary from capture metadata",
+    )
+    parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
@@ -1483,7 +1536,7 @@ def main() -> int:
         return 0
 
     # Print summary
-    print_summary(header, entries)
+    print_summary(header, entries, show_status_summary=args.status_summary)
 
     # Direction filter
     direction_filter = None

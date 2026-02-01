@@ -145,14 +145,18 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
 
             outbound_tokens = await asyncio.to_thread(
                 calculate_outbound_tokens,
-                domain_request, model=effective_model, label="outbound"
+                domain_request,
+                model=effective_model,
+                label="outbound",
             )
 
             # Calculate verbatim tokens (from original request)
             # Always calculate for logging/debugging purposes
             verbatim_tokens = await asyncio.to_thread(
                 calculate_outbound_tokens,
-                request, model=effective_model, label="verbatim"
+                request,
+                model=effective_model,
+                label="verbatim",
             )
 
             if logger.isEnabledFor(logging.DEBUG):
@@ -538,6 +542,21 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         if self._wire_capture_orchestrator is not None:
                             # Use create_task to avoid blocking the stream cleanup/closing for wire capture I/O
                             try:
+                                capture_metadata: dict[str, JsonValue] | None = None
+                                if context is not None:
+                                    capture_metadata = {}
+                                    for key in (
+                                        "account_id",
+                                        "retry_attempt",
+                                        "is_retry",
+                                    ):
+                                        if key in context.extensions:
+                                            capture_metadata[key] = context.extensions[
+                                                key
+                                            ]
+                                    if not capture_metadata:
+                                        capture_metadata = None
+
                                 loop = asyncio.get_running_loop()
                                 capture_task = loop.create_task(
                                     self._wire_capture_orchestrator.capture_stream_completion(
@@ -547,10 +566,15 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                                         effective_model=effective_model,
                                         key_name=key_name,
                                         canonical_usage=canonical_usage,
+                                        capture_metadata=capture_metadata,
                                     )
                                 )
                                 # Ensure task is not garbage collected and handle potential exceptions
-                                capture_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                                capture_task.add_done_callback(
+                                    lambda t: (
+                                        t.exception() if not t.cancelled() else None
+                                    )
+                                )
                             except RuntimeError:
                                 # Fallback if no event loop (unlikely here)
                                 pass

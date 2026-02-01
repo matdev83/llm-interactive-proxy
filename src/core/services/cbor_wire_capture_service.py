@@ -39,6 +39,17 @@ from src.core.interfaces.wire_capture_interface import IWireCapture
 logger = logging.getLogger(__name__)
 
 
+class _RequestTimingState:
+    """Tracks request/response timing for a single request."""
+
+    __slots__ = ("request_ts", "first_byte_ts", "stream_start_ts")
+
+    def __init__(self, request_ts: float) -> None:
+        self.request_ts = request_ts
+        self.first_byte_ts: float | None = None
+        self.stream_start_ts: float | None = None
+
+
 def _get_timestamp() -> float:
     """Get current timestamp with nanosecond precision."""
     return time.time_ns() / 1_000_000_000
@@ -116,6 +127,8 @@ class CborWireCaptureService(IWireCapture):
         self._buffer_lock = asyncio.Lock()
         self._sequence_counter = 0
         self._sequence_lock = asyncio.Lock()
+        self._timing_lock = asyncio.Lock()
+        self._request_timings: dict[str, _RequestTimingState] = {}
 
         # File handle for current session
         self._file_path: Path | None = None
@@ -254,6 +267,7 @@ class CborWireCaptureService(IWireCapture):
         key_name: str | None = None,
         canonical_usage: dict[str, Any] | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> CaptureMetadata:
         """Extract metadata from context and parameters.
 
@@ -279,6 +293,22 @@ class CborWireCaptureService(IWireCapture):
         if not resolved_session or not str(resolved_session).strip():
             resolved_session = request_id or self._session_id
 
+        # Extract capture metadata if provided (already JSON-safe)
+        capture_fields: dict[str, JsonValue] = {}
+        if capture_metadata:
+            capture_fields = {
+                "status_code": capture_metadata.get("status_code"),
+                "retry_after_seconds": capture_metadata.get("retry_after_seconds"),
+                "retry_attempt": capture_metadata.get("retry_attempt"),
+                "is_retry": capture_metadata.get("is_retry"),
+                "account_id": capture_metadata.get("account_id"),
+                "request_timestamp": capture_metadata.get("request_timestamp"),
+                "response_timestamp": capture_metadata.get("response_timestamp"),
+                "latency_ms": capture_metadata.get("latency_ms"),
+                "ttfb_ms": capture_metadata.get("ttfb_ms"),
+                "stream_duration_ms": capture_metadata.get("stream_duration_ms"),
+            }
+
         # Extract EoS metadata if provided (already JSON-safe)
         eos_fields: dict[str, JsonValue] = {}
         if eos_metadata:
@@ -302,6 +332,17 @@ class CborWireCaptureService(IWireCapture):
         eos_termination_category: str | None = None
         eos_error_classification: str | None = None
         eos_error_status_code: int | None = None
+
+        status_code: int | None = None
+        retry_after_seconds: float | None = None
+        retry_attempt: int | None = None
+        is_retry: bool = False
+        account_id: str | None = None
+        request_timestamp: float | None = None
+        response_timestamp: float | None = None
+        latency_ms: float | None = None
+        ttfb_ms: float | None = None
+        stream_duration_ms: float | None = None
 
         if eos_fields:
             eos_val = eos_fields.get("eos", False)
@@ -349,6 +390,53 @@ class CborWireCaptureService(IWireCapture):
                 else:
                     eos_error_status_code = None
 
+        if capture_fields:
+            status_val = capture_fields.get("status_code")
+            if isinstance(status_val, int):
+                status_code = status_val
+            elif isinstance(status_val, float) and status_val.is_integer():
+                status_code = int(status_val)
+
+            retry_after_val = capture_fields.get("retry_after_seconds")
+            if isinstance(retry_after_val, int | float):
+                retry_after_seconds = float(retry_after_val)
+
+            retry_attempt_val = capture_fields.get("retry_attempt")
+            if isinstance(retry_attempt_val, int):
+                retry_attempt = retry_attempt_val
+            elif (
+                isinstance(retry_attempt_val, float) and retry_attempt_val.is_integer()
+            ):
+                retry_attempt = int(retry_attempt_val)
+
+            is_retry_val = capture_fields.get("is_retry")
+            if isinstance(is_retry_val, bool):
+                is_retry = is_retry_val
+
+            account_val = capture_fields.get("account_id")
+            if isinstance(account_val, str) and account_val:
+                account_id = account_val
+
+            request_ts_val = capture_fields.get("request_timestamp")
+            if isinstance(request_ts_val, int | float):
+                request_timestamp = float(request_ts_val)
+
+            response_ts_val = capture_fields.get("response_timestamp")
+            if isinstance(response_ts_val, int | float):
+                response_timestamp = float(response_ts_val)
+
+            latency_val = capture_fields.get("latency_ms")
+            if isinstance(latency_val, int | float):
+                latency_ms = float(latency_val)
+
+            ttfb_val = capture_fields.get("ttfb_ms")
+            if isinstance(ttfb_val, int | float):
+                ttfb_ms = float(ttfb_val)
+
+            stream_dur_val = capture_fields.get("stream_duration_ms")
+            if isinstance(stream_dur_val, int | float):
+                stream_duration_ms = float(stream_dur_val)
+
         metadata = CaptureMetadata(
             session_id=resolved_session,
             backend=backend,
@@ -358,6 +446,16 @@ class CborWireCaptureService(IWireCapture):
             user_agent=user_agent,
             request_id=request_id,
             canonical_usage=canonical_usage,
+            status_code=status_code,
+            retry_after_seconds=retry_after_seconds,
+            retry_attempt=retry_attempt,
+            is_retry=is_retry,
+            account_id=account_id,
+            request_timestamp=request_timestamp,
+            response_timestamp=response_timestamp,
+            latency_ms=latency_ms,
+            ttfb_ms=ttfb_ms,
+            stream_duration_ms=stream_duration_ms,
             eos=eos,
             eos_signal=eos_signal,
             eos_reason=eos_reason,
@@ -375,6 +473,7 @@ class CborWireCaptureService(IWireCapture):
         session_id: str | None,
         request_payload: Any,
         raw_body: bytes | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound request from client to proxy."""
         if not self.enabled():
@@ -395,7 +494,11 @@ class CborWireCaptureService(IWireCapture):
             model = str(request_payload.get("model", ""))
 
         metadata = self._extract_context_metadata(
-            context, session_id, backend="client", model=model
+            context,
+            session_id,
+            backend="client",
+            model=model,
+            capture_metadata=capture_metadata,
         )
 
         entry = CaptureEntry(
@@ -417,6 +520,7 @@ class CborWireCaptureService(IWireCapture):
         model: str,
         key_name: str | None,
         request_payload: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture outbound request to backend."""
         if not self.enabled():
@@ -426,8 +530,19 @@ class CborWireCaptureService(IWireCapture):
 
         data = serialize_for_capture(request_payload)
         metadata = self._extract_context_metadata(
-            context, session_id, backend=backend, model=model, key_name=key_name
+            context,
+            session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            capture_metadata=capture_metadata,
         )
+
+        if metadata.request_id:
+            async with self._timing_lock:
+                self._request_timings[metadata.request_id] = _RequestTimingState(
+                    _get_timestamp()
+                )
 
         entry = CaptureEntry(
             timestamp=_get_timestamp(),
@@ -449,6 +564,7 @@ class CborWireCaptureService(IWireCapture):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound response from backend."""
         if not self.enabled():
@@ -460,6 +576,25 @@ class CborWireCaptureService(IWireCapture):
         canonical_usage_dict = canonical_usage.model_dump() if canonical_usage else None
 
         data = serialize_for_capture(response_content)
+        metadata_fields = capture_metadata.copy() if capture_metadata else {}
+        response_ts = _get_timestamp()
+
+        request_id: str | None = None
+        if context:
+            rid = getattr(context, "request_id", None)
+            if isinstance(rid, str) and rid:
+                request_id = rid
+
+        if request_id:
+            async with self._timing_lock:
+                timing = self._request_timings.pop(request_id, None)
+            if timing:
+                metadata_fields["request_timestamp"] = timing.request_ts
+                metadata_fields["response_timestamp"] = response_ts
+                metadata_fields["latency_ms"] = (
+                    response_ts - timing.request_ts
+                ) * 1000.0
+
         metadata = self._extract_context_metadata(
             context,
             session_id,
@@ -467,6 +602,7 @@ class CborWireCaptureService(IWireCapture):
             model=model,
             key_name=key_name,
             canonical_usage=canonical_usage_dict,
+            capture_metadata=metadata_fields or None,
         )
 
         entry = CaptureEntry(
@@ -488,6 +624,7 @@ class CborWireCaptureService(IWireCapture):
         model: str | None,
         key_name: str | None,
         response_content: Any,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture outbound response to client."""
         if not self.enabled():
@@ -497,7 +634,12 @@ class CborWireCaptureService(IWireCapture):
 
         data = serialize_for_capture(response_content)
         metadata = self._extract_context_metadata(
-            context, session_id, backend=backend, model=model, key_name=key_name
+            context,
+            session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            capture_metadata=capture_metadata,
         )
 
         entry = CaptureEntry(
@@ -519,6 +661,7 @@ class CborWireCaptureService(IWireCapture):
         model: str,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap streaming response from backend for capture."""
         if not self.enabled():
@@ -527,13 +670,35 @@ class CborWireCaptureService(IWireCapture):
         self._maybe_start_flush_task()
 
         base_metadata = self._extract_context_metadata(
-            context, session_id, backend=backend, model=model, key_name=key_name
+            context,
+            session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            capture_metadata=capture_metadata,
         )
 
         async def _capture_stream() -> AsyncIterator[bytes]:
             chunk_count = 0
             total_bytes = 0
             stream_session_id = base_metadata.session_id or self._session_id
+            request_id = base_metadata.request_id
+            metadata_fields = capture_metadata.copy() if capture_metadata else {}
+            stream_start_ts = _get_timestamp()
+
+            if request_id:
+                async with self._timing_lock:
+                    timing = self._request_timings.get(request_id)
+                    if timing:
+                        timing.stream_start_ts = stream_start_ts
+                        metadata_fields["request_timestamp"] = timing.request_ts
+
+            request_ts_val = metadata_fields.get("request_timestamp")
+            request_ts = (
+                float(request_ts_val)
+                if isinstance(request_ts_val, int | float)
+                else None
+            )
 
             # Stream start marker
             start_metadata = CaptureMetadata(
@@ -545,9 +710,15 @@ class CborWireCaptureService(IWireCapture):
                 user_agent=base_metadata.user_agent,
                 request_id=base_metadata.request_id,
                 is_stream_start=True,
+                status_code=base_metadata.status_code,
+                retry_after_seconds=base_metadata.retry_after_seconds,
+                retry_attempt=base_metadata.retry_attempt,
+                is_retry=base_metadata.is_retry,
+                account_id=base_metadata.account_id,
+                request_timestamp=request_ts,
             )
             start_entry = CaptureEntry(
-                timestamp=_get_timestamp(),
+                timestamp=stream_start_ts,
                 direction=CaptureDirection.BACKEND_TO_PROXY,
                 sequence=await self._get_next_sequence(),
                 data=b"",
@@ -558,11 +729,26 @@ class CborWireCaptureService(IWireCapture):
             async for chunk in stream:
                 chunk_count += 1
                 total_bytes += len(chunk)
+                chunk_capture_metadata: dict[str, JsonValue] = {}
+
+                if request_id:
+                    async with self._timing_lock:
+                        timing = self._request_timings.get(request_id)
+                        if timing and timing.first_byte_ts is None:
+                            timing.first_byte_ts = _get_timestamp()
+                            computed_ttfb_ms = (
+                                timing.first_byte_ts - timing.request_ts
+                            ) * 1000.0
+                            chunk_capture_metadata["ttfb_ms"] = computed_ttfb_ms
+
+                ttfb_val = chunk_capture_metadata.get("ttfb_ms")
+                ttfb_ms = float(ttfb_val) if isinstance(ttfb_val, int | float) else None
 
                 chunk_metadata = CaptureMetadata(
                     session_id=stream_session_id,
                     chunk_index=chunk_count,
                     request_id=base_metadata.request_id,
+                    ttfb_ms=ttfb_ms,
                 )
                 chunk_entry = CaptureEntry(
                     timestamp=_get_timestamp(),
@@ -576,6 +762,49 @@ class CborWireCaptureService(IWireCapture):
                 yield chunk
 
             # Stream end marker
+            end_ts = _get_timestamp()
+            end_capture_metadata: dict[str, JsonValue] = {}
+            timing_snapshot: _RequestTimingState | None = None
+            if request_id:
+                async with self._timing_lock:
+                    timing_snapshot = self._request_timings.pop(request_id, None)
+
+            if timing_snapshot:
+                end_capture_metadata["request_timestamp"] = timing_snapshot.request_ts
+                end_capture_metadata["response_timestamp"] = end_ts
+                end_capture_metadata["latency_ms"] = (
+                    end_ts - timing_snapshot.request_ts
+                ) * 1000.0
+                if timing_snapshot.stream_start_ts is not None:
+                    end_capture_metadata["stream_duration_ms"] = (
+                        end_ts - timing_snapshot.stream_start_ts
+                    ) * 1000.0
+
+            end_request_ts_val = end_capture_metadata.get("request_timestamp")
+            end_request_ts = (
+                float(end_request_ts_val)
+                if isinstance(end_request_ts_val, int | float)
+                else None
+            )
+            end_response_ts_val = end_capture_metadata.get("response_timestamp")
+            end_response_ts = (
+                float(end_response_ts_val)
+                if isinstance(end_response_ts_val, int | float)
+                else None
+            )
+            end_latency_val = end_capture_metadata.get("latency_ms")
+            end_latency_ms = (
+                float(end_latency_val)
+                if isinstance(end_latency_val, int | float)
+                else None
+            )
+            end_stream_dur_val = end_capture_metadata.get("stream_duration_ms")
+            end_stream_duration_ms = (
+                float(end_stream_dur_val)
+                if isinstance(end_stream_dur_val, int | float)
+                else None
+            )
+
             end_metadata = CaptureMetadata(
                 session_id=stream_session_id,
                 backend=backend,
@@ -585,9 +814,18 @@ class CborWireCaptureService(IWireCapture):
                 is_stream_end=True,
                 total_chunks=chunk_count,
                 total_bytes=total_bytes,
+                status_code=base_metadata.status_code,
+                retry_after_seconds=base_metadata.retry_after_seconds,
+                retry_attempt=base_metadata.retry_attempt,
+                is_retry=base_metadata.is_retry,
+                account_id=base_metadata.account_id,
+                request_timestamp=end_request_ts,
+                response_timestamp=end_response_ts,
+                latency_ms=end_latency_ms,
+                stream_duration_ms=end_stream_duration_ms,
             )
             end_entry = CaptureEntry(
-                timestamp=_get_timestamp(),
+                timestamp=end_ts,
                 direction=CaptureDirection.BACKEND_TO_PROXY,
                 sequence=await self._get_next_sequence(),
                 data=b"",
@@ -607,6 +845,7 @@ class CborWireCaptureService(IWireCapture):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, Any] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response."""
         # Allow EoS metadata even without canonical_usage
@@ -638,6 +877,7 @@ class CborWireCaptureService(IWireCapture):
             key_name=key_name,
             canonical_usage=canonical_usage_dict,
             eos_metadata=eos_metadata,
+            capture_metadata=capture_metadata,
         )
         completion_entry = CaptureEntry(
             timestamp=_get_timestamp(),
@@ -657,6 +897,7 @@ class CborWireCaptureService(IWireCapture):
         model: str | None,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap streaming response to client for capture."""
         if not self.enabled():
@@ -665,7 +906,12 @@ class CborWireCaptureService(IWireCapture):
         self._maybe_start_flush_task()
 
         base_metadata = self._extract_context_metadata(
-            context, session_id, backend=backend, model=model, key_name=key_name
+            context,
+            session_id,
+            backend=backend,
+            model=model,
+            key_name=key_name,
+            capture_metadata=capture_metadata,
         )
 
         async def _capture_stream() -> AsyncIterator[bytes]:
@@ -683,6 +929,11 @@ class CborWireCaptureService(IWireCapture):
                 user_agent=base_metadata.user_agent,
                 request_id=base_metadata.request_id,
                 is_stream_start=True,
+                status_code=base_metadata.status_code,
+                retry_after_seconds=base_metadata.retry_after_seconds,
+                retry_attempt=base_metadata.retry_attempt,
+                is_retry=base_metadata.is_retry,
+                account_id=base_metadata.account_id,
             )
             start_entry = CaptureEntry(
                 timestamp=_get_timestamp(),
@@ -723,6 +974,11 @@ class CborWireCaptureService(IWireCapture):
                 is_stream_end=True,
                 total_chunks=chunk_count,
                 total_bytes=total_bytes,
+                status_code=base_metadata.status_code,
+                retry_after_seconds=base_metadata.retry_after_seconds,
+                retry_attempt=base_metadata.retry_attempt,
+                is_retry=base_metadata.is_retry,
+                account_id=base_metadata.account_id,
             )
             end_entry = CaptureEntry(
                 timestamp=_get_timestamp(),
@@ -737,7 +993,7 @@ class CborWireCaptureService(IWireCapture):
 
     async def _buffer_entry(self, entry: CaptureEntry) -> None:
         """Add entry to buffer for eventual flushing.
-        
+
         Does not block the caller for flushing unless explicitly requested
         via force_flush_sync().
         """
@@ -750,11 +1006,13 @@ class CborWireCaptureService(IWireCapture):
                 # for disk I/O (Requirement 7.1, 7.2 - performance and responsiveness)
                 entries_to_write = self._buffer.copy()
                 self._buffer.clear()
-                
+
                 try:
                     loop = asyncio.get_running_loop()
                     # Schedule write in executor without awaiting it
-                    loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
+                    loop.run_in_executor(
+                        None, self._write_entries_sync, entries_to_write
+                    )
                 except RuntimeError:
                     # No event loop; fallback to sync write
                     self._write_entries_sync(entries_to_write)

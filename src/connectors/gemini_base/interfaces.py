@@ -333,10 +333,7 @@ class ICredentialCoordinator(Protocol):
         ...
 
     async def refresh_if_needed(
-        self, 
-        *, 
-        force_reload: bool = False,
-        retry_after_seconds: float | None = None
+        self, *, force_reload: bool = False, retry_after_seconds: float | None = None
     ) -> bool:
         """Refresh access token if required and return success.
 
@@ -500,6 +497,7 @@ class IChatCompletionCoordinator(Protocol):
         processed_messages: list["ChatMessage"],
         *,
         effective_model: str,
+        context: Any | None = None,
     ) -> "ResponseEnvelope | StreamingResponseEnvelope":
         """Return a streaming or non-streaming response envelope.
 
@@ -634,6 +632,7 @@ class ICodeAssistOrchestrator(Protocol):
         prepared: PreparedChatRequest,
         url: str,
         token_refresher: ITokenRefresher,
+        context: Any | None = None,
         thought_signature_callback: (
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,
@@ -665,6 +664,7 @@ class ICodeAssistOrchestrator(Protocol):
         prepared: PreparedChatRequest,
         url: str,
         token_refresher: ITokenRefresher,
+        context: Any | None = None,
         thought_signature_callback: (
             Callable[[list[dict[str, Any]], str | None], None] | None
         ) = None,

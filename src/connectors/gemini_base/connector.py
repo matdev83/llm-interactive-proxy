@@ -1077,6 +1077,51 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         """Return a stable fingerprint for the currently loaded credentials."""
         return CredentialLoader.compute_credentials_fingerprint(credentials)
 
+    def _resolve_account_id_for_capture(self) -> str | None:
+        creds = self._oauth_credentials
+        if isinstance(creds, dict):
+            for key in ("account_id", "user_id", "user", "email", "client_email"):
+                value = creds.get(key)
+                if isinstance(value, str) and value:
+                    return value
+
+        if self._credentials_fingerprint:
+            return f"cred:{self._credentials_fingerprint}"
+        if self._credentials_file_hash:
+            return f"file:{self._credentials_file_hash}"
+
+        if isinstance(creds, dict):
+            with contextlib.suppress(Exception):
+                return f"cred:{self._compute_credentials_fingerprint(creds)}"
+
+        return None
+
+    def _apply_account_id_metadata(
+        self, response: ResponseEnvelope | StreamingResponseEnvelope
+    ) -> None:
+        account_id = self._resolve_account_id_for_capture()
+        if not account_id:
+            return
+        if response.metadata is None:
+            response.metadata = {}
+        response.metadata.setdefault("account_id", account_id)
+
+    def _apply_retry_metadata(
+        self,
+        response: ResponseEnvelope | StreamingResponseEnvelope,
+        context: Any | None,
+    ) -> None:
+        if context is None:
+            return
+        extensions = getattr(context, "extensions", None)
+        if not isinstance(extensions, dict):
+            return
+        for key in ("retry_attempt", "is_retry"):
+            if key in extensions:
+                if response.metadata is None:
+                    response.metadata = {}
+                response.metadata[key] = extensions[key]
+
     async def _load_oauth_credentials(
         self, force_reload: bool = False, silent: bool = False
     ) -> bool:
@@ -1568,6 +1613,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any = None,
+        context: Any | None = None,
         cancellation_token: SessionKey | None = None,
         cancellation_coordinator: (
             Any | None
@@ -1640,7 +1686,11 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 request_data=request_data,
                 processed_messages=chat_messages,
                 effective_model=model_name,
+                context=context,
             )
+
+            self._apply_account_id_metadata(response)
+            self._apply_retry_metadata(response, context)
 
             return response
 
@@ -1800,6 +1850,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         _in_graceful_degradation: bool = False,
         _auth_retry_attempted: bool = False,
         _rate_limit_retry_attempted: bool = False,
+        context: Any | None = None,
         **kwargs: Any,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Handle chat completions using the Code Assist API.
@@ -1860,6 +1911,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 request_data=request_data,
                 processed_messages=chat_messages,
                 effective_model=effective_model,
+                context=context,
             )
 
             # Validate return type matches method intent (non-streaming should return ResponseEnvelope)
@@ -1889,6 +1941,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     _in_graceful_degradation=_in_graceful_degradation,
                     _auth_retry_attempted=True,
                     _rate_limit_retry_attempted=_rate_limit_retry_attempted,
+                    context=context,
                     **kwargs,
                 )
             logger.error(f"Authentication error during API call: {e}", exc_info=True)
@@ -1905,6 +1958,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                     effective_model=effective_model,
                     _in_graceful_degradation=_in_graceful_degradation,
                     _auth_retry_attempted=True,
+                    context=context,
                     **kwargs,
                 )
 
@@ -1932,6 +1986,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         processed_messages: list[Any],
         effective_model: str,
         _rate_limit_retry_attempted: bool = False,
+        context: Any | None = None,
         **kwargs: Any,
     ) -> StreamingResponseEnvelope:
         """Handle streaming chat completions using the Code Assist API.
@@ -1994,6 +2049,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 request_data=request_data,
                 processed_messages=chat_messages,
                 effective_model=effective_model,
+                context=context,
             )
 
             # Validate return type matches method intent (streaming should return StreamingResponseEnvelope)

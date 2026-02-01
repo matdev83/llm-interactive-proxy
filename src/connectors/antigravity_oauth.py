@@ -223,6 +223,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: Any = None,
+        context: Any | None = None,
         cancellation_token: SessionKey | None = None,
         cancellation_coordinator: (
             Any | None
@@ -297,6 +298,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             processed_messages=processed_messages,
             effective_model=model_name,
             identity=identity,
+            context=context,
             openrouter_api_base_url=openrouter_api_base_url,
             openrouter_headers_provider=openrouter_headers_provider,
             key_name=key_name,

@@ -216,6 +216,7 @@ class IWireCaptureOrchestrator(ABC):
         key_name: str | None,
         response_content: dict[str, JsonValue] | bytes | None,
         canonical_usage: CanonicalUsageRecord | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture inbound response payload (best-effort).
 
@@ -239,6 +240,7 @@ class IWireCaptureOrchestrator(ABC):
         effective_model: str,
         key_name: str | None,
         stream: AsyncIterator[bytes],
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> AsyncIterator[bytes]:
         """Wrap inbound stream for wire capture.
 
@@ -265,6 +267,7 @@ class IWireCaptureOrchestrator(ABC):
         key_name: str | None,
         canonical_usage: CanonicalUsageRecord | None = None,
         eos_metadata: dict[str, JsonValue] | None = None,
+        capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
         """Capture canonical usage for completed streaming response.
 

@@ -100,6 +100,7 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
         processed_messages: list[Any],
         effective_model: str,
         identity: IAppIdentityConfig | None = None,
+        context: Any | None = None,
         cancellation_token: SessionKey | None = None,
         cancellation_coordinator: (
             Any | None
@@ -139,6 +140,7 @@ class GeminiOAuthFreeConnector(GeminiOAuthBaseConnector):
             processed_messages,
             effective_model,
             identity=identity,
+            context=context,
             openrouter_api_base_url=openrouter_api_base_url,
             openrouter_headers_provider=openrouter_headers_provider,
             key_name=key_name,

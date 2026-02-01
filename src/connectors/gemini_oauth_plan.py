@@ -141,6 +141,7 @@ class GeminiOAuthPlanConnector(GeminiOAuthBaseConnector):
             processed_messages=list(request.processed_messages),
             effective_model=request.effective_model,
             identity=request.identity,
+            context=request.context,
             cancellation_token=request.cancellation_token,
             cancellation_coordinator=request.cancellation_coordinator,
             # Pass any extra options (provider-specific) as kwargs

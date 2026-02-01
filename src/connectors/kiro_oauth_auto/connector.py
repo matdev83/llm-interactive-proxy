@@ -19,7 +19,10 @@ import httpx
 from fastapi import HTTPException
 
 from src.connectors.base import LLMBackend, add_vendor_prefix
-from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.connectors.contracts import (
+    ConnectorChatCompletionsRequest,
+    ConnectorRequestContext,
+)
 from src.connectors.kiro_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.kiro_oauth_auto.constants import (
     AMAZONQ_AMZ_TARGET,
@@ -159,6 +162,7 @@ class KiroOAuthAutoConnector(LLMBackend):
 
         # Legacy: coerce into canonical request shape as best-effort
         request_data = request
+        context = kwargs.pop("context", None)
         processed_messages = args[0] if args else kwargs.get("processed_messages", [])
         effective_model = (
             args[1] if len(args) > 1 else kwargs.get("effective_model", "")
@@ -171,7 +175,7 @@ class KiroOAuthAutoConnector(LLMBackend):
             identity=kwargs.get("identity"),
             cancellation_token=kwargs.get("cancellation_token"),
             cancellation_coordinator=kwargs.get("cancellation_coordinator"),
-            context=None,
+            context=context if isinstance(context, ConnectorRequestContext) else None,
             options=kwargs,
         )
         return await self._chat_completions_canonical(canonical)
@@ -186,6 +190,10 @@ class KiroOAuthAutoConnector(LLMBackend):
             await self._selector.get_next_account()
         except NoValidAccountsError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
+        account = self._selector.get_current_account()
+        account_id = getattr(account, "account_id", None) if account else None
+        if request.context is not None and isinstance(account_id, str) and account_id:
+            request.context.extensions["account_id"] = account_id
 
         # Effective model may include backend prefix and vendor prefix
         effective_model = request.effective_model
@@ -215,7 +223,7 @@ class KiroOAuthAutoConnector(LLMBackend):
             except Exception:
                 logger.debug("Failed to estimate prompt tokens", exc_info=True)
 
-            envelope = await integrate_streaming_pipeline(
+            stream_envelope = await integrate_streaming_pipeline(
                 raw_stream=self.stream_completion(
                     request, effective_model=effective_model
                 ),
@@ -229,8 +237,12 @@ class KiroOAuthAutoConnector(LLMBackend):
                 vtc_enabled=getattr(domain_request, "vtc_enabled", False) or False,
                 yield_interval=self.config.streaming_yield_interval,
             )
+            if isinstance(account_id, str) and account_id:
+                if stream_envelope.metadata is None:
+                    stream_envelope.metadata = {}
+                stream_envelope.metadata["account_id"] = account_id
             await self._selector.mark_current_account_used()
-            return envelope
+            return stream_envelope
 
         # Non-streaming: accumulate stream into a single response
         content_text = ""
@@ -277,9 +289,14 @@ class KiroOAuthAutoConnector(LLMBackend):
             response["choices"][0]["message"]["tool_calls"] = tool_calls  # type: ignore[index]
 
         await self._selector.mark_current_account_used()
-        return ResponseEnvelope(
+        response_envelope = ResponseEnvelope(
             content=response, status_code=200, media_type="application/json"
         )
+        if isinstance(account_id, str) and account_id:
+            if response_envelope.metadata is None:
+                response_envelope.metadata = {}
+            response_envelope.metadata["account_id"] = account_id
+        return response_envelope
 
     async def stream_completion(
         self,
