@@ -6,8 +6,33 @@ import asyncio
 import logging
 import time
 from collections.abc import Iterable
+from datetime import datetime, timezone
 
 from src.connectors.kiro_oauth_auto.constants import DEFAULT_RATE_LIMIT_SECONDS
+
+
+def _format_rate_limit_until(timestamp_ms: int | None) -> str:
+    """Format rate limit timestamp for human-readable logging.
+
+    Args:
+        timestamp_ms: Unix timestamp in milliseconds when rate limit expires.
+
+    Returns:
+        Formatted string like "2026-02-01 15:22:09 (123s)" or "None".
+    """
+    if timestamp_ms is None:
+        return "None"
+
+    now_ms = int(time.time() * 1000)
+    seconds_remaining = max((timestamp_ms - now_ms) / 1000.0, 0.0)
+
+    # Convert milliseconds to seconds for datetime
+    dt = datetime.fromtimestamp(timestamp_ms / 1000.0, tz=timezone.utc)
+    formatted_time = dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    return f"{formatted_time} ({seconds_remaining:.0f}s)"
+
+
 from src.connectors.kiro_oauth_auto.errors import (
     NoValidAccountsError,
     TokenRefreshError,
@@ -156,7 +181,7 @@ class AccountSelectorService:
             logger.info(
                 "Marked account %s rate limited until %s",
                 updated.account_id,
-                updated.rate_limited_until,
+                _format_rate_limit_until(updated.rate_limited_until),
             )
 
     def _update_account(self, account: StoredAccount) -> None:
