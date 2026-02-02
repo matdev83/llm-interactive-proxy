@@ -666,10 +666,7 @@ class ChatRequestPreparer:
 
     def _resolve_tool_output_truncation_limits(self) -> tuple[int | None, int | None]:
         if self._is_compaction_enabled():
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Skipping tool output truncation because history compaction is enabled"
-                )
+            self._log_truncation_skip()
             return None, None
 
         env_chars = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS")
@@ -716,20 +713,91 @@ class ChatRequestPreparer:
             return bool(compaction.get("enabled"))
         return bool(getattr(compaction, "enabled", False))
 
+    def _log_truncation_skip(self) -> None:
+        level = self._resolve_truncation_log_level()
+        if level is None:
+            return
+        if logger.isEnabledFor(level):
+            logger.log(
+                level,
+                "Skipping tool output truncation because history compaction is enabled",
+            )
+
+    def _resolve_truncation_log_level(self) -> int | None:
+        env_value = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL")
+        level = self._coerce_log_level(env_value)
+        if level is not None or env_value is not None:
+            return level
+
+        extras = self._get_backend_extras()
+        extra_value = (
+            extras.get("tool_output_truncation_log_level")
+            if isinstance(extras, dict)
+            else None
+        )
+        return self._coerce_log_level(extra_value)
+
+    @staticmethod
+    def _coerce_log_level(value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, int):
+            return value if value >= 0 else None
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"off", "none", "false", "0"}:
+                return None
+            level = logging.getLevelName(normalized.upper())
+            if isinstance(level, int):
+                return level
+        return None
+
     def _get_backend_extras(self) -> dict[str, Any]:
         connector = self._connector_context
         config = getattr(connector, "config", None)
         backend_type = getattr(connector, "backend_type", None)
         if not config or not backend_type:
             return {}
+
+        backend_key = str(backend_type)
+        extras = self._lookup_backend_extras(config, backend_key)
+        if extras:
+            return extras
+
+        alt_key = self._alternate_backend_key(backend_key)
+        if alt_key:
+            alt_extras = self._lookup_backend_extras(config, alt_key)
+            if alt_extras:
+                return alt_extras
+            if isinstance(alt_extras, dict):
+                return alt_extras
+
+        if isinstance(extras, dict):
+            return extras
+        return {}
+
+    @staticmethod
+    def _lookup_backend_extras(config: Any, backend_key: str) -> dict[str, Any] | None:
         try:
-            backend_config = config.backends.get(str(backend_type))
+            backends = config.backends
+            if hasattr(backends, "lookup"):
+                backend_config = backends.lookup(backend_key)
+            else:
+                backend_config = backends.get(backend_key)
         except Exception:
             backend_config = None
         extras = getattr(backend_config, "extra", None) if backend_config else None
         if isinstance(extras, dict):
             return extras
-        return {}
+        return None
+
+    @staticmethod
+    def _alternate_backend_key(backend_key: str) -> str | None:
+        if "-" in backend_key:
+            return backend_key.replace("-", "_")
+        if "_" in backend_key:
+            return backend_key.replace("_", "-")
+        return None
 
     @staticmethod
     def _coerce_bool(value: Any) -> bool | None:

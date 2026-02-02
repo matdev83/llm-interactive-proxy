@@ -78,7 +78,35 @@ class BackendRegistry:
         with self._lock:
             factory = self._factories.get(name)
             if not factory:
-                raise ValueError(f"Backend '{name}' is not registered.")
+                # Enhanced error message for OAuth connectors in Multi User Mode (Requirement 6.5)
+                error_msg = f"Backend '{name}' is not registered."
+
+                # Check if this is an OAuth connector that was skipped in Multi User Mode
+                try:
+                    from src.connectors import (
+                        get_skipped_oauth_connectors,
+                        is_running_in_multi_user_mode,
+                    )
+
+                    if is_running_in_multi_user_mode():
+                        skipped = get_skipped_oauth_connectors()
+                        # Check if the requested backend matches any skipped connector
+                        # (handle both module name format and backend name format)
+                        if any(
+                            name in connector or connector.replace("_", "-") == name
+                            for connector in skipped
+                        ):
+                            error_msg = (
+                                f"Backend '{name}' is not available in Multi User Mode. "
+                                f"OAuth-based connectors are blocked in production deployments to prevent "
+                                f"use of personal credentials. Use --single-user-mode for local development, "
+                                f"or configure a non-OAuth backend with static API keys."
+                            )
+                except ImportError:
+                    # If connectors module not loaded yet, use generic message
+                    pass
+
+                raise ValueError(error_msg)
             return factory
 
     def get_registered_backends(self) -> list[str]:

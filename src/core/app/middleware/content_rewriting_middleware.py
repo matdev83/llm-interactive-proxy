@@ -1,5 +1,6 @@
 import json
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -461,7 +462,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
                 )
 
             # If body was consumed, we must create a new request
-            async def receive():
+            async def receive() -> dict[str, Any]:
                 return {"type": "http.request", "body": body_bytes, "more_body": False}
 
             request_for_next_call = Request(scope_for_next_call, receive)
@@ -472,7 +473,7 @@ class ContentRewritingMiddleware(BaseHTTPMiddleware):
         # Step 3: Potentially rewrite the response
         if isinstance(response, StreamingResponse):
 
-            async def new_iterator():
+            async def new_iterator() -> AsyncIterator[bytes]:
                 import logging
 
                 logger = logging.getLogger(__name__)

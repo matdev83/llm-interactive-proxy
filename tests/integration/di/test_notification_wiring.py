@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
+from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.di.registrations import register_all
 from src.core.interfaces.notification_service_interface import INotificationService
 from src.core.services.notification_service import NotificationService
-from src.core.config.app_config import AppConfig
 
 
 def test_notification_service_is_registered_and_resolvable():
@@ -41,5 +40,7 @@ def test_notification_service_wired_with_default_provider():
     # Check if provider is set (internal attribute)
     assert hasattr(notif_service, "_provider")
     assert notif_service._provider is not None
-    from src.core.services.notifications.providers.desktop_notifier import DesktopNotifierProvider
+    from src.core.services.notifications.providers.desktop_notifier import (
+        DesktopNotifierProvider,
+    )
     assert isinstance(notif_service._provider, DesktopNotifierProvider)

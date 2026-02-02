@@ -171,6 +171,14 @@ def load_capture_file(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]
                 entries.append(entry)
             except (EOFError, cbor2.CBORDecodeEOF):
                 break
+            except cbor2.CBORDecodeError as e:
+                # Best-effort read: some captures can contain invalid UTF-8 text items.
+                # Keep the successfully decoded prefix so the inspector can still be useful.
+                print(
+                    f"WARNING: stopping early due to CBOR decode error after {len(entries)} entries: {e}",
+                    file=sys.stderr,
+                )
+                break
     return header, entries
 
 

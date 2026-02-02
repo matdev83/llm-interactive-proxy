@@ -25,16 +25,13 @@ import time
 from pathlib import Path
 from typing import Any, cast
 
-
 import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 from src.connectors.base import strip_vendor_prefix
 from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.gemini_base.credential_providers import (
-
     AntigravitySQLiteCredentialProvider,
 )
 from src.connectors.gemini_base.endpoints import AntigravitySandboxEndpoint
@@ -43,7 +40,6 @@ from src.connectors.gemini_base.project_discovery import AntigravityProjectDisco
 from src.connectors.gemini_base.request_builders import AntigravityRequestBodyBuilder
 from src.connectors.gemini_base.response_processors import XmlToolCallPostProcessor
 from src.core.common.exceptions import BackendError
-
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import (
     CanonicalChatResponse,
@@ -55,7 +51,6 @@ from src.core.domain.chat import (
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_registry import backend_registry
-
 from src.core.services.translation_service import TranslationService
 
 # Vendor prefixes that need to be stripped for Antigravity backend
@@ -757,7 +752,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
             if self._is_account_blocked_error(e):
                 self.mark_auth_invalid(e.message)
                 # Ensure AuthErrorHandler knows this is a personal backend
-                setattr(e, "__resilience_context__", {"is_personal_backend": True})
+                e.__resilience_context__ = {"is_personal_backend": True}
 
             if (
                 getattr(e, "status_code", None) == 429

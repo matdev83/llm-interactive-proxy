@@ -2,12 +2,14 @@
 Tests for Antigravity OAuth connector account block handling and feature parity.
 """
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
 from src.connectors.antigravity_oauth import AntigravityOAuthConnector
-from src.core.common.exceptions import BackendError
-from src.core.domain.chat import ChatMessage, CanonicalChatRequest
 from src.connectors.contracts import ConnectorChatCompletionsRequest
+from src.core.common.exceptions import BackendError
+from src.core.domain.chat import CanonicalChatRequest, ChatMessage
+
 
 @pytest.fixture
 def mock_client():
@@ -109,7 +111,7 @@ class TestAntigravityParity:
             connector.record_rate_limit.assert_called_once()
             
             # Verify flag is set on error object
-            assert getattr(exc_info.value, "__rate_limit_recorded__") is True
+            assert exc_info.value.__rate_limit_recorded__ is True
             
             # Second call with SAME error object (re-raised) should NOT call record_rate_limit again
             connector.record_rate_limit.reset_mock()

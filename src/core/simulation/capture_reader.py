@@ -134,6 +134,17 @@ class CaptureReader:
                 entries.append(entry)
             except cbor2.CBORDecodeEOF:
                 break
+            except cbor2.CBORDecodeError as e:
+                # Best-effort loading: captures may contain invalid UTF-8 text items.
+                # Keep the successfully decoded prefix rather than failing the entire file.
+                logger.warning(
+                    "Stopping capture load early due to CBOR decode error after %d entries at file_pos=%d: %s",
+                    len(entries),
+                    f.tell(),
+                    e,
+                    exc_info=True,
+                )
+                break
 
         logger.debug(
             f"Loaded capture file: {len(entries)} entries, session_id={header.session_id}"

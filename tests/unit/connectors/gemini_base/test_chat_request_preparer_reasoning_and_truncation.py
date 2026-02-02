@@ -18,11 +18,16 @@ from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 
 
 class MockConnectorContext(IConnectorContext):
-    def __init__(self, *, config: AppConfig | None = None):
+    def __init__(
+        self,
+        *,
+        config: AppConfig | None = None,
+        backend_type: str = "gemini-oauth-auto",
+    ):
         self._creds = {"access_token": "fake-token"}
         self._refresh_token_if_needed_mock = AsyncMock(return_value=True)
         self.config = config
-        self.backend_type = "gemini-oauth-auto"
+        self.backend_type = backend_type
 
     @property
     def _oauth_credentials(self):
@@ -257,3 +262,47 @@ async def test_prepare_skips_truncation_when_compaction_enabled(
     content = prepared.canonical_request.messages[0].content
     assert isinstance(content, str)
     assert content == long_output
+
+
+@pytest.mark.asyncio
+async def test_prepare_uses_underscore_backend_key_extras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS", raising=False)
+    monkeypatch.delenv("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES", raising=False)
+    config = AppConfig()
+    config.backends["antigravity_oauth"] = BackendConfig(
+        extra={"tool_output_truncate_chars": 40}
+    )
+
+    context = MockConnectorContext(config=config, backend_type="antigravity-oauth")
+    converter = MockMessageConverter()
+    limiter = MockPromptLimiter()
+    builder = MockRequestBodyBuilder()
+
+    translation_service = MagicMock()
+    translation_service.from_domain_to_gemini_request = MagicMock(
+        return_value={"contents": []}
+    )
+
+    preparer = ChatRequestPreparer(
+        connector_context=context,
+        message_converter=converter,
+        prompt_limiter=limiter,
+        request_body_builder=builder,
+        translation_service=translation_service,
+    )
+
+    long_output = "x" * 200
+    request_data = CanonicalChatRequest(
+        model="gemini-2.5-pro",
+        session_id="sess-5",
+        messages=[ChatMessage(role="tool", content=long_output)],
+    )
+
+    prepared = await preparer.prepare(request_data, "gemini-2.5-pro")
+
+    truncated = prepared.canonical_request.messages[0].content
+    assert isinstance(truncated, str)
+    assert len(truncated) < len(long_output)
+    assert "CONTENT TRUNCATED" in truncated
