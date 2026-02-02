@@ -5,8 +5,10 @@ import re
 import threading
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from src.core.interfaces.notification_service_interface import INotificationService
 from src.core.domain.angel import AngelDecision
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.chat_history_utils import stringify_tool_calls_and_results
@@ -35,10 +37,6 @@ class _ModelHealth:
 # Health state for Angel models (model_spec -> _ModelHealth)
 _model_health: dict[str, _ModelHealth] = {}
 _health_lock = threading.Lock()
-
-# Circuit breaker settings
-_MAX_CONSECUTIVE_FAILURES = 3
-_COOL_DOWN_PERIOD = timedelta(minutes=5)
 
 
 def get_prompt_loader() -> AngelPromptLoader:
@@ -70,9 +68,19 @@ class AngelService:
         r"<angels_steering_message>([\s\S]*?)</angels_steering_message>", re.IGNORECASE
     )
 
-    def __init__(self, model_spec: str | None, max_history: int | None = None) -> None:
+    def __init__(
+        self,
+        model_spec: str | None,
+        max_history: int | None = None,
+        max_consecutive_failures: int = 5,
+        cooldown_seconds: int = 300,
+        notification_service: INotificationService | None = None,
+    ) -> None:
         self._model_spec = (model_spec or "").strip()
         self._max_history = max_history
+        self._max_consecutive_failures = max_consecutive_failures
+        self._cooldown_seconds = cooldown_seconds
+        self._notification_service = notification_service
 
     def is_enabled(self) -> bool:
         return bool(self._model_spec and self._model_spec.strip())
@@ -100,7 +108,7 @@ class AngelService:
 
             return False
 
-    def report_success(self) -> None:
+    async def report_success(self) -> None:
         """Report a successful call to the Angel model to reset health state."""
         if not self.is_enabled():
             return
@@ -112,7 +120,7 @@ class AngelService:
                 )
                 del _model_health[self._model_spec]
 
-    def report_failure(self) -> None:
+    async def report_failure(self) -> None:
         """Report a failed call to the Angel model to update health state."""
         if not self.is_enabled():
             return
@@ -124,21 +132,41 @@ class AngelService:
                 _model_health[self._model_spec] = health
 
             health.consecutive_failures += 1
-            if health.consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
-                health.unhealthy_until = datetime.now() + _COOL_DOWN_PERIOD
+            if health.consecutive_failures >= self._max_consecutive_failures:
+                unhealthy_until = datetime.now() + timedelta(
+                    seconds=self._cooldown_seconds
+                )
+                health.unhealthy_until = unhealthy_until
+                
                 logger.warning(
                     "Angel model %s reached %d consecutive failures; "
                     "tripping circuit breaker until %s",
                     self._model_spec,
                     health.consecutive_failures,
-                    health.unhealthy_until.isoformat(),
+                    unhealthy_until.isoformat(),
                 )
+
+                # Send desktop notification if service is available
+                if self._notification_service:
+                    try:
+                        title = "Angel Verification Disabled"
+                        message = (
+                            f"Model '{self._model_spec}' reached {health.consecutive_failures} "
+                            f"consecutive failures. Angel is disabled until {unhealthy_until.strftime('%H:%M:%S')}."
+                        )
+                        # Fire and forget notification
+                        import asyncio
+                        asyncio.create_task(
+                            self._notification_service.send_notification(title, message)
+                        )
+                    except Exception as e:
+                        logger.debug("Failed to send Angel failure notification: %s", e)
             else:
                 logger.debug(
                     "Angel model %s failure recorded (%d/%d)",
                     self._model_spec,
                     health.consecutive_failures,
-                    _MAX_CONSECUTIVE_FAILURES,
+                    self._max_consecutive_failures,
                 )
 
     @staticmethod

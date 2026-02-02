@@ -8,6 +8,7 @@ import re
 from collections.abc import AsyncIterator
 from typing import Any
 
+
 from pydantic.types import JsonValue
 
 from src.core.common.exceptions import (
@@ -199,13 +200,35 @@ class ResponseProcessor(IResponseProcessor):
                     model_spec = getattr(session_cfg, "angel_model", None)
                     frequency_value = getattr(session_cfg, "angel_frequency", 10)
                     max_history_value = getattr(session_cfg, "angel_max_history", None)
+                    max_consecutive_failures = getattr(
+                        session_cfg, "angel_max_consecutive_failures", 5
+                    )
+                    cooldown_seconds = getattr(session_cfg, "angel_cooldown_seconds", 300)
                 except (AttributeError, TypeError, KeyError):
                     model_spec = None
                     frequency_value = 10
                     max_history_value = None
-                angel_svc = AngelService(
-                    model_spec or "", max_history=max_history_value
+                    max_consecutive_failures = 5
+                    cooldown_seconds = 300
+
+                from typing import cast
+                from src.core.di.services import get_service
+                from src.core.interfaces.notification_service_interface import (
+                    INotificationService,
                 )
+
+                notification_service = get_service(
+                    cast(Any, INotificationService)
+                )  # type: ignore[type-abstract]
+
+                angel_svc = AngelService(
+                    model_spec or "",
+                    max_history=max_history_value,
+                    max_consecutive_failures=max_consecutive_failures,
+                    cooldown_seconds=cooldown_seconds,
+                    notification_service=notification_service,
+                )
+
 
                 if not angel_svc.is_enabled() or not angel_svc.is_healthy():
                     if not angel_svc.is_enabled():
@@ -291,12 +314,13 @@ class ResponseProcessor(IResponseProcessor):
                 if session_key:
                     self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            from typing import cast
+            from typing import Any, cast
 
             provider = get_service_provider()
             backend_service: IBackendService = provider.get_required_service(  # type: ignore[reportUnknownVariableType]
-                cast(type, IBackendService)
+                cast(Any, IBackendService)
             )
+
 
             def _extract_text(payload: Any) -> str:
                 if payload is None:
@@ -311,6 +335,7 @@ class ResponseProcessor(IResponseProcessor):
                         return value.decode("utf-8", errors="ignore")
                 return str(value)
 
+
             # Call Angel model with fail-open
             try:
                 angel_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
@@ -320,9 +345,11 @@ class ResponseProcessor(IResponseProcessor):
                     context=request_context,
                 )
                 angel_text = _extract_text(angel_response)
-                svc.report_success()
+                await svc.report_success()
+
             except Exception as e:
-                svc.report_failure()
+                await svc.report_failure()
+
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Angel model call failed (%s); failing-open",
@@ -357,17 +384,16 @@ class ResponseProcessor(IResponseProcessor):
                 )
 
                 # Get registry and identity service from provider
-                get_service = getattr(provider, "get_service", None)
-                non_forwardable_registry = (
-                    get_service(cast(type, INonForwardableMessageRegistry))
-                    if callable(get_service)
-                    else None
-                )
-                non_forwardable_identity_service = (
-                    get_service(cast(type, INonForwardableMessageIdentityService))
-                    if callable(get_service)
-                    else None
-                )
+                non_forwardable_registry = None
+                non_forwardable_identity_service = None
+                
+                if provider:
+                    non_forwardable_registry = provider.get_service(
+                        cast(type, INonForwardableMessageRegistry)
+                    )
+                    non_forwardable_identity_service = provider.get_service(
+                        cast(type, INonForwardableMessageIdentityService)
+                    )
 
                 # Find the steering message (last user message with steering marker)
                 steering_message = None

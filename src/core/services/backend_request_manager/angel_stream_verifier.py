@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 from src.core.domain.backend_request_manager.context_models import StreamingContext
 from src.core.domain.chat import ChatRequest
@@ -123,6 +123,10 @@ class AngelStreamVerifier(IAngelStreamVerifier):
         angel_model_spec: str | None = context.get("angel_model_spec")
         angel_frequency: int = context.get("angel_frequency", 10)
         angel_max_history: int | None = context.get("angel_max_history")
+        angel_max_consecutive_failures: int = context.get(
+            "angel_max_consecutive_failures", 5
+        )
+        angel_cooldown_seconds: int = context.get("angel_cooldown_seconds", 300)
         eligible_turn_count: int | None = context.get("angel_eligible_turn_count")
         skip_verification: bool = bool(context.get("angel_skip_verification"))
 
@@ -160,9 +164,22 @@ class AngelStreamVerifier(IAngelStreamVerifier):
 
         if should_run:
             try:
-                angel_service_instance = self._angel_service_factory.create(
-                    angel_model_spec, max_history=angel_max_history
+                from src.core.interfaces.notification_service_interface import (
+                    INotificationService,
                 )
+
+                notification_service = self._provider.get_service(
+                    cast(Any, INotificationService)
+                )
+
+                angel_service_instance = self._angel_service_factory.create(
+                    angel_model_spec,
+                    max_history=angel_max_history,
+                    max_consecutive_failures=angel_max_consecutive_failures,
+                    cooldown_seconds=angel_cooldown_seconds,
+                    notification_service=notification_service,
+                )
+
                 if (
                     angel_service_instance is not None
                     and angel_service_instance.is_enabled()
@@ -241,17 +258,29 @@ class AngelStreamVerifier(IAngelStreamVerifier):
 
         # Perform verification
         try:
-            from typing import cast
-
             backend_service: IBackendService = self._provider.get_required_service(
                 cast(type, IBackendService)
             )
 
+
             if not angel_service_instance:
                 # Should not happen given the check above, but safe fallback
-                created_instance = self._angel_service_factory.create(
-                    angel_model_spec or "", max_history=angel_max_history
+                from src.core.interfaces.notification_service_interface import (
+                    INotificationService,
                 )
+
+                notification_service = self._provider.get_service(
+                    cast(Any, INotificationService)
+                )
+
+                created_instance = self._angel_service_factory.create(
+                    angel_model_spec or "",
+                    max_history=angel_max_history,
+                    max_consecutive_failures=angel_max_consecutive_failures,
+                    cooldown_seconds=angel_cooldown_seconds,
+                    notification_service=notification_service,
+                )
+
                 if created_instance is None:
                     # Fail-open: return original chunks if service creation fails
                     for buffered in buffered_chunks:
@@ -286,11 +315,11 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 angel_text = self._extract_text_from_response(angel_response)
                 # Success!
                 if angel_service_instance:
-                    angel_service_instance.report_success()
+                    await angel_service_instance.report_success()
             except Exception as e:
                 # Fail-open if Angel model call fails (400, 429, 500, etc.)
                 if angel_service_instance:
-                    angel_service_instance.report_failure()
+                    await angel_service_instance.report_failure()
 
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
@@ -318,9 +347,8 @@ class AngelStreamVerifier(IAngelStreamVerifier):
 
             # Tag the angel steering message as non-forwardable and set injection boundary
             if correction_request.messages and request_context:
-                from typing import cast
-
                 from src.core.domain.non_forwardable import NonForwardableTagScope
+
                 from src.core.interfaces.non_forwardable_interface import (
                     INonForwardableMessageIdentityService,
                     INonForwardableMessageRegistry,
