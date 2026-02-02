@@ -46,6 +46,9 @@ from src.connectors.gemini_oauth_auto.interfaces import (
     ITokenStorage,
 )
 from src.connectors.gemini_oauth_auto.models import StoredAccount
+from src.connectors.gemini_oauth_auto.verification_url_extractor import (
+    extract_first_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -679,11 +682,11 @@ class AccountSelectorService(IAccountSelector):
             self.rotation_index,
         )
 
-    async def _send_block_notification(self, account_id: str, reason: str) -> None:
+    async def _send_block_notification(self, account: StoredAccount, reason: str) -> None:
         """Send OS notification when account gets blocked.
 
         Args:
-            account_id: The account ID that was blocked.
+            account: The account that was blocked.
             reason: Reason why the account is being blocked.
         """
         if self._notification_service is None:
@@ -693,17 +696,24 @@ class AccountSelectorService(IAccountSelector):
         available_accounts = self._get_available_accounts()
         other_accounts_count = len(available_accounts)
 
-        # Build message with other available accounts info
-        message = f"Account {account_id[:8]}... requires verification: {reason[:80]}"
+        verification_url = extract_first_url(reason)
+        identity_str = account.email or account.account_id
+
+        message = f"Gemini OAuth account '{identity_str}' requires additional verification."
+        if verification_url:
+            message += f"\n\nVerify: {verification_url}"
+
         if other_accounts_count > 0:
-            message += f" (Other available accounts: {other_accounts_count})"
+            message += f"\n\nOther available accounts: {other_accounts_count}"
         else:
-            message += " (No other accounts available!)"
+            message += "\n\nNo other accounts available!"
 
         try:
             await self._notification_service.send_notification(
-                title="Gemini OAuth Account Blocked",
+                title="Gemini OAuth account needs verification",
                 message=message,
+                url=verification_url,
+                url_label="Verify account",
             )
         except Exception as e:
             logger.debug("Failed to send block notification: %s", e)
@@ -726,7 +736,7 @@ class AccountSelectorService(IAccountSelector):
                 reason,
             )
             # Send OS notification (only once per blocking event)
-            await self._send_block_notification(account_id, reason)
+            await self._send_block_notification(self._current_account, reason)
             if self._session_affinity:
                 sessions_to_clear = [
                     session

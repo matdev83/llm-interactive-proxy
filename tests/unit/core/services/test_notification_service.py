@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from src.core.config.models.notification import NotificationConfig
 from src.core.services.notification_service import NotificationService
-from src.core.services.notifications.providers.desktop_notifier import DesktopNotifierProvider
+from src.core.services.notifications.providers.desktop_notifier import (
+    DesktopNotifierProvider,
+)
 
 
 @pytest.fixture
@@ -32,7 +34,7 @@ async def test_notification_service_delegates_to_provider(mock_config):
     result = await service.send_notification("Title", "Message")
 
     assert result == "sent-id"
-    mock_provider.send.assert_called_once_with(title="Title", message="Message")
+    mock_provider.send.assert_called_once_with(title="Title", message="Message", url=None, url_label="Open link")
 
 
 @pytest.mark.asyncio
@@ -59,7 +61,7 @@ async def test_desktop_notifier_provider_sends():
         result = await provider.send("Title", "Message")
 
         assert result == "notif-123"
-        mock_notifier.send.assert_called_once_with(title="Title", message="Message")
+        mock_notifier.send.assert_called_once_with(title="Title", message="Message", buttons=(), on_clicked=None)
 
 
 @pytest.mark.asyncio

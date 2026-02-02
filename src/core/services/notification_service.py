@@ -6,11 +6,15 @@ import logging
 from typing import TYPE_CHECKING
 
 from src.core.interfaces.notification_service_interface import INotificationService
-from src.core.services.notifications.providers.desktop_notifier import DesktopNotifierProvider
+from src.core.services.notifications.providers.desktop_notifier import (
+    DesktopNotifierProvider,
+)
 
 if TYPE_CHECKING:
     from src.core.config.models.notification import NotificationConfig
-    from src.core.interfaces.notification_provider_interface import INotificationProvider
+    from src.core.interfaces.notification_provider_interface import (
+        INotificationProvider,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +58,14 @@ class NotificationService(INotificationService):
         else:
             logger.debug("NotificationService initialized (enabled=False)")
 
-    async def send_notification(self, title: str, message: str) -> str | None:
+    async def send_notification(
+        self,
+        title: str,
+        message: str,
+        *,
+        url: str | None = None,
+        url_label: str = "Open link",
+    ) -> str | None:
         """Send a notification if enabled.
 
         Delegates actual delivery to the injected provider.
@@ -63,7 +74,12 @@ class NotificationService(INotificationService):
             return None
 
         try:
-            return await self._provider.send(title=title, message=message)
+            return await self._provider.send(
+                title=title,
+                message=message,
+                url=url,
+                url_label=url_label,
+            )
         except Exception as e:
             logger.debug("NotificationService provider failed: %s", e)
             return None
