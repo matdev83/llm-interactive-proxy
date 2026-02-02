@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any, TypeVar
 
@@ -52,6 +53,62 @@ from src.core.transport.fastapi.adapters.usage.header_injector import (
 T = TypeVar("T")
 
 logger = logging.getLogger(__name__)
+
+_STREAM_DISCONNECT_CLOSE_TIMEOUT_S = 1.0
+_STREAM_DISCONNECT_SLOW_CLOSE_THRESHOLD_S = 0.5
+
+
+def _schedule_stream_close(
+    stream: Any,
+    *,
+    name: str,
+    request_id: str | None,
+) -> None:
+    if stream is None:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Skipping stream cleanup scheduling; no running event loop",
+                exc_info=True,
+            )
+        return
+
+    async def _close() -> None:
+        start = time.perf_counter()
+        try:
+            await safe_aclose(stream, timeout_s=_STREAM_DISCONNECT_CLOSE_TIMEOUT_S)
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Stream cleanup failed for %s: %s",
+                    name,
+                    exc,
+                    exc_info=True,
+                )
+        finally:
+            duration_s = time.perf_counter() - start
+            if duration_s >= _STREAM_DISCONNECT_SLOW_CLOSE_THRESHOLD_S:
+                extra = {"request_id": request_id} if request_id else None
+                logger.warning(
+                    "Slow stream cleanup after client disconnect: stream=%s duration_ms=%.2f",
+                    name,
+                    duration_s * 1000.0,
+                    extra=extra,
+                )
+
+    try:
+        task = loop.create_task(_close())
+        task.add_done_callback(lambda t: t.exception())
+    except RuntimeError:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to schedule stream cleanup task",
+                exc_info=True,
+            )
+
 
 # Lazy singleton instances
 _json_builder: JSONResponseBuilder | None = None
@@ -596,6 +653,11 @@ def to_fastapi_streaming_response(
     envelope_metadata: dict[str, JsonValue] = (
         domain_response.metadata if isinstance(domain_response.metadata, dict) else {}
     )
+    request_id: str | None = None
+    if context is not None:
+        rid = getattr(context, "request_id", None)
+        if rid is not None:
+            request_id = str(rid)
 
     content_iter = domain_response.content
     if content_iter is None:
@@ -655,7 +717,11 @@ def to_fastapi_streaming_response(
                     )
             except GeneratorExit:
                 # Close the source iterator if it supports aclose
-                await safe_aclose(source)
+                _schedule_stream_close(
+                    source,
+                    name="source_iter",
+                    request_id=request_id,
+                )
                 raise
 
         async_stream = _ensure_async_iterator(content_iter)
@@ -680,13 +746,17 @@ def to_fastapi_streaming_response(
             async for sse_chunk in sse_bytes_iter:
                 chunk_count += 1
                 yield sse_chunk
-                
+
                 # Yield to event loop periodically to maintain responsiveness
                 if chunk_count % yield_interval == 0:
                     await asyncio.sleep(0)
         except GeneratorExit:
             # Client disconnected - clean up the SSE iterator
-            await safe_aclose(sse_bytes_iter)
+            _schedule_stream_close(
+                sse_bytes_iter,
+                name="sse_bytes_iter",
+                request_id=request_id,
+            )
             raise
 
     # Inject canonical usage headers if available (Requirement 5.5)

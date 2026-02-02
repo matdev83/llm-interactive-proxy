@@ -242,6 +242,8 @@ class BufferedWireCapture(IWireCapture):
         # Internal state
         self._buffers: dict[str, list[WireCaptureEntry]] = defaultdict(list)
         self._buffer_lock = asyncio.Lock()
+        self._file_lock = asyncio.Lock()  # Protects disk I/O and rotation
+        self._active_flushes: set[asyncio.Task[Any]] = set()  # Track background flush tasks
         self._flush_task: asyncio.Task[None] | None = None
         self._last_flush_time: float = time.time()
         self._total_bytes_written: int = 0
@@ -493,7 +495,7 @@ class BufferedWireCapture(IWireCapture):
         backend: str,
         model: str,
         key_name: str | None,
-        response_content: dict[str, JsonValue] | bytes | None,
+        response_content: Any,
         canonical_usage: CanonicalUsageRecord | None = None,
         capture_metadata: dict[str, JsonValue] | None = None,
     ) -> None:
@@ -908,6 +910,7 @@ class BufferedWireCapture(IWireCapture):
 
         Does not block the caller for flushing unless explicitly requested.
         """
+        entries_to_flush: list[WireCaptureEntry] | None = None
         async with self._buffer_lock:
             # Use session_id or 'default' as key
             key = entry.session_id or "default"
@@ -916,11 +919,6 @@ class BufferedWireCapture(IWireCapture):
             # clean up empty buffers first
             if key not in self._buffers and len(self._buffers) >= self._max_buffer_keys:
                 self._cleanup_empty_buffers_locked()
-
-            # Enforce limit: if still at capacity with a new key, force flush to free space
-            if len(self._buffers) >= self._max_buffer_keys and key not in self._buffers:
-                # Snapshot and flush in background
-                await self._flush_buffer_no_lock()
 
             self._buffers[key].append(entry)
 
@@ -932,49 +930,50 @@ class BufferedWireCapture(IWireCapture):
             )
 
             if should_flush:
-                # Snapshot and flush in background to avoid blocking the stream
-                await self._flush_buffer_no_lock()
+                entries_to_flush = self._snapshot_and_clear_locked()
 
-    async def _flush_buffer_no_lock(self) -> None:
-        """Internal helper to flush buffer without blocking the caller.
+        if entries_to_flush:
+            # We flush asynchronously but we DON'T await it here to avoid blocking
+            # the request processing. However, we track it for shutdown.
+            try:
+                loop = asyncio.get_running_loop()
+                task = loop.create_task(self._flush_entries_async(entries_to_flush))
+                self._active_flushes.add(task)
+                task.add_done_callback(self._active_flushes.discard)
+            except RuntimeError:
+                # No loop, do it sync
+                self._write_entries_sync(entries_to_flush)
 
-        Assumes buffer lock is held by the caller.
-        """
-        if not self._buffers or not self._file_path:
-            return
+    def _snapshot_and_clear_locked(self) -> list[WireCaptureEntry]:
+        """Take a snapshot of all buffers and clear them. Must hold buffer_lock."""
+        if not self._buffers:
+            return []
 
-        # Take snapshot of buffers and clear them
-        entries_to_write: list[WireCaptureEntry] = []
-
+        entries: list[WireCaptureEntry] = []
         for key in list(self._buffers.keys()):
-            entries_to_write.extend(self._buffers[key])
+            entries.extend(self._buffers[key])
             self._buffers[key].clear()
 
-        # Remove empty keys to prevent dict from growing indefinitely
         self._buffers.clear()
         self._last_flush_time = time.time()
+        return entries
 
-        if not entries_to_write:
+    async def _flush_entries_async(self, entries: list[WireCaptureEntry]) -> None:
+        """Asynchronously write entries to disk and handle rotation."""
+        if not entries or not self._file_path:
             return
 
         # Sort by timestamp and sequence to maintain stable order in file
-        entries_to_write.sort(key=lambda x: (x.timestamp_unix, x.sequence))
+        entries.sort(key=lambda x: (x.timestamp_unix, x.sequence))
 
-        try:
-            loop = asyncio.get_running_loop()
-            # Schedule write in executor without awaiting it
-            loop.run_in_executor(None, self._write_entries_sync, entries_to_write)
-        except RuntimeError:
-            # No event loop; fallback to sync write
-            self._write_entries_sync(entries_to_write)
+        async with self._file_lock:
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, self._write_entries_sync, entries)
+                await self._check_rotation()
+            except RuntimeError:
+                self._write_entries_sync(entries)
 
-        # Check for rotation after writing (must be done in a thread or task)
-        try:
-            loop = asyncio.get_running_loop()
-            rotation_task = loop.create_task(self._check_rotation())
-            rotation_task.add_done_callback(lambda t: t.exception())
-        except RuntimeError:
-            pass
 
     def _cleanup_empty_buffers_locked(self) -> None:
         """Remove empty buffers to free up space. Must be called with lock held."""
@@ -988,8 +987,15 @@ class BufferedWireCapture(IWireCapture):
 
     async def _flush_buffer(self) -> None:
         """Public async flush method (with locking)."""
+        entries = None
         async with self._buffer_lock:
-            await self._flush_buffer_no_lock()
+            entries = self._snapshot_and_clear_locked()
+        if entries:
+            await self._flush_entries_async(entries)
+
+        # Wait for all background flushes to complete to ensure file consistency
+        if self._active_flushes:
+            await asyncio.gather(*self._active_flushes, return_exceptions=True)
 
     def _write_entries_sync(self, entries: list[WireCaptureEntry]) -> None:
         """Synchronously write entries to file."""
@@ -1133,9 +1139,16 @@ class BufferedWireCapture(IWireCapture):
                     # Check again after sleep in case we were disabled during sleep
                     if not self._enabled:
                         break
+                    entries = None
                     async with self._buffer_lock:
                         if any(self._buffers.values()):
-                            await self._flush_buffer()
+                            entries = self._snapshot_and_clear_locked()
+                    if entries:
+                        # Use shield and track in active_flushes to ensure completion even during shutdown
+                        flush_task = asyncio.create_task(self._flush_entries_async(entries))
+                        self._active_flushes.add(flush_task)
+                        flush_task.add_done_callback(self._active_flushes.discard)
+                        await asyncio.shield(flush_task)
                 except asyncio.CancelledError:
                     break
                 except OSError as e:
@@ -1159,9 +1172,12 @@ class BufferedWireCapture(IWireCapture):
         finally:
             if self._enabled:
                 try:
+                    entries = None
                     async with self._buffer_lock:
                         if any(self._buffers.values()):
-                            await self._flush_buffer_no_lock()
+                            entries = self._snapshot_and_clear_locked()
+                    if entries:
+                        await self._flush_entries_async(entries)
                 except OSError as e:
 
                     logger.warning(
@@ -1205,9 +1221,16 @@ class BufferedWireCapture(IWireCapture):
         self._flush_task = None
 
         # Final flush
+        entries = None
         async with self._buffer_lock:
             if any(self._buffers.values()):
-                await self._flush_buffer_no_lock()
+                entries = self._snapshot_and_clear_locked()
+        if entries:
+            await self._flush_entries_async(entries)
+
+        # Wait for all background flushes to complete
+        if self._active_flushes:
+            await asyncio.gather(*self._active_flushes, return_exceptions=True)
 
         # PERFORMANCE OPTIMIZATION: Clean up cache to prevent memory leaks
 

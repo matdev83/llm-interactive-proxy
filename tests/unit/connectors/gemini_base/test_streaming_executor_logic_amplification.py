@@ -1,10 +1,12 @@
 
 import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 from src.connectors.gemini_base.streaming_executor import StreamingExecutor
 from src.core.common.exceptions import BackendError
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+
 
 class MockRetryContext:
     def __init__(self):
@@ -13,7 +15,7 @@ class MockRetryContext:
 @pytest.mark.asyncio
 async def test_streaming_executor_generator_exit_logging_deduplication():
     """Verify that GeneratorExit is logged only once during nested unwinding."""
-    executor = StreamingExecutor(translation_service=MagicMock())
+    StreamingExecutor(translation_service=MagicMock())
     context = MockRetryContext()
     
     # We want to check if logger.debug is called only once
@@ -62,7 +64,7 @@ async def test_streaming_executor_rate_limit_recording_deduplication():
     is_429 = getattr(err, "status_code", None) == 429
     already_recorded = getattr(err, "__rate_limit_recorded__", False)
     if is_429 and not already_recorded:
-        setattr(err, "__rate_limit_recorded__", True)
+        err.__rate_limit_recorded__ = True
         await executor._record_rate_limit(token_refresher, 1.0)
         
     assert executor._record_rate_limit.call_count == 1
@@ -70,7 +72,7 @@ async def test_streaming_executor_rate_limit_recording_deduplication():
     # Simulate second call with same error object
     already_recorded = getattr(err, "__rate_limit_recorded__", False)
     if is_429 and not already_recorded:
-        setattr(err, "__rate_limit_recorded__", True)
+        err.__rate_limit_recorded__ = True
         await executor._record_rate_limit(token_refresher, 1.0)
         
     assert executor._record_rate_limit.call_count == 1

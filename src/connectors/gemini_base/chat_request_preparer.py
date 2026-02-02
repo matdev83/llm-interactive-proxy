@@ -14,6 +14,7 @@ connector classes.
 import asyncio
 import contextlib
 import logging
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -317,6 +318,11 @@ class ChatRequestPreparer:
                     f"content length={len(str(getattr(last_msg, 'content', '')))}"
                 )
 
+        canonical_request = self._strip_reasoning_content_if_configured(
+            canonical_request
+        )
+        canonical_request = self._truncate_tool_outputs_if_configured(canonical_request)
+
         # Inject stored thought_signatures for clients that don't preserve extra_content
         # Uses IThoughtSignatureService interface
         signature_namespace = self._resolve_thought_signature_namespace()
@@ -395,6 +401,9 @@ class ChatRequestPreparer:
         code_assist_request = self._message_converter._build_code_assist_request(
             gemini_request, final_contents
         )
+
+        if session_id:
+            code_assist_request.setdefault("session_id", session_id)
 
         # Strip/repair unsupported tool definitions (e.g., custom tools from clients)
         # Uses IMessageConverter interface
@@ -515,6 +524,272 @@ class ChatRequestPreparer:
             total += len(tool_calls)
 
         return total
+
+    def _strip_reasoning_content_if_configured(self, canonical_request: Any) -> Any:
+        if not self._should_strip_reasoning_content():
+            return canonical_request
+
+        messages = getattr(canonical_request, "messages", None)
+        if not isinstance(messages, list) or not messages:
+            return canonical_request
+
+        updated_messages: list[Any] = []
+        stripped_count = 0
+        for msg in messages:
+            if isinstance(msg, dict):
+                if (
+                    "reasoning_content" in msg
+                    or "reasoning" in msg
+                    or "thinking" in msg
+                    or "thought" in msg
+                ):
+                    updated = dict(msg)
+                    updated.pop("reasoning_content", None)
+                    updated.pop("reasoning", None)
+                    updated.pop("thinking", None)
+                    updated.pop("thought", None)
+                    updated_messages.append(updated)
+                    stripped_count += 1
+                else:
+                    updated_messages.append(msg)
+                continue
+
+            reasoning_value = getattr(msg, "reasoning_content", None)
+            if reasoning_value:
+                if hasattr(msg, "model_copy"):
+                    msg = msg.model_copy(update={"reasoning_content": None})
+                else:
+                    with contextlib.suppress(Exception):
+                        msg.reasoning_content = None
+                stripped_count += 1
+            updated_messages.append(msg)
+
+        if stripped_count > 0:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Stripped reasoning_content from %d messages before Code Assist translation",
+                    stripped_count,
+                )
+            return self._replace_messages(canonical_request, updated_messages)
+
+        return canonical_request
+
+    def _truncate_tool_outputs_if_configured(self, canonical_request: Any) -> Any:
+        max_chars, max_lines = self._resolve_tool_output_truncation_limits()
+        if max_chars is None and max_lines is None:
+            return canonical_request
+
+        messages = getattr(canonical_request, "messages", None)
+        if not isinstance(messages, list) or not messages:
+            return canonical_request
+
+        updated_messages: list[Any] = []
+        truncated_count = 0
+        total_saved = 0
+        for msg in messages:
+            role = (
+                msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+            )
+            if role != "tool":
+                updated_messages.append(msg)
+                continue
+
+            content = (
+                msg.get("content")
+                if isinstance(msg, dict)
+                else getattr(msg, "content", None)
+            )
+            if not isinstance(content, str):
+                updated_messages.append(msg)
+                continue
+
+            truncated_text, truncated, saved = self._truncate_text_content(
+                content, max_chars=max_chars, max_lines=max_lines
+            )
+            if not truncated:
+                updated_messages.append(msg)
+                continue
+
+            if isinstance(msg, dict):
+                updated = dict(msg)
+                updated["content"] = truncated_text
+                updated_messages.append(updated)
+            else:
+                if hasattr(msg, "model_copy"):
+                    updated_messages.append(
+                        msg.model_copy(update={"content": truncated_text})
+                    )
+                else:
+                    with contextlib.suppress(Exception):
+                        msg.content = truncated_text
+                    updated_messages.append(msg)
+
+            truncated_count += 1
+            total_saved += saved
+
+        if truncated_count > 0:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Truncated %d tool outputs before Code Assist translation (saved %d chars)",
+                    truncated_count,
+                    total_saved,
+                )
+            return self._replace_messages(canonical_request, updated_messages)
+
+        return canonical_request
+
+    def _replace_messages(self, canonical_request: Any, messages: list[Any]) -> Any:
+        if hasattr(canonical_request, "model_copy"):
+            try:
+                return canonical_request.model_copy(update={"messages": messages})
+            except Exception:
+                pass
+        with contextlib.suppress(Exception):
+            canonical_request.messages = messages
+        return canonical_request
+
+    def _should_strip_reasoning_content(self) -> bool:
+        env_value = os.environ.get("GEMINI_STRIP_REASONING_CONTENT")
+        env_bool = self._coerce_bool(env_value)
+        if env_bool is not None:
+            return env_bool
+
+        extras = self._get_backend_extras()
+        extra_value = (
+            extras.get("strip_reasoning_content") if isinstance(extras, dict) else None
+        )
+        extra_bool = self._coerce_bool(extra_value)
+        if extra_bool is not None:
+            return extra_bool
+
+        return True
+
+    def _resolve_tool_output_truncation_limits(self) -> tuple[int | None, int | None]:
+        if self._is_compaction_enabled():
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Skipping tool output truncation because history compaction is enabled"
+                )
+            return None, None
+
+        env_chars = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS")
+        env_lines = os.environ.get("GEMINI_TOOL_OUTPUT_TRUNCATE_LINES")
+
+        extras = self._get_backend_extras()
+
+        max_chars = self._coerce_positive_int(env_chars)
+        if max_chars is None:
+            for key in (
+                "tool_output_truncate_chars",
+                "truncate_tool_output_threshold",
+                "truncateToolOutputThreshold",
+                "tool_output_max_chars",
+            ):
+                if isinstance(extras, dict) and key in extras:
+                    max_chars = self._coerce_positive_int(extras.get(key))
+                    if max_chars is not None:
+                        break
+
+        max_lines = self._coerce_positive_int(env_lines)
+        if max_lines is None:
+            for key in (
+                "tool_output_truncate_lines",
+                "truncate_tool_output_lines",
+                "truncateToolOutputLines",
+                "tool_output_max_lines",
+            ):
+                if isinstance(extras, dict) and key in extras:
+                    max_lines = self._coerce_positive_int(extras.get(key))
+                    if max_lines is not None:
+                        break
+
+        return max_chars, max_lines
+
+    def _is_compaction_enabled(self) -> bool:
+        connector = self._connector_context
+        config = getattr(connector, "config", None)
+        if config is None:
+            return False
+
+        compaction = getattr(config, "compaction", None)
+        if isinstance(compaction, dict):
+            return bool(compaction.get("enabled"))
+        return bool(getattr(compaction, "enabled", False))
+
+    def _get_backend_extras(self) -> dict[str, Any]:
+        connector = self._connector_context
+        config = getattr(connector, "config", None)
+        backend_type = getattr(connector, "backend_type", None)
+        if not config or not backend_type:
+            return {}
+        try:
+            backend_config = config.backends.get(str(backend_type))
+        except Exception:
+            backend_config = None
+        extras = getattr(backend_config, "extra", None) if backend_config else None
+        if isinstance(extras, dict):
+            return extras
+        return {}
+
+    @staticmethod
+    def _coerce_bool(value: Any) -> bool | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+        return None
+
+    @staticmethod
+    def _coerce_positive_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            coerced = int(value)
+        except (TypeError, ValueError):
+            return None
+        if coerced <= 0:
+            return None
+        return coerced
+
+    @staticmethod
+    def _truncate_text_content(
+        value: str, *, max_chars: int | None, max_lines: int | None
+    ) -> tuple[str, bool, int]:
+        if max_chars is None and max_lines is None:
+            return value, False, 0
+
+        marker = "... [CONTENT TRUNCATED] ..."
+        original_len = len(value)
+        text = value
+        truncated = False
+
+        if isinstance(max_lines, int) and max_lines > 0:
+            lines = text.splitlines()
+            if len(lines) > max_lines:
+                head = max(1, max_lines // 5)
+                tail = max_lines - head
+                text = "\n".join(lines[:head] + [marker] + lines[-tail:])
+                truncated = True
+
+        if isinstance(max_chars, int) and max_chars > 0 and len(text) > max_chars:
+            head = max(1, max_chars // 5)
+            tail = max_chars - head - len(marker)
+            if tail <= 0:
+                text = text[:max_chars]
+            else:
+                text = text[:head] + marker + text[-tail:]
+            truncated = True
+
+        saved = max(original_len - len(text), 0) if truncated else 0
+        return text, truncated, saved
 
     def _count_tool_calls_with_thought_signature(self, canonical_request: Any) -> int:
         messages = getattr(canonical_request, "messages", None)

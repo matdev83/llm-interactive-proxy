@@ -12,7 +12,8 @@ async def engine():
     config = DatabaseConfig(url="sqlite+aiosqlite:///:memory:")
     engine = DatabaseEngine(config)
     await engine.initialize()
-    return engine
+    yield engine
+    await engine.close()
 
 @pytest.mark.asyncio
 async def test_upsert_and_get_all_quotas(engine):

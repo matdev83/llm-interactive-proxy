@@ -60,3 +60,5 @@ class LoggingConfig(DomainModel):
     cbor_capture_dir: str | None = None
     # Optional fixed session ID for CBOR capture; auto-generated if not provided
     cbor_capture_session_id: str | None = None
+    # How often to flush CBOR capture buffer to disk (seconds). Default 1.0 second.
+    cbor_capture_flush_interval: float = 1.0

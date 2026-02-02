@@ -137,7 +137,20 @@ class CborWireCaptureService(IWireCapture):
         # Background flush task
         self._flush_task: asyncio.Task[None] | None = None
         self._flush_start_lock = threading.Lock()
-        self._flush_interval = 0.5  # seconds
+        logging_cfg = getattr(config, "logging", None)
+        raw_flush_interval = (
+            getattr(logging_cfg, "cbor_capture_flush_interval", None)
+            if logging_cfg
+            else None
+        )
+        self._flush_interval = 1.0
+        if raw_flush_interval is not None:
+            try:
+                candidate = float(raw_flush_interval)
+            except (TypeError, ValueError):
+                candidate = 1.0
+            if candidate > 0:
+                self._flush_interval = candidate
 
         # Buffer configuration
         self._max_buffer_entries = 50
@@ -1019,12 +1032,16 @@ class CborWireCaptureService(IWireCapture):
 
     async def _flush_buffer(self) -> None:
         """Flush buffered entries to file."""
-        if not self._buffer or not self._file_path:
+        if not self._file_path:
             return
 
-        # Take snapshot and clear buffer
-        entries_to_write = self._buffer.copy()
-        self._buffer.clear()
+        entries_to_write: list[CaptureEntry] = []
+        async with self._buffer_lock:
+            if not self._buffer:
+                return
+            # Take snapshot and clear buffer
+            entries_to_write = self._buffer.copy()
+            self._buffer.clear()
 
         # Write entries outside lock
         try:
@@ -1068,9 +1085,8 @@ class CborWireCaptureService(IWireCapture):
                     await asyncio.sleep(self._flush_interval)
                     if not self._enabled:
                         break
-                    async with self._buffer_lock:
-                        if self._buffer:
-                            await self._flush_buffer()
+                    if self._buffer:
+                        await self._flush_buffer()
                 except asyncio.CancelledError:
                     break
                 except OSError as e:
@@ -1095,9 +1111,7 @@ class CborWireCaptureService(IWireCapture):
             # Final flush on exit
             if self._enabled and self._buffer:
                 try:
-                    async with self._buffer_lock:
-                        if self._buffer:
-                            await self._flush_buffer()
+                    await self._flush_buffer()
                 except OSError as e:
                     logger.error(
                         "Final flush failed due to OS error: %s",
@@ -1124,9 +1138,8 @@ class CborWireCaptureService(IWireCapture):
                 self._flush_task = None
 
         # Final flush
-        async with self._buffer_lock:
-            if self._buffer:
-                await self._flush_buffer()
+        if self._buffer:
+            await self._flush_buffer()
 
         if self._file_path and logger.isEnabledFor(logging.INFO):
             logger.info("CBOR wire capture shutdown: %s", self._file_path)

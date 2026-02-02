@@ -13,7 +13,7 @@ import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator, Callable, Iterable
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 import pydantic
 import requests  # type: ignore[import-untyped]
@@ -1207,7 +1207,7 @@ class StreamingExecutor:
 
             if is_429 and not already_recorded:
                 with contextlib.suppress(AttributeError, TypeError):
-                    setattr(err, "__rate_limit_recorded__", True)
+                    cast(Any, err).__rate_limit_recorded__ = True
 
                 await self._record_rate_limit(
                     token_refresher,
@@ -1509,9 +1509,11 @@ class StreamingExecutor:
             backend_name=self._backend_type,
         )
 
-        if response.status_code == 429 and not getattr(backend_error, "__rate_limit_recorded__", False):
+        if response.status_code == 429 and not getattr(
+            backend_error, "__rate_limit_recorded__", False
+        ):
             with contextlib.suppress(AttributeError, TypeError):
-                setattr(backend_error, "__rate_limit_recorded__", True)
+                cast(Any, backend_error).__rate_limit_recorded__ = True
 
             retry_after = retry_hint_seconds or self._extract_retry_after_seconds(
                 backend_error

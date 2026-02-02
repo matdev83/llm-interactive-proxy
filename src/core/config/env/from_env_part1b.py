@@ -417,6 +417,14 @@ def apply_config_part1b(
             resolution=resolution,
             transform=lambda value: _to_int(value, 100),
         ),
+        "cbor_capture_flush_interval": _get_env_value(
+            env,
+            "CBOR_CAPTURE_FLUSH_INTERVAL",
+            1.0,
+            path="logging.cbor_capture_flush_interval",
+            resolution=resolution,
+            transform=lambda value: _to_float(value, 1.0),
+        ),
     }
 
     config["empty_response"] = {

@@ -187,6 +187,7 @@ logging:
   response_logging: false
   log_file: null  # Optional log file path (e.g., "var/logs/proxy.log")
   cbor_capture_dir: null # Optional directory for CBOR captures (e.g., "var/logs/wire_captures_cbor")
+  cbor_capture_flush_interval: 1.0 # Seconds between CBOR buffer flushes (only if dirty)
 
 # Backend settings
 # IMPORTANT SECURITY NOTE:

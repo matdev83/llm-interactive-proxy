@@ -149,6 +149,15 @@ class QuotaStatusService:
         with self._lock:
             return {k: dict(v) for k, v in self._quotas.items()}
 
+    async def shutdown(self) -> None:
+        """Wait for all pending tasks to complete."""
+        if self._pending_tasks:
+            # Create a copy to avoid modification during iteration
+            tasks = list(self._pending_tasks)
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            self._pending_tasks.clear()
+
 
 # Global singleton instance for easy access
 _instance = QuotaStatusService()

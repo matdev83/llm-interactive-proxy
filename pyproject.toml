@@ -108,6 +108,7 @@ package-dir = {"" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["tmp.*", "build", "benchmark", "_site", "OLD", "dev/thrdparty"]
 # JUnit XML generation is conditional - only when CI env var is set or explicitly requested
 # This reduces I/O overhead during local development
 # Use --junit-xml=test-results.xml to enable explicitly
@@ -208,6 +209,7 @@ exclude = [
     "venv",
     ".pytest_cache",
     "__pycache__",
+    "dev/thrdparty",
 ]
 
 # Same as Black.

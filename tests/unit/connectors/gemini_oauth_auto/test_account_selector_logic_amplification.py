@@ -1,12 +1,15 @@
-
 import time
-import pytest
-from unittest.mock import MagicMock, AsyncMock
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from freezegun import freeze_time
 from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.gemini_oauth_auto.models import StoredAccount
 
+
 @pytest.mark.asyncio
+@freeze_time("2026-02-02 12:00:00")
 async def test_mark_current_account_rate_limited_deduplication():
     """Verify that redundant rate limit marking within 2s is skipped."""
     storage = MagicMock()
@@ -51,6 +54,7 @@ async def test_mark_current_account_rate_limited_deduplication():
     # In the code we use time.time(), so let's mock it if possible or just test the per-account isolation
     
 @pytest.mark.asyncio
+@freeze_time("2026-02-02 12:00:00")
 async def test_mark_current_account_rate_limited_per_account_isolation():
     """Verify that rate limit marking cooldown is per-account."""
     storage = MagicMock()

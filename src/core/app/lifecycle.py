@@ -741,6 +741,14 @@ class AppLifecycle:
         if wire_capture_service and hasattr(wire_capture_service, "shutdown"):
             await wire_capture_service.shutdown()
 
+        # Shutdown quota status service
+        from src.core.services.quota_status_service import QuotaStatusService
+
+        quota_status_service = provider.get_service(QuotaStatusService)
+        if quota_status_service and hasattr(quota_status_service, "shutdown"):
+            await quota_status_service.shutdown()
+
+
     async def _shutdown_all_backends(self, provider: Any) -> None:
         """Shutdown all cached backends to prevent resource leaks.
 

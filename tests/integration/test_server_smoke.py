@@ -8,7 +8,6 @@ import time
 import pytest
 import requests
 
-
 from tests.unit.fixtures.markers import real_time
 
 pytestmark = [

@@ -647,14 +647,14 @@ class TestFileRotationBehavior:
                 )
 
             # Wait for flush and rotation
-            await asyncio.sleep(0.1)  # Reduced from 0.2 for performance
+            await asyncio.sleep(0.2)  # Increased from 0.1 for stability
             await service.shutdown()
 
             # Allow background rotation to complete on slower systems
             rotated_path = f"{capture_file}.1"
             if not os.path.exists(rotated_path):
-                for _ in range(5):  # Reduced from 10 for performance
-                    await asyncio.sleep(0.02)  # Reduced from 0.05 for performance
+                for _ in range(10):  # Increased from 5 for stability
+                    await asyncio.sleep(0.05)  # Increased from 0.02 for stability
                     if os.path.exists(rotated_path):
                         break
 
@@ -709,7 +709,8 @@ class TestFileRotationBehavior:
             # Should have at most max_files rotated files
             assert len(files_present) <= 2
 
-    def test_rotation_disabled_by_default(self):
+    @pytest.mark.asyncio
+    async def test_rotation_disabled_by_default(self):
         """
         Given: A capture configuration without rotation settings
         When: Files grow large
@@ -733,16 +734,10 @@ class TestFileRotationBehavior:
                 assert service._max_files == 0
 
                 # Then - Rotation methods should return early
-                service._check_rotation()  # Should not raise any errors
+                await service._check_rotation()  # Should not raise any errors
             finally:
                 # Cleanup
-                import asyncio
-
-                try:
-                    loop = asyncio.get_running_loop()
-                    loop.run_until_complete(service.shutdown())
-                except RuntimeError:
-                    asyncio.run(service.shutdown())
+                await service.shutdown()
 
 
 class TestAPICKeyRedactionBehavior:
