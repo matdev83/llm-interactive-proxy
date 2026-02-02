@@ -33,7 +33,9 @@ def register_app_config(
     if app_config is not None:
         register_singleton_if_absent(services, AppConfig, instance=app_config)
         try:
-            register_singleton_if_absent(services, cast(type, IConfig), instance=app_config)  # type: ignore[type-abstract]
+            register_singleton_if_absent(
+                services, cast(type, IConfig), instance=app_config
+            )  # type: ignore[type-abstract]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
@@ -44,7 +46,9 @@ def register_app_config(
         default_config = AppConfig()
         register_singleton_if_absent(services, AppConfig, instance=default_config)
         try:
-            register_singleton_if_absent(services, cast(type, IConfig), instance=default_config)  # type: ignore[type-abstract]
+            register_singleton_if_absent(
+                services, cast(type, IConfig), instance=default_config
+            )  # type: ignore[type-abstract]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
@@ -117,6 +121,63 @@ def register_session_services(services: ServiceCollection) -> None:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "Failed to register ISessionService interface: %s", e, exc_info=True
+            )
+
+
+def _register_notification_service(services: ServiceCollection) -> None:
+    """Register NotificationService with INotificationService interface binding."""
+    try:
+        from src.core.interfaces.notification_service_interface import (
+            INotificationService,
+        )
+        from src.core.services.notification_service import NotificationService
+
+        def notification_service_factory(
+            provider: IServiceProvider,
+        ) -> NotificationService:
+            """Factory for creating NotificationService with config."""
+            from src.core.services.notifications.providers.desktop_notifier import (
+                DesktopNotifierProvider,
+            )
+
+            config = provider.get_service(AppConfig)
+            host = "127.0.0.1"
+            notif_config = None
+
+            if config is not None:
+                host = config.host
+                notif_config = config.notifications
+
+            if notif_config is None:
+                from src.core.config.models.notification import NotificationConfig
+
+                notif_config = NotificationConfig()
+
+            return NotificationService(
+                config=notif_config, host=host, provider=DesktopNotifierProvider()
+            )
+
+        register_singleton_if_absent(
+            services,
+            NotificationService,
+            implementation_factory=notification_service_factory,
+        )
+
+        # Register INotificationService interface binding
+        def inotification_service_factory(
+            provider: IServiceProvider,
+        ) -> NotificationService:
+            return provider.get_required_service(NotificationService)
+
+        register_singleton_if_absent(
+            services,
+            cast(type, INotificationService),
+            implementation_factory=inotification_service_factory,
+        )
+    except ImportError as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Could not register NotificationService: %s", e, exc_info=True
             )
 
 
@@ -232,6 +293,78 @@ def register_application_state_services(services: ServiceCollection) -> None:
     # Register ToolCallRepairService
     _register_tool_call_repair_service(services)
 
+    # Register HistoryCompactionService
+    from src.core.interfaces.history_compaction_interface import (
+        IHistoryCompactionService,
+    )
+    from src.core.services.history_compaction_service import HistoryCompactionService
+
+    register_singleton_if_absent(services, HistoryCompactionService)
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, IHistoryCompactionService),
+            implementation_factory=lambda provider: provider.get_required_service(
+                HistoryCompactionService
+            ),  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to register IHistoryCompactionService interface: %s",
+                e,
+                exc_info=True,
+            )
+
+    # Register NotificationService
+    _register_notification_service(services)
+
+    # Register SessionManager
+    from src.core.interfaces.repositories_interface import ISessionRepository
+    from src.core.interfaces.session_manager_interface import ISessionManager
+    from src.core.services.session_manager_service import SessionManager
+
+    def _session_manager_factory(provider: IServiceProvider) -> SessionManager:
+        from src.core.interfaces.session_resolver_interface import ISessionResolver
+        from src.core.interfaces.session_service_interface import ISessionService
+        from src.core.services.conversation_fingerprint_service import (
+            ConversationFingerprintService,
+        )
+
+        session_service = provider.get_required_service(
+            cast(type[ISessionService], ISessionService)
+        )
+        session_resolver = provider.get_required_service(
+            cast(type[ISessionResolver], ISessionResolver)
+        )
+        session_repository = provider.get_service(
+            cast(type[ISessionRepository], ISessionRepository)
+        )
+        fingerprint_service = provider.get_required_service(
+            ConversationFingerprintService
+        )
+        return SessionManager(
+            session_service,
+            session_resolver,
+            session_repository=session_repository,
+            fingerprint_service=fingerprint_service,
+        )
+
+    register_singleton_if_absent(
+        services, SessionManager, implementation_factory=_session_manager_factory
+    )
+    try:
+        register_singleton_if_absent(
+            services,
+            cast(type, ISessionManager),
+            implementation_factory=_session_manager_factory,  # type: ignore[type-abstract]
+        )
+    except Exception as e:
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Failed to register ISessionManager interface: %s", e, exc_info=True
+            )
+
 
 def register_time_source(services: ServiceCollection) -> None:
     """Register time source service."""
@@ -293,73 +426,4 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
                 "Could not register ToolCallRepairService: %s", e, exc_info=True
-            )
-
-    # Register HistoryCompactionService
-    from src.core.interfaces.history_compaction_interface import (
-        IHistoryCompactionService,
-    )
-    from src.core.services.history_compaction_service import HistoryCompactionService
-
-    register_singleton_if_absent(services, HistoryCompactionService)
-    try:
-        register_singleton_if_absent(
-            services,
-            cast(type, IHistoryCompactionService),
-            implementation_factory=lambda provider: provider.get_required_service(
-                HistoryCompactionService
-            ),  # type: ignore[type-abstract]
-        )
-    except Exception as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "Failed to register IHistoryCompactionService interface: %s",
-                e,
-                exc_info=True,
-            )
-
-    # Register SessionManager
-    from src.core.interfaces.repositories_interface import ISessionRepository
-    from src.core.interfaces.session_manager_interface import ISessionManager
-    from src.core.services.session_manager_service import SessionManager
-
-    def _session_manager_factory(provider: IServiceProvider) -> SessionManager:
-        from src.core.interfaces.session_resolver_interface import ISessionResolver
-        from src.core.interfaces.session_service_interface import ISessionService
-        from src.core.services.conversation_fingerprint_service import (
-            ConversationFingerprintService,
-        )
-
-        session_service = provider.get_required_service(
-            cast(type[ISessionService], ISessionService)
-        )
-        session_resolver = provider.get_required_service(
-            cast(type[ISessionResolver], ISessionResolver)
-        )
-        session_repository = provider.get_service(
-            cast(type[ISessionRepository], ISessionRepository)
-        )
-        fingerprint_service = provider.get_required_service(
-            ConversationFingerprintService
-        )
-        return SessionManager(
-            session_service,
-            session_resolver,
-            session_repository=session_repository,
-            fingerprint_service=fingerprint_service,
-        )
-
-    register_singleton_if_absent(
-        services, SessionManager, implementation_factory=_session_manager_factory
-    )
-    try:
-        register_singleton_if_absent(
-            services,
-            cast(type, ISessionManager),
-            implementation_factory=_session_manager_factory,  # type: ignore[type-abstract]
-        )
-    except Exception as e:
-        if logger.isEnabledFor(logging.WARNING):
-            logger.warning(
-                "Failed to register ISessionManager interface: %s", e, exc_info=True
             )
