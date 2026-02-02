@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 
 - **Model Registry**: Implemented automated LLM model catalog registry and limit enforcement. This includes `ModelCatalogService` for metadata discovery, `ModelCatalogUpdater` for periodic background updates from models.dev, and automated enforcement of context window/token limits in `BackendPreparer` when local configuration is missing.
 - **Model Registry**: Added input modality validation (image/audio) when registry data provides `modalities` for a model; skipped when registry or model metadata is missing.
+- **Notification Service**: Implemented a SOLID-based desktop notification system with provider-based architecture. This includes `NotificationService` for coordination and `DesktopNotifierProvider` as a pluggable delivery mechanism.
 - **Gemini OAuth Auto**: Implemented `random` and `first-available` selection strategies for multi-account rotation.
 - **Gemini OAuth Auto**: Added `last_used` usage tracking for registered accounts.
 - **Gemini OAuth Auto**: Added `show` command to `manage_gemini_accounts.py` for detailed account inspection.
@@ -38,6 +39,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 
 - Improved error handling for "Instructions are not valid" errors in OpenAI Codex connector with actionable messages
+- **Gemini OAuth / Antigravity OAuth**: Align Code Assist request preparation with gemini-cli by stripping `reasoning_content` by default, adding `session_id`, and supporting optional tool output truncation that is auto-skipped when history compaction is enabled (with configurable log level).
 - **Model Registry**: Graceful degradation for context and modality enforcement when registry data is missing/unparsable or the model is absent.
 - Enhanced prompt handling with robust fallbacks and codex_default enforcement
 - Updated OpenAI Codex documentation with detailed configuration examples
@@ -48,7 +50,9 @@ All notable changes to this project will be documented in this file.
 - Enhanced resilience layer architecture with better error handling
 - Fixed concurrency issues in usage accounting and streaming metrics
 - Updated configuration schemas and documentation
+- **Gemini OAuth Auto**: Refactored account blocking notifications to use the new centralized SOLID notification service.
 - Cleaned up completed specifications by moving to archive directory
+
 - **Context Compaction**: Enhanced logging to include both observability context and metrics in structured format
 
 ### Fixed
@@ -60,6 +64,7 @@ All notable changes to this project will be documented in this file.
 - **Streaming Handler**: Refactored retry state management with dedicated RetryState dataclass for better type safety
 - **Wire Capture**: Made file rotation methods async to properly handle I/O operations in async context
 - **Boundary Validation**: Added boundary validation service with enhanced validation and error handling for connector communications
+- **Typing**: Added explicit async iterator/receive type annotations in content rewriting middleware to satisfy mypy checks
 
 ### Changed
 
