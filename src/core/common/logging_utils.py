@@ -715,13 +715,20 @@ def _discover_api_keys_from_config_backends(
                     bcfg = getattr(backends, b)
                     ak = getattr(bcfg, "api_key", None)
                     if ak:
+                        # Map backend names to environment variables (handle exceptions)
+                        backend_env_map = {
+                            "kimi-code": "KIMI_API_KEY",
+                        }
+                        env_var = backend_env_map.get(
+                            b, f"{b.upper().replace('-', '_')}_API_KEY"
+                        )
+
                         if isinstance(ak, list | tuple):
                             for k in ak:
                                 if k:
                                     found.add(str(k))
                                     # SECURITY WARNING: Log when API keys are found in config
                                     # Check if the key matches the environment variable (false positive check)
-                                    env_var = f"{b.upper()}_API_KEY"
                                     if str(k) == os.getenv(env_var):
                                         continue
 
@@ -738,7 +745,6 @@ def _discover_api_keys_from_config_backends(
                             found.add(str(ak))
                             # SECURITY WARNING: Log when API keys are found in config
                             # Check if the key matches the environment variable (false positive check)
-                            env_var = f"{b.upper()}_API_KEY"
                             if str(ak) == os.getenv(env_var):
                                 continue
 
@@ -773,6 +779,7 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
         "ANTHROPIC_API_KEY",
         "ZAI_API_KEY",
         "MINIMAX_API_KEY",
+        "KIMI_API_KEY",
         "LLM_INTERACTIVE_PROXY_API_KEY",
         "OPENAI_API_KEY",
         "AUTH_TOKEN",
