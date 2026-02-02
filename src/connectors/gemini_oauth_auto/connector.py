@@ -29,6 +29,7 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_registry import backend_registry
+from src.core.services.notification_service import NotificationService
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -266,9 +267,10 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 http_client=self.client,
             )
 
-            # Determine if notifications should be enabled based on config and host
-            notifications_enabled = self.config.notifications.is_enabled(
-                self.config.host
+            # Initialize notification service
+            notification_service = NotificationService(
+                config=self.config.notifications,
+                host=self.config.host,
             )
 
             self._account_selector = AccountSelectorService(
@@ -280,7 +282,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 session_affinity_ttl_seconds=session_affinity_ttl_seconds,
                 session_affinity_max_entries=session_affinity_max_entries,
                 session_affinity_max_wait_seconds=session_affinity_max_wait_seconds,
-                notifications_enabled=notifications_enabled,
+                notification_service=notification_service,
             )
 
             await self._account_selector.reload_accounts()
@@ -305,9 +307,10 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             self._account_selector.session_affinity_max_wait_seconds = (
                 session_affinity_max_wait_seconds
             )
-            # Update notifications enabled status based on current config
-            self._account_selector.notifications_enabled = (
-                self.config.notifications.is_enabled(self.config.host)
+            # Update notification service based on current config
+            self._account_selector.notification_service = NotificationService(
+                config=self.config.notifications,
+                host=self.config.host,
             )
             await self._account_selector.reload_accounts()
             # Use current account if available, otherwise get next

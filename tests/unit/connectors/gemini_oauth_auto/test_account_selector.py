@@ -33,13 +33,33 @@ def mock_refresh_service() -> MagicMock:
 
 
 @pytest.fixture
+def mock_notification_service() -> MagicMock:
+    """Fixture providing mock notification service."""
+    service = MagicMock()
+    # By default, notifications are enabled in tests
+    service.is_enabled = True
+
+    async def send_mock(title, message):
+        if not service.is_enabled:
+            return None
+        return await service._real_send(title, message)
+
+    service._real_send = AsyncMock(return_value="notification-id")
+    service.send_notification = AsyncMock(side_effect=send_mock)
+    return service
+
+
+@pytest.fixture
 def selector(
-    mock_storage: MagicMock, mock_refresh_service: MagicMock
+    mock_storage: MagicMock,
+    mock_refresh_service: MagicMock,
+    mock_notification_service: MagicMock,
 ) -> AccountSelectorService:
     """Fixture providing AccountSelectorService with mocked dependencies."""
     return AccountSelectorService(
         storage=mock_storage,
         refresh_service=mock_refresh_service,
+        notification_service=mock_notification_service,
     )
 
 
@@ -492,10 +512,9 @@ class TestAccountSelectorService:
         self,
         selector: AccountSelectorService,
         mock_storage: MagicMock,
+        mock_notification_service: MagicMock,
     ) -> None:
         """Test that blocking an account sends OS notification exactly once."""
-        from unittest.mock import patch
-
         account = create_valid_account("account-blocked-1")
         mock_storage.load_all_accounts = AsyncMock(return_value=[account])
 
@@ -504,137 +523,102 @@ class TestAccountSelectorService:
         assert current is not None
         assert current.account_id == "account-blocked-1"
 
-        with patch(
-            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
-        ) as mock_notifier:
-            mock_instance = MagicMock()
-            mock_instance.send = AsyncMock(return_value="notification-id-123")
-            mock_notifier.return_value = mock_instance
+        await selector.mark_current_account_blocked("Account requires verification")
 
-            await selector.mark_current_account_blocked("Account requires verification")
-
-            mock_instance.send.assert_called_once()
-            call_args = mock_instance.send.call_args
-            assert call_args is not None
-            assert call_args.kwargs["title"] == "Gemini OAuth Account Blocked"
-            assert "account-blocked-1"[:8] in call_args.kwargs["message"]
-            assert "Account requires verification" in call_args.kwargs["message"]
-            assert "No other accounts available!" in call_args.kwargs["message"]
+        mock_notification_service.send_notification.assert_called_once()
+        call_args = mock_notification_service.send_notification.call_args
+        assert call_args is not None
+        assert call_args.kwargs["title"] == "Gemini OAuth Account Blocked"
+        assert "account-blocked-1"[:8] in call_args.kwargs["message"]
+        assert "Account requires verification" in call_args.kwargs["message"]
+        assert "No other accounts available!" in call_args.kwargs["message"]
 
     @pytest.mark.asyncio
     async def test_mark_current_account_blocked_no_duplicate_notification(
         self,
         selector: AccountSelectorService,
         mock_storage: MagicMock,
+        mock_notification_service: MagicMock,
     ) -> None:
         """Test that blocking same account twice only sends one notification."""
-        from unittest.mock import patch
-
         account = create_valid_account("account-blocked-2")
         mock_storage.load_all_accounts = AsyncMock(return_value=[account])
 
         await selector.get_next_account()
 
-        with patch(
-            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
-        ) as mock_notifier:
-            mock_instance = MagicMock()
-            mock_instance.send = AsyncMock(return_value="notification-id-456")
-            mock_notifier.return_value = mock_instance
+        await selector.mark_current_account_blocked("First block reason")
+        assert mock_notification_service.send_notification.call_count == 1
 
-            await selector.mark_current_account_blocked("First block reason")
-            assert mock_instance.send.call_count == 1
-
-            selector._current_account = account
-            await selector.mark_current_account_blocked("Second block reason")
-            assert mock_instance.send.call_count == 1
+        selector._current_account = account
+        await selector.mark_current_account_blocked("Second block reason")
+        assert mock_notification_service.send_notification.call_count == 1
 
     @pytest.mark.asyncio
     async def test_mark_current_account_blocked_different_accounts_send_separate_notifications(
         self,
         selector: AccountSelectorService,
         mock_storage: MagicMock,
+        mock_notification_service: MagicMock,
     ) -> None:
         """Test that blocking different accounts sends separate notifications."""
-        from unittest.mock import patch
-
         account1 = create_valid_account("account-1")
         account2 = create_valid_account("account-2")
         mock_storage.load_all_accounts = AsyncMock(return_value=[account1, account2])
 
-        with patch(
-            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
-        ) as mock_notifier:
-            mock_instance = MagicMock()
-            mock_instance.send = AsyncMock(return_value="notification-id")
-            mock_notifier.return_value = mock_instance
+        await selector.get_next_account()
+        await selector.mark_current_account_blocked("Account 1 blocked")
+        assert mock_notification_service.send_notification.call_count == 1
 
-            await selector.get_next_account()
-            await selector.mark_current_account_blocked("Account 1 blocked")
-            assert mock_instance.send.call_count == 1
-
-            await selector.get_next_account()
-            await selector.mark_current_account_blocked("Account 2 blocked")
-            assert mock_instance.send.call_count == 2
+        await selector.get_next_account()
+        await selector.mark_current_account_blocked("Account 2 blocked")
+        assert mock_notification_service.send_notification.call_count == 2
 
     @pytest.mark.asyncio
     async def test_mark_current_account_blocked_no_current_account(
         self,
         selector: AccountSelectorService,
+        mock_notification_service: MagicMock,
     ) -> None:
         """Test that blocking with no current account does not send notification."""
-        from unittest.mock import patch
-
-        with patch(
-            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
-        ) as mock_notifier:
-            mock_instance = MagicMock()
-            mock_instance.send = AsyncMock()
-            mock_notifier.return_value = mock_instance
-
-            await selector.mark_current_account_blocked("Some reason")
-
-            mock_instance.send.assert_not_called()
+        await selector.mark_current_account_blocked("Some reason")
+        mock_notification_service.send_notification.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_mark_current_account_blocked_notification_failure_is_non_blocking(
         self,
         selector: AccountSelectorService,
         mock_storage: MagicMock,
+        mock_notification_service: MagicMock,
     ) -> None:
         """Test that notification failure does not block account blocking."""
-        from unittest.mock import patch
-
         account = create_valid_account("account-fail-test")
         mock_storage.load_all_accounts = AsyncMock(return_value=[account])
 
         await selector.get_next_account()
 
-        with patch(
-            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
-        ) as mock_notifier:
-            mock_instance = MagicMock()
-            mock_instance.send = AsyncMock(side_effect=Exception("Notification failed"))
-            mock_notifier.return_value = mock_instance
+        # Side effect on the underlying mock to simulate provider failure
+        mock_notification_service._real_send.side_effect = Exception(
+            "Notification failed"
+        )
 
-            await selector.mark_current_account_blocked("Block reason")
+        await selector.mark_current_account_blocked("Block reason")
 
-            mock_instance.send.assert_called_once()
-            assert account.account_id in selector._blocked_account_ids
+        mock_notification_service.send_notification.assert_called_once()
+        assert account.account_id in selector._blocked_account_ids
 
     @pytest.mark.asyncio
     async def test_notifications_disabled_does_not_send_notification(
         self,
         mock_storage: MagicMock,
         mock_refresh_service: MagicMock,
+        mock_notification_service: MagicMock,
     ) -> None:
         """Test that notifications are not sent when disabled."""
-        from unittest.mock import patch
-
+        mock_notification_service.is_enabled = False
         selector = AccountSelectorService(
             storage=mock_storage,
             refresh_service=mock_refresh_service,
-            notifications_enabled=False,
+            notification_service=mock_notification_service,
         )
 
         account = create_valid_account("account-no-notify")
@@ -642,27 +626,19 @@ class TestAccountSelectorService:
 
         await selector.get_next_account()
 
-        with patch(
-            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
-        ) as mock_notifier:
-            mock_instance = MagicMock()
-            mock_instance.send = AsyncMock()
-            mock_notifier.return_value = mock_instance
+        await selector.mark_current_account_blocked("Block reason")
 
-            await selector.mark_current_account_blocked("Block reason")
-
-            mock_instance.send.assert_not_called()
-            assert account.account_id in selector._blocked_account_ids
+        mock_notification_service._real_send.assert_not_called()
+        assert account.account_id in selector._blocked_account_ids
 
     @pytest.mark.asyncio
     async def test_notification_includes_other_available_accounts_count(
         self,
         selector: AccountSelectorService,
         mock_storage: MagicMock,
+        mock_notification_service: MagicMock,
     ) -> None:
         """Test that notification includes count of other available accounts."""
-        from unittest.mock import patch
-
         # Create 3 accounts, only one will be blocked
         account1 = create_valid_account("account-blocked")
         account2 = create_valid_account("account-available-2")
@@ -676,68 +652,63 @@ class TestAccountSelectorService:
         assert current is not None
         assert current.account_id == "account-blocked"
 
-        with patch(
-            "src.connectors.gemini_oauth_auto.account_selector.DesktopNotifier"
-        ) as mock_notifier:
-            mock_instance = MagicMock()
-            mock_instance.send = AsyncMock(return_value="notification-id")
-            mock_notifier.return_value = mock_instance
+        await selector.mark_current_account_blocked("Account flagged")
 
-            await selector.mark_current_account_blocked("Account flagged")
-
-            mock_instance.send.assert_called_once()
-            call_args = mock_instance.send.call_args
-            assert call_args is not None
-            assert call_args.kwargs["title"] == "Gemini OAuth Account Blocked"
-            # Should show 2 other available accounts
-            assert "Other available accounts: 2" in call_args.kwargs["message"]
+        mock_notification_service.send_notification.assert_called_once()
+        call_args = mock_notification_service.send_notification.call_args
+        assert call_args is not None
+        assert call_args.kwargs["title"] == "Gemini OAuth Account Blocked"
+        # Should show 2 other available accounts
+        assert "Other available accounts: 2" in call_args.kwargs["message"]
 
     def test_notifications_enabled_property(self) -> None:
         """Test the notifications_enabled property."""
-        from unittest.mock import MagicMock
-
         mock_storage = MagicMock()
         mock_refresh = MagicMock()
 
-        # Test default (True)
-        selector_default = AccountSelectorService(
+        # Test with no service (False)
+        selector_no_service = AccountSelectorService(
             storage=mock_storage,
             refresh_service=mock_refresh,
+            notification_service=None,
         )
-        assert selector_default.notifications_enabled is True
+        assert selector_no_service.notifications_enabled is False
 
-        # Test explicitly enabled
+        # Test with service enabled
+        mock_service_enabled = MagicMock()
+        mock_service_enabled.is_enabled = True
         selector_enabled = AccountSelectorService(
             storage=mock_storage,
             refresh_service=mock_refresh,
-            notifications_enabled=True,
+            notification_service=mock_service_enabled,
         )
         assert selector_enabled.notifications_enabled is True
 
-        # Test explicitly disabled
+        # Test with service disabled
+        mock_service_disabled = MagicMock()
+        mock_service_disabled.is_enabled = False
         selector_disabled = AccountSelectorService(
             storage=mock_storage,
             refresh_service=mock_refresh,
-            notifications_enabled=False,
+            notification_service=mock_service_disabled,
         )
         assert selector_disabled.notifications_enabled is False
 
-    def test_notifications_enabled_setter(self) -> None:
-        """Test the notifications_enabled setter."""
-        from unittest.mock import MagicMock
-
+    def test_notification_service_setter(self) -> None:
+        """Test the notification_service setter."""
         mock_storage = MagicMock()
         mock_refresh = MagicMock()
 
         selector = AccountSelectorService(
             storage=mock_storage,
             refresh_service=mock_refresh,
-            notifications_enabled=True,
+            notification_service=None,
         )
-        assert selector.notifications_enabled is True
-
-        selector.notifications_enabled = False
+        assert selector.notification_service is None
         assert selector.notifications_enabled is False
 
-        selector.notifications_enabled = True
+        mock_service = MagicMock()
+        mock_service.is_enabled = True
+        selector.notification_service = mock_service
+        assert selector.notification_service is mock_service
         assert selector.notifications_enabled is True

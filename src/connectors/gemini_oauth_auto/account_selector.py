@@ -10,7 +10,7 @@ import time
 from collections import OrderedDict
 from datetime import datetime, timezone
 
-from desktop_notifier import DesktopNotifier
+from src.core.interfaces.notification_service_interface import INotificationService
 
 
 def _format_rate_limit_until(timestamp_ms: int | None) -> str:
@@ -78,7 +78,7 @@ class AccountSelectorService(IAccountSelector):
         session_affinity_ttl_seconds: int = 86400,
         session_affinity_max_entries: int = 10000,
         session_affinity_max_wait_seconds: float | None = None,
-        notifications_enabled: bool = True,
+        notification_service: INotificationService | None = None,
     ) -> None:
         """Initialize account selector.
 
@@ -89,7 +89,7 @@ class AccountSelectorService(IAccountSelector):
             allowed_account_ids: Optional allowlist of account IDs. If set, only these
                 accounts will be used for selection.
             selection_strategy: Strategy for account selection (round-robin, random, first-available).
-            notifications_enabled: Whether to send OS notifications when accounts are blocked.
+            notification_service: Service for sending desktop notifications.
         """
         self._storage = storage
         self._refresh_service = refresh_service
@@ -105,8 +105,7 @@ class AccountSelectorService(IAccountSelector):
         self._accounts: list[StoredAccount] = []
         self._blocked_account_ids: set[str] = set()
         self._initialized: bool = False
-        self._notifier: DesktopNotifier | None = None
-        self._notifications_enabled = notifications_enabled
+        self._notification_service = notification_service
         self._last_rate_limit_updates: dict[str, float] = {}  # account_id -> unix_timestamp
 
     @property
@@ -174,13 +173,20 @@ class AccountSelectorService(IAccountSelector):
         self._session_affinity_max_wait_seconds = value
 
     @property
+    def notification_service(self) -> INotificationService | None:
+        """The notification service used by this selector."""
+        return self._notification_service
+
+    @notification_service.setter
+    def notification_service(self, value: INotificationService | None) -> None:
+        self._notification_service = value
+
+    @property
     def notifications_enabled(self) -> bool:
         """Whether OS notifications are enabled."""
-        return self._notifications_enabled
-
-    @notifications_enabled.setter
-    def notifications_enabled(self, value: bool) -> None:
-        self._notifications_enabled = value
+        if self._notification_service is None:
+            return False
+        return self._notification_service.is_enabled
 
     @property
     def total_count(self) -> int:
@@ -680,27 +686,22 @@ class AccountSelectorService(IAccountSelector):
             account_id: The account ID that was blocked.
             reason: Reason why the account is being blocked.
         """
-        if not self._notifications_enabled:
+        if self._notification_service is None:
             return
 
+        # Count other available accounts (excluding the one just blocked)
+        available_accounts = self._get_available_accounts()
+        other_accounts_count = len(available_accounts)
+
+        # Build message with other available accounts info
+        message = f"Account {account_id[:8]}... requires verification: {reason[:80]}"
+        if other_accounts_count > 0:
+            message += f" (Other available accounts: {other_accounts_count})"
+        else:
+            message += " (No other accounts available!)"
+
         try:
-            if self._notifier is None:
-                self._notifier = DesktopNotifier()
-
-            # Count other available accounts (excluding the one just blocked)
-            available_accounts = self._get_available_accounts()
-            other_accounts_count = len(available_accounts)
-
-            # Build message with other available accounts info
-            message = (
-                f"Account {account_id[:8]}... requires verification: {reason[:80]}"
-            )
-            if other_accounts_count > 0:
-                message += f" (Other available accounts: {other_accounts_count})"
-            else:
-                message += " (No other accounts available!)"
-
-            await self._notifier.send(
+            await self._notification_service.send_notification(
                 title="Gemini OAuth Account Blocked",
                 message=message,
             )
