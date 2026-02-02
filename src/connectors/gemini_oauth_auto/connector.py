@@ -616,6 +616,55 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             is_default=int(bool(tier.get("isDefault"))),
         )
 
+    async def _handle_missing_project_id(self, account: Any) -> None:
+        """Handle case when project ID cannot be determined for an account.
+
+        Sends a desktop notification to inform the user about the missing
+        Cloud Project ID setup and removes the account from in-memory list.
+
+        Args:
+            account: The account that lacks a Cloud Project ID.
+        """
+        if not account:
+            return
+
+        account_id = getattr(account, "account_id", "unknown")
+        email = getattr(account, "email", None) or account_id
+
+        # Send desktop notification
+        notification_service = getattr(
+            self._account_selector, "notification_service", None
+        )
+        if notification_service:
+            help_url = "https://support.google.com/googleapi/answer/7014113"
+            message = (
+                f"Google account '{email}' requires prior setup of a Cloud Project ID.\n\n"
+                f"Please configure a Google Cloud Project for this account before using it.\n\n"
+                f"Help: {help_url}"
+            )
+            try:
+                await notification_service.send_notification(
+                    title="Gemini OAuth: Cloud Project ID Required",
+                    message=message,
+                    url=help_url,
+                    url_label="View Help",
+                )
+                logger.info(
+                    "Sent notification for account %s missing Cloud Project ID",
+                    account_id,
+                )
+            except Exception as e:
+                logger.debug("Failed to send project ID notification: %s", e)
+
+        # Remove account from in-memory list (mark as blocked)
+        # This is a runtime-only operation - storage files are not touched
+        await self._account_selector.mark_account_uninitialized(account_id)
+        logger.warning(
+            "Account %s removed from available accounts due to missing Cloud Project ID. "
+            "This is a runtime-only operation; storage files were not modified.",
+            account_id,
+        )
+
     async def _discover_project_id(self, auth_session: Any = None) -> str:
         """
         Discover or retrieve the project ID for Code Assist API.
@@ -625,6 +674,9 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         1. Check if project ID is in current account's credentials
         2. Call loadCodeAssist to discover existing project
         3. If no project found, onboard with free-tier and poll for completion
+
+        If project ID cannot be determined, the account will be marked as
+        uninitialized and removed from the in-memory available accounts list.
         """
         # Get current account
         current_account = self._account_selector.get_current_account()
@@ -636,6 +688,8 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
         if not auth_session:
             logger.warning("auth_session missing for project discovery, using fallback")
+            if current_account:
+                await self._handle_missing_project_id(current_account)
             return "default"
 
         # Get initial project ID from current account if available
@@ -810,8 +864,14 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                     exc,
                     exc_info=True,
                 )
+            # If we couldn't determine a project ID, mark account as uninitialized
+            if fallback_project_id == "default" and current_account:
+                await self._handle_missing_project_id(current_account)
             return str(fallback_project_id)
 
+        # If we reach here with "default", project ID couldn't be determined
+        if fallback_project_id == "default" and current_account:
+            await self._handle_missing_project_id(current_account)
         return str(fallback_project_id)
 
     async def chat_completions(  # type: ignore[override]
@@ -889,9 +949,8 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                         )
                         continue
 
-                if (
-                    getattr(e, "status_code", None) == 429
-                    and not getattr(cast(Any, e), "__rate_limit_recorded__", False)
+                if getattr(e, "status_code", None) == 429 and not getattr(
+                    cast(Any, e), "__rate_limit_recorded__", False
                 ):
                     # Logic amplification: Avoid duplicate rate limit recording
                     with contextlib.suppress(AttributeError, TypeError):

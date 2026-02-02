@@ -109,7 +109,9 @@ class AccountSelectorService(IAccountSelector):
         self._blocked_account_ids: set[str] = set()
         self._initialized: bool = False
         self._notification_service = notification_service
-        self._last_rate_limit_updates: dict[str, float] = {}  # account_id -> unix_timestamp
+        self._last_rate_limit_updates: dict[str, float] = (
+            {}
+        )  # account_id -> unix_timestamp
 
     @property
     def rotation_index(self) -> int:
@@ -682,7 +684,9 @@ class AccountSelectorService(IAccountSelector):
             self.rotation_index,
         )
 
-    async def _send_block_notification(self, account: StoredAccount, reason: str) -> None:
+    async def _send_block_notification(
+        self, account: StoredAccount, reason: str
+    ) -> None:
         """Send OS notification when account gets blocked.
 
         Args:
@@ -699,7 +703,9 @@ class AccountSelectorService(IAccountSelector):
         verification_url = extract_first_url(reason)
         identity_str = account.email or account.account_id
 
-        message = f"Gemini OAuth account '{identity_str}' requires additional verification."
+        message = (
+            f"Gemini OAuth account '{identity_str}' requires additional verification."
+        )
         if verification_url:
             message += f"\n\nVerify: {verification_url}"
 
@@ -755,3 +761,40 @@ class AccountSelectorService(IAccountSelector):
             # will skip this account next time, but clearing current ensures
             # we don't try to use it again for the same request if logic repeats.
             self._current_account = None
+
+    async def mark_account_uninitialized(self, account_id: str) -> None:
+        """Mark an account as uninitialized/unusable due to missing setup.
+
+        This is a runtime-only operation that removes the account from the
+        in-memory list of available accounts. The account storage files are
+        NOT modified. This prevents usage attempts of accounts that lack
+        required setup (e.g., missing Cloud Project ID).
+
+        Args:
+            account_id: The account ID to mark as uninitialized.
+        """
+        if account_id not in self._blocked_account_ids:
+            self._blocked_account_ids.add(account_id)
+            logger.warning(
+                "Account %s marked as uninitialized (missing required setup). "
+                "Removed from in-memory available accounts list for this session.",
+                account_id,
+            )
+            # Clear session affinity for this account
+            if self._session_affinity:
+                sessions_to_clear = [
+                    session
+                    for session, (acc_id, _) in self._session_affinity.items()
+                    if acc_id == account_id
+                ]
+                for session in sessions_to_clear:
+                    self._session_affinity.pop(session, None)
+                if sessions_to_clear and logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Cleared %d session affinity mapping(s) for uninitialized account %s",
+                        len(sessions_to_clear),
+                        account_id,
+                    )
+            # Clear current account if it's the one being marked
+            if self._current_account and self._current_account.account_id == account_id:
+                self._current_account = None

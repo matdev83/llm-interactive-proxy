@@ -528,9 +528,9 @@ class TestAccountSelectorService:
         mock_notification_service.send_notification.assert_called_once()
         call_args = mock_notification_service.send_notification.call_args
         assert call_args is not None
-        assert call_args.kwargs["title"] == "Gemini OAuth Account Blocked"
-        assert "account-blocked-1"[:8] in call_args.kwargs["message"]
-        assert "Account requires verification" in call_args.kwargs["message"]
+        assert call_args.kwargs["title"] == "Gemini OAuth account needs verification"
+        assert "test@gmail.com" in call_args.kwargs["message"]
+        assert "requires additional verification" in call_args.kwargs["message"]
         assert "No other accounts available!" in call_args.kwargs["message"]
 
     @pytest.mark.asyncio
@@ -657,7 +657,7 @@ class TestAccountSelectorService:
         mock_notification_service.send_notification.assert_called_once()
         call_args = mock_notification_service.send_notification.call_args
         assert call_args is not None
-        assert call_args.kwargs["title"] == "Gemini OAuth Account Blocked"
+        assert call_args.kwargs["title"] == "Gemini OAuth account needs verification"
         # Should show 2 other available accounts
         assert "Other available accounts: 2" in call_args.kwargs["message"]
 
