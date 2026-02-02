@@ -348,7 +348,6 @@ class AngelStreamVerifier(IAngelStreamVerifier):
             # Tag the angel steering message as non-forwardable and set injection boundary
             if correction_request.messages and request_context:
                 from src.core.domain.non_forwardable import NonForwardableTagScope
-
                 from src.core.interfaces.non_forwardable_interface import (
                     INonForwardableMessageIdentityService,
                     INonForwardableMessageRegistry,

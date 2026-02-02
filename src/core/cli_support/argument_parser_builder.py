@@ -74,6 +74,7 @@ class ArgumentParserBuilder:
         self._add_end_of_session_arguments(parser)
         self._add_replacement_arguments(parser)
         self._add_model_registry_arguments(parser)
+        self._add_access_mode_arguments(parser)
 
         return parser
 
@@ -276,6 +277,20 @@ class ArgumentParserBuilder:
             type=int,
             metavar="N",
             help="Truncate history for Angel verification to N messages (default: unlimited/disabled)",
+        )
+        parser.add_argument(
+            "--angel-max-consecutive-failures",
+            dest="angel_max_consecutive_failures",
+            type=int,
+            metavar="N",
+            help="Maximum consecutive failures for Angel model before tripping circuit breaker (default: 5)",
+        )
+        parser.add_argument(
+            "--angel-cooldown-seconds",
+            dest="angel_cooldown_seconds",
+            type=int,
+            metavar="SECONDS",
+            help="Cooldown period in seconds for Angel circuit breaker (default: 300)",
         )
 
     def _validate_model_alias(self, value: str) -> tuple[str, str]:
@@ -1553,4 +1568,30 @@ class ArgumentParserBuilder:
             type=float,
             metavar="SECONDS",
             help="Maximum time to wait for event dispatch (default: 5.0, 0 for fire-and-forget)",
+        )
+
+    def _add_access_mode_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add access mode selection arguments."""
+        access_mode_group = parser.add_mutually_exclusive_group()
+        access_mode_group.add_argument(
+            "--single-user-mode",
+            dest="single_user_mode",
+            action="store_true",
+            default=False,
+            help=(
+                "Run in Single User Mode (default). Allows OAuth connectors, "
+                "optional authentication, localhost-only binding. Suitable for "
+                "local development."
+            ),
+        )
+        access_mode_group.add_argument(
+            "--multi-user-mode",
+            dest="multi_user_mode",
+            action="store_true",
+            default=False,
+            help=(
+                "Run in Multi User Mode. Blocks OAuth connectors, requires "
+                "authentication for non-localhost binding. Suitable for shared "
+                "or production deployments."
+            ),
         )

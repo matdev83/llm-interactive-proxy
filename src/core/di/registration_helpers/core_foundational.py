@@ -34,7 +34,7 @@ def register_app_config(
         register_singleton_if_absent(services, AppConfig, instance=app_config)
         try:
             register_singleton_if_absent(
-                services, cast(type, IConfig), instance=app_config
+                services, IConfig, instance=app_config
             )  # type: ignore[type-abstract]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
@@ -47,7 +47,7 @@ def register_app_config(
         register_singleton_if_absent(services, AppConfig, instance=default_config)
         try:
             register_singleton_if_absent(
-                services, cast(type, IConfig), instance=default_config
+                services, IConfig, instance=default_config
             )  # type: ignore[type-abstract]
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
@@ -74,7 +74,7 @@ def register_event_bus(services: ServiceCollection) -> None:
     try:
         register_singleton_if_absent(
             services,
-            cast(type, IEventBus),
+            IEventBus,
             implementation_factory=lambda p: p.get_required_service(EventBus),
         )
         if logger.isEnabledFor(logging.DEBUG):
@@ -99,7 +99,7 @@ def register_session_services(services: ServiceCollection) -> None:
     # Register session resolver
     register_singleton_if_absent(services, DefaultSessionResolver)
     register_singleton_if_absent(
-        services, cast(type, ISessionResolver), implementation_type=DefaultSessionResolver  # type: ignore[type-abstract]
+        services, ISessionResolver, implementation_type=DefaultSessionResolver  # type: ignore[type-abstract]
     )
 
     # Register session service
@@ -114,7 +114,7 @@ def register_session_services(services: ServiceCollection) -> None:
     try:
         register_singleton_if_absent(
             services,
-            cast(type, ISessionService),
+            ISessionService,
             implementation_factory=_session_service_factory,  # type: ignore[type-abstract]
         )
     except Exception as e:
@@ -171,7 +171,7 @@ def _register_notification_service(services: ServiceCollection) -> None:
 
         register_singleton_if_absent(
             services,
-            cast(type, INotificationService),
+            INotificationService,
             implementation_factory=inotification_service_factory,
         )
     except ImportError as e:
@@ -204,7 +204,7 @@ def register_application_state_services(services: ServiceCollection) -> None:
     try:
         register_singleton_if_absent(
             services,
-            cast(type, IApplicationState),
+            IApplicationState,
             implementation_factory=_application_state_factory,  # type: ignore[type-abstract]
         )
     except Exception as e:
@@ -238,7 +238,7 @@ def register_application_state_services(services: ServiceCollection) -> None:
     try:
         register_singleton_if_absent(
             services,
-            cast(type, IAppSettings),
+            IAppSettings,
             implementation_factory=_app_settings_factory,  # type: ignore[type-abstract]
         )
     except Exception as e:
@@ -258,12 +258,12 @@ def register_application_state_services(services: ServiceCollection) -> None:
     try:
         register_singleton_if_absent(
             services,
-            cast(type, ISecureStateAccess),
+            ISecureStateAccess,
             implementation_factory=_secure_state_factory,  # type: ignore[type-abstract]
         )
         register_singleton_if_absent(
             services,
-            cast(type, ISecureStateModification),
+            ISecureStateModification,
             implementation_factory=_secure_state_factory,  # type: ignore[type-abstract]
         )
     except Exception as e:
@@ -303,7 +303,7 @@ def register_application_state_services(services: ServiceCollection) -> None:
     try:
         register_singleton_if_absent(
             services,
-            cast(type, IHistoryCompactionService),
+            IHistoryCompactionService,
             implementation_factory=lambda provider: provider.get_required_service(
                 HistoryCompactionService
             ),  # type: ignore[type-abstract]
@@ -331,15 +331,9 @@ def register_application_state_services(services: ServiceCollection) -> None:
             ConversationFingerprintService,
         )
 
-        session_service = provider.get_required_service(
-            cast(type[ISessionService], ISessionService)
-        )
-        session_resolver = provider.get_required_service(
-            cast(type[ISessionResolver], ISessionResolver)
-        )
-        session_repository = provider.get_service(
-            cast(type[ISessionRepository], ISessionRepository)
-        )
+        session_service = provider.get_required_service(cast(Any, ISessionService))
+        session_resolver = provider.get_required_service(cast(Any, ISessionResolver))
+        session_repository = provider.get_service(cast(Any, ISessionRepository))
         fingerprint_service = provider.get_required_service(
             ConversationFingerprintService
         )
@@ -356,7 +350,7 @@ def register_application_state_services(services: ServiceCollection) -> None:
     try:
         register_singleton_if_absent(
             services,
-            cast(type, ISessionManager),
+            ISessionManager,
             implementation_factory=_session_manager_factory,  # type: ignore[type-abstract]
         )
     except Exception as e:
@@ -380,7 +374,7 @@ def register_time_source(services: ServiceCollection) -> None:
 
         register_singleton_if_absent(
             services,
-            cast(type, ITimeSource),
+            ITimeSource,
             implementation_factory=_time_source_factory,  # type: ignore[type-abstract]
         )
     except Exception as e:
@@ -419,7 +413,7 @@ def _register_tool_call_repair_service(services: ServiceCollection) -> None:
 
         register_singleton_if_absent(
             services,
-            cast(type, IToolCallRepairService),
+            IToolCallRepairService,
             implementation_factory=itool_call_repair_factory,
         )
     except ImportError as e:

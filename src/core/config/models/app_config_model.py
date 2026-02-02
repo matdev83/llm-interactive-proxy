@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import ConfigDict, Field
 
 from src.core.auth.sso.config import SSOConfig
+from src.core.config.models.access_mode import AccessModeConfig
 from src.core.config.models.auth import AuthConfig
 from src.core.config.models.auxiliary_routing import AuxiliaryRoutingConfig
 from src.core.config.models.backends import BackendSettings
@@ -58,7 +59,9 @@ class AppConfigModel(DomainModel, IConfig):
     command_prefix: str = "!/"
     strict_command_detection: bool = False
     context_window_override: int | None = None
-    streaming_yield_interval: int = 100  # Number of chunks to batch before yielding to event loop
+    streaming_yield_interval: int = (
+        100  # Number of chunks to batch before yielding to event loop
+    )
     gcp_project_id: str | None = None
     gemini_credentials_path: str | None = None
     gemini_read_timeout: float = 120.0  # Default 2 minutes
@@ -117,6 +120,8 @@ class AppConfigModel(DomainModel, IConfig):
     )
 
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)
+
+    access_mode: AccessModeConfig = Field(default_factory=AccessModeConfig)
 
     vtc_client_patterns: list[str] = Field(
         default_factory=lambda: ["cline", "kilo", "roo"]

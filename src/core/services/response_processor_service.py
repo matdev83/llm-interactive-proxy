@@ -6,8 +6,7 @@ import json
 import logging
 import re
 from collections.abc import AsyncIterator
-from typing import Any
-
+from typing import Any, cast
 
 from pydantic.types import JsonValue
 
@@ -211,7 +210,6 @@ class ResponseProcessor(IResponseProcessor):
                     max_consecutive_failures = 5
                     cooldown_seconds = 300
 
-                from typing import cast
                 from src.core.di.services import get_service
                 from src.core.interfaces.notification_service_interface import (
                     INotificationService,
@@ -314,8 +312,6 @@ class ResponseProcessor(IResponseProcessor):
                 if session_key:
                     self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            from typing import Any, cast
-
             provider = get_service_provider()
             backend_service: IBackendService = provider.get_required_service(  # type: ignore[reportUnknownVariableType]
                 cast(Any, IBackendService)
@@ -372,8 +368,6 @@ class ResponseProcessor(IResponseProcessor):
 
             # Tag the angel steering message as non-forwardable and set injection boundary
             if correction_request.messages and request_context:
-                from typing import cast
-
                 from src.core.domain.non_forwardable import NonForwardableTagScope
                 from src.core.interfaces.non_forwardable_interface import (
                     INonForwardableMessageIdentityService,

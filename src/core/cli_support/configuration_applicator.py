@@ -278,6 +278,7 @@ class ConfigurationApplicator:
             List of domain applicator instances
         """
         from src.core.cli_support.applicators import (
+            AccessModeApplicator,
             AssessmentApplicator,
             AuthApplicator,
             AuxiliaryRoutingApplicator,
@@ -302,6 +303,7 @@ class ConfigurationApplicator:
         return [
             ServerApplicator(),
             LoggingApplicator(),
+            AccessModeApplicator(),  # Must be before BackendApplicator (access mode needed for OAuth filtering)
             NotificationApplicator(),
             BackendApplicator(),
             SessionApplicator(),

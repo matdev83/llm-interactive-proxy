@@ -222,6 +222,14 @@ class SessionConfig(DomainModel):
     # for the Angel verification request payload.
     angel_max_history: int | None = None
 
+    # Angel verification health check settings.
+    # Consecutive failures to generate a valid XML response or backend errors before
+    # tripping the circuit breaker for the cooldown period.
+    angel_max_consecutive_failures: int = 5
+
+    # Cooldown period in seconds when the Angel circuit breaker is tripped.
+    angel_cooldown_seconds: int = 300
+
     @field_validator("angel_frequency")
     @classmethod
     def _validate_angel_frequency(cls, value: int) -> int:
