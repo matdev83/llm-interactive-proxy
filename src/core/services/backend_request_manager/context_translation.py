@@ -36,7 +36,7 @@ def build_middleware_context(
         - backend_name: from ResponseProcessingContext.backend_name or ChatRequest.extra_body.backend_type (fallback)
         - model_name: from ResponseProcessingContext.model_name or ChatRequest.model (fallback)
         - session_id: from ResponseProcessingContext.session_id
-        - response_schema: from ResponseProcessingContext.structured_output.schema (preferred) or RequestContext.processing_context.response_schema (fallback)
+        - response_schema: from ResponseProcessingContext.structured_output.response_schema (preferred) or RequestContext.processing_context.response_schema (fallback)
         - schema_name: from ResponseProcessingContext.structured_output.schema_name (preferred) or RequestContext.processing_context.schema_name (fallback)
         - request_id: from ResponseProcessingContext.structured_output.request_id (preferred) or RequestContext.processing_context.request_id (fallback)
 
@@ -90,7 +90,7 @@ def build_middleware_context(
     # Structured output keys from processing_context
     if processing_context.structured_output is not None:
         middleware_context["response_schema"] = (
-            processing_context.structured_output.schema
+            processing_context.structured_output.response_schema
         )
         middleware_context["schema_name"] = (
             processing_context.structured_output.schema_name

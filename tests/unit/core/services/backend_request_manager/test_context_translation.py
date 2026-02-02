@@ -189,7 +189,7 @@ class TestBuildMiddlewareContext:
     def test_non_streaming_with_structured_output(self) -> None:
         """Test structured output context keys are included."""
         structured_output = StructuredOutputContext(
-            schema={"type": "object"},
+            response_schema={"type": "object"},
             schema_name="test_schema",
             request_id="req-123",
         )
@@ -349,7 +349,7 @@ class TestBuildMiddlewareContext:
     def test_streaming_includes_stream_id(self) -> None:
         """Test streaming context includes stream_id."""
         structured_output = StructuredOutputContext(
-            schema={"type": "object"},
+            response_schema={"type": "object"},
             schema_name="test",
             request_id="req-123",
         )

@@ -250,7 +250,7 @@ class TestResponseProcessing:
         # Arrange
         schema = {"type": "object", "properties": {"name": {"type": "string"}}}
         structured_output_context = StructuredOutputContext(
-            schema=schema,
+            response_schema=schema,
             schema_name="test_schema",
             request_id="req-123",
         )

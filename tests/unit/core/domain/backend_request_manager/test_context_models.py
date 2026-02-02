@@ -19,21 +19,21 @@ class TestStructuredOutputContext:
         """Test creating StructuredOutputContext with all required fields."""
         schema = {"type": "object", "properties": {"name": {"type": "string"}}}
         context = StructuredOutputContext(
-            schema=schema,
+            response_schema=schema,
             schema_name="test_schema",
             request_id="req-123",
         )
-        assert context.schema == schema
+        assert context.response_schema == schema
         assert context.schema_name == "test_schema"
         assert context.request_id == "req-123"
 
     def test_validation_requires_all_fields(self) -> None:
         """Test that all fields are required."""
         with pytest.raises(ValidationError):
-            StructuredOutputContext(schema={}, schema_name="test")  # type: ignore[call-overload]
+            StructuredOutputContext(response_schema={}, schema_name="test")  # type: ignore[call-overload]
 
         with pytest.raises(ValidationError):
-            StructuredOutputContext(schema={}, request_id="req-123")  # type: ignore[call-overload]
+            StructuredOutputContext(response_schema={}, request_id="req-123")  # type: ignore[call-overload]
 
         with pytest.raises(ValidationError):
             StructuredOutputContext(schema_name="test", request_id="req-123")  # type: ignore[call-overload]
@@ -55,7 +55,7 @@ class TestResponseProcessingContext:
     def test_create_with_all_fields(self) -> None:
         """Test creating ResponseProcessingContext with all fields."""
         schema_context = StructuredOutputContext(
-            schema={"type": "object"},
+            response_schema={"type": "object"},
             schema_name="test",
             request_id="req-123",
         )

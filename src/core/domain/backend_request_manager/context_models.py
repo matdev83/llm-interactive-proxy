@@ -23,7 +23,7 @@ StreamingContext = dict[str, Any]
 class StructuredOutputContext(BaseModel):
     """Context for structured output validation."""
 
-    schema: Any = Field(..., description="The JSON schema for validation")
+    response_schema: Any = Field(..., description="The JSON schema for validation")
     schema_name: str = Field(..., description="Name identifier for the schema")
     request_id: str = Field(..., description="Request identifier for correlation")
 

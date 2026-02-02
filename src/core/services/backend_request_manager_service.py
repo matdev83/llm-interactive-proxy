@@ -202,7 +202,7 @@ class BackendRequestManager(IBackendRequestManager):
                 schema_name = processing_values.get("schema_name", "unnamed")
                 request_id = processing_values.get("request_id", session_id)
                 structured_output = StructuredOutputContext(
-                    schema=response_schema,
+                    response_schema=response_schema,
                     schema_name=str(schema_name),
                     request_id=str(request_id),
                 )

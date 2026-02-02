@@ -127,7 +127,7 @@ class StructuredOutputEnforcer(IStructuredOutputEnforcer):
                     strict_validation = context.get("strict_schema_validation", True)
 
                 feature_context: dict[str, Any] = {
-                    "response_schema": context.schema,
+                    "response_schema": context.response_schema,
                     "schema_name": context.schema_name,
                     "request_id": context.request_id,
                     "strict_schema_validation": strict_validation,
@@ -178,7 +178,7 @@ class StructuredOutputEnforcer(IStructuredOutputEnforcer):
                     strict_validation = context.get("strict_schema_validation", True)
 
                 middleware_context: dict[str, Any] = {
-                    "response_schema": context.schema,
+                    "response_schema": context.response_schema,
                     "schema_name": context.schema_name,
                     "request_id": context.request_id,
                     "strict_schema_validation": strict_validation,
