@@ -33,6 +33,9 @@ Requirements satisfied:
 - 6.4: New configuration domains can be added without modifying existing applicators
 """
 
+from src.core.cli_support.applicators.access_mode_applicator import (
+    AccessModeApplicator,
+)
 from src.core.cli_support.applicators.assessment_applicator import AssessmentApplicator
 from src.core.cli_support.applicators.auth_applicator import AuthApplicator
 from src.core.cli_support.applicators.auxiliary_routing_applicator import (
@@ -68,6 +71,7 @@ from src.core.cli_support.applicators.server_applicator import ServerApplicator
 from src.core.cli_support.applicators.session_applicator import SessionApplicator
 
 __all__ = [
+    "AccessModeApplicator",
     "AssessmentApplicator",
     "AuthApplicator",
     "AuxiliaryRoutingApplicator",

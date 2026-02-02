@@ -62,6 +62,25 @@ graph TD
 - **Angel Verification**: Real-time response verification with automatic correction
 - **And 10+ more features** - See [User Guide](docs/user_guide/index.md) for complete list
 
+## Access Modes
+
+The proxy supports two operational modes to enforce appropriate security boundaries:
+
+- **Single User Mode** (default): For local development. Allows OAuth connectors, optional authentication, localhost-only binding.
+- **Multi User Mode**: For production/shared deployments. Blocks OAuth connectors, requires authentication for remote access, allows any IP binding.
+
+### Quick Examples
+
+```bash
+# Single User Mode (default) - local development
+./.venv/Scripts/python.exe -m src.core.cli
+
+# Multi User Mode - production deployment
+./.venv/Scripts/python.exe -m src.core.cli --multi-user-mode --host=0.0.0.0 --api-keys key1,key2
+```
+
+See [Access Modes User Guide](docs/user_guide/access-modes.md) for detailed documentation.
+
 ## Quick Start
 
 ### Installation

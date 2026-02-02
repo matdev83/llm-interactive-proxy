@@ -23,7 +23,20 @@ from src.core.common.session_continuity_warnings import topic_similarity_enabled
 from src.core.config.app_config import AppConfig, load_config
 from src.core.config.parameter_resolution import ParameterResolution
 
+# Early access mode detection for OAuth connector filtering
+# Parse access mode flags BEFORE importing backend connectors to allow
+# filtering OAuth connectors in Multi User Mode during auto-discovery
+_early_access_mode = "single_user"  # Default
+if "--multi-user-mode" in sys.argv:
+    _early_access_mode = "multi_user"
+elif "--single-user-mode" in sys.argv:
+    _early_access_mode = "single_user"
+
+# Set environment variable for connector auto-discovery to check
+os.environ["LLM_PROXY_ACCESS_MODE"] = _early_access_mode
+
 # Import backend connectors to ensure they register themselves
+# OAuth connectors will be filtered in Multi User Mode based on environment variable
 from src.core.services import backend_imports
 from src.core.services.backend_registry import backend_registry
 

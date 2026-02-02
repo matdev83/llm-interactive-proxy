@@ -15,6 +15,7 @@ from src.core.di.registrations._shared import (
     register_interface_and_implementation,
     register_singleton_if_absent,
 )
+from src.core.interfaces.access_mode_validator_interface import IAccessModeValidator
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.path_validator_interface import IPathValidator
 
@@ -29,6 +30,7 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     - Path validation
     - Tool access control
     - Security policy enforcement
+    - Access mode validation
 
     Args:
         services: The service collection to register into
@@ -36,6 +38,9 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     """
     # Register path validation service (always available)
     _register_path_validation(services)
+
+    # Register access mode validator (always available)
+    _register_access_mode_validator(services)
 
     # Register unified tool security handler (if enabled)
     _register_unified_tool_security_handler(services, app_config)
@@ -57,6 +62,24 @@ def _register_path_validation(services: ServiceCollection) -> None:
 
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("Registered PathValidationService and IPathValidator")
+
+
+def _register_access_mode_validator(services: ServiceCollection) -> None:
+    """Register access mode validator service and interface."""
+    from src.core.services.access_mode_validator import AccessModeValidator
+
+    # Register AccessModeValidator as singleton
+    register_singleton_if_absent(services, AccessModeValidator)
+
+    # Register IAccessModeValidator interface bound to AccessModeValidator
+    register_interface_and_implementation(
+        services,
+        cast(type, IAccessModeValidator),
+        AccessModeValidator,
+    )
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("Registered AccessModeValidator and IAccessModeValidator")
 
 
 def _register_unified_tool_security_handler(

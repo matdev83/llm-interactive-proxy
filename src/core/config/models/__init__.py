@@ -1,5 +1,6 @@
 """Configuration domain models (pure, Pydantic-based)."""
 
+from src.core.config.models.access_mode import AccessMode, AccessModeConfig
 from src.core.config.models.app_config_model import AppConfigModel
 from src.core.config.models.auth import AuthConfig, BruteForceProtectionConfig
 from src.core.config.models.backends import (
@@ -32,6 +33,8 @@ from src.core.config.models.session import (
 )
 
 __all__ = [
+    "AccessMode",
+    "AccessModeConfig",
     "AppConfigModel",
     "AuthConfig",
     "BackendConfig",

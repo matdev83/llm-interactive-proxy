@@ -614,8 +614,12 @@ def test_apply_cli_args_disable_auth_with_localhost_no_force() -> None:
 
 @pytest.mark.asyncio
 async def test_main_disable_auth_forces_localhost() -> None:
-    """Test that main function forces localhost when disable_auth is set."""
-    from unittest.mock import AsyncMock
+    """Test that Single User Mode (default) refuses non-localhost binding.
+
+    Updated for access mode feature: Single User Mode now refuses to start
+    with non-localhost binding instead of forcing localhost.
+    Requirement 2.2: Single User Mode rejects non-localhost hosts.
+    """
 
     with (
         patch.dict(
@@ -624,65 +628,22 @@ async def test_main_disable_auth_forces_localhost() -> None:
         patch(
             "src.core.cli_support.logging_configurator.LoggingConfigurator.configure"
         ),
-        patch("src.core.cli.logging") as mock_logging,
-        patch(
-            "src.core.cli_support.server_lifecycle_manager.uvicorn.Server"
-        ) as mock_server_cls,
+        patch("src.core.cli.logging"),
         patch(
             "src.core.cli_support.privilege_checker.PrivilegeChecker.check_privileges"
         ),
         patch(
             "src.core.app.application_builder.build_app_async"
         ) as mock_build_app_async,
-        patch("src.core.app.stages.backend.BackendStage.validate", return_value=True),
-        patch(
-            "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.is_port_in_use",
-            return_value=False,
-        ),
-        patch(
-            "src.core.cli_support.server_lifecycle_manager.create_anthropic_app_async",
-            new_callable=AsyncMock,
-        ),
     ):
         mock_build_app_async.return_value = MagicMock()
 
-        # Mock server instance and serve method
-        mock_server_instance = MagicMock()
-        mock_server_instance.serve = AsyncMock(return_value=None)
-        mock_server_cls.return_value = mock_server_instance
-
-        await main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
-
-        # Should force host to localhost. Check Config initialization
-        call_args = mock_server_cls.call_args
-        assert call_args is not None
-        # uvicorn.Config is passed as first arg or 'config' kwarg
-        # In implementation: uvicorn.Config(app, host=..., ...)
-        # We need to check the arguments passed to uvicorn.Config, BUT
-        # cli.py creates uvicorn.Config object first and passes it to Server.
-        # We need to mock uvicorn.Config too to inspect it, or inspect the Server call args
-        # implementation:
-        # main_config = uvicorn.Config(app, host=cfg.host, port=cfg.port, ...)
-        # main_server = uvicorn.Server(main_config)
-
-        # Let's patch uvicorn.Config as well to check arguments easily
-        # Optimize: Check config in single call instead of patching twice
-        with patch(
-            "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
-        ) as mock_config_cls:
+        # Single User Mode (default) should refuse to start with non-localhost host
+        with pytest.raises(SystemExit) as exc_info:
             await main(["--port", "8080", "--disable-auth", "--host", "0.0.0.0"])
-
-            # Check that Config was initialized with forced localhost
-            mock_config_cls.assert_any_call(
-                ANY, host="127.0.0.1", port=8080, log_config=ANY
-            )
-
-            # Should log warning about auth being disabled
-            warning_calls = [str(call) for call in mock_logging.warning.call_args_list]
-            auth_disabled_warnings = [
-                call for call in warning_calls if "authentication is DISABLED" in call
-            ]
-            assert len(auth_disabled_warnings) >= 1
+        
+        # Should exit with code 1
+        assert exc_info.value.code == 1
 
 
 @pytest.mark.asyncio
@@ -744,7 +705,12 @@ async def test_main_disable_auth_with_localhost_no_force() -> None:
 
 @pytest.mark.asyncio
 async def test_main_auth_enabled_allows_custom_host() -> None:
-    """Test that main function allows custom host when auth is enabled."""
+    """Test that Multi User Mode allows custom host when auth is enabled.
+
+    Updated for access mode feature: Non-localhost binding now requires
+    Multi User Mode. Single User Mode enforces localhost-only.
+    Requirement 5.3: Multi User Mode allows non-localhost with auth.
+    """
     from unittest.mock import AsyncMock
 
     with (
@@ -784,9 +750,10 @@ async def test_main_auth_enabled_allows_custom_host() -> None:
         with patch(
             "src.core.cli_support.server_lifecycle_manager.uvicorn.Config"
         ) as mock_config_cls:
-            await main(["--port", "8080", "--host", "0.0.0.0"])
+            # Use Multi User Mode to allow non-localhost binding with auth
+            await main(["--port", "8080", "--host", "0.0.0.0", "--multi-user-mode"])
 
-            # Should use custom host when auth is enabled
+            # Should use custom host when auth is enabled in Multi User Mode
             mock_config_cls.assert_any_call(
                 ANY, host="0.0.0.0", port=8080, log_config=ANY
             )

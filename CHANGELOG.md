@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - **Gemini OAuth Auto**: Implemented `random` and `first-available` selection strategies for multi-account rotation.
 - **Gemini OAuth Auto**: Added `last_used` usage tracking for registered accounts.
 - **Gemini OAuth Auto**: Added `show` command to `manage_gemini_accounts.py` for detailed account inspection.
+- **Access Modes**: Introduced Single User Mode (default) and Multi User Mode for explicit security boundary enforcement. Single User Mode allows OAuth connectors and optional auth for localhost development. Multi User Mode blocks OAuth connectors, requires authentication for non-localhost binding, and rejects desktop notifications. New CLI flags: `--single-user-mode`, `--multi-user-mode`. Backward compatible (defaults to Single User Mode). See [Access Modes User Guide](docs/user_guide/access-modes.md).
 - OpenAI Codex enthusiast mode configuration for third-party agents (Factory Droid, OpenCode, etc.)
 
 - New configuration profiles for Chat Completions and Responses API clients

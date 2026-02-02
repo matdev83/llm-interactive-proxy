@@ -41,8 +41,25 @@ class CliArgsValidator:
         Raises:
             ValueError: If validation fails, with detailed error message
         """
+        self._validate_access_mode_flags(args)
         self._validate_llm_assessment_config(args)
         self._validate_replacement_config(args)
+
+    def _validate_access_mode_flags(self, args: argparse.Namespace) -> None:
+        """Validate access mode flags.
+
+        Ensures that --single-user-mode and --multi-user-mode are not both specified.
+
+        Raises:
+            ValueError: If both access mode flags are specified.
+        """
+        single_user_mode = getattr(args, "single_user_mode", False)
+        multi_user_mode = getattr(args, "multi_user_mode", False)
+
+        if single_user_mode and multi_user_mode:
+            raise ValueError(
+                "Cannot specify both --single-user-mode and --multi-user-mode. Choose one."
+            )
 
     def _validate_llm_assessment_config(self, args: argparse.Namespace) -> None:
         """Validate LLM assessment configuration.

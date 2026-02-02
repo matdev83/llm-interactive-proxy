@@ -30,6 +30,7 @@ from src.core.cli_support.protocols import (
 )
 from src.core.common.uvicorn_logging import get_uvicorn_logging_config
 from src.core.config.app_config import AppConfig
+from src.core.interfaces.access_mode_validator_interface import IAccessModeValidator
 
 if TYPE_CHECKING:
     from src.core.config.parameter_resolution import ParameterResolution
@@ -46,13 +47,16 @@ class ServerLifecycleManager:
         privilege_checker: PrivilegeCheckerProtocol | None = None,
         logging_configurator: LoggingConfiguratorProtocol | None = None,
         error_handler: ErrorHandlerProtocol | None = None,
+        access_mode_validator: IAccessModeValidator | None = None,
         build_app_async_fn: Callable[[AppConfig], Awaitable[FastAPI]] | None = None,
     ) -> None:
         from src.core.app.application_builder import build_app_async
+        from src.core.services.access_mode_validator import AccessModeValidator
 
         self._privilege_checker = privilege_checker or PrivilegeChecker()
         self._logging_configurator = logging_configurator or LoggingConfigurator()
         self._error_handler = error_handler or ErrorHandler()
+        self._access_mode_validator = access_mode_validator or AccessModeValidator()
         self._build_app_async_fn = build_app_async_fn or build_app_async
 
     async def run(
@@ -75,12 +79,24 @@ class ServerLifecycleManager:
         except Exception as exc:
             raise ValueError(f"Logging configuration failed: {exc}") from exc
 
+        # Log access mode at INFO level (Requirement 1.5)
+        access_mode = cfg.access_mode.mode.value
+        mode_display = access_mode.replace("_", " ").title()
+        logger.info(f"Starting LLM Proxy in {mode_display} Mode")
+
         if resolution is not None:
             resolution.log(logging.getLogger("config.resolution"), cfg)
 
         self._privilege_checker.check_privileges(
             allow_admin=bool(getattr(args, "allow_admin", False))
         )
+
+        # Validate access mode rules (Requirement 2.1-2.4, 5.1-5.6, 7.1-7.4, 8.1-8.3, 9.1-9.5)
+        try:
+            self._access_mode_validator.validate(cfg, args)
+        except ValueError as exc:
+            self._error_handler.handle_build_error(str(exc))
+            raise SystemExit(1) from exc
 
         if enforce_localhost_fn is not None:
             cfg = enforce_localhost_fn(cfg)

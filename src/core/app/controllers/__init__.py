@@ -322,6 +322,23 @@ def register_routes(app: FastAPI) -> None:
             service_provider_present=False, registered_descriptors=[]
         )
         try:
+            # Get access mode from app config (Requirement 10.3)
+            app_config = getattr(request.app.state, "app_config", None)
+            if app_config is not None:
+                try:
+                    access_mode_value = app_config.access_mode.mode.value
+                    result.access_mode = access_mode_value
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Health endpoint reporting access mode: {access_mode_value}"
+                        )
+                except (AttributeError, TypeError) as e:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Failed to retrieve access mode from config: {e}",
+                            exc_info=True,
+                        )
+
             sp = getattr(request.app.state, "service_provider", None)
             result.service_provider_present = sp is not None
             if sp is not None:
@@ -366,8 +383,6 @@ def register_routes(app: FastAPI) -> None:
                 result.descriptor_error = str(e)
             # Debug-only: log resolvability against global provider for easier diagnosis
             try:
-                import logging
-
                 from src.core.di.services import get_service_provider
 
                 dbg = logging.getLogger("llm.di.debug")
@@ -1255,6 +1270,7 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
             from fastapi import Response as DummyResponse
 
             from src.core.app.controllers.models_controller import list_models
+
             dummy_response = DummyResponse()
             models_response = await list_models(
                 dummy_response,

@@ -354,5 +354,75 @@ class TestMultipleValidations:
 
 
 # =============================================================================
+# Access Mode Validation Tests
+# =============================================================================
+
+
+class TestAccessModeValidation:
+    """Tests for access mode validation."""
+
+    def test_passes_when_no_access_mode_flags(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation passes when no access mode flags are specified."""
+        args.single_user_mode = False
+        args.multi_user_mode = False
+        validator.validate(args)  # type: ignore[union-attr]
+
+    def test_passes_when_only_single_user_mode(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation passes when only --single-user-mode is specified."""
+        args.single_user_mode = True
+        args.multi_user_mode = False
+        validator.validate(args)  # type: ignore[union-attr]
+
+    def test_passes_when_only_multi_user_mode(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation passes when only --multi-user-mode is specified."""
+        args.single_user_mode = False
+        args.multi_user_mode = True
+        validator.validate(args)  # type: ignore[union-attr]
+
+    def test_raises_when_both_flags_specified(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Validation raises ValueError when both access mode flags are specified."""
+        args.single_user_mode = True
+        args.multi_user_mode = True
+
+        with pytest.raises(ValueError) as exc_info:
+            validator.validate(args)  # type: ignore[union-attr]
+
+        error_message = str(exc_info.value)
+        assert "single-user-mode" in error_message.lower()
+        assert "multi-user-mode" in error_message.lower()
+        assert (
+            "cannot specify both" in error_message.lower()
+            or "mutually exclusive" in error_message.lower()
+        )
+
+    def test_error_message_is_clear_and_actionable(
+        self, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Error message provides clear guidance on how to fix the issue."""
+        args.single_user_mode = True
+        args.multi_user_mode = True
+
+        with pytest.raises(ValueError) as exc_info:
+            validator.validate(args)  # type: ignore[union-attr]
+
+        error_message = str(exc_info.value)
+        # Error message should reference the flags
+        assert (
+            "--single-user-mode" in error_message or "single-user-mode" in error_message
+        )
+        assert (
+            "--multi-user-mode" in error_message or "multi-user-mode" in error_message
+        )
+
+
+# =============================================================================
 # Backward Compatibility Tests
 # =============================================================================

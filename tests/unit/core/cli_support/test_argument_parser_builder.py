@@ -794,6 +794,116 @@ class TestArgumentGroups:
 
 
 # =============================================================================
+# Access Mode Flags Tests
+# =============================================================================
+
+
+class TestAccessModeFlags:
+    """Tests for access mode CLI arguments."""
+
+    @pytest.mark.parametrize(
+        "flag",
+        [
+            "--single-user-mode",
+            "--multi-user-mode",
+        ],
+    )
+    def test_access_mode_flags_present(
+        self, parser: argparse.ArgumentParser, flag: str
+    ) -> None:
+        """Access mode flags are present."""
+        flags = _collect_cli_flags(parser)
+        assert flag in flags, f"Flag {flag} not found in parser"
+
+    def test_access_mode_flags_are_mutually_exclusive(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Access mode flags are mutually exclusive."""
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                [
+                    "--single-user-mode",
+                    "--multi-user-mode",
+                ]
+            )
+
+    def test_access_mode_flags_have_help_text(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Access mode flags have descriptive help text."""
+        single_user_action = _get_action_by_dest(parser, "single_user_mode")
+        multi_user_action = _get_action_by_dest(parser, "multi_user_mode")
+
+        assert single_user_action is not None
+        assert multi_user_action is not None
+        assert single_user_action.help is not None
+        assert multi_user_action.help is not None
+        assert len(single_user_action.help) > 0
+        assert len(multi_user_action.help) > 0
+
+    def test_access_mode_help_text_indicates_default(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Access mode help text indicates Single User Mode is the default."""
+        single_user_action = _get_action_by_dest(parser, "single_user_mode")
+        assert single_user_action is not None
+        assert single_user_action.help is not None
+        # Help text should mention default or Single User Mode
+        help_text_lower = single_user_action.help.lower()
+        assert "default" in help_text_lower or "single user" in help_text_lower
+
+    def test_access_mode_help_text_explains_differences(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """Access mode help text explains differences between modes."""
+        single_user_action = _get_action_by_dest(parser, "single_user_mode")
+        multi_user_action = _get_action_by_dest(parser, "multi_user_mode")
+
+        assert single_user_action is not None
+        assert multi_user_action is not None
+        assert single_user_action.help is not None
+        assert multi_user_action.help is not None
+
+        # Help text should mention key differences
+        single_help_lower = single_user_action.help.lower()
+        multi_help_lower = multi_user_action.help.lower()
+
+        # Single User Mode should mention OAuth or localhost
+        assert (
+            "oauth" in single_help_lower
+            or "localhost" in single_help_lower
+            or "local" in single_help_lower
+        )
+
+        # Multi User Mode should mention production or shared
+        assert (
+            "production" in multi_help_lower
+            or "shared" in multi_help_lower
+            or "multi" in multi_help_lower
+        )
+
+    def test_parse_single_user_mode_flag(self, parser: argparse.ArgumentParser) -> None:
+        """Parser correctly parses --single-user-mode flag."""
+        args = parser.parse_args(["--single-user-mode"])
+        assert args.single_user_mode is True
+
+    def test_parse_multi_user_mode_flag(self, parser: argparse.ArgumentParser) -> None:
+        """Parser correctly parses --multi-user-mode flag."""
+        args = parser.parse_args(["--multi-user-mode"])
+        assert args.multi_user_mode is True
+
+    def test_no_access_mode_flag_defaults_to_none(
+        self, parser: argparse.ArgumentParser
+    ) -> None:
+        """When no access mode flag is specified, both are None (default handled elsewhere)."""
+        args = parser.parse_args([])
+        # argparse will set these to False by default for store_true actions
+        # The actual default mode selection happens in the applicator
+        assert hasattr(args, "single_user_mode")
+        assert hasattr(args, "multi_user_mode")
+
+
+# =============================================================================
 # Backward Compatibility Tests
 # =============================================================================
 

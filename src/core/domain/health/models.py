@@ -66,3 +66,4 @@ class SystemHealthInfo(BaseModel):
     registered_descriptors: list[str] = Field(default_factory=list)
     descriptor_error: str | None = None
     error: str | None = None
+    access_mode: str | None = None
