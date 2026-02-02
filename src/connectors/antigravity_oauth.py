@@ -14,6 +14,7 @@ This connector uses the Strategy Pattern with the following strategies:
 """
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -22,24 +23,27 @@ import re
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
 
 import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+
 from src.connectors.base import strip_vendor_prefix
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.gemini_base.credential_providers import (
+
     AntigravitySQLiteCredentialProvider,
 )
 from src.connectors.gemini_base.endpoints import AntigravitySandboxEndpoint
 from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
-from src.connectors.gemini_base.models import TierScore
 from src.connectors.gemini_base.project_discovery import AntigravityProjectDiscovery
 from src.connectors.gemini_base.request_builders import AntigravityRequestBodyBuilder
 from src.connectors.gemini_base.response_processors import XmlToolCallPostProcessor
-from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.common.exceptions import BackendError
+
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import (
     CanonicalChatResponse,
@@ -50,8 +54,8 @@ from src.core.domain.chat import (
 )
 from src.core.domain.models_listing import ModelInfo, ModelsListingResponse
 from src.core.domain.responses import ResponseEnvelope
-from src.core.domain.session_key import SessionKey
 from src.core.services.backend_registry import backend_registry
+
 from src.core.services.translation_service import TranslationService
 
 # Vendor prefixes that need to be stripped for Antigravity backend
@@ -124,6 +128,7 @@ class AntigravityAuthStatus(BaseModel):
         return self.model_dump(mode="python", exclude_none=False, by_alias=True)
 
 
+
 class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
     """
     Connector for Antigravity OAuth credentials.
@@ -138,7 +143,24 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
     backend_type: str = "antigravity-oauth"
 
+    _ACCOUNT_BLOCK_MARKERS: tuple[str, ...] = (
+        "to continue, validate",
+        "to continue, verify",
+        "validate your account",
+        "verify your account",
+        "account is suspended",
+        "account suspended",
+        "account disabled",
+        "account has been disabled",
+        "account blocked",
+        "account has been blocked",
+        "suspicious activity",
+        "verify it's you",
+        "confirm your identity",
+    )
+
     def __init__(
+
         self,
         client: httpx.AsyncClient,
         config: AppConfig,
@@ -169,7 +191,378 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
     # NOTE: _build_code_assist_request_body is now handled by
     # AntigravityRequestBodyBuilder strategy injected in __init__
 
+    def _candidate_state_db_paths(self) -> list[Path]:
+        """
+        Build a prioritized list of potential Antigravity state database paths.
+
+        Uses an explicit override when provided, otherwise resolves platform
+        specific roaming/config locations with a fallback to macOS paths.
+        """
+        override = os.getenv(ANTIGRAVITY_STATE_DB_ENV)
+        if override:
+            override_path = Path(override)
+            if str(override_path).strip():
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Using explicit ANTIGRAVITY_STATE_DB override: %s",
+                        override_path,
+                    )
+                return [override_path]
+
+        candidates: list[Path] = []
+        # Windows roaming profile (e.g., %APPDATA%)
+        appdata = os.getenv("APPDATA")
+        if appdata:
+            base = Path(appdata)
+            candidates.append(base / GLOBAL_STORAGE_SUBPATH / "state.vscdb")
+            candidates.append(base / GLOBAL_STORAGE_SUBPATH / "state.vscdb.backup")
+        elif os.name == "nt":
+            roaming_home = Path.home() / "AppData" / "Roaming"
+            candidates.append(roaming_home / GLOBAL_STORAGE_SUBPATH / "state.vscdb")
+            candidates.append(
+                roaming_home / GLOBAL_STORAGE_SUBPATH / "state.vscdb.backup"
+            )
+
+        # XDG config locations (Linux) or ~/.config fallback
+        home_dir = Path.home()
+        xdg_config_home = os.getenv("XDG_CONFIG_HOME")
+        config_home = Path(xdg_config_home) if xdg_config_home else home_dir / ".config"
+        candidates.append(config_home / GLOBAL_STORAGE_SUBPATH / "state.vscdb")
+        candidates.append(config_home / GLOBAL_STORAGE_SUBPATH / "state.vscdb.backup")
+
+        # macOS Application Support location
+        mac_config_base = home_dir / "Library" / "Application Support"
+        candidates.append(mac_config_base / GLOBAL_STORAGE_SUBPATH / "state.vscdb")
+        candidates.append(
+            mac_config_base / GLOBAL_STORAGE_SUBPATH / "state.vscdb.backup"
+        )
+
+        # Deduplicate while preserving order
+        seen: set[str] = set()
+        unique_candidates: list[Path] = []
+        for path in candidates:
+            path_key = str(path)
+            if path_key in seen:
+                continue
+            seen.add(path_key)
+            unique_candidates.append(path)
+
+        return unique_candidates
+
+    def _load_auth_status_from_db(self, db_path: Path) -> AntigravityAuthStatus | None:
+        """
+        Read the Antigravity auth status payload from the state database.
+
+        Returns:
+            AntigravityAuthStatus if successfully parsed, None otherwise.
+        """
+        parsed = self._parse_auth_status_value_from_db(db_path)
+        return parsed
+
+    def _extract_credentials_from_db(
+        self, db_path: Path
+    ) -> AntigravityAuthStatus | None:
+        """
+        Load and parse the Antigravity auth status from the database.
+
+        Returns:
+            AntigravityAuthStatus if successfully parsed, None otherwise.
+        """
+        return self._load_auth_status_from_db(db_path)
+
+    def _parse_auth_status_value_from_db(
+        self, db_path: Path
+    ) -> AntigravityAuthStatus | None:
+        """
+        Parse Antigravity auth status from database.
+
+        Args:
+            db_path: Path to the Antigravity state database.
+
+        Returns:
+            AntigravityAuthStatus if successfully parsed, None otherwise.
+        """
+        try:
+            # Use URI mode for read-only access to avoid locking issues
+            uri_path = (
+                db_path.as_uri().replace("file:///", "file:/")
+                if os.name == "nt"
+                else db_path.as_uri()
+            )
+            # Ensure proper URI format for sqlite3
+            if not uri_path.startswith("file:"):
+                uri_path = f"file:{db_path.as_posix()}"
+
+            connection_string = f"{uri_path}?mode=ro"
+
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    f"Attempting to read Antigravity DB at: {connection_string}",
+                )
+
+            with sqlite3.connect(connection_string, uri=True) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT value FROM ItemTable WHERE key=? "
+                    "ORDER BY rowid DESC LIMIT 1",
+                    (ANTIGRAVITY_AUTH_KEY,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Key '{ANTIGRAVITY_AUTH_KEY}' not found in {db_path}"
+                        )
+                    return None
+                raw_value = row[0]
+                return self._parse_auth_status_value(raw_value)
+        except sqlite3.Error as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unable to read Antigravity state database at %s: %s",
+                    db_path,
+                    exc,
+                    exc_info=True,
+                )
+            return None
+        except Exception as exc:  # pragma: no cover - defensive guardrail
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Unexpected error reading Antigravity state db %s: %s",
+                    db_path,
+                    exc,
+                    exc_info=True,
+                )
+            return None
+
+    def _parse_auth_status_value(
+        self, raw_value: str | bytes
+    ) -> AntigravityAuthStatus | None:
+        """
+        Parse JSON string from the database into a strongly-typed model.
+
+        Args:
+            raw_value: Raw value from database (string or bytes).
+
+        Returns:
+            AntigravityAuthStatus if successfully parsed, None otherwise.
+        """
+        try:
+            if isinstance(raw_value, bytes):
+                # Decode bytes to string if necessary
+                raw_value = raw_value.decode("utf-8")
+
+            # Ensure raw_value is a string before calling strip()
+            raw_value_str = str(raw_value)
+            if not raw_value_str.strip():
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Auth status value is empty.")
+                return None
+
+            # DoS protection: Check size before parsing
+            if len(raw_value_str.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Auth status JSON payload too large: %d bytes (limit: %d bytes)",
+                        len(raw_value_str.encode("utf-8")),
+                        MAX_JSON_PARSE_SIZE,
+                    )
+                return None
+
+            auth_data = json.loads(raw_value_str)
+
+            if auth_data is None:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Auth status value is null/None.")
+                return None
+
+            if isinstance(auth_data, dict):
+                try:
+                    return AntigravityAuthStatus.from_dict(auth_data)
+                except (ValueError, TypeError) as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Failed to create AntigravityAuthStatus from dict: %s",
+                            e,
+                            exc_info=True,
+                        )
+                    return None
+
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    f"Parsed auth status is not a dictionary: {type(auth_data)}"
+                )
+            return None
+        except json.JSONDecodeError as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to parse Antigravity auth status JSON: %s",
+                    exc,
+                    exc_info=True,
+                )
+            return None
+        except Exception as exc:  # pragma: no cover
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Unexpected error parsing auth status: {exc}", exc_info=True
+                )
+            return None
+
+    def _normalize_antigravity_credentials(
+        self, credentials: AntigravityAuthStatus | dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        Normalize Antigravity-specific credentials to standard OAuth format.
+
+        Antigravity stores credentials with 'apiKey' field, but the OAuth system
+        expects 'access_token'. This method maps fields appropriately.
+
+        Args:
+            credentials: AntigravityAuthStatus or dict containing credentials.
+
+        Returns:
+            Dictionary in standard OAuth format with 'access_token' field.
+        """
+        # Convert model to dict if needed
+        if isinstance(credentials, AntigravityAuthStatus):
+            base_dict = credentials.to_dict()
+        else:
+            # credentials is dict[str, Any] at this point due to type narrowing
+            base_dict = credentials
+
+        # Create a copy to avoid modifying the original
+        normalized = base_dict.copy()
+
+        # Map Antigravity 'apiKey' to standard OAuth 'access_token'
+        if "apiKey" in normalized and "access_token" not in normalized:
+            normalized["access_token"] = normalized.pop("apiKey")
+        elif "apiKey" in normalized and "access_token" in normalized:
+            # Both present - prefer access_token but keep apiKey for compatibility
+            normalized.pop("apiKey")
+
+        # The Antigravity token behaves like a static bearer; if no refresh_token is
+        # present, ignore expiry metadata so the base class does not mark it stale.
+        if not normalized.get("refresh_token"):
+            normalized.pop("expiry_date", None)
+            normalized.pop("refresh_token", None)
+
+        return normalized
+
+    async def _load_oauth_credentials(
+        self, force_reload: bool = False, silent: bool = False
+    ) -> bool:
+        """
+        Load OAuth credentials from the Antigravity state database or its backup.
+
+        Args:
+            force_reload: If True, bypass cache and force reload from file
+            silent: If True, suppress INFO level logging (used when checking for changes)
+        """
+        # Prefer the currently used path first to keep file watching stable
+        candidate_paths = self._candidate_state_db_paths()
+        if self._credentials_path:
+            preferred = [self._credentials_path]
+            preferred.extend(
+                path for path in candidate_paths if path != self._credentials_path
+            )
+            candidate_paths = preferred
+
+        errors: list[str] = []
+        for path in candidate_paths:
+            try:
+                if not path.exists():
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug("Path does not exist: %s", path)
+                    continue
+
+                current_modified = None
+                try:
+                    current_modified = path.stat().st_mtime
+                except OSError:
+                    current_modified = None
+
+                if (
+                    not force_reload
+                    and self._oauth_credentials
+                    and self._credentials_path
+                    and path == self._credentials_path
+                    and current_modified is not None
+                    and current_modified == self._last_modified
+                ):
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Antigravity credentials unchanged; using cached copy."
+                        )
+                    return True
+
+                credentials = self._extract_credentials_from_db(path)
+                if not credentials:
+                    errors.append(
+                        f"Failed to load Antigravity credentials from {path}; missing {ANTIGRAVITY_AUTH_KEY}."
+                    )
+                    continue
+
+                # Map Antigravity-specific fields to standard OAuth format
+                normalized_credentials = self._normalize_antigravity_credentials(
+                    credentials
+                )
+
+                is_valid, validation_errors = self._validate_credentials_structure(
+                    normalized_credentials, silent=silent
+                )
+                errors.extend(validation_errors)
+                if not is_valid:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Invalid credentials in %s: %s", path, validation_errors
+                        )
+                    continue
+
+                self._oauth_credentials = normalized_credentials
+                self._credentials_path = path
+                self._last_modified = current_modified or time.time()
+                self._credentials_fingerprint = self._compute_credentials_fingerprint(
+                    normalized_credentials
+                )
+                try:
+
+                    def _hash_file(target_path: Path) -> str:
+                        return hashlib.sha256(target_path.read_bytes()).hexdigest()
+
+                    credentials_file_hash: str | None = await asyncio.to_thread(
+                        _hash_file, path
+                    )
+                except OSError:
+                    credentials_file_hash = None
+                self._credentials_file_hash = credentials_file_hash
+                self._last_credentials_event_hash = credentials_file_hash
+                if not silent and logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Loaded Antigravity OAuth credentials from %s%s",
+                        path,
+                        " (force reload)" if force_reload else "",
+                    )
+                return True
+            except Exception as exc:
+                errors.append(f"Unexpected error reading {path}: {exc}")
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error loading Antigravity credentials from %s: %s",
+                        path,
+                        exc,
+                        exc_info=True,
+                    )
+
+        if errors:
+            self._credential_validation_errors = errors
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    f"Failed to load Antigravity credentials. Errors: {errors}"
+                )
+        return False
+
     async def initialize(self, **kwargs: Any) -> None:
+
         """Initialize using Antigravity's sandbox endpoint and custom User-Agent."""
         backends_config = getattr(self.config, "backends", None)
         backend_config = getattr(backends_config, "antigravity_oauth", None)
@@ -217,29 +610,71 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
                 self._owns_custom_client = False
             self._fail_init([f"Initialization failed: {exc}"])
 
+    @classmethod
+    def _is_account_blocked_message(
+        cls,
+        message: str | None,
+        *,
+        status_code: int | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> bool:
+        if status_code != 403:
+            return False
+
+        messages: list[str] = []
+        if isinstance(message, str) and message.strip():
+            messages.append(message)
+
+        if isinstance(details, dict):
+            direct_message = details.get("message")
+            if isinstance(direct_message, str) and direct_message.strip():
+                messages.append(direct_message)
+
+            error_detail = details.get("error")
+            if isinstance(error_detail, dict):
+                error_message = error_detail.get("message")
+                if isinstance(error_message, str) and error_message.strip():
+                    messages.append(error_message)
+            elif isinstance(error_detail, str) and error_detail.strip():
+                messages.append(error_detail)
+
+        for candidate in messages:
+            normalized = candidate.lower()
+            if any(marker in normalized for marker in cls._ACCOUNT_BLOCK_MARKERS):
+                return True
+
+        return False
+
+    @classmethod
+    def _is_account_blocked_error(cls, error: BackendError) -> bool:
+        return cls._is_account_blocked_message(
+            error.message,
+            status_code=getattr(error, "status_code", None),
+            details=getattr(error, "details", None),
+        )
+
+    @staticmethod
+    def _extract_retry_after_seconds(error: BackendError) -> float | None:
+        details = getattr(error, "details", None)
+        if not isinstance(details, dict):
+            return None
+        retry_after = details.get("retry_after")
+        if isinstance(retry_after, int | float):
+            return float(retry_after)
+        return None
+
     async def chat_completions(  # type: ignore[override]
         self,
-        request_data: Any,
-        processed_messages: list[Any],
-        effective_model: str,
-        identity: Any = None,
-        context: Any | None = None,
-        cancellation_token: SessionKey | None = None,
-        cancellation_coordinator: (
-            Any | None
-        ) = None,  # ISessionCancellationCoordinator | None
-        openrouter_api_base_url: str | None = None,
-        openrouter_headers_provider: Any = None,
-        key_name: str | None = None,
-        api_key: str | None = None,
-        project: str | None = None,
-        agent: str | None = None,
-        gemini_api_base_url: str | None = None,
-        **kwargs: Any,
+        request: "ConnectorChatCompletionsRequest",
     ) -> Any:
         # Structural enforcement: check cancellation immediately if coordinator and token provided
-        if cancellation_coordinator is not None and cancellation_token is not None:
-            cancellation_coordinator.ensure_not_cancelled(cancellation_token)
+        if (
+            request.cancellation_coordinator is not None
+            and request.cancellation_token is not None
+        ):
+            request.cancellation_coordinator.ensure_not_cancelled(
+                request.cancellation_token
+            )
         """Handle chat completions with model validation.
 
         This method validates the requested model against the available models list
@@ -267,6 +702,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         await self._ensure_models_loaded()
 
         # Strip any prefix from the model name for validation
+        effective_model = request.effective_model
         model_name = effective_model
         prefix = "gemini-oauth-plan:"
         if model_name.startswith(prefix):
@@ -283,7 +719,7 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         # - claude-opus-4.5 -> claude-opus-4-5-thinking (always, ignoring reasoning_effort)
         # - claude-sonnet-4.5 -> claude-sonnet-4-5 or claude-sonnet-4-5-thinking
         # - gpt-oss-120b -> gpt-oss-120b-medium (always, ignoring reasoning_effort)
-        model_name = self._map_model_with_reasoning_effort(model_name, request_data)
+        model_name = self._map_model_with_reasoning_effort(model_name, request.request)
 
         # Skip strict model validation - Antigravity sandbox supports both Gemini and Claude
         # NOTE: Claude models have limited multi-turn tool calling support when using this backend.
@@ -293,23 +729,55 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         # self.validate_model(model_name)
 
         # Delegate to parent implementation with the stripped model name
-        response = await super().chat_completions(
-            request_data=request_data,
-            processed_messages=processed_messages,
-            effective_model=model_name,
-            identity=identity,
-            context=context,
-            openrouter_api_base_url=openrouter_api_base_url,
-            openrouter_headers_provider=openrouter_headers_provider,
-            key_name=key_name,
-            api_key=api_key,
-            project=project,
-            agent=agent,
-            gemini_api_base_url=gemini_api_base_url,
-            **kwargs,
-        )
+        try:
+            # We explicitly cast options to avoid mypy errors with JsonValue
+            # since these parameters are expected to be str | None in parent
+            response = await super().chat_completions(
+                request_data=request.request,
+                processed_messages=list(request.processed_messages),
+                effective_model=model_name,
+                identity=request.identity,
+                context=request.context,
+                openrouter_api_base_url=cast(
+                    str | None, request.options.get("openrouter_api_base_url")
+                ),
+                openrouter_headers_provider=request.options.get(
+                    "openrouter_headers_provider"
+                ),
+                key_name=cast(str | None, request.options.get("key_name")),
+                api_key=cast(str | None, request.options.get("api_key")),
+                project=cast(str | None, request.options.get("project")),
+                agent=cast(str | None, request.options.get("agent")),
+                gemini_api_base_url=cast(
+                    str | None, request.options.get("gemini_api_base_url")
+                ),
+                **cast(dict[str, Any], request.options),
+            )
+        except BackendError as e:
+            if self._is_account_blocked_error(e):
+                self.mark_auth_invalid(e.message)
+                # Ensure AuthErrorHandler knows this is a personal backend
+                setattr(e, "__resilience_context__", {"is_personal_backend": True})
+
+            if (
+                getattr(e, "status_code", None) == 429
+                and not getattr(cast(Any, e), "__rate_limit_recorded__", False)
+            ):
+                # Logic amplification: Avoid duplicate rate limit recording
+                with contextlib.suppress(AttributeError, TypeError):
+                    cast(Any, e).__rate_limit_recorded__ = True
+                await self.record_rate_limit(
+                    retry_after_seconds=self._extract_retry_after_seconds(e)
+                )
+            if e.code == "quota_exceeded":
+                self._mark_backend_unusable(
+                    reason="quota_exceeded",
+                    retry_after_seconds=self._extract_retry_after_seconds(e),
+                )
+            raise
 
         # Post-process response to handle XML tool calls for Sonnet 4.5
+
         # This is a workaround for the model returning tool calls as XML text
         if (
             isinstance(response, ResponseEnvelope)
@@ -598,7 +1066,14 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
         return reasoning_effort
 
+    def get_available_models(self) -> list[str]:
+        """Return available models with vendor prefix for unified model routing."""
+        if self._model_registry is None:
+            return []
+        return self._model_registry.list_public_models()
+
     def _map_model_with_reasoning_effort(
+
         self, model_name: str, request_data: Any
     ) -> str:
         """Map public model names to internal variants based on reasoning_effort.
@@ -754,41 +1229,6 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
 
         return internal_model
 
-    async def _load_models_from_api(self) -> None:
-        """
-        Skip model enumeration on the sandbox endpoint to avoid 404 noise.
-
-        The Antigravity sandbox does not expose fetchAvailableModels; use the
-        hardcoded fallback list unless a different base URL is explicitly set.
-        """
-        base_url = (self.gemini_api_base_url or "").rstrip("/")
-        sandbox_url = ANTIGRAVITY_SANDBOX_ENDPOINT.rstrip("/")
-        if not base_url:
-            base_url = sandbox_url
-
-        if base_url == sandbox_url:
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Skipping fetchAvailableModels for Antigravity sandbox; using fallback model list."
-                )
-            # Load models from FallbackModelDiscovery strategy
-            self.available_models = self._model_discovery.get_fallback_models()
-            self._available_models_set = set(self.available_models)
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Loaded %d Antigravity models (fallback list)",
-                    len(self.available_models),
-                )
-            # Load models from the FallbackModelDiscovery strategy
-            self.available_models = self._model_discovery.get_fallback_models()
-            self._available_models_set = set(self.available_models)
-            logger.info(
-                f"Loaded {len(self.available_models)} Antigravity models (fallback list)"
-            )
-            return
-
-        await super()._load_models_from_api()
-
     async def list_models(
         self, *, gemini_api_base_url: str, key_name: str, api_key: str
     ) -> ModelsListingResponse:
@@ -847,566 +1287,22 @@ class AntigravityOAuthConnector(GeminiOAuthBaseConnector):
         """
         Discover the project id using the paid-tier onboarding flow.
 
-        The Antigravity token maps to a real account; prefer the highest tier
-        reported by loadCodeAssist instead of the free-tier defaults to avoid
-        artificial quota limits.
+        Delegates to the project discovery strategy injected in __init__.
         """
-        if self._project_id:
-            return str(self._project_id)
+        if self._project_discovery is None:
+            return "default"
 
-        if not auth_session:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "auth_session required for Antigravity project discovery but missing"
-                )
-            initial = (
-                self._oauth_credentials.get("project_id")
-                if self._oauth_credentials
-                else None
-            )
-            return str(initial or "default")
-
-        initial_project_id = (
-            self._oauth_credentials.get("project_id")
-            if self._oauth_credentials
-            else None
+        project_id = await self._project_discovery.discover(
+            auth_session=auth_session,
+            credentials=self._oauth_credentials,
+            base_url=self.gemini_api_base_url or ANTIGRAVITY_SANDBOX_ENDPOINT,
+            cached_project_id=self._project_id,
         )
-        fallback_project_id = initial_project_id or "default"
-
-        client_metadata = {
-            "ideType": "IDE_UNSPECIFIED",
-            "platform": "PLATFORM_UNSPECIFIED",
-            "pluginType": "GEMINI",
-            "duetProject": initial_project_id,
-        }
-
-        try:
-            load_request = {
-                "cloudaicompanionProject": initial_project_id,
-                "metadata": client_metadata,
-            }
-
-            load_url = f"{self.gemini_api_base_url}/v1internal:loadCodeAssist"
-            load_response = await asyncio.to_thread(
-                auth_session.request,
-                method="POST",
-                url=load_url,
-                json=load_request,
-                headers={"Content-Type": "application/json"},
-                timeout=30.0,
-            )
-
-            if load_response.status_code != 200:
-                raise BackendError(f"LoadCodeAssist failed: {load_response.text}")
-
-            load_data = load_response.json()
-            project_candidate = load_data.get("cloudaicompanionProject")
-            if project_candidate:
-                self._project_id = project_candidate
-                return str(self._project_id)
-
-            allowed_tiers_raw = load_data.get("allowedTiers", [])
-            allowed_tiers = [
-                tier for tier in allowed_tiers_raw if isinstance(tier, dict)
-            ]
-            current_tier = load_data.get("currentTier")
-            if isinstance(current_tier, dict):
-                allowed_tiers.append(current_tier)
-
-            def _tier_id(tier: dict[str, Any]) -> str:
-                raw_id = tier.get("id") or tier.get("tierId")
-                return str(raw_id or "").lower()
-
-            def _context_tokens(tier: dict[str, Any]) -> int:
-                for key in (
-                    "maxContextTokens",
-                    "contextTokenLimit",
-                    "contextWindowTokens",
-                    "tokenLimit",
-                    "maxContextWindow",
-                ):
-                    value = tier.get(key)
-                    if isinstance(value, int | float):
-                        return int(value)
-                return 0
-
-            def _tier_score(tier: dict[str, Any]) -> TierScore:
-                tier_id = _tier_id(tier)
-                is_paid = int(
-                    tier_id
-                    in {
-                        "paid-tier",
-                        "google-one-tier",
-                        "googleone-tier",
-                        "googleone",
-                        "duet-ai-pro",
-                    }
-                )
-                context_tokens = _context_tokens(tier)
-                if is_paid and context_tokens == 0:
-                    context_tokens = 1_000_000
-                is_default = int(bool(tier.get("isDefault")))
-                return TierScore(
-                    is_paid=is_paid,
-                    context_tokens=context_tokens,
-                    is_default=is_default,
-                )
-
-            tier_to_use = max(allowed_tiers, key=_tier_score) if allowed_tiers else None
-            selected_tier_id = (
-                tier_to_use.get("id") or tier_to_use.get("tierId")
-                if tier_to_use
-                else None
-            )
-            if not selected_tier_id:
-                selected_tier_id = "paid-tier"
-
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Selected Code Assist tier '%s' for Antigravity", selected_tier_id
-                )
-
-            onboard_request = {
-                "tierId": selected_tier_id,
-                "cloudaicompanionProject": initial_project_id,
-                "metadata": {
-                    **client_metadata,
-                    "duetProject": initial_project_id,
-                },
-            }
-
-            onboard_url = f"{self.gemini_api_base_url}/v1internal:onboardUser"
-            max_retries = 30
-            retry_count = 0
-
-            while retry_count < max_retries:
-                lro_response = await asyncio.to_thread(
-                    auth_session.request,
-                    method="POST",
-                    url=onboard_url,
-                    json=onboard_request,
-                    headers={"Content-Type": "application/json"},
-                    timeout=30.0,
-                )
-
-                if lro_response.status_code != 200:
-                    raise BackendError(f"OnboardUser failed: {lro_response.text}")
-
-                lro_data = lro_response.json()
-                if lro_data.get("done"):
-                    response_data = lro_data.get("response", {})
-                    cloudai_project = response_data.get("cloudaicompanionProject", {})
-                    discovered_project_id = cloudai_project.get(
-                        "id", initial_project_id or "default"
-                    )
-                    self._project_id = discovered_project_id
-                    if logger.isEnabledFor(logging.INFO):
-                        logger.info(
-                            "Discovered Antigravity project ID: %s", self._project_id
-                        )
-                    return str(self._project_id)
-
-                retry_count += 1
-                await asyncio.sleep(2)
-
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Onboarding timed out for Antigravity; falling back to project '%s'",
-                    fallback_project_id,
-                )
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Antigravity project discovery failed, using fallback project '%s': %s",
-                    fallback_project_id,
-                    exc,
-                    exc_info=True,
-                )
-
-        self._project_id = fallback_project_id
-        return str(self._project_id)
-
-    # -------------------------------------------------------------------------
-    # Antigravity-specific credential loading methods
-    # -------------------------------------------------------------------------
-
-    def _candidate_state_db_paths(self) -> list[Path]:
-        """
-        Build a prioritized list of potential Antigravity state database paths.
-
-        Uses an explicit override when provided, otherwise resolves platform
-        specific roaming/config locations with a fallback to macOS paths.
-        """
-        override = os.getenv(ANTIGRAVITY_STATE_DB_ENV)
-        if override:
-            override_path = Path(override)
-            if str(override_path).strip():
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "Using explicit ANTIGRAVITY_STATE_DB override: %s",
-                        override_path,
-                    )
-                return [override_path]
-
-        candidates: list[Path] = []
-        # Windows roaming profile (e.g., %APPDATA%)
-        appdata = os.getenv("APPDATA")
-        if appdata:
-            base = Path(appdata)
-            candidates.append(base / GLOBAL_STORAGE_SUBPATH / "state.vscdb")
-            candidates.append(base / GLOBAL_STORAGE_SUBPATH / "state.vscdb.backup")
-        elif os.name == "nt":
-            roaming_home = Path.home() / "AppData" / "Roaming"
-            candidates.append(roaming_home / GLOBAL_STORAGE_SUBPATH / "state.vscdb")
-            candidates.append(
-                roaming_home / GLOBAL_STORAGE_SUBPATH / "state.vscdb.backup"
-            )
-
-        # XDG config locations (Linux) or ~/.config fallback
-        home_dir = Path.home()
-        xdg_config_home = os.getenv("XDG_CONFIG_HOME")
-        config_home = Path(xdg_config_home) if xdg_config_home else home_dir / ".config"
-        candidates.append(config_home / GLOBAL_STORAGE_SUBPATH / "state.vscdb")
-        candidates.append(config_home / GLOBAL_STORAGE_SUBPATH / "state.vscdb.backup")
-
-        # macOS Application Support location
-        mac_config_base = home_dir / "Library" / "Application Support"
-        candidates.append(mac_config_base / GLOBAL_STORAGE_SUBPATH / "state.vscdb")
-        candidates.append(
-            mac_config_base / GLOBAL_STORAGE_SUBPATH / "state.vscdb.backup"
-        )
-
-        # Deduplicate while preserving order
-        seen: set[str] = set()
-        unique_candidates: list[Path] = []
-        for path in candidates:
-            path_key = str(path)
-            if path_key in seen:
-                continue
-            seen.add(path_key)
-            unique_candidates.append(path)
-
-        if logger.isEnabledFor(TRACE_LEVEL):
-            logger.log(
-                TRACE_LEVEL,
-                f"Candidate Antigravity DB paths: {[str(p) for p in unique_candidates]}",
-            )
-        return unique_candidates
-
-    def _load_auth_status_from_db(self, db_path: Path) -> AntigravityAuthStatus | None:
-        """
-        Read the Antigravity auth status payload from the state database.
-
-        Returns:
-            AntigravityAuthStatus if successfully parsed, None otherwise.
-        """
-        parsed = self._parse_auth_status_value_from_db(db_path)
-        return parsed
-
-    def _extract_credentials_from_db(
-        self, db_path: Path
-    ) -> AntigravityAuthStatus | None:
-        """
-        Load and parse the Antigravity auth status from the database.
-
-        Returns:
-            AntigravityAuthStatus if successfully parsed, None otherwise.
-        """
-        return self._load_auth_status_from_db(db_path)
-
-    def _parse_auth_status_value_from_db(
-        self, db_path: Path
-    ) -> AntigravityAuthStatus | None:
-        """
-        Parse Antigravity auth status from database.
-
-        Args:
-            db_path: Path to the Antigravity state database.
-
-        Returns:
-            AntigravityAuthStatus if successfully parsed, None otherwise.
-        """
-        try:
-            # Use URI mode for read-only access to avoid locking issues
-            uri_path = (
-                db_path.as_uri().replace("file:///", "file:/")
-                if os.name == "nt"
-                else db_path.as_uri()
-            )
-            # Ensure proper URI format for sqlite3
-            if not uri_path.startswith("file:"):
-                uri_path = f"file:{db_path.as_posix()}"
-
-            connection_string = f"{uri_path}?mode=ro"
-
-            if logger.isEnabledFor(TRACE_LEVEL):
-                logger.log(
-                    TRACE_LEVEL,
-                    f"Attempting to read Antigravity DB at: {connection_string}",
-                )
-
-            with sqlite3.connect(connection_string, uri=True) as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT value FROM ItemTable WHERE key=? "
-                    "ORDER BY rowid DESC LIMIT 1",
-                    (ANTIGRAVITY_AUTH_KEY,),
-                )
-                row = cursor.fetchone()
-                if not row:
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            f"Key '{ANTIGRAVITY_AUTH_KEY}' not found in {db_path}"
-                        )
-                    return None
-                raw_value = row[0]
-                return self._parse_auth_status_value(raw_value)
-        except sqlite3.Error as exc:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Unable to read Antigravity state database at %s: %s",
-                    db_path,
-                    exc,
-                    exc_info=True,
-                )
-            return None
-        except Exception as exc:  # pragma: no cover - defensive guardrail
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Unexpected error reading Antigravity state db %s: %s",
-                    db_path,
-                    exc,
-                    exc_info=True,
-                )
-            return None
-
-    def _parse_auth_status_value(
-        self, raw_value: str | bytes
-    ) -> AntigravityAuthStatus | None:
-        """
-        Parse JSON string from the database into a strongly-typed model.
-
-        Args:
-            raw_value: Raw value from database (string or bytes).
-
-        Returns:
-            AntigravityAuthStatus if successfully parsed, None otherwise.
-        """
-        try:
-            if isinstance(raw_value, bytes):
-                # Decode bytes to string if necessary
-                raw_value = raw_value.decode("utf-8")
-
-            # Ensure raw_value is a string before calling strip()
-            raw_value_str = str(raw_value)
-            if not raw_value_str.strip():
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Auth status value is empty.")
-                return None
-
-            # DoS protection: Check size before parsing
-            if len(raw_value_str.encode("utf-8")) > MAX_JSON_PARSE_SIZE:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Auth status JSON payload too large: %d bytes (limit: %d bytes)",
-                        len(raw_value_str.encode("utf-8")),
-                        MAX_JSON_PARSE_SIZE,
-                    )
-                return None
-
-            auth_data = json.loads(raw_value_str)
-
-            if auth_data is None:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug("Auth status value is null/None.")
-                return None
-
-            if isinstance(auth_data, dict):
-                try:
-                    return AntigravityAuthStatus.from_dict(auth_data)
-                except (ValueError, TypeError) as e:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Failed to create AntigravityAuthStatus from dict: %s",
-                            e,
-                            exc_info=True,
-                        )
-                    return None
-
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    f"Parsed auth status is not a dictionary: {type(auth_data)}"
-                )
-            return None
-        except json.JSONDecodeError as exc:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to parse Antigravity auth status JSON: %s",
-                    exc,
-                    exc_info=True,
-                )
-            return None
-        except Exception as exc:  # pragma: no cover
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Unexpected error parsing auth status: {exc}", exc_info=True
-                )
-            return None
-
-    def _normalize_antigravity_credentials(
-        self, credentials: AntigravityAuthStatus | dict[str, Any]
-    ) -> dict[str, Any]:
-        """
-        Normalize Antigravity-specific credentials to standard OAuth format.
-
-        Antigravity stores credentials with 'apiKey' field, but the OAuth system
-        expects 'access_token'. This method maps fields appropriately.
-
-        Args:
-            credentials: AntigravityAuthStatus or dict containing credentials.
-
-        Returns:
-            Dictionary in standard OAuth format with 'access_token' field.
-        """
-        # Convert model to dict if needed
-        if isinstance(credentials, AntigravityAuthStatus):
-            base_dict = credentials.to_dict()
-        else:
-            # credentials is dict[str, Any] at this point due to type narrowing
-            base_dict = credentials
-
-        # Create a copy to avoid modifying the original
-        normalized = base_dict.copy()
-
-        # Map Antigravity 'apiKey' to standard OAuth 'access_token'
-        if "apiKey" in normalized and "access_token" not in normalized:
-            normalized["access_token"] = normalized.pop("apiKey")
-        elif "apiKey" in normalized and "access_token" in normalized:
-            # Both present - prefer access_token but keep apiKey for compatibility
-            normalized.pop("apiKey")
-
-        # The Antigravity token behaves like a static bearer; if no refresh_token is
-        # present, ignore expiry metadata so the base class does not mark it stale.
-        if not normalized.get("refresh_token"):
-            normalized.pop("expiry_date", None)
-            normalized.pop("refresh_token", None)
-
-        return normalized
-
-    async def _load_oauth_credentials(
-        self, force_reload: bool = False, silent: bool = False
-    ) -> bool:
-        """
-        Load OAuth credentials from the Antigravity state database or its backup.
-
-        Args:
-            force_reload: If True, bypass cache and force reload from file
-            silent: If True, suppress INFO level logging (used when checking for changes)
-        """
-        # Prefer the currently used path first to keep file watching stable
-        candidate_paths = self._candidate_state_db_paths()
-        if self._credentials_path:
-            preferred = [self._credentials_path]
-            preferred.extend(
-                path for path in candidate_paths if path != self._credentials_path
-            )
-            candidate_paths = preferred
-
-        errors: list[str] = []
-        for path in candidate_paths:
-            try:
-                if not path.exists():
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug("Path does not exist: %s", path)
-                    continue
-
-                current_modified = None
-                try:
-                    current_modified = path.stat().st_mtime
-                except OSError:
-                    current_modified = None
-
-                if (
-                    not force_reload
-                    and self._oauth_credentials
-                    and self._credentials_path
-                    and path == self._credentials_path
-                    and current_modified is not None
-                    and current_modified == self._last_modified
-                ):
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Antigravity credentials unchanged; using cached copy."
-                        )
-                    return True
-
-                credentials = self._extract_credentials_from_db(path)
-                if not credentials:
-                    errors.append(
-                        f"Failed to load Antigravity credentials from {path}; missing {ANTIGRAVITY_AUTH_KEY}."
-                    )
-                    continue
-
-                # Map Antigravity-specific fields to standard OAuth format
-                normalized_credentials = self._normalize_antigravity_credentials(
-                    credentials
-                )
-
-                is_valid, validation_errors = self._validate_credentials_structure(
-                    normalized_credentials, silent=silent
-                )
-                errors.extend(validation_errors)
-                if not is_valid:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Invalid credentials in %s: %s", path, validation_errors
-                        )
-                    continue
-
-                self._oauth_credentials = normalized_credentials
-                self._credentials_path = path
-                self._last_modified = current_modified or time.time()
-                self._credentials_fingerprint = self._compute_credentials_fingerprint(
-                    normalized_credentials
-                )
-                try:
-
-                    def _hash_file(target_path: Path) -> str:
-                        return hashlib.sha256(target_path.read_bytes()).hexdigest()
-
-                    credentials_file_hash: str | None = await asyncio.to_thread(
-                        _hash_file, path
-                    )
-                except OSError:
-                    credentials_file_hash = None
-                self._credentials_file_hash = credentials_file_hash
-                self._last_credentials_event_hash = credentials_file_hash
-                if not silent and logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Loaded Antigravity OAuth credentials from %s%s",
-                        path,
-                        " (force reload)" if force_reload else "",
-                    )
-                return True
-            except Exception as exc:
-                errors.append(f"Unexpected error reading {path}: {exc}")
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Error loading Antigravity credentials from %s: %s",
-                        path,
-                        exc,
-                        exc_info=True,
-                    )
-
-        if errors:
-            self._credential_validation_errors = errors
-            if logger.isEnabledFor(logging.ERROR):
-                logger.error(
-                    f"Failed to load Antigravity credentials. Errors: {errors}"
-                )
-        return False
+        self._project_id = project_id
+        return project_id
 
     async def _cleanup_custom_client(self) -> None:
+
         """Explicitly cleanup custom HTTP client."""
         if (
             hasattr(self, "_owns_custom_client")
