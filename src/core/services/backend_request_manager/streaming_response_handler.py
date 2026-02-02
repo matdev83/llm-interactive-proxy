@@ -15,8 +15,10 @@ Requirements: 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.2, 6.3, 7.1, 7.2, 8
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
+
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any, cast
@@ -78,8 +80,11 @@ class AngelConfig:
     model_spec: str | None
     frequency: int
     max_history: int | None
+    max_consecutive_failures: int
+    cooldown_seconds: int
     eligible_turn_count: int | None
     skip_verification: bool
+
 
 
 class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
@@ -286,6 +291,8 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         angel_model_spec: str | None = None
         angel_frequency: int = 10
         angel_max_history: int | None = None
+        angel_max_consecutive_failures: int = 5
+        angel_cooldown_seconds: int = 300
         eligible_turn_count: int | None = None
         skip_verification = False
 
@@ -325,7 +332,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             else:
                 angel_max_history = None
 
+            # Extract circuit breaker settings
+            failures_value = context.extensions.get("angel_max_consecutive_failures", 5)
+            if isinstance(failures_value, int | float | str):
+                with contextlib.suppress(ValueError, TypeError):
+                    angel_max_consecutive_failures = int(failures_value)
+
+            cooldown_value = context.extensions.get("angel_cooldown_seconds", 300)
+            if isinstance(cooldown_value, int | float | str):
+                with contextlib.suppress(ValueError, TypeError):
+                    angel_cooldown_seconds = int(cooldown_value)
+
             # Optional per-request eligible turn counter and skip flag
+
             eligible_turn_value = context.extensions.get(
                 "angel_eligible_turn_count", None
             )
@@ -351,9 +370,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             model_spec=angel_model_spec,
             frequency=angel_frequency,
             max_history=angel_max_history,
+            max_consecutive_failures=angel_max_consecutive_failures,
+            cooldown_seconds=angel_cooldown_seconds,
             eligible_turn_count=eligible_turn_count,
             skip_verification=skip_verification,
         )
+
 
     def _wrap_with_middleware(
         self,

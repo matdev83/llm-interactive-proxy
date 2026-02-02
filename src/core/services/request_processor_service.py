@@ -175,6 +175,8 @@ class RequestProcessor(IRequestProcessor):
         angel_model_spec: str | None = None
         angel_frequency: int = 10
         angel_max_history: int | None = None
+        angel_max_consecutive_failures: int = 5
+        angel_cooldown_seconds: int = 300
 
         try:
             if self._app_state is not None:
@@ -193,10 +195,19 @@ class RequestProcessor(IRequestProcessor):
                 angel_max_history = (
                     int(raw_max_history) if isinstance(raw_max_history, int) else None
                 )
+
+                angel_max_consecutive_failures = getattr(
+                    session_cfg, "angel_max_consecutive_failures", 5
+                )
+                angel_cooldown_seconds = getattr(
+                    session_cfg, "angel_cooldown_seconds", 300
+                )
         except Exception:
             angel_model_spec = None
             angel_frequency = 10
             angel_max_history = None
+            angel_max_consecutive_failures = 5
+            angel_cooldown_seconds = 300
 
         angel_enabled = bool(angel_model_spec)
         if angel_enabled:
@@ -207,6 +218,12 @@ class RequestProcessor(IRequestProcessor):
                 # Ignore invalid values; the verifier will treat it as disabled.
                 with contextlib.suppress(TypeError, ValueError):
                     context.extensions["angel_max_history"] = int(angel_max_history)
+
+            context.extensions[
+                "angel_max_consecutive_failures"
+            ] = angel_max_consecutive_failures
+            context.extensions["angel_cooldown_seconds"] = angel_cooldown_seconds
+
 
         # Tool-result continuations should never trigger Angel.
         if is_tool_followup:

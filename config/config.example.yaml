@@ -110,6 +110,12 @@ session:
   angel_frequency: 10
   # Truncate history for Angel verification to N messages (optional, default: unlimited)
   angel_max_history: null
+  # Maximum consecutive failures for Angel model before tripping circuit breaker
+  # Default: 5
+  angel_max_consecutive_failures: 5
+  # Cooldown period in seconds for Angel circuit breaker
+  # Default: 300 (5 minutes)
+  angel_cooldown_seconds: 300
 
   # Tool call processing behavior
   # These settings control how tool calls are processed to prevent re-processing of historical messages
@@ -225,6 +231,17 @@ backends:
   gemini:
     # GEMINI_API_KEY environment variable
     timeout: 120
+    extra:
+      # Gemini request adjustments (shared across Gemini connectors)
+      # strip_reasoning_content: remove assistant reasoning_content to match gemini-cli (default: true)
+      strip_reasoning_content: true
+      # Optional tool output truncation (disabled by default).
+      # Automatically skipped when history compaction is enabled.
+      tool_output_truncate_chars: null  # e.g. 40000
+      tool_output_truncate_lines: null  # e.g. 200
+      # Log level for "skipping truncation because compaction is enabled" message.
+      # Set to "DEBUG", "INFO", etc. Use "off" to disable. Default: null (no log).
+      tool_output_truncation_log_level: null
 
   gemini_oauth_auto:
     # Multi-account Gemini connector with automatic token refresh and rotation.
@@ -235,6 +252,16 @@ backends:
       refresh_buffer_seconds: 300
       selection_strategy: "round-robin"
       storage_path: "var/gemini_oauth_accounts"
+      # Gemini request adjustments (shared across Gemini connectors)
+      # strip_reasoning_content: remove assistant reasoning_content to match gemini-cli (default: true)
+      strip_reasoning_content: true
+      # Optional tool output truncation (disabled by default).
+      # Automatically skipped when history compaction is enabled.
+      tool_output_truncate_chars: null  # e.g. 40000
+      tool_output_truncate_lines: null  # e.g. 200
+      # Log level for "skipping truncation because compaction is enabled" message.
+      # Set to "DEBUG", "INFO", etc. Use "off" to disable. Default: null (no log).
+      tool_output_truncation_log_level: null
 
 
   qwen_oauth:

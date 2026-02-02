@@ -146,12 +146,22 @@ backends:
   gemini:
     api_key: "..."
     api_url: "https://generativelanguage.googleapis.com"
+    extra:
+      strip_reasoning_content: true     # Remove assistant reasoning_content (default: true)
+      tool_output_truncate_chars: null  # Optional tool output truncation (disabled by default)
+      tool_output_truncate_lines: null  # Optional tool output truncation (disabled by default)
+      tool_output_truncation_log_level: null  # "DEBUG", "INFO", or "off" (default: null)
 
   gemini-oauth-auto:
     selection_strategy: "session-affinity"  # session-affinity, round-robin, random, first-available
     session_affinity_ttl_seconds: 86400   # Only used with session-affinity
     session_affinity_max_entries: 10000   # Only used with session-affinity
     refresh_buffer_seconds: 300
+    extra:
+      strip_reasoning_content: true     # Remove assistant reasoning_content (default: true)
+      tool_output_truncate_chars: null  # Optional tool output truncation (disabled by default)
+      tool_output_truncate_lines: null  # Optional tool output truncation (disabled by default)
+      tool_output_truncation_log_level: null  # "DEBUG", "INFO", or "off" (default: null)
     
   openrouter:
     api_key: "sk-or-..."
@@ -163,6 +173,12 @@ backends:
     
   # Custom/Other backends follow the same structure
 ```
+
+Gemini-specific `extra` options support request adjustments like stripping `reasoning_content` and optional tool
+output truncation. Tool output truncation is automatically skipped when history compaction is enabled to avoid
+double reduction. Environment overrides: `GEMINI_STRIP_REASONING_CONTENT`,
+`GEMINI_TOOL_OUTPUT_TRUNCATE_CHARS`, `GEMINI_TOOL_OUTPUT_TRUNCATE_LINES`,
+`GEMINI_TOOL_OUTPUT_TRUNCATION_LOG_LEVEL`.
 
 ### Authentication (`auth`)
 

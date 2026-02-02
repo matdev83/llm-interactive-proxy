@@ -189,6 +189,30 @@ class SessionApplicator:
                 origin="--angel-max-history",
             )
 
+        if getattr(args, "angel_max_consecutive_failures", None) is not None:
+            failures = max(1, int(args.angel_max_consecutive_failures))
+            session = overrides.setdefault("session", {})
+            session["angel_max_consecutive_failures"] = failures
+            os.environ["ANGEL_MAX_CONSECUTIVE_FAILURES"] = str(failures)
+            resolution.record(
+                "session.angel_max_consecutive_failures",
+                failures,
+                ParameterSource.CLI,
+                origin="--angel-max-consecutive-failures",
+            )
+
+        if getattr(args, "angel_cooldown_seconds", None) is not None:
+            cooldown = max(0, int(args.angel_cooldown_seconds))
+            session = overrides.setdefault("session", {})
+            session["angel_cooldown_seconds"] = cooldown
+            os.environ["ANGEL_COOLDOWN_SECONDS"] = str(cooldown)
+            resolution.record(
+                "session.angel_cooldown_seconds",
+                cooldown,
+                ParameterSource.CLI,
+                origin="--angel-cooldown-seconds",
+            )
+
     def _apply_planning_phase(
         self,
         args: CliArgs,
