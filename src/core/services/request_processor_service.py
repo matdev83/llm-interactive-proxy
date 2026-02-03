@@ -11,6 +11,7 @@ import contextlib
 import logging
 
 from src.core.domain.chat import ChatRequest
+from src.core.domain.model_utils import parse_model_backend
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -30,6 +31,12 @@ from src.core.interfaces.request_processor_internal import (
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.services.auxiliary_request_router import (
+    AuxiliaryRequestRouter,
+)
+from src.core.services.auxiliary_request_router import (
+    AuxiliaryRoutingConfig as AuxRoutingConfigDomain,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +144,58 @@ class RequestProcessor(IRequestProcessor):
         with contextlib.suppress(Exception):
             request_data = request_data.model_copy(update={"session_id": session_id})
 
+        # Optional auxiliary request routing (title/summary generation).
+        #
+        # Clients like OpenCode may issue parallel lightweight requests (e.g. title
+        # generation). When configured, route those to an alternative backend/model
+        # and isolate their session lifecycle from the primary conversation.
+        try:
+            if self._app_state is not None:
+                app_config = self._app_state.get_setting("app_config")
+                aux_cfg = getattr(app_config, "auxiliary_routing", None)
+                if aux_cfg and getattr(aux_cfg, "enabled", False):
+                    domain_cfg = AuxRoutingConfigDomain(
+                        enabled=True,
+                        backend=getattr(aux_cfg, "backend", None),
+                        model=getattr(aux_cfg, "model", None),
+                        detection_patterns=list(
+                            getattr(aux_cfg, "detection_patterns", [])
+                        ),
+                        max_message_count=getattr(aux_cfg, "max_message_count", 3),
+                    )
+                    router = AuxiliaryRequestRouter(domain_cfg)
+
+                    if router.should_route_to_auxiliary(request_data):
+                        aux_backend = router.get_auxiliary_backend()
+                        aux_model = router.get_auxiliary_model()
+
+                        parsed_original = parse_model_backend(
+                            str(getattr(request_data, "model", "") or ""),
+                            "",
+                        )
+                        original_backend = parsed_original.backend_type
+                        original_model = parsed_original.model_name
+
+                        routed_model = aux_model or original_model
+                        request_data = request_data.model_copy(
+                            update={"model": f"{aux_backend}:{routed_model}"}
+                        )
+
+                        context.extensions["auxiliary_request"] = True
+                        context.extensions["auxiliary_effective_session_id"] = (
+                            f"aux::{session_id}"
+                        )
+                        context.extensions["auxiliary_original_backend"] = (
+                            original_backend
+                        )
+                        context.extensions["auxiliary_original_model"] = original_model
+                        context.extensions["auxiliary_backend"] = aux_backend
+                        context.extensions["auxiliary_model"] = routed_model
+        except Exception:
+            # Fail-open: never break request processing due to auxiliary routing.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Auxiliary routing failed; continuing", exc_info=True)
+
         # Apply request side effects (streaming registry, memory injection/capture)
         request_data = await self._request_side_effects.apply(
             context, session_id, request_data
@@ -219,11 +278,10 @@ class RequestProcessor(IRequestProcessor):
                 with contextlib.suppress(TypeError, ValueError):
                     context.extensions["angel_max_history"] = int(angel_max_history)
 
-            context.extensions[
-                "angel_max_consecutive_failures"
-            ] = angel_max_consecutive_failures
+            context.extensions["angel_max_consecutive_failures"] = (
+                angel_max_consecutive_failures
+            )
             context.extensions["angel_cooldown_seconds"] = angel_cooldown_seconds
-
 
         # Tool-result continuations should never trigger Angel.
         if is_tool_followup:
@@ -247,8 +305,6 @@ class RequestProcessor(IRequestProcessor):
         # "In staged initialization wiring, the replacement service is currently not injected
         # into RequestProcessor, so this code path is typically inactive." If this feature
         # becomes more active or complex, consider extracting to a ModelReplacementHandler component.
-        from src.core.domain.model_utils import parse_model_backend
-
         # Resolve original backend and model for replacement service
         # context.backend is often None at this point, so we fall back to app_state defaults
         # or parse from model name if it contains a prefix (e.g., "openai:gpt-4o")
@@ -265,8 +321,14 @@ class RequestProcessor(IRequestProcessor):
         if not isinstance(backend_type, str) or not backend_type.strip():
             backend_type = None
 
-        parsed = parse_model_backend(request_data.model, (backend_type or ""))
-        original_backend = context.backend or parsed.backend_type
+        model_spec = getattr(request_data, "model", "") or ""
+        has_explicit_backend = isinstance(model_spec, str) and ":" in model_spec
+        parsed = parse_model_backend(str(model_spec), (backend_type or ""))
+        original_backend = (
+            parsed.backend_type
+            if has_explicit_backend
+            else (context.backend or parsed.backend_type)
+        )
         original_model = parsed.model_name
 
         # Ensure requested_model is populated for metrics and tracking
@@ -274,7 +336,8 @@ class RequestProcessor(IRequestProcessor):
             context.requested_model = original_model
 
         # Ensure context attributes are populated for downstream services and fallback logic
-        if not context.backend:
+        # If the client provided an explicit backend prefix ("backend:model"), it must win.
+        if (not context.backend) or has_explicit_backend:
             context.backend = original_backend
         if not context.effective_model:
             context.effective_model = original_model

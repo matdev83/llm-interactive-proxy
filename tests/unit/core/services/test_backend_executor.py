@@ -243,6 +243,45 @@ async def test_history_update_uses_correct_requests(
 
 
 @pytest.mark.asyncio
+async def test_auxiliary_request_uses_derived_session_id_and_skips_side_effects(
+    backend_executor,
+    mock_backend_request_manager,
+    mock_session_manager,
+    mock_replacement_service,
+    sample_context,
+    sample_session,
+    sample_request,
+    sample_response,
+):
+    """Auxiliary requests should not affect primary session lifecycle."""
+
+    session_id = "primary-session-1"
+    aux_session_id = f"aux::{session_id}"
+    sample_context.extensions["auxiliary_request"] = True
+    sample_context.extensions["auxiliary_effective_session_id"] = aux_session_id
+
+    mock_backend_request_manager.process_backend_request.return_value = sample_response
+
+    await backend_executor.execute(
+        context=sample_context,
+        session=sample_session,
+        session_id=session_id,
+        request=sample_request,
+        original_request=sample_request,
+    )
+
+    call_args = mock_backend_request_manager.process_backend_request.call_args[0]
+    injected_request = call_args[0]
+    assert injected_request.session_id == aux_session_id
+    assert injected_request.extra_body["session_id"] == aux_session_id
+    assert call_args[1] == aux_session_id
+
+    mock_session_manager.update_session_history.assert_not_called()
+    mock_session_manager.update_session_fingerprint.assert_not_called()
+    mock_replacement_service.complete_turn.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_fingerprint_update_fail_open(
     backend_executor,
     mock_backend_request_manager,

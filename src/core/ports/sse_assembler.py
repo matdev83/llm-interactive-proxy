@@ -8,6 +8,7 @@ to Server-Sent Events (SSE) format for client transmission.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import uuid
 from collections.abc import AsyncIterator
@@ -45,7 +46,7 @@ class SSEAssembler(IStreamAssembler):
         """
         self._yield_interval = yield_interval
 
-    async def assemble_stream(
+    async def assemble_stream(  # noqa: C901
         self, stream: AsyncIterator[StreamingContent], format: str = "sse"
     ) -> AsyncIterator[bytes]:
         """Convert StreamingContent to SSE format.
@@ -72,10 +73,34 @@ class SSEAssembler(IStreamAssembler):
         chunk_count = 0
         metrics = get_metrics_instance()
 
+        # Track OpenAI-style stream termination semantics.
+        # Some clients rely on a terminal JSON chunk with non-null finish_reason
+        # (in addition to the [DONE] sentinel) to dispatch tool calls or close a turn.
+        saw_openai_payload = False
+        saw_finish_reason = False
+        saw_tool_calls = False
+        terminal_finish_emitted = False
+        last_openai_payload: dict[str, Any] | None = None
+
         sampler = get_sampler_instance()
         sampling_decided = False
         should_sample_stream = False
         sample_emitted = False
+
+        def _iter_sse_events(payload: bytes) -> list[bytes]:
+            if not payload:
+                return []
+            if b"\n\ndata:" not in payload and b"\n\nevent:" not in payload:
+                return [payload]
+
+            normalized = payload.replace(b"\r\n", b"\n")
+            parts = normalized.split(b"\n\n")
+            out: list[bytes] = []
+            for part in parts:
+                if not part.strip():
+                    continue
+                out.append(part + b"\n\n")
+            return out
 
         def _format_sample_payload(payload: Any) -> str:
             if isinstance(payload, bytes):
@@ -153,9 +178,18 @@ class SSEAssembler(IStreamAssembler):
                     # Error or cancellation chunk - serialize using serializer
                     # The serializer handles all framing and payload construction
                     chunk_bytes = chunk.to_bytes()
+                    # CRITICAL: Final safety check for steering message leaks
+                    protector = get_steering_leak_protector()
+                    result = protector.sanitize_bytes(chunk_bytes)
+                    chunk_bytes = result.data
+                    if result.had_leak and logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "[STREAMING][SSE] Steering leak detected in terminal chunk "
+                            "for stream %s - sanitized before sending to client",
+                            stream_id_for_metrics,
+                        )
                     _ensure_stream_started(stream_id_for_metrics)
-                    metrics.increment_chunks_sent(stream_id_for_metrics)
-                    metrics.increment_sentinels_emitted(stream_id_for_metrics)
+
                     if has_error:
                         _maybe_sample(
                             "error_chunk",
@@ -168,27 +202,21 @@ class SSEAssembler(IStreamAssembler):
                             chunk.content or chunk.metadata,
                             stream_id_for_metrics,
                         )
-                    # CRITICAL: Final safety check for steering message leaks
-                    protector = get_steering_leak_protector()
-                    result = protector.sanitize_bytes(chunk_bytes)
-                    chunk_bytes = result.data
-                    if result.had_leak and logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "[STREAMING][SSE] Steering leak detected in terminal chunk "
-                            "for stream %s - sanitized before sending to client",
-                            stream_id_for_metrics,
-                        )
 
-                    if logger.isEnabledFor(TRACE_LEVEL):
-                        logger.log(
-                            TRACE_LEVEL,
-                            "[STREAMING][SSE] Emitting terminal chunk for stream %s (error=%s cancellation=%s)",
-                            stream_id_for_metrics,
-                            has_error,
-                            has_cancellation,
-                        )
-                    yield chunk_bytes
-                    # Mark that we've emitted a done marker (these include [DONE])
+                    for event_bytes in _iter_sse_events(chunk_bytes):
+                        stripped = event_bytes.strip()
+                        if stripped and stripped != b"data: [DONE]":
+                            metrics.increment_chunks_sent(stream_id_for_metrics)
+                        if stripped == b"data: [DONE]":
+                            if not done_emitted:
+                                metrics.increment_sentinels_emitted(
+                                    stream_id_for_metrics
+                                )
+                                done_emitted = True
+                            yield SentinelManager.format_sse_done()
+                            break
+                        yield event_bytes
+
                     done_emitted = True
                     break
 
@@ -229,48 +257,109 @@ class SSEAssembler(IStreamAssembler):
                         len(chunk_bytes),
                     )
 
-                # Check if this is a done marker (but may still have content to emit)
                 is_final_chunk = SentinelManager.is_done_marker(chunk)
 
-                # Yield the chunk (only if it has content)
-                # Skip empty chunks that are just done markers
-                has_content = bool(
-                    chunk_bytes
-                    and chunk_bytes.strip()
-                    and chunk_bytes.strip() != b"data: [DONE]"
-                )
+                for event_bytes in _iter_sse_events(chunk_bytes):
+                    stripped = event_bytes.strip()
+                    event_contains_done = b"data: [DONE]" in event_bytes
 
-                # Check if chunk already contains [DONE] (from to_bytes() when is_done=True)
-                chunk_contains_done = b"data: [DONE]" in chunk_bytes
+                    has_content = bool(
+                        event_bytes and stripped and stripped != b"data: [DONE]"
+                    )
 
-                if has_content:
-                    chunk_count += 1
-                    # Track chunk emission (only for chunks with actual content)
-                    _ensure_stream_started(stream_id_for_metrics)
-                    metrics.increment_chunks_sent(stream_id_for_metrics)
-                    if not sample_emitted:
-                        _maybe_sample("chunk", chunk_bytes, stream_id_for_metrics)
-                        sample_emitted = True
+                    if has_content:
+                        # Best-effort detection of OpenAI-stream semantics from serialized bytes.
+                        if b'"choices"' in event_bytes:
+                            saw_openai_payload = True
+                        if b'"tool_calls"' in event_bytes:
+                            saw_tool_calls = True
+                        if (
+                            b'"finish_reason"' in event_bytes
+                            and b'"finish_reason": null' not in event_bytes
+                        ):
+                            saw_finish_reason = True
+                        if (
+                            b'"choices"' in event_bytes
+                            and event_bytes.lstrip().startswith(b"data:")
+                        ):
+                            try:
+                                raw_json = event_bytes.strip()
+                                if raw_json.startswith(b"data: "):
+                                    raw_json = raw_json[6:]
+                                parsed = json.loads(raw_json.decode("utf-8"))
+                                if isinstance(parsed, dict):
+                                    last_openai_payload = parsed
+                            except Exception:
+                                # Parsing is best-effort; never break streaming.
+                                pass
 
-                    if logger.isEnabledFor(TRACE_LEVEL):
-                        logger.log(
-                            TRACE_LEVEL,
-                            "[STREAMING][SSE] Emitting chunk for stream %s (%s bytes)",
-                            stream_id_for_metrics,
-                            len(chunk_bytes),
-                        )
-                    yield chunk_bytes
+                        chunk_count += 1
+                        _ensure_stream_started(stream_id_for_metrics)
+                        metrics.increment_chunks_sent(stream_id_for_metrics)
+                        if not sample_emitted:
+                            _maybe_sample("chunk", event_bytes, stream_id_for_metrics)
+                            sample_emitted = True
 
-                    # Yield to event loop periodically to maintain responsiveness
-                    if not chunk.is_done and chunk_count % self._yield_interval == 0:
-                        await asyncio.sleep(0)
+                        if logger.isEnabledFor(TRACE_LEVEL):
+                            logger.log(
+                                TRACE_LEVEL,
+                                "[STREAMING][SSE] Emitting chunk for stream %s (%s bytes)",
+                                stream_id_for_metrics,
+                                len(event_bytes),
+                            )
+                        yield event_bytes
 
-                    # If chunk already contains [DONE], mark as emitted
-                    if chunk_contains_done:
-                        done_emitted = True
-                        metrics.increment_sentinels_emitted(stream_id_for_metrics)
+                        if (
+                            not chunk.is_done
+                            and chunk_count % self._yield_interval == 0
+                        ):
+                            await asyncio.sleep(0)
 
-                # If this is the final chunk, emit [DONE] and stop
+                    if event_contains_done:
+                        # If we saw OpenAI-style JSON chunks but never observed a non-null
+                        # finish_reason, inject a minimal terminal chunk before [DONE].
+                        if (
+                            saw_openai_payload
+                            and not saw_finish_reason
+                            and not terminal_finish_emitted
+                        ):
+                            inferred = "tool_calls" if saw_tool_calls else "stop"
+                            terminal: dict[str, Any] = {
+                                "object": "chat.completion.chunk",
+                                "choices": [
+                                    {"index": 0, "delta": {}, "finish_reason": inferred}
+                                ],
+                            }
+                            if isinstance(last_openai_payload, dict):
+                                for key in ("id", "model", "created"):
+                                    if key in last_openai_payload:
+                                        terminal[key] = last_openai_payload[key]
+
+                            terminal_bytes = (
+                                f"data: {json.dumps(terminal)}\n\n".encode()
+                            )
+                            _ensure_stream_started(stream_id_for_metrics)
+                            metrics.increment_chunks_sent(stream_id_for_metrics)
+                            yield terminal_bytes
+                            terminal_finish_emitted = True
+                            saw_finish_reason = True
+
+                        if not done_emitted:
+                            yield SentinelManager.format_sse_done()
+                            _ensure_stream_started(stream_id_for_metrics)
+                            metrics.increment_sentinels_emitted(stream_id_for_metrics)
+                            if logger.isEnabledFor(TRACE_LEVEL):
+                                logger.log(
+                                    TRACE_LEVEL,
+                                    "[STREAMING][SSE] Emitting done sentinel for stream %s",
+                                    stream_id_for_metrics,
+                                )
+                            done_emitted = True
+                        break
+
+                if done_emitted:
+                    break
+
                 if is_final_chunk:
                     if not done_emitted:
                         yield SentinelManager.format_sse_done()

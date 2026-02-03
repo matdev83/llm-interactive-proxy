@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -134,6 +137,49 @@ class TestBackendRequestManagerDeduplication:
         mock_backend_processor.process_backend_request.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_streaming_duplicate_returns_done_stream(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Streaming duplicates should not surface as HTTP 429 errors."""
+
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        mock_dedup_service.check_and_register.return_value = (
+            True,
+            "hash123",
+            10.5,
+        )
+
+        result = await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.status_code == 200
+        assert result.headers is not None
+        assert result.headers.get("x-llmproxy-duplicate-request") == "true"
+        assert result.headers.get("Retry-After") == "11"
+
+        mock_backend_processor.process_backend_request.assert_not_called()
+        assert result.content is not None
+        out: list[bytes] = []
+        async for chunk in result.content:
+            assert isinstance(chunk.content, bytes)
+            out.append(chunk.content)
+        rendered = b"".join(out)
+        assert b"data: [DONE]" in rendered
+
+    @pytest.mark.asyncio
     async def test_streaming_dedup_enabled_for_streaming_requests(
         self,
         backend_request_manager: BackendRequestManager,
@@ -165,11 +211,14 @@ class TestBackendRequestManagerDeduplication:
         # Mock dedup service to return duplicate
         mock_dedup_service.check_and_register.return_value = (True, "hash123")
 
-        # Execute & verify - should raise DuplicateRequestError
-        with pytest.raises(DuplicateRequestError):
-            await backend_request_manager.process_backend_request(
-                request, session_id, context
-            )
+        # Execute & verify - streaming duplicate returns a benign done-only stream
+        result = await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.status_code == 200
+        assert result.headers is not None
+        assert result.headers.get("x-llmproxy-duplicate-request") == "true"
 
         # Dedup service should have been called
         mock_dedup_service.check_and_register.assert_awaited_once_with(
@@ -220,3 +269,321 @@ class TestBackendRequestManagerDeduplication:
         # Dedup should be bypassed via header
         mock_dedup_service.check_and_register.assert_not_called()
         mock_backend_processor.process_backend_request.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_streaming_dedup_marks_complete_only_after_stream_consumed(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Regression: do not mark streaming request complete before the stream ends."""
+
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        mock_dedup_service.check_and_register.return_value = (False, "hash123")
+
+        async def _two_chunk_stream():
+            yield ProcessedResponse(content=b"data: chunk1\n\n")
+            yield ProcessedResponse(content=b"data: chunk2\n\n")
+
+        envelope = StreamingResponseEnvelope(content=_two_chunk_stream())
+        mock_backend_processor.process_backend_request = AsyncMock(
+            return_value=envelope
+        )
+
+        async def _passthrough_handle(
+            *, stream: StreamingResponseEnvelope, **_: Any
+        ) -> StreamingResponseEnvelope:
+            return stream
+
+        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+
+        result = await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+
+        # Not complete until the stream is actually consumed.
+        mock_dedup_service.mark_request_complete.assert_not_awaited()
+
+        _ = await result.content.__anext__()
+        mock_dedup_service.mark_request_complete.assert_not_awaited()
+
+        # Exhaust the stream
+        with contextlib.suppress(StopAsyncIteration):
+            while True:
+                _ = await result.content.__anext__()
+
+        mock_dedup_service.mark_request_complete.assert_awaited_once_with(
+            "hash123",
+            session_id,
+            status_code=200,
+            client_disconnected=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_streaming_dedup_marks_client_disconnect_on_stream_close(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Regression: a client disconnect should mark request completion as disconnect."""
+
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        mock_dedup_service.check_and_register.return_value = (False, "hash123")
+
+        hold_open = asyncio.Event()
+
+        async def _hanging_stream():
+            try:
+                yield ProcessedResponse(content=b"data: chunk1\n\n")
+                await hold_open.wait()
+            except GeneratorExit:
+                return
+
+        envelope = StreamingResponseEnvelope(content=_hanging_stream())
+        mock_backend_processor.process_backend_request = AsyncMock(
+            return_value=envelope
+        )
+
+        async def _passthrough_handle(
+            *, stream: StreamingResponseEnvelope, **_: Any
+        ) -> StreamingResponseEnvelope:
+            return stream
+
+        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+
+        result = await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+
+        _ = await result.content.__anext__()
+
+        # Close early to simulate a client disconnect.
+        aclose = getattr(result.content, "aclose", None)
+        assert aclose is not None
+        with contextlib.suppress(GeneratorExit):
+            await aclose()
+
+        mock_dedup_service.mark_request_complete.assert_awaited_once_with(
+            "hash123",
+            session_id,
+            status_code=None,
+            client_disconnected=True,
+        )
+
+    @pytest.mark.asyncio
+    async def test_streaming_dedup_treats_disconnect_after_done_as_success(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Regression: disconnect after terminal [DONE] should be marked as success."""
+
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        mock_dedup_service.check_and_register.return_value = (False, "hash123")
+
+        hold_open = asyncio.Event()
+
+        async def _done_then_hang():
+            try:
+                yield ProcessedResponse(content=b"data: chunk1\n\n")
+                yield ProcessedResponse(content=b"data: [DONE]\n\n")
+                await hold_open.wait()
+            except GeneratorExit:
+                return
+
+        envelope = StreamingResponseEnvelope(content=_done_then_hang())
+        mock_backend_processor.process_backend_request = AsyncMock(
+            return_value=envelope
+        )
+
+        async def _passthrough_handle(
+            *, stream: StreamingResponseEnvelope, **_: Any
+        ) -> StreamingResponseEnvelope:
+            return stream
+
+        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+
+        result = await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+
+        # Consume until DONE is observed by downstream.
+        _ = await result.content.__anext__()
+        _ = await result.content.__anext__()
+
+        # Close early to simulate a client disconnect right after DONE.
+        aclose = getattr(result.content, "aclose", None)
+        assert aclose is not None
+        with contextlib.suppress(GeneratorExit):
+            await aclose()
+
+        mock_dedup_service.mark_request_complete.assert_awaited_once_with(
+            "hash123",
+            session_id,
+            status_code=200,
+            client_disconnected=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_streaming_dedup_parses_finish_reason_stop_and_marks_success(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Regression: finish_reason parsing should not crash, and disconnect after stop should be success."""
+
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        mock_dedup_service.check_and_register.return_value = (False, "hash123")
+
+        hold_open = asyncio.Event()
+
+        async def _stop_then_hang():
+            try:
+                yield ProcessedResponse(
+                    content=b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+                )
+                await hold_open.wait()
+            except GeneratorExit:
+                return
+
+        envelope = StreamingResponseEnvelope(content=_stop_then_hang())
+        mock_backend_processor.process_backend_request = AsyncMock(
+            return_value=envelope
+        )
+
+        async def _passthrough_handle(
+            *, stream: StreamingResponseEnvelope, **_: Any
+        ) -> StreamingResponseEnvelope:
+            return stream
+
+        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+
+        result = await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+
+        _ = await result.content.__anext__()
+
+        aclose = getattr(result.content, "aclose", None)
+        assert aclose is not None
+        with contextlib.suppress(GeneratorExit):
+            await aclose()
+
+        mock_dedup_service.mark_request_complete.assert_awaited_once_with(
+            "hash123",
+            session_id,
+            status_code=200,
+            client_disconnected=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_streaming_dedup_parses_finish_reason_error_and_marks_error_code(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """Regression: finish_reason=error should not be misclassified as client disconnect."""
+
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={}, cookies={}, state=MagicMock(), app_state=MagicMock()
+        )
+
+        mock_dedup_service.check_and_register.return_value = (False, "hash123")
+
+        hold_open = asyncio.Event()
+
+        async def _error_then_hang():
+            try:
+                yield ProcessedResponse(
+                    content=b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"error"}],"error":{"status_code":503,"message":"Service Unavailable"}}\n\n'
+                )
+                await hold_open.wait()
+            except GeneratorExit:
+                return
+
+        envelope = StreamingResponseEnvelope(content=_error_then_hang())
+        mock_backend_processor.process_backend_request = AsyncMock(
+            return_value=envelope
+        )
+
+        async def _passthrough_handle(
+            *, stream: StreamingResponseEnvelope, **_: Any
+        ) -> StreamingResponseEnvelope:
+            return stream
+
+        backend_request_manager._streaming_handler.handle = AsyncMock(side_effect=_passthrough_handle)  # type: ignore[assignment]
+
+        result = await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+        assert isinstance(result, StreamingResponseEnvelope)
+        assert result.content is not None
+
+        _ = await result.content.__anext__()
+
+        aclose = getattr(result.content, "aclose", None)
+        assert aclose is not None
+        with contextlib.suppress(GeneratorExit):
+            await aclose()
+
+        mock_dedup_service.mark_request_complete.assert_awaited_once_with(
+            "hash123",
+            session_id,
+            status_code=503,
+            client_disconnected=False,
+        )

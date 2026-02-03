@@ -11,14 +11,14 @@ during the refactoring process. Focus areas:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
-from src.core.domain.responses import ProcessedResponse, ResponseEnvelope
+from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.session import Session
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
@@ -79,10 +79,7 @@ def mock_backend_request_manager() -> IBackendRequestManager:
 
     # Mock backend response
     response = ResponseEnvelope(
-        content=ProcessedResponse(
-            content="test response",
-            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-        ),
+        content={"message": "test response"},
         status_code=200,
     )
     mock.process_backend_request.return_value = response
@@ -236,7 +233,7 @@ async def test_rejects_non_chat_request_with_type_error(
 
     This is a fail-fast behavior that must be preserved.
     """
-    invalid_request = {"model": "gpt-4", "messages": []}
+    invalid_request: Any = {"model": "gpt-4", "messages": []}
 
     with pytest.raises(TypeError, match="request_data must be of type ChatRequest"):
         await request_processor.process_request(request_context, invalid_request)
@@ -266,6 +263,71 @@ async def test_delegates_to_session_enricher(
     call_args = mock_session_enricher.enrich.call_args
     assert call_args[0][0] == request_context
     assert call_args[0][1] == request
+
+
+@pytest.mark.asyncio
+async def test_explicit_backend_prefix_overrides_context_backend(
+    request_processor: RequestProcessor,
+    request_context: RequestContext,
+    mock_session_enricher,
+) -> None:
+    """Regression: explicit '<backend>:<model>' must win over stale context.backend."""
+
+    request_context.backend = "gemini-oauth-auto"
+    request = ChatRequest(
+        model="kimi-code:kimi/kimi-for-coding",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+    mock_session_enricher.enrich.return_value = (MagicMock(), request)
+
+    await request_processor.process_request(request_context, request)
+
+    assert request_context.backend == "kimi-code"
+
+
+@pytest.mark.asyncio
+async def test_auxiliary_routing_rewrites_model_and_isolates_session(
+    request_processor: RequestProcessor,
+    request_context: RequestContext,
+    mock_app_state: IApplicationState,
+    mock_session_enricher,
+    mock_backend_executor,
+) -> None:
+    """Regression: auxiliary routing should not impact the primary session."""
+
+    # Enable auxiliary routing (route to a lightweight backend:model).
+    cast(Any, mock_app_state).get_setting.return_value = MagicMock(
+        auxiliary_routing=MagicMock(
+            enabled=True,
+            backend=None,
+            model="openai:gpt-4o-mini",
+            detection_patterns=[r"Generate a title"],
+            max_message_count=3,
+        )
+    )
+
+    request = ChatRequest(
+        model="gemini-oauth-auto:google/gemini-3-flash-preview",
+        messages=[
+            ChatMessage(role="system", content="You are a title generator."),
+            ChatMessage(role="user", content="Generate a title for the session"),
+        ],
+    )
+    mock_session_enricher.enrich.return_value = (MagicMock(), request)
+
+    await request_processor.process_request(request_context, request)
+
+    # The backend executor should receive the rewritten model.
+    call_args = mock_backend_executor.execute.call_args
+    assert call_args is not None
+    called_request = call_args.args[3]
+    assert called_request.model == "openai:gpt-4o-mini"
+
+    # And the context should be marked as auxiliary (so BackendExecutor isolates it).
+    assert request_context.extensions.get("auxiliary_request") is True
+    assert request_context.extensions.get("auxiliary_effective_session_id") == (
+        f"aux::{request_context.session_id}"
+    )
 
 
 @pytest.mark.asyncio

@@ -112,14 +112,28 @@ class EndOfSessionService(IEndOfSessionService):
             # Only emit event if claim succeeded (prevents duplicate emissions)
             if not claim_succeeded:
                 logger.debug(
-                    "EoS claim failed for session %s request %s (already claimed), skipping emission",
+                    "EoS claim failed for session %s request %s (already claimed or missing session metrics), skipping emission",
                     signal.session_id,
                     signal.request_id,
                 )
-                # Still mark as ended in cache for fast subsequent checks
+                # Still mark as ended in cache for fast subsequent checks. Also mark
+                # the session key as ended when the DB indicates it has already ended
+                # to avoid repeatedly attempting claims on every request.
                 await self._mark_ended(dedupe_key)
+                try:
+                    if await self._session_repository.has_ended(signal.session_id):
+                        await self._mark_ended(signal.session_id)
+                except Exception:
+                    # Fail-open: never block response finalization due to EoS checks.
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "EoS has_ended check failed; leaving session uncached",
+                            exc_info=True,
+                        )
                 return
 
+            # Mark both the request and the session as ended for hot-path dedupe.
+            await self._mark_ended(signal.session_id)
             await self._mark_ended(dedupe_key)
 
             error_classification = signal.error_classification
@@ -227,18 +241,24 @@ class EndOfSessionService(IEndOfSessionService):
         Returns:
             True if already emitted, False otherwise
         """
-        dedupe_key = request_id or session_id
         async with self._cache_lock:
-            if dedupe_key not in self._ended_sessions:
-                return False
+            keys_to_check = [session_id]
+            if request_id:
+                keys_to_check.insert(0, request_id)
 
-            # Check TTL expiration
-            timestamp = self._ended_sessions[dedupe_key]
-            if time.monotonic() - timestamp > FAIL_OPEN_CACHE_TTL_SECONDS:
-                self._ended_sessions.pop(dedupe_key)
-                return False
+            for key in keys_to_check:
+                if key not in self._ended_sessions:
+                    continue
 
-            return True
+                # Check TTL expiration
+                timestamp = self._ended_sessions[key]
+                if time.monotonic() - timestamp > FAIL_OPEN_CACHE_TTL_SECONDS:
+                    self._ended_sessions.pop(key)
+                    continue
+
+                return True
+
+            return False
 
     async def _mark_ended(self, key: str) -> None:
         """Mark a request or session as ended in in-memory cache.

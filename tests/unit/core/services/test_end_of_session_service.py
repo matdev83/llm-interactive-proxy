@@ -199,6 +199,15 @@ class TestInMemoryDedupe:
 
         assert await service.has_ended(sample_signal.session_id)
 
+    @pytest.mark.asyncio
+    async def test_has_ended_checks_session_even_when_request_id_provided(
+        self, service: EndOfSessionService, sample_signal: EndOfSessionSignal
+    ):
+        """Session-level cache should short-circuit request-scoped checks."""
+        await service._mark_ended(sample_signal.session_id)
+
+        assert await service.has_ended(sample_signal.session_id, request_id="req-1")
+
 
 class TestCacheEviction:
     """Test in-memory cache eviction behavior."""

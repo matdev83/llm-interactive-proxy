@@ -26,6 +26,27 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def _await_shielded(awaitable: object) -> None:
+    """Await an awaitable while shielding it from cancellation.
+
+    Starlette/FastAPI cancellations use AnyIO cancel scopes. If cancellation occurs
+    during DB cleanup (rollback/close/dispose), SQLAlchemy can log noisy errors like
+    "Exception terminating connection" because aiosqlite close is interrupted.
+
+    Using AnyIO's shielded cancel scope ensures cleanup completes before we re-raise
+    the cancellation.
+    """
+    try:
+        import anyio
+
+        with anyio.CancelScope(shield=True):
+            await awaitable  # type: ignore[misc]
+            return
+    except Exception:
+        # Fall back to asyncio.shield for environments where AnyIO isn't available.
+        await asyncio.shield(awaitable)  # type: ignore[arg-type]
+
+
 class DatabaseEngine:
     """Manages async database engine and session factory.
 
@@ -132,7 +153,7 @@ class DatabaseEngine:
     async def close(self) -> None:
         """Close the database engine and release resources."""
         if self._engine is not None:
-            await self._engine.dispose()
+            await _await_shielded(self._engine.dispose())
             self._engine = None
             self._session_factory = None
             self._initialized = False
@@ -160,10 +181,10 @@ class DatabaseEngine:
                 exc,
                 exc_info=True,
             )
-            await asyncio.shield(session.rollback())
+            await _await_shielded(session.rollback())
             raise
         except asyncio.CancelledError:
-            await asyncio.shield(session.rollback())
+            await _await_shielded(session.rollback())
             raise
         except Exception as exc:
             # Catch all other exceptions to ensure rollback, then re-raise
@@ -174,10 +195,10 @@ class DatabaseEngine:
                 exc,
                 exc_info=True,
             )
-            await asyncio.shield(session.rollback())
+            await _await_shielded(session.rollback())
             raise
         finally:
-            await asyncio.shield(session.close())
+            await _await_shielded(session.close())
 
 
 # Module-level convenience functions

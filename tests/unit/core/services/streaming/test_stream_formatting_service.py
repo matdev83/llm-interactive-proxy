@@ -36,6 +36,30 @@ class TestFormatChunkAsSSE:
         parsed = json.loads(json_part)
         assert parsed == chunk
 
+    def test_streaming_error_chunk_injects_visible_delta_content(self) -> None:
+        """OpenAI-style error chunks should include delta.content for client visibility."""
+        service = StreamFormattingService()
+        chunk: dict[str, Any] = {
+            "choices": [{"delta": {}, "finish_reason": "error"}],
+            "error": {
+                "type": "ServiceUnavailableError",
+                "message": "Could not connect to backend (ConnectionTerminated)",
+                "status_code": 503,
+            },
+        }
+        result = service.format_chunk_as_sse(chunk)
+        decoded = result.decode("utf-8")
+        assert decoded.startswith("data: ")
+        parsed = json.loads(decoded[6:-2])
+        assert (
+            parsed["choices"][0]["delta"]["content"].startswith(
+                "Error (ServiceUnavailableError):"
+            )
+            is True
+        )
+        # Preserve original error payload.
+        assert parsed["error"]["status_code"] == 503
+
     def test_string_without_data_prefix_formatted_as_sse(self) -> None:
         """String content without 'data:' prefix should be SSE-framed."""
         service = StreamFormattingService()

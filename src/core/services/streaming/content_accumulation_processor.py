@@ -359,7 +359,6 @@ class ContentAccumulationProcessor(IStreamProcessor):
                 # IMPORTANT: Do NOT strip here. Preserving whitespace is critical for streaming chunks.
                 state.append_reasoning_chunk(reasoning_value)
 
-
         if raw_chunk:
             chunk_text = ""
             if isinstance(raw_chunk, bytes):
@@ -433,8 +432,15 @@ class ContentAccumulationProcessor(IStreamProcessor):
             state.completed = True
             self._registry.clear_content_state(stream_id)
 
+            # CRITICAL: If we already streamed OpenAI-style deltas for this stream,
+            # do NOT re-emit the full accumulated content on the terminal marker.
+            # Doing so duplicates the entire assistant message on the client.
+            emit_content = final_content
+            if state.has_sent_content:
+                emit_content = ""
+
             return StreamingContent(
-                content=final_content,
+                content=emit_content,
                 is_done=True,
                 metadata=metadata_out,
                 usage=content.usage,

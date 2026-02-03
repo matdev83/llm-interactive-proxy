@@ -107,13 +107,22 @@ class AuxiliaryRequestDetector:
         if len(messages) > self._config.max_message_count:
             return False
 
-        # Check content patterns in the last user message
-        last_user_content = self._extract_last_user_content(messages)
-        if not last_user_content:
+        # Check content patterns across the message set.
+        #
+        # Some clients (e.g., OpenCode) structure auxiliary title requests as:
+        #   system: "You are a title generator..."
+        #   user: "Generate a title for this conversation:"
+        #   user: "<user's last utterance>"
+        #
+        # If we only scan the last user message, we miss the "Generate a title"
+        # marker. Use a combined scan over system/user messages while keeping the
+        # strict max_message_count guard to avoid accidental routing of full chats.
+        detection_text = self._extract_detection_text(messages)
+        if not detection_text:
             return False
 
         for pattern in self._compiled_patterns:
-            if pattern.search(last_user_content):
+            if pattern.search(detection_text):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Detected auxiliary request (pattern: %s, msg_count: %d)",
@@ -124,35 +133,46 @@ class AuxiliaryRequestDetector:
 
         return False
 
-    def _extract_last_user_content(self, messages: list[Any]) -> str | None:
-        """Extract content from the last user message.
+    def _extract_detection_text(self, messages: list[Any]) -> str | None:
+        """Extract a combined text blob for auxiliary detection.
 
         Args:
             messages: List of chat messages
 
         Returns:
-            The text content of the last user message, or None
+            Concatenated text content from system and user messages, or None
         """
-        for msg in reversed(messages):
+        text_parts: list[str] = []
+
+        for msg in messages:
             role = getattr(msg, "role", None) or (
                 msg.get("role") if isinstance(msg, dict) else None
             )
-            if role == "user":
-                content = getattr(msg, "content", None) or (
-                    msg.get("content") if isinstance(msg, dict) else None
-                )
-                if isinstance(content, str):
-                    return content
-                elif isinstance(content, list):
-                    # Handle multipart content
-                    text_parts = []
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "text":
+            if role not in {"system", "user"}:
+                continue
+
+            content = getattr(msg, "content", None) or (
+                msg.get("content") if isinstance(msg, dict) else None
+            )
+            if isinstance(content, str):
+                if content:
+                    text_parts.append(content)
+                continue
+
+            if isinstance(content, list):
+                # Handle multipart content (OpenAI-style)
+                for part in content:
+                    if isinstance(part, dict):
+                        if part.get("type") == "text" and isinstance(
+                            part.get("text"), str
+                        ):
                             text_parts.append(part.get("text", ""))
-                        elif isinstance(part, str):
-                            text_parts.append(part)
-                    return " ".join(text_parts) if text_parts else None
-        return None
+                    elif isinstance(part, str):
+                        text_parts.append(part)
+
+        if not text_parts:
+            return None
+        return "\n".join(text_parts)
 
     def get_auxiliary_target(self) -> tuple[str, str | None]:
         """Get the target backend and model for auxiliary requests.

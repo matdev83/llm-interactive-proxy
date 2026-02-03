@@ -19,27 +19,44 @@ def parse_retry_from_message(message: str) -> float | None:
     if not message:
         return None
 
-    # Pattern 1: "after Xs" or "after X seconds" or "in Xs" or "in X seconds"
+    def _coerce_unit_multiplier(unit: str) -> float:
+        unit_l = unit.lower()
+        if unit_l in {"s", "sec", "secs", "second", "seconds"}:
+            return 1.0
+        if unit_l in {"m", "min", "mins", "minute", "minutes"}:
+            return 60.0
+        if unit_l in {"h", "hr", "hrs", "hour", "hours"}:
+            return 3600.0
+        return 1.0
+
+    # Pattern 1: "after X seconds/minutes/hours" or "in X seconds/minutes/hours"
     pattern1 = re.search(
-        r"(?:after|in)\s+(\d+(?:\.\d+)?)\s*(?:s(?:econds?)?|sec)\b",
+        r"(?:after|in)\s+(\d+(?:\.\d+)?)\s*"
+        r"(seconds?|secs?|sec|s|minutes?|mins?|min|m|hours?|hrs?|hr|h)\b",
         message,
         re.IGNORECASE,
     )
     if pattern1:
         try:
-            return float(pattern1.group(1))
+            value = float(pattern1.group(1))
+            multiplier = _coerce_unit_multiplier(pattern1.group(2))
+            return value * multiplier
         except ValueError:
             pass
 
-    # Pattern 2: "wait X seconds" or "wait Xs"
+    # Pattern 2: "wait X seconds/minutes/hours"
     pattern2 = re.search(
-        r"wait\s+(\d+(?:\.\d+)?)\s*(?:s(?:econds?)?|sec)?\b",
+        r"wait\s+(\d+(?:\.\d+)?)\s*"
+        r"(seconds?|secs?|sec|s|minutes?|mins?|min|m|hours?|hrs?|hr|h)?\b",
         message,
         re.IGNORECASE,
     )
     if pattern2:
         try:
-            return float(pattern2.group(1))
+            value = float(pattern2.group(1))
+            unit = pattern2.group(2) or "s"
+            multiplier = _coerce_unit_multiplier(unit)
+            return value * multiplier
         except ValueError:
             pass
 
@@ -103,6 +120,12 @@ class TestRetryMessageParsing:
         message = "Rate limit exceeded. Please try again in 30 seconds."
         result = parse_retry_from_message(message)
         assert result == 30.0
+
+    def test_parse_try_again_in_minutes(self) -> None:
+        """Test parsing 'try again in 1 minute' message."""
+        message = "No capacity available. Try again in 1 minute."
+        result = parse_retry_from_message(message)
+        assert result == 60.0
 
     def test_parse_wait_seconds(self) -> None:
         """Test parsing 'wait 15 seconds' message."""

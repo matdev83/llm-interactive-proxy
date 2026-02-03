@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import logging
 import webbrowser
-from typing import Any, TYPE_CHECKING, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, cast
 
 try:
     from desktop_notifier import Button, DesktopNotifier

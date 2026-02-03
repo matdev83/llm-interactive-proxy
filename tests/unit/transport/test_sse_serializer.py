@@ -347,6 +347,48 @@ class TestSSESerializerStopChunkWithUsage:
         assert payload["usage"]["total_tokens"] == 16
         assert payload["id"] == "chatcmpl-test123"
 
+    def test_stop_chunk_with_usage_infers_finish_reason_for_tool_calls(self) -> None:
+        """Regression: usage-bearing OpenAI chunks must not end with finish_reason=null.
+
+        Some providers send a terminal usage chunk but omit finish_reason. Many
+        OpenAI-compatible clients use finish_reason to dispatch tool calls.
+        """
+        serializer = SSESerializer()
+        chunk_data: dict[str, Any] = {
+            "id": "chatcmpl-test-toolcalls",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": None,
+                    "delta": {
+                        "role": "assistant",
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "type": "function",
+                                "function": {"name": "bash", "arguments": "{}"},
+                            }
+                        ],
+                    },
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+        chunk = StreamingContent(
+            content=StopChunkWithUsage(chunk_data),
+            metadata={"provider": "openai"},
+            is_done=True,
+            usage=UsageSummary.from_dict(chunk_data["usage"]),
+        )
+
+        result = serializer.serialize(chunk).decode("utf-8")
+        json_line = result.strip().split("\n\n")[0][6:]
+        payload = json.loads(json_line)
+        assert payload["choices"][0]["finish_reason"] == "tool_calls"
+
 
 class TestSSESerializerNormalChunks:
     """Test normal (non-done) chunk serialization."""

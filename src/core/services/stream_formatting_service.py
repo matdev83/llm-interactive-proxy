@@ -21,6 +21,68 @@ logger = logging.getLogger(__name__)
 class StreamFormattingService(IStreamFormattingService):
     """Service for SSE stream formatting and token validation."""
 
+    def _maybe_inject_error_delta_content(
+        self, content: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Ensure streaming error chunks are visible to OpenAI-compatible clients.
+
+        Some clients treat streaming error chunks with an empty delta (`delta: {}`)
+        as "no output" and appear stuck even if the server terminates the stream.
+        When we detect an OpenAI-style error chunk, we inject a best-effort
+        `choices[0].delta.content` message while preserving the structured `error`.
+        """
+
+        if "error" not in content:
+            return content
+
+        choices = content.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return content
+
+        first = choices[0]
+        if not isinstance(first, dict):
+            return content
+
+        finish_reason = first.get("finish_reason")
+        if finish_reason != "error":
+            return content
+
+        delta = first.get("delta")
+        if not isinstance(delta, dict):
+            return content
+
+        # If the error chunk already contains visible delta content, keep it.
+        if isinstance(delta.get("content"), str) and delta.get("content"):
+            return content
+
+        error_val = content.get("error")
+        if not isinstance(error_val, dict):
+            return content
+
+        raw_message = error_val.get("message")
+        message = str(raw_message) if raw_message not in (None, "") else "Unknown error"
+        error_type = error_val.get("type")
+        type_str = str(error_type) if error_type not in (None, "") else "api_error"
+
+        # Truncate to keep SSE chunks small and predictable.
+        max_len = 500
+        summary = f"Error ({type_str}): {message}"
+        if len(summary) > max_len:
+            summary = summary[: max_len - 3].rstrip() + "..."
+
+        # Copy minimal structure to avoid mutating upstream objects.
+        new_content = dict(content)
+        new_choices = list(choices)
+        new_first = dict(first)
+        new_delta = dict(delta)
+
+        new_delta["content"] = summary
+        new_first["delta"] = new_delta
+        new_first.setdefault("index", 0)
+        new_choices[0] = new_first
+        new_content["choices"] = new_choices
+        return new_content
+
     def stream_as_sse_bytes(self, stream: AsyncIterator[Any]) -> AsyncIterator[bytes]:
         """Convert domain chunks to SSE-encoded bytes.
 
@@ -193,7 +255,7 @@ class StreamFormattingService(IStreamFormattingService):
             return f"data: {json_str}\n\n".encode()
 
         if isinstance(content, dict):
-            return f"data: {json.dumps(content)}\n\n".encode()
+            return f"data: {json.dumps(self._maybe_inject_error_delta_content(content))}\n\n".encode()
 
         # Fallback: try to JSON serialize, otherwise use str representation
         try:

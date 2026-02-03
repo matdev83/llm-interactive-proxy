@@ -125,6 +125,9 @@ class CborWireCaptureService(IWireCapture):
         # Buffer for entries to write
         self._buffer: list[CaptureEntry] = []
         self._buffer_lock = asyncio.Lock()
+        # CRITICAL: writes must be serialized across executor threads to avoid
+        # corrupting the CBOR stream (concurrent append interleaves objects).
+        self._write_lock = threading.Lock()
         self._sequence_counter = 0
         self._sequence_lock = asyncio.Lock()
         self._timing_lock = asyncio.Lock()
@@ -1062,7 +1065,7 @@ class CborWireCaptureService(IWireCapture):
             return
 
         try:
-            with open(self._file_path, "ab") as f:
+            with self._write_lock, open(self._file_path, "ab") as f:
                 for entry in entries:
                     cbor2.dump(entry.to_dict(), f)
         except (OSError, ValueError, TypeError) as e:

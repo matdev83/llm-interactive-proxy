@@ -70,6 +70,75 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         "confirm your identity",
     )
 
+    _STREAM_PRIME_TIMEOUT_SECONDS: float = 0.75
+
+    @staticmethod
+    def _is_project_not_found_error(error: BackendError) -> bool:
+        status_code = getattr(error, "status_code", None)
+        if status_code != 404:
+            return False
+
+        message = str(getattr(error, "message", "") or "")
+        if message and "requested entity was not found" in message.lower():
+            return True
+
+        details = getattr(error, "details", None)
+        if not isinstance(details, dict):
+            return False
+
+        inner = details.get("error")
+        if not isinstance(inner, dict):
+            return False
+
+        status_val = inner.get("status")
+        return isinstance(status_val, str) and status_val.upper() == "NOT_FOUND"
+
+    async def _prime_streaming_response(
+        self, envelope: StreamingResponseEnvelope
+    ) -> StreamingResponseEnvelope:
+        """Prime the streaming iterator to surface immediate failures.
+
+        The Gemini Code Assist streaming stack may raise a BackendError before
+        yielding any chunks (e.g., when the HTTP response is 404). Without a
+        small prime, that failure only shows up later during response streaming,
+        which prevents oauth-auto from failing over to another account.
+
+        We do a best-effort, non-blocking prime:
+        - If the first chunk/error is available quickly, surface it now.
+        - If not, return immediately and stream normally.
+        """
+        iterator = envelope.content
+        if iterator is None:
+            return envelope
+
+        async def _first_item() -> ProcessedResponse:
+            return await anext(iterator)
+
+        first_task: asyncio.Task[ProcessedResponse] = asyncio.create_task(_first_item())
+        done, _pending = await asyncio.wait(
+            {first_task}, timeout=self._STREAM_PRIME_TIMEOUT_SECONDS
+        )
+
+        async def _gen_prefetched() -> AsyncIterator[ProcessedResponse]:
+            first = await first_task
+            yield first
+            async for item in iterator:
+                yield item
+
+        if first_task in done:
+            first = await first_task
+
+            async def _gen_now() -> AsyncIterator[ProcessedResponse]:
+                yield first
+                async for item in iterator:
+                    yield item
+
+            envelope.content = _gen_now()
+            return envelope
+
+        envelope.content = _gen_prefetched()
+        return envelope
+
     def __init__(
         self,
         client: httpx.AsyncClient,
@@ -100,6 +169,51 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         )
         # Track if initialize() has been called to preserve rotation on re-init
         self._is_initialized = False
+
+    async def _handle_project_not_found(
+        self, account: Any, error: BackendError
+    ) -> None:
+        if not account:
+            return
+
+        account_id = getattr(account, "account_id", "unknown")
+        email = getattr(account, "email", None) or account_id
+        project_id = getattr(account, "project_id", None)
+
+        notification_service = getattr(
+            self._account_selector, "notification_service", None
+        )
+        if notification_service:
+            help_url = "https://support.google.com/googleapi/answer/7014113"
+            message = (
+                f"Gemini OAuth account '{email}' failed with a 404 from Code Assist "
+                f"(project not found).\n\n"
+                f"Current project_id: {project_id!r}\n\n"
+                "This usually means the Cloud Project ID / Code Assist project is missing, "
+                "incorrect, or not accessible for this account.\n\n"
+                f"Backend message: {getattr(error, 'message', '')}\n\n"
+                f"Help: {help_url}"
+            )
+            try:
+                await notification_service.send_notification(
+                    title="Gemini OAuth: Project not found",
+                    message=message,
+                    url=help_url,
+                    url_label="View Help",
+                )
+                logger.info(
+                    "Sent notification for account %s with project not found error",
+                    account_id,
+                )
+            except Exception as exc:
+                logger.debug("Failed to send project not found notification: %s", exc)
+
+        await self._account_selector.mark_account_uninitialized(account_id)
+        logger.warning(
+            "Account %s removed from available accounts due to project not found (404). "
+            "This is a runtime-only operation; storage files were not modified.",
+            account_id,
+        )
 
     def _sync_selected_account_to_base(self) -> None:
         """Sync the currently-selected account into the gemini_base credential coordinator.
@@ -922,6 +1036,8 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             if isinstance(account_id, str) and account_id:
                 request.context.extensions["account_id"] = account_id
 
+        session_id = request.context.session_id if request.context else None
+
         while True:
             try:
                 result = await super().chat_completions(
@@ -934,8 +1050,30 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                     cancellation_coordinator=request.cancellation_coordinator,
                     **cast(dict[str, Any], request.options),
                 )
+                if isinstance(result, StreamingResponseEnvelope) and result.content:
+                    result = await self._prime_streaming_response(result)
                 break  # Success
             except BackendError as e:
+                current_account = self._account_selector.get_current_account()
+                current_account_id = (
+                    getattr(current_account, "account_id", None)
+                    if current_account
+                    else None
+                )
+
+                if self._is_project_not_found_error(e) and current_account:
+                    await self._handle_project_not_found(current_account, e)
+                    if self._account_selector.get_available_count() > 0:
+                        await self._account_selector.get_next_account(
+                            session_id=session_id
+                        )
+                        self._sync_selected_account_to_base()
+                        logger.info(
+                            "Project not found for account %s; retrying with next available account",
+                            current_account_id,
+                        )
+                        continue
+
                 if self._is_account_blocked_error(e):
                     await self._account_selector.mark_current_account_blocked(e.message)
                     self._sync_selected_account_to_base()

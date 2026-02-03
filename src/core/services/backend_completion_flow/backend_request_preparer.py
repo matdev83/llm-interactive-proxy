@@ -82,6 +82,32 @@ class BackendRequestPreparer(IBackendRequestPreparer):
                     target.model,
                 )
 
+            if context is not None:
+                # IMPORTANT: Auxiliary requests (title/summary generation) must not
+                # interfere with the primary conversation session lifecycle (EoS
+                # detection, dedup status, fingerprinting).
+                #
+                # We keep the client-visible session_id unchanged, but run the
+                # backend call under a derived internal session id.
+                root_session_id = getattr(context, "session_id", None)
+                if isinstance(root_session_id, str) and root_session_id:
+                    context.extensions["auxiliary_effective_session_id"] = (
+                        f"aux::{root_session_id}"
+                    )
+                context.extensions["auxiliary_request"] = True
+                context.extensions["auxiliary_original_backend"] = cast(
+                    JsonValue, target.backend
+                )
+                context.extensions["auxiliary_original_model"] = cast(
+                    JsonValue, target.model
+                )
+                context.extensions["auxiliary_backend"] = cast(
+                    JsonValue, auxiliary_backend
+                )
+                context.extensions["auxiliary_model"] = cast(
+                    JsonValue, auxiliary_model or target.model
+                )
+
             # Create a new target with the auxiliary backend/model
             target = BackendTarget(
                 backend=auxiliary_backend,

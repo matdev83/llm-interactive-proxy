@@ -1,7 +1,5 @@
 """Unit tests for AccessModeValidator DI registration."""
 
-import pytest
-
 from src.core.config.app_config import load_config
 from src.core.di.container import ServiceCollection
 from src.core.di.registrations import security

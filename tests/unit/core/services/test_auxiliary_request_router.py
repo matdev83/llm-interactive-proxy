@@ -77,6 +77,27 @@ class TestAuxiliaryRequestDetector:
 
         assert detector.is_auxiliary_request(request) is True
 
+    def test_detects_title_generation_when_last_user_message_is_topic(self) -> None:
+        """Regression: detect auxiliary title requests that end with the topic text."""
+
+        config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")
+        detector = AuxiliaryRequestDetector(config)
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(role="system", content="You are a title generator."),
+                ChatMessage(
+                    role="user", content="Generate a title for this conversation:"
+                ),
+                ChatMessage(
+                    role="user", content="What are the latest commits all about?"
+                ),
+            ],
+        )
+
+        assert detector.is_auxiliary_request(request) is True
+
     def test_does_not_detect_normal_conversation(self) -> None:
         """Does not detect normal conversation as auxiliary."""
         config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")

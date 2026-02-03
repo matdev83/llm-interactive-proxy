@@ -45,6 +45,8 @@ class TrackedRequest:
     status: RequestStatus
     status_code: int | None = None
     duplicate_count: int = 0
+    is_streaming: bool = False
+    expires_at: float = 0.0
 
 
 class RequestDeduplicationService:
@@ -72,6 +74,8 @@ class RequestDeduplicationService:
     def __init__(
         self,
         window_seconds: float = 6.0,
+        streaming_window_seconds: float = 300.0,
+        streaming_in_flight_window_seconds: float = 600.0,
         enabled: bool = True,
         max_cache_size: int = 10000,
     ) -> None:
@@ -84,6 +88,8 @@ class RequestDeduplicationService:
             max_cache_size: Maximum cache entries before forced cleanup
         """
         self._window_seconds = window_seconds
+        self._streaming_window_seconds = streaming_window_seconds
+        self._streaming_in_flight_window_seconds = streaming_in_flight_window_seconds
         self._enabled = enabled
         self._max_cache_size = max_cache_size
 
@@ -94,6 +100,33 @@ class RequestDeduplicationService:
         self._requests_processed = 0
         self._retries_after_error_allowed = 0
         self._last_cleanup_time = time.time()
+
+    def _is_streaming_request(self, request: ChatRequest) -> bool:
+        return bool(getattr(request, "stream", False))
+
+    def _completed_ttl_seconds(
+        self, *, is_streaming: bool, status_code: int | None
+    ) -> float:
+        ttl = self._window_seconds
+        if is_streaming:
+            ttl = max(ttl, self._streaming_window_seconds)
+
+        # CRITICAL: Use much longer window for 403 Forbidden to prevent
+        # hitting the backend with requests that caused an account block.
+        # Also use a longer window (e.g. 1 minute) for 204 No Content (empty stream)
+        # to prevent rapid retries of requests that the model refuses to answer.
+        if status_code == 403:
+            ttl = max(ttl, 300.0)  # 5 minute block
+        elif status_code == 204:
+            ttl = max(ttl, 60.0)  # 1 minute block
+
+        return max(0.0, ttl)
+
+    def _in_flight_ttl_seconds(self, *, is_streaming: bool) -> float:
+        ttl = self._window_seconds
+        if is_streaming:
+            ttl = max(ttl, self._streaming_in_flight_window_seconds)
+        return max(0.0, ttl)
 
     def _compute_content_hash(self, request: ChatRequest, session_id: str) -> str:
         """Compute deterministic hash of request content.
@@ -154,6 +187,7 @@ class RequestDeduplicationService:
         content_hash = self._compute_content_hash(request, session_id)
         cache_key = f"{session_id}:{content_hash}"
         current_time = time.time()
+        is_streaming = self._is_streaming_request(request)
 
         async with self._lock:
             await self._maybe_cleanup_locked(current_time)
@@ -164,77 +198,77 @@ class RequestDeduplicationService:
                 tracked = self._cache[cache_key]
                 age = current_time - tracked.timestamp
 
-                # CRITICAL: Always allow retries after retriable errors (429, 503, etc)
-                # regardless of how recent they are. This ensures legitimate retries
-                # after rate limits are never blocked.
-                if tracked.status == RequestStatus.RETRIABLE_ERROR:
-                    self._retries_after_error_allowed += 1
+                # Expired entries are treated as new requests.
+                if tracked.expires_at and current_time >= tracked.expires_at:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            "Allowing retry after %s (status_code=%s): hash=%s session=%s age=%.2fs",
-                            tracked.status.value,
-                            tracked.status_code,
+                            "Request tracking expired (age=%.2fs); treating as new request: hash=%s session=%s",
+                            age,
                             content_hash[:8],
                             session_id,
-                            age,
                         )
-                    # Register as new in-flight request
-                    self._cache[cache_key] = TrackedRequest(
-                        timestamp=current_time,
-                        status=RequestStatus.IN_FLIGHT,
-                    )
-                    return (False, content_hash, None)
-
-                # Check if within deduplication window and status is blockable
-                # CRITICAL: Use much longer window for 403 Forbidden to prevent
-                # hitting the backend with requests that caused an account block.
-                # Also use a longer window (e.g. 1 minute) for 204 No Content (empty stream)
-                # to prevent rapid retries of requests that the model refuses to answer.
-                effective_window = self._window_seconds
-                if tracked.status_code == 403:
-                    effective_window = max(effective_window, 300.0)  # 5 minute block
-                elif tracked.status_code == 204:
-                    effective_window = max(effective_window, 60.0)  # 1 minute block
-
-                if age < effective_window and tracked.status in (
-                    RequestStatus.IN_FLIGHT,
-                    RequestStatus.SUCCESS,
-                    RequestStatus.CLIENT_DISCONNECT,
-                ):
-                    # Block duplicates of in-flight, successful, or disconnected requests
-                    self._duplicates_blocked += 1
-                    if logger.isEnabledFor(logging.DEBUG):
-                        logger.debug(
-                            "Duplicate blocked (status=%s): hash=%s session=%s age=%.2fs",
-                            tracked.status.value,
-                            content_hash[:8],
-                            session_id,
-                            age,
+                else:
+                    # CRITICAL: Always allow retries after retriable errors (429, 503, etc)
+                    # regardless of how recent they are. This ensures legitimate retries
+                    # after rate limits are never blocked.
+                    if tracked.status == RequestStatus.RETRIABLE_ERROR:
+                        self._retries_after_error_allowed += 1
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Allowing retry after %s (status_code=%s): hash=%s session=%s age=%.2fs",
+                                tracked.status.value,
+                                tracked.status_code,
+                                content_hash[:8],
+                                session_id,
+                                age,
+                            )
+                        # Register as new in-flight request
+                        ttl = self._in_flight_ttl_seconds(is_streaming=is_streaming)
+                        self._cache[cache_key] = TrackedRequest(
+                            timestamp=current_time,
+                            status=RequestStatus.IN_FLIGHT,
+                            status_code=None,
+                            duplicate_count=0,
+                            is_streaming=is_streaming,
+                            expires_at=current_time + ttl,
                         )
-                    tracked.duplicate_count += 1
-                    retry_after_seconds = self._compute_retry_after_seconds(
-                        age=age,
-                        effective_window=effective_window,
-                        duplicate_count=tracked.duplicate_count,
-                    )
-                    return (True, content_hash, retry_after_seconds)
+                        return (False, content_hash, None)
 
-                # Outside window or unknown status - treat as new request
-                if logger.isEnabledFor(logging.DEBUG):
-                    # Use more descriptive message that doesn't imply a bug
-                    # (status unknown is common after cleanup or for retriable errors)
-                    logger.debug(
-                        "Request tracking expired (age=%.2fs > window=%.1fs) or status reset; treating as new request: hash=%s session=%s",
-                        age,
-                        self._window_seconds,
-                        content_hash[:8],
-                        session_id,
-                    )
+                    # Still within per-entry TTL and status is blockable
+                    if tracked.status in (
+                        RequestStatus.IN_FLIGHT,
+                        RequestStatus.SUCCESS,
+                        RequestStatus.CLIENT_DISCONNECT,
+                    ):
+                        self._duplicates_blocked += 1
+                        if logger.isEnabledFor(logging.DEBUG):
+                            logger.debug(
+                                "Duplicate blocked (status=%s): hash=%s session=%s age=%.2fs",
+                                tracked.status.value,
+                                content_hash[:8],
+                                session_id,
+                                age,
+                            )
+                        tracked.duplicate_count += 1
+                        effective_window = max(
+                            0.0, (tracked.expires_at - tracked.timestamp)
+                        )
+                        retry_after_seconds = self._compute_retry_after_seconds(
+                            age=age,
+                            effective_window=effective_window,
+                            duplicate_count=tracked.duplicate_count,
+                        )
+                        return (True, content_hash, retry_after_seconds)
 
             # New request or expired - register as in-flight
+            ttl = self._in_flight_ttl_seconds(is_streaming=is_streaming)
             self._cache[cache_key] = TrackedRequest(
                 timestamp=current_time,
                 status=RequestStatus.IN_FLIGHT,
+                status_code=None,
+                duplicate_count=0,
+                is_streaming=is_streaming,
+                expires_at=current_time + ttl,
             )
             return (False, content_hash, None)
 
@@ -278,6 +312,7 @@ class RequestDeduplicationService:
                 return
 
             tracked = self._cache[cache_key]
+            now = time.time()
 
             # Determine final status
             if client_disconnected:
@@ -299,6 +334,12 @@ class RequestDeduplicationService:
             # Update tracked request
             tracked.status = new_status
             tracked.status_code = status_code
+            # Reset timestamp to completion time so dedup window measures from completion,
+            # not from request start (important for long streaming responses).
+            tracked.timestamp = now
+            tracked.expires_at = now + self._completed_ttl_seconds(
+                is_streaming=tracked.is_streaming, status_code=status_code
+            )
 
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -327,11 +368,11 @@ class RequestDeduplicationService:
             return
 
         self._last_cleanup_time = current_time
-        cutoff = current_time - self._window_seconds
-
         # First pass: remove expired entries (O(N))
         expired_keys = [
-            key for key, tracked in self._cache.items() if tracked.timestamp < cutoff
+            key
+            for key, tracked in self._cache.items()
+            if tracked.expires_at and tracked.expires_at < current_time
         ]
         for key in expired_keys:
             del self._cache[key]
@@ -359,12 +400,11 @@ class RequestDeduplicationService:
         """
         async with self._lock:
             initial_size = len(self._cache)
-            cutoff = time.time() - self._window_seconds
-
+            now = time.time()
             expired_keys = [
                 key
                 for key, tracked in self._cache.items()
-                if tracked.timestamp < cutoff
+                if tracked.expires_at and tracked.expires_at < now
             ]
             for key in expired_keys:
                 del self._cache[key]

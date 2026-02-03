@@ -99,3 +99,40 @@ async def test_accumulate_text_then_stop_chunk():
 
     assert isinstance(result.content, StopChunkWithUsage)
     assert result.content["choices"][0]["delta"]["content"] == "Hello World"
+
+
+@pytest.mark.asyncio
+async def test_openai_stream_done_marker_does_not_reemit_accumulated_content():
+    """Regression: OpenAI-style streams may end with an SSE [DONE] marker chunk.
+
+    When earlier chunks were forwarded as OpenAI deltas, ContentAccumulationProcessor
+    must not re-emit the full accumulated content on the terminal marker, otherwise
+    clients will see the assistant message duplicated.
+    """
+    processor = ContentAccumulationProcessor()
+    stream_id = "test-openai-stream"
+
+    # Simulate OpenAI-style parsed chunks: content is already extracted as text,
+    # and raw_data preserves the OpenAI dict with "choices" for openai detection.
+    openai_raw = {"choices": [{"delta": {"content": "Hello"}}], "id": "x"}
+    first = StreamingContent(
+        content="Hello",
+        is_done=False,
+        metadata={"stream_id": stream_id, "model": "test"},
+        raw_data=openai_raw,
+    )
+    first_out = await processor.process(first)
+    assert isinstance(first_out.content, dict)
+
+    # Simulate SSEBytesParser output for "data: [DONE]\n\n" (is_done=True, no OpenAI dict payload).
+    done_marker = StreamingContent(
+        content="",
+        is_done=True,
+        metadata={"stream_id": stream_id, "model": "test"},
+        raw_data=b"data: [DONE]\n\n",
+    )
+
+    done_out = await processor.process(done_marker)
+    assert done_out.is_done is True
+    assert done_out.metadata.get("accumulated_content") == "Hello"
+    assert done_out.content == ""

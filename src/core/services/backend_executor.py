@@ -90,42 +90,55 @@ class BackendExecutor(IBackendExecutor):
             - 10.3: Session history updated after backend execution completes
             - 10.4: Backend errors propagate unchanged
         """
+        is_auxiliary_request = bool(
+            isinstance(getattr(context, "extensions", None), dict)
+            and context.extensions.get("auxiliary_request")
+        )
+        effective_session_id = session_id
+        if is_auxiliary_request:
+            aux_session_id = context.extensions.get("auxiliary_effective_session_id")
+            if isinstance(aux_session_id, str) and aux_session_id:
+                effective_session_id = aux_session_id
+
         # Inject session_id into extra_body and session_id field (Req 10.1)
         final_extra_body_attr = getattr(request, "extra_body", None)
         final_extra_body: dict[str, Any] = (
             final_extra_body_attr.copy() if final_extra_body_attr else {}
         )
         if "session_id" not in final_extra_body:
-            final_extra_body["session_id"] = session_id
+            final_extra_body["session_id"] = effective_session_id
         request = request.model_copy(
-            update={"extra_body": final_extra_body, "session_id": session_id}
+            update={"extra_body": final_extra_body, "session_id": effective_session_id}
         )
 
         # Log backend invocation
         if logger.isEnabledFor(logging.INFO):
             logger.info(
-                f"Calling backend for session {session_id} with model: {getattr(request, 'model', 'unknown')}"
+                f"Calling backend for session {effective_session_id} with model: {getattr(request, 'model', 'unknown')}"
             )
 
         try:
             # Call backend (Req 10.2, 10.4)
             backend_response = (
                 await self._backend_request_manager.process_backend_request(
-                    request, session_id, context
+                    request, effective_session_id, context
                 )
             )
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
-                    f"Backend response for session {session_id}: {type(backend_response).__name__}"
+                    f"Backend response for session {effective_session_id}: {type(backend_response).__name__}"
                 )
 
             # Update session history (Req 10.3, 1.5)
-            await self._session_manager.update_session_history(
-                original_request, request, backend_response, session_id
-            )
+            if not is_auxiliary_request:
+                await self._session_manager.update_session_history(
+                    original_request, request, backend_response, session_id
+                )
 
             # Best-effort fingerprint update (Req 1.6)
-            if hasattr(self._session_manager, "update_session_fingerprint"):
+            if (not is_auxiliary_request) and hasattr(
+                self._session_manager, "update_session_fingerprint"
+            ):
                 try:
                     update_method = self._session_manager.update_session_fingerprint  # type: ignore[attr-defined]
                     await update_method(session_id, original_request, context)
@@ -155,5 +168,5 @@ class BackendExecutor(IBackendExecutor):
             raise
         finally:
             # Complete turn after response (or error) to update replacement state (Req 1.7)
-            if self._replacement_service is not None:
+            if (not is_auxiliary_request) and self._replacement_service is not None:
                 self._replacement_service.complete_turn(session_id)

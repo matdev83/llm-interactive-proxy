@@ -3,7 +3,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorService
 from src.connectors.gemini_oauth_auto.models import StoredAccount
 

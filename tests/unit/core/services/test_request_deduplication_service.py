@@ -470,6 +470,45 @@ class TestStatusAwareDeduplication:
             assert is_dup is False
 
     @pytest.mark.asyncio
+    async def test_streaming_requests_blocked_for_longer_than_base_window(self) -> None:
+        """Streaming requests should be deduplicated for a longer TTL by default.
+
+        This prevents expensive zombie retry loops during/after streaming responses.
+        """
+        from tests.utils.fake_clock import FakeClockContext
+
+        service = RequestDeduplicationService(
+            window_seconds=0.1,
+            streaming_window_seconds=1.0,
+            streaming_in_flight_window_seconds=1.0,
+            enabled=True,
+        )
+        request = ChatRequest(
+            model="gpt-4",
+            stream=True,
+            messages=[ChatMessage(role="user", content="hello")],
+        )
+
+        async with FakeClockContext() as clock:
+            is_dup, content_hash, _ = await service.check_and_register(
+                request, "session-1"
+            )
+            assert is_dup is False
+            await service.mark_request_complete(
+                content_hash, "session-1", status_code=200
+            )
+
+            # Past the base window, but still within streaming TTL.
+            clock.advance(0.15)
+            is_dup, _, _ = await service.check_and_register(request, "session-1")
+            assert is_dup is True
+
+            # Past the streaming TTL: should be treated as new.
+            clock.advance(1.1)
+            is_dup, _, _ = await service.check_and_register(request, "session-1")
+            assert is_dup is False
+
+    @pytest.mark.asyncio
     async def test_zombie_pattern_detection(
         self, service: RequestDeduplicationService, sample_request: ChatRequest
     ) -> None:

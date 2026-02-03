@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import time
 from typing import Any, cast
 
 from src.core.domain.streaming.contracts import StreamingChunk
@@ -26,11 +27,54 @@ logger = logging.getLogger(__name__)
 class SSESerializer:
     """Serializer for converting StreamingContent to SSE bytes."""
 
+    @staticmethod
+    def _ensure_openai_finish_reason_for_terminal_usage(
+        content_copy: dict[str, Any], chunk: StreamingChunk
+    ) -> None:
+        """Ensure OpenAI streaming chunks carrying usage include a finish_reason.
+
+        Some upstream providers send a terminal chunk with `usage` but omit
+        `choices[].finish_reason` (leave it `null`). Several OpenAI-compatible
+        clients use finish_reason to decide whether to dispatch tool calls or
+        consider a turn complete. When finish_reason is missing, the client may
+        continue looping even though the SSE stream is properly terminated.
+        """
+        if "usage" not in content_copy and not chunk.metadata.usage:
+            return
+
+        choices = content_copy.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return
+
+        # Derive a reasonable default if upstream didn't provide one.
+        inferred: str | None = chunk.metadata.finish_reason
+        if inferred is None:
+            inferred = "stop"
+            first_choice = choices[0] if isinstance(choices[0], dict) else None
+            if isinstance(first_choice, dict):
+                delta = first_choice.get("delta")
+                if isinstance(delta, dict):
+                    tool_calls = delta.get("tool_calls")
+                    if isinstance(tool_calls, list) and tool_calls:
+                        inferred = "tool_calls"
+
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            if choice.get("finish_reason") is None:
+                choice["finish_reason"] = inferred
+
     def _serialize_stop_chunk_with_usage(self, content: StreamingContent) -> bytes:
         """Serialize StopChunkWithUsage to SSE bytes with usage at top level."""
         assert isinstance(content.content, StopChunkWithUsage)
         # Type hint for content.content as StopChunkWithUsage is already asserted
         plain_dict = dict(content.content)
+        try:
+            chunk = content.to_typed_chunk()
+            self._ensure_openai_finish_reason_for_terminal_usage(plain_dict, chunk)
+        except Exception:
+            # Best-effort: usage chunks should never fail serialization.
+            pass
         return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
 
     def _serialize_error_chunk(
@@ -47,13 +91,52 @@ class SSESerializer:
             )
             if not isinstance(error_dict, dict):
                 error_dict = {}
+            raw_message = error_dict.get("message")
+            message = (
+                str(raw_message) if raw_message not in (None, "") else "Unknown error"
+            )
+            raw_type = error_dict.get("type")
+            type_str = str(raw_type) if raw_type not in (None, "") else "api_error"
+
+            # Some OpenAI-compatible clients ignore streaming error chunks with an empty
+            # delta, making it look like the request is "stuck" even though the stream
+            # is terminated. Provide a short, visible `delta.content` summary while
+            # keeping the structured `error` object intact.
+            max_len = 500
+            summary = f"Error ({type_str}): {message}"
+            if len(summary) > max_len:
+                summary = summary[: max_len - 3].rstrip() + "..."
+
+            created = (
+                content.metadata.get("created")
+                if isinstance(content.metadata.get("created"), int)
+                else int(time.time())
+            )
+            model = (
+                content.metadata.get("model")
+                if isinstance(content.metadata.get("model"), str)
+                else "unknown"
+            )
+            error_id = (
+                content.metadata.get("id")
+                if isinstance(content.metadata.get("id"), str)
+                else f"chatcmpl-error-{created}"
+            )
+
             error_data: dict[str, Any] = {
-                "choices": [{"delta": {}, "finish_reason": "error"}],
+                "id": error_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": summary},
+                        "finish_reason": "error",
+                    }
+                ],
                 "error": error_dict,
             }
-            for key in ("id", "model", "created"):
-                if key in content.metadata:
-                    error_data[key] = content.metadata[key]
             return f"data: {json.dumps(error_data)}\n\ndata: [DONE]\n\n".encode()
 
         # Check for error in content if it's a dict
@@ -374,6 +457,8 @@ class SSESerializer:
                 content_copy["choices"], list
             ):
                 content_copy["choices"][0]["delta"] = delta
+
+        self._ensure_openai_finish_reason_for_terminal_usage(content_copy, chunk)
 
         parts = [f"data: {json.dumps(content_copy)}\n\n"]
         if chunk.is_done:
