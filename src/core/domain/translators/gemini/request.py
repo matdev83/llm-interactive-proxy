@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+# pyright: reportUnnecessaryIsInstance=false
 import os
 from contextlib import suppress
 from typing import Any
@@ -53,14 +54,6 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
     if request.top_logprobs is not None:
         config["logprobs"] = request.top_logprobs
 
-    # Enable parallel function calling if requested (Gemini API parity)
-    if request.parallel_tool_calls is not None:
-        config["parallelToolCalling"] = request.parallel_tool_calls
-    else:
-        # Default to True for Gemini 3 models to match native CLI behavior
-        if "gemini-3" in str(request.model).lower():
-            config["parallelToolCalling"] = True
-
     def _resolve_thinking_budget(
         reasoning_effort: str | None, explicit_budget: int | None
     ) -> int | None:
@@ -85,15 +78,12 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
         return effort_to_budget.get(reasoning_effort.lower(), None)
 
     anthropic_thinking = None
-    if request.extra_body and isinstance(request.extra_body, dict):
-        anthropic_thinking = request.extra_body.get("thinking")
+    extra_body = request.extra_body
+    if extra_body:
+        anthropic_thinking = extra_body.get("thinking")
 
     explicit_budget = getattr(request, "thinking_budget", None)
-    if (
-        anthropic_thinking
-        and isinstance(anthropic_thinking, dict)
-        and anthropic_thinking.get("type") == "enabled"
-    ):
+    if anthropic_thinking and anthropic_thinking.get("type") == "enabled":
         explicit_budget = anthropic_thinking.get("budget_tokens") or explicit_budget
 
     thinking_budget = _resolve_thinking_budget(
@@ -211,25 +201,25 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                 if message.content:
                     parts.append({"text": message.content})
             elif isinstance(message.content, list):
-                    for part in message.content:
-                        if hasattr(part, "type") and part.type == "image_url":
-                            processed_image = media_utils._process_gemini_image_part(
-                                part
-                            )
-                            if processed_image:
-                                parts.append(processed_image)
-                        elif hasattr(part, "type") and part.type == "text":
-                            from src.core.domain.chat import MessageContentPartText
+                for part in message.content:
+                    if hasattr(part, "type") and part.type == "image_url":
+                        processed_image = media_utils._process_gemini_image_part(  # pyright: ignore[reportPrivateUsage]
+                            part
+                        )
+                        if processed_image:
+                            parts.append(processed_image)
+                    elif hasattr(part, "type") and part.type == "text":
+                        from src.core.domain.chat import MessageContentPartText
 
-                            if isinstance(part, MessageContentPartText) and hasattr(
-                                part, "text"
-                            ):
-                                parts.append({"text": part.text})
-                        else:
-                            if hasattr(part, "model_dump"):
-                                part_dict = part.model_dump()
-                                if "text" in part_dict:
-                                    parts.append({"text": part_dict["text"]})
+                        if isinstance(part, MessageContentPartText) and hasattr(
+                            part, "text"
+                        ):
+                            parts.append({"text": part.text})
+                    else:
+                        if hasattr(part, "model_dump"):
+                            part_dict = part.model_dump()
+                            if "text" in part_dict:
+                                parts.append({"text": part_dict["text"]})
 
         if message.role == "tool":
             tool_messages = [message]
@@ -312,24 +302,8 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
         function_declarations: list[dict[str, Any]] = []
 
         for tool in request.tools:
-            if isinstance(tool, dict):
-                tool_dict = tool
-            else:
-                try:
-                    tool_dict = tool.model_dump()  # type: ignore[attr-defined]
-                except (AttributeError, TypeError) as err:
-                    if logger.isEnabledFor(TRACE_LEVEL):
-                        logger.log(
-                            TRACE_LEVEL,
-                            "Failed to serialize tool with model_dump(), using empty dict: type=%s, error: %s",
-                            type(tool).__name__,
-                            err,
-                            exc_info=True,
-                        )
-                    tool_dict = {}
-            function = (
-                tool_dict.get("function") if isinstance(tool_dict, dict) else None
-            )
+            tool_dict = tool
+            function = tool_dict.get("function")
             if not function:
                 continue
 
@@ -349,18 +323,16 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
         mode = "AUTO"
         allowed_functions = None
 
-        if isinstance(request.tool_choice, str):
+        tool_choice = request.tool_choice
+        if isinstance(tool_choice, str):
             if request.tool_choice == "none":
                 mode = "NONE"
             elif request.tool_choice == "auto":
                 mode = "AUTO"
             elif request.tool_choice in ["any", "required"]:
                 mode = "ANY"
-        elif (
-            isinstance(request.tool_choice, dict)
-            and request.tool_choice.get("type") == "function"
-        ):
-            function_spec = request.tool_choice.get("function", {})
+        elif tool_choice and tool_choice.get("type") == "function":
+            function_spec = tool_choice.get("function", {})
             function_name = function_spec.get("name")
             if function_name:
                 mode = "ANY"
@@ -375,54 +347,38 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
     if not response_format and request.extra_body:
         response_format = request.extra_body.get("response_format")
 
-    if (
-        response_format
-        and isinstance(response_format, dict)
-        and response_format.get("type") == "json_schema"
-    ):
+    if response_format and response_format.get("type") == "json_schema":
         json_schema = response_format.get("json_schema", {})
         schema = json_schema.get("schema", {})
 
         generation_config = result["generationConfig"]
-        if isinstance(generation_config, dict):
-            generation_config["responseMimeType"] = "application/json"
-            generation_config["responseSchema"] = schema
+        generation_config["responseMimeType"] = "application/json"
+        generation_config["responseSchema"] = schema
 
-            schema_name = json_schema.get("name")
-            schema_description = json_schema.get("description")
-            if schema_name or schema_description:
-                schema_context = "Generate a JSON response"
-                if schema_name:
-                    schema_context += f" for '{schema_name}'"
-                if schema_description:
-                    schema_context += f": {schema_description}"
-                schema_context += (
-                    ". The response must conform to the provided JSON schema."
-                )
+        schema_name = json_schema.get("name")
+        schema_description = json_schema.get("description")
+        if schema_name or schema_description:
+            schema_context = "Generate a JSON response"
+            if schema_name:
+                schema_context += f" for '{schema_name}'"
+            if schema_description:
+                schema_context += f": {schema_description}"
+            schema_context += ". The response must conform to the provided JSON schema."
 
-                if (
-                    contents
-                    and isinstance(contents[-1], dict)
-                    and contents[-1].get("role") == "user"
-                ):
-                    last_message = contents[-1]
-                    if (
-                        isinstance(last_message, dict)
-                        and last_message.get("parts")
-                        and isinstance(last_message["parts"], list)
-                    ):
-                        last_message["parts"].append({"text": f"\n\n{schema_context}"})
-                else:
-                    contents.append(
-                        {"role": "user", "parts": [{"text": schema_context}]}
-                    )
+            if contents and contents[-1].get("role") == "user":
+                last_message = contents[-1]
+                last_parts = last_message.get("parts")
+                if isinstance(last_parts, list):
+                    last_parts.append({"text": f"\n\n{schema_context}"})
+            else:
+                contents.append({"role": "user", "parts": [{"text": schema_context}]})
 
-    if request.extra_body and isinstance(request.extra_body, dict):
-        gemini_safety = request.extra_body.get("gemini_safety_settings")
-        if gemini_safety and isinstance(gemini_safety, list):
+    if extra_body:
+        gemini_safety = extra_body.get("gemini_safety_settings")
+        if isinstance(gemini_safety, list):
             result["safetySettings"] = gemini_safety
 
-        cached_content = request.extra_body.get("gemini_cached_content")
+        cached_content = extra_body.get("gemini_cached_content")
         if cached_content:
             result["cachedContent"] = cached_content
 
@@ -457,11 +413,10 @@ def _validate_request_parameters(request: CanonicalChatRequest) -> None:
 
     if request.tools:
         for tool in request.tools:
-            if isinstance(tool, dict):
-                if "function" not in tool:
-                    raise ValueError("Tool must have a function")
-                if "name" not in tool.get("function", {}):
-                    raise ValueError("Tool function must have a name")
+            if "function" not in tool:
+                raise ValueError("Tool must have a function")
+            if "name" not in tool.get("function", {}):
+                raise ValueError("Tool function must have a name")
 
 
 def _normalize_stop_sequences(stop: Any) -> list[str] | None:
