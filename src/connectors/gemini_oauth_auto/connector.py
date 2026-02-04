@@ -6,6 +6,7 @@ Backend connector with self-managed OAuth tokens and multi-account support.
 
 import asyncio
 import contextlib
+import inspect
 import logging
 import os
 import time
@@ -21,6 +22,7 @@ from src.connectors.gemini_base.config import DEFAULT_AVAILABLE_MODELS
 from src.connectors.gemini_base.model_discovery import FallbackModelDiscovery
 from src.connectors.gemini_base.models import GeminiOAuthCredentials, TierScore
 from src.connectors.gemini_oauth_auto.account_selector import AccountSelectorService
+from src.connectors.gemini_oauth_auto.models import StoredAccount
 from src.connectors.gemini_oauth_auto.token_refresh import TokenRefreshService
 from src.connectors.gemini_oauth_auto.token_storage import TokenStorageService
 from src.connectors.gemini_oauth_base import GeminiOAuthBaseConnector
@@ -75,23 +77,46 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
     @staticmethod
     def _is_project_not_found_error(error: BackendError) -> bool:
         status_code = getattr(error, "status_code", None)
-        if status_code != 404:
+        if status_code not in (403, 404):
             return False
 
-        message = str(getattr(error, "message", "") or "")
-        if message and "requested entity was not found" in message.lower():
-            return True
+        messages: list[str] = []
+
+        def _add_message(candidate: Any) -> None:
+            if isinstance(candidate, str) and candidate.strip():
+                messages.append(candidate)
+
+        _add_message(getattr(error, "message", None))
 
         details = getattr(error, "details", None)
-        if not isinstance(details, dict):
+        if isinstance(details, dict):
+            if details.get("missing_project_id") is True:
+                return True
+            _add_message(details.get("message"))
+            inner = details.get("error")
+            if isinstance(inner, dict):
+                _add_message(inner.get("message"))
+                status_val = inner.get("status")
+                if (
+                    status_code == 404
+                    and isinstance(status_val, str)
+                    and status_val.upper() == "NOT_FOUND"
+                ):
+                    return True
+
+        if status_code == 404:
+            for message in messages:
+                if "requested entity was not found" in message.lower():
+                    return True
             return False
 
-        inner = details.get("error")
-        if not isinstance(inner, dict):
-            return False
+        # 403: Permission denied on a resource project implies an invalid or
+        # inaccessible project ID; rotate to the next account.
+        for message in messages:
+            if "permission denied on resource project" in message.lower():
+                return True
 
-        status_val = inner.get("status")
-        return isinstance(status_val, str) and status_val.upper() == "NOT_FOUND"
+        return False
 
     async def _prime_streaming_response(
         self, envelope: StreamingResponseEnvelope
@@ -208,12 +233,64 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
             except Exception as exc:
                 logger.debug("Failed to send project not found notification: %s", exc)
 
+        await self._clear_cached_project_id(account, reason="project_not_found")
+
         await self._account_selector.mark_account_uninitialized(account_id)
         logger.warning(
             "Account %s removed from available accounts due to project not found (404). "
-            "This is a runtime-only operation; storage files were not modified.",
+            "Cached project_id cleared in storage when possible.",
             account_id,
         )
+
+    async def _clear_cached_project_id(self, account: Any, *, reason: str) -> None:
+        """Clear cached project_id for an account and persist when possible."""
+        if not account:
+            return
+
+        project_id = getattr(account, "project_id", None)
+        if not project_id:
+            return
+
+        account_id = getattr(account, "account_id", "unknown")
+
+        updated_account = account
+        try:
+            model_copy = getattr(account, "model_copy", None)
+            if callable(model_copy):
+                updated_account = model_copy(
+                    update={
+                        "project_id": None,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+            else:
+                with contextlib.suppress(Exception):
+                    updated_account.project_id = None
+                    updated_account.updated_at = datetime.now(timezone.utc).isoformat()
+
+            save_result = self._token_storage.save_account(
+                cast(StoredAccount, updated_account)
+            )
+            if inspect.isawaitable(save_result):
+                await save_result
+
+            update_account = getattr(self._account_selector, "update_account", None)
+            if callable(update_account):
+                update_account(updated_account)
+
+            self._sync_selected_account_to_base()
+
+            logger.info(
+                "Cleared cached project_id for account %s (reason=%s)",
+                account_id,
+                reason,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to clear cached project_id for account %s",
+                account_id,
+                exc_info=True,
+            )
 
     def _sync_selected_account_to_base(self) -> None:
         """Sync the currently-selected account into the gemini_base credential coordinator.
@@ -795,6 +872,17 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         # Get current account
         current_account = self._account_selector.get_current_account()
 
+        async def _raise_missing_project_id() -> None:
+            if current_account:
+                await self._handle_missing_project_id(current_account)
+            raise BackendError(
+                message="Cloud Project ID required for this account.",
+                code="missing_project_id",
+                status_code=403,
+                details={"missing_project_id": True},
+                backend_name=self.backend_type,
+            )
+
         # Check for cached project ID
         cached_id = self._get_cached_project_id(current_account)
         if cached_id:
@@ -802,9 +890,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
 
         if not auth_session:
             logger.warning("auth_session missing for project discovery, using fallback")
-            if current_account:
-                await self._handle_missing_project_id(current_account)
-            return "default"
+            await _raise_missing_project_id()
 
         # Get initial project ID from current account if available
         initial_project_id = current_account.project_id if current_account else None
@@ -980,12 +1066,12 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                 )
             # If we couldn't determine a project ID, mark account as uninitialized
             if fallback_project_id == "default" and current_account:
-                await self._handle_missing_project_id(current_account)
+                await _raise_missing_project_id()
             return str(fallback_project_id)
 
         # If we reach here with "default", project ID couldn't be determined
         if fallback_project_id == "default" and current_account:
-            await self._handle_missing_project_id(current_account)
+            await _raise_missing_project_id()
         return str(fallback_project_id)
 
     async def chat_completions(  # type: ignore[override]
@@ -1060,9 +1146,15 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                     if current_account
                     else None
                 )
+                account_id_hint = None
+                if request.context is not None:
+                    account_id_hint = request.context.extensions.get("account_id")
+                if not account_id_hint:
+                    account_id_hint = current_account_id
 
-                if self._is_project_not_found_error(e) and current_account:
-                    await self._handle_project_not_found(current_account, e)
+                if self._is_project_not_found_error(e):
+                    if current_account:
+                        await self._handle_project_not_found(current_account, e)
                     if self._account_selector.get_available_count() > 0:
                         await self._account_selector.get_next_account(
                             session_id=session_id
@@ -1070,7 +1162,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
                         self._sync_selected_account_to_base()
                         logger.info(
                             "Project not found for account %s; retrying with next available account",
-                            current_account_id,
+                            account_id_hint or "unknown",
                         )
                         continue
 

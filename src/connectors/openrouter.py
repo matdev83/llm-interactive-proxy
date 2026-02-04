@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
-from collections.abc import Callable, Mapping
+import time
+import uuid
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine, Mapping
 from typing import Any, cast
 
 import httpx
@@ -21,8 +25,13 @@ from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage, ChatRequest
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.configuration_interface import IAppIdentityConfig
+from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.security.loop_prevention import ensure_loop_guard_header
 from src.core.services.backend_registry import backend_registry
+from src.core.services.streaming.chunk_normalizer import (
+    normalize_to_processed_chunk_content,
+)
+from src.core.services.streaming.error_mapping import handle_streaming_error
 from src.core.services.translation_service import TranslationService
 
 logger = logging.getLogger(__name__)
@@ -65,6 +74,104 @@ class OpenRouterBackend(OpenAIConnector):
             )
 
         return {"app_site_url": referer, "app_x_title": title}
+
+    def _resolve_stream_keepalive_interval(self) -> float:
+        config = getattr(self, "config", None)
+        failure_handling = getattr(config, "failure_handling", None)
+        interval = getattr(failure_handling, "keepalive_interval", None)
+        if isinstance(interval, int | float) and interval > 0:
+            return float(interval)
+        return 8.0
+
+    def _resolve_stream_idle_timeout(self) -> float | None:
+        config = getattr(self, "config", None)
+        candidates: list[float] = []
+        failure_handling = getattr(config, "failure_handling", None)
+        silent_wait = getattr(failure_handling, "max_silent_wait", None)
+        if isinstance(silent_wait, int | float) and silent_wait > 0:
+            candidates.append(float(silent_wait))
+        proxy_timeout = getattr(config, "proxy_timeout", None)
+        if isinstance(proxy_timeout, int | float) and proxy_timeout > 0:
+            candidates.append(float(proxy_timeout))
+        return min(candidates) if candidates else None
+
+    async def _wrap_stream_with_idle_timeout(
+        self,
+        stream: AsyncIterator[ProcessedResponse],
+        *,
+        stream_id: str | None,
+        model_name: str | None,
+        keepalive_interval: float,
+        idle_timeout: float | None,
+        cancel_callback: Callable[[], Awaitable[None]] | None,
+    ) -> AsyncIterator[ProcessedResponse]:
+        iterator = stream.__aiter__()
+        pending: asyncio.Task[ProcessedResponse] | None = asyncio.create_task(
+            cast(Coroutine[Any, Any, ProcessedResponse], anext(iterator))
+        )
+        last_activity = time.monotonic()
+        keepalive_id = f"chatcmpl-keepalive-{uuid.uuid4().hex}"
+
+        async def _build_timeout_error_chunk() -> ProcessedResponse:
+            if cancel_callback is not None:
+                with contextlib.suppress(Exception):
+                    await cancel_callback()
+            error = BackendError(
+                message="Streaming timeout waiting for OpenRouter response.",
+                code="streaming_timeout",
+                status_code=504,
+                backend_name=self.backend_type,
+            )
+            error_chunk = await handle_streaming_error(
+                error, stream_id=stream_id, provider=self.backend_type
+            )
+            normalized = normalize_to_processed_chunk_content(error_chunk.to_bytes())
+            return ProcessedResponse(
+                content=normalized,
+                metadata=error_chunk.metadata,
+            )
+
+        try:
+            while True:
+                if pending is None:
+                    break
+
+                done, _ = await asyncio.wait({pending}, timeout=keepalive_interval)
+                if pending in done:
+                    try:
+                        chunk = pending.result()
+                    except StopAsyncIteration:
+                        break
+                    last_activity = time.monotonic()
+                    yield chunk
+                    pending = asyncio.create_task(
+                        cast(Coroutine[Any, Any, ProcessedResponse], anext(iterator))
+                    )
+                    continue
+
+                elapsed = time.monotonic() - last_activity
+                if idle_timeout is not None and elapsed >= idle_timeout:
+                    yield await _build_timeout_error_chunk()
+                    break
+
+                yield ProcessedResponse(
+                    content="",
+                    metadata={
+                        "_keepalive": True,
+                        "id": keepalive_id,
+                        "model": model_name or "openrouter",
+                        "created": int(time.time()),
+                        "session_id": stream_id,
+                        "stream_id": stream_id,
+                    },
+                )
+        except asyncio.CancelledError:
+            if pending is not None:
+                pending.cancel()
+            raise
+        finally:
+            if pending is not None and not pending.done():
+                pending.cancel()
 
     @staticmethod
     def _authorization_includes_api_key(
@@ -525,7 +632,28 @@ class OpenRouterBackend(OpenAIConnector):
             )
 
             # Delegate to parent's canonical method
-            return await super()._chat_completions_canonical(modified_request)
+            result = await super()._chat_completions_canonical(modified_request)
+            if (
+                isinstance(result, StreamingResponseEnvelope)
+                and result.content is not None
+            ):
+                keepalive_interval = self._resolve_stream_keepalive_interval()
+                idle_timeout = self._resolve_stream_idle_timeout()
+                if idle_timeout is not None and idle_timeout > 0:
+                    stream_id = None
+                    if request.context is not None:
+                        stream_id = getattr(request.context, "session_id", None)
+                    if not stream_id:
+                        stream_id = getattr(request.request, "session_id", None)
+                    result.content = self._wrap_stream_with_idle_timeout(
+                        result.content,
+                        stream_id=cast(str | None, stream_id),
+                        model_name=request.effective_model,
+                        keepalive_interval=keepalive_interval,
+                        idle_timeout=idle_timeout,
+                        cancel_callback=result.cancel_callback,
+                    )
+            return result
         finally:
             # Restore original values
             self.headers_provider = original_headers_provider

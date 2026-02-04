@@ -36,8 +36,8 @@ class TestFormatChunkAsSSE:
         parsed = json.loads(json_part)
         assert parsed == chunk
 
-    def test_streaming_error_chunk_injects_visible_delta_content(self) -> None:
-        """OpenAI-style error chunks should include delta.content for client visibility."""
+    def test_streaming_error_chunk_preserves_empty_delta(self) -> None:
+        """OpenAI-style error chunks should not inject delta.content."""
         service = StreamFormattingService()
         chunk: dict[str, Any] = {
             "choices": [{"delta": {}, "finish_reason": "error"}],
@@ -51,12 +51,7 @@ class TestFormatChunkAsSSE:
         decoded = result.decode("utf-8")
         assert decoded.startswith("data: ")
         parsed = json.loads(decoded[6:-2])
-        assert (
-            parsed["choices"][0]["delta"]["content"].startswith(
-                "Error (ServiceUnavailableError):"
-            )
-            is True
-        )
+        assert parsed["choices"][0]["delta"] == {}
         # Preserve original error payload.
         assert parsed["error"]["status_code"] == 503
 

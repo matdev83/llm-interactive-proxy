@@ -91,22 +91,6 @@ class SSESerializer:
             )
             if not isinstance(error_dict, dict):
                 error_dict = {}
-            raw_message = error_dict.get("message")
-            message = (
-                str(raw_message) if raw_message not in (None, "") else "Unknown error"
-            )
-            raw_type = error_dict.get("type")
-            type_str = str(raw_type) if raw_type not in (None, "") else "api_error"
-
-            # Some OpenAI-compatible clients ignore streaming error chunks with an empty
-            # delta, making it look like the request is "stuck" even though the stream
-            # is terminated. Provide a short, visible `delta.content` summary while
-            # keeping the structured `error` object intact.
-            max_len = 500
-            summary = f"Error ({type_str}): {message}"
-            if len(summary) > max_len:
-                summary = summary[: max_len - 3].rstrip() + "..."
-
             created = (
                 content.metadata.get("created")
                 if isinstance(content.metadata.get("created"), int)
@@ -131,7 +115,7 @@ class SSESerializer:
                 "choices": [
                     {
                         "index": 0,
-                        "delta": {"content": summary},
+                        "delta": {},
                         "finish_reason": "error",
                     }
                 ],

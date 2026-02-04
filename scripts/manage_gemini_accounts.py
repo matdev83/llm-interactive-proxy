@@ -134,6 +134,30 @@ async def cmd_show(storage: TokenStorageService, args: argparse.Namespace) -> No
     print(f"Scopes:        {account.scope}")
 
 
+async def cmd_set_project(
+    storage: TokenStorageService, args: argparse.Namespace
+) -> None:
+    account = await storage.get_account(args.account_id)
+    if not account:
+        print(f"Error: Account '{args.account_id}' not found.")
+        sys.exit(1)
+
+    project_id = args.project_id
+    if args.clear or (isinstance(project_id, str) and not project_id.strip()):
+        project_id = None
+
+    updated = account.model_copy(
+        update={
+            "project_id": project_id,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+    await storage.save_account(updated)
+
+    display_value = project_id if project_id is not None else "None"
+    print(f"Updated account '{updated.account_id}': project_id set to {display_value}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Manage Gemini OAuth accounts")
     parser.add_argument(
@@ -157,6 +181,22 @@ def main() -> None:
     show_parser.add_argument("account_id", help="Identifier of the account to show")
     show_parser.add_argument(
         "--json", action="store_true", help="Output in JSON format"
+    )
+
+    set_project_parser = subparsers.add_parser(
+        "set-project", help="Set or clear the cached Cloud project ID"
+    )
+    set_project_parser.add_argument(
+        "account_id", help="Identifier of the account to update"
+    )
+    set_project_parser.add_argument(
+        "project_id",
+        nargs="?",
+        default=None,
+        help="Cloud project ID to cache (omit or use --clear to unset)",
+    )
+    set_project_parser.add_argument(
+        "--clear", action="store_true", help="Clear the cached project ID"
     )
 
     # Add command
@@ -199,6 +239,8 @@ def main() -> None:
         asyncio.run(cmd_list(storage, args))
     elif args.command == "show":
         asyncio.run(cmd_show(storage, args))
+    elif args.command == "set-project":
+        asyncio.run(cmd_set_project(storage, args))
     elif args.command == "add":
         asyncio.run(cmd_add(storage, args))
     elif args.command == "update":
