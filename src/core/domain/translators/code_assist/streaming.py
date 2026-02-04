@@ -5,10 +5,12 @@ from typing import Any
 
 from src.core.domain.chat import CanonicalStreamChunk
 from src.core.domain.translation_utils.content_utils import (
-    _coerce_reasoning_text,
-    _safe_string,
+    _coerce_reasoning_text,  # pyright: ignore[reportPrivateUsage]
+    _safe_string,  # pyright: ignore[reportPrivateUsage]
 )
-from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
+from src.core.domain.translation_utils.tool_utils import (
+    _process_gemini_function_call,  # pyright: ignore[reportPrivateUsage]
+)
 from src.core.domain.translators.openai.streaming import openai_to_domain_stream_chunk
 
 logger = logging.getLogger(__name__)
@@ -54,11 +56,11 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     created = int(time.time())
     model = "code-assist-model"
 
-    content = ""
     finish_reason = None
     tool_calls: list[dict[str, Any]] | None = None
     thought_signature: str | None = None
     reasoning_pieces: list[str] = []
+    text_parts: list[str] = []
 
     response_wrapper = chunk.get("response", {})
     candidates = response_wrapper.get("candidates", [])
@@ -77,7 +79,6 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                         thought_signature = sig
                         break
 
-            text_parts: list[str] = []
             for part in parts:
                 if not isinstance(part, dict):
                     continue
@@ -92,7 +93,7 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                     continue
 
                 if "text" in part:
-                    safe_text = _safe_string(part.get("text"))
+                    safe_text = _safe_string(part.get("text"))  # pyright: ignore[reportPrivateUsage]
                     if safe_text:
                         text_parts.append(safe_text)
 
@@ -142,7 +143,6 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                                 exc_info=True,
                             )
                         continue
-            content = "".join(text_parts)
 
         if "finishReason" in candidate:
             finish_reason = candidate["finishReason"]
@@ -150,6 +150,9 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     delta: dict[str, Any] = {"role": "assistant"}
     if thought_signature:
         delta["thought_signature"] = thought_signature
+
+    if text_parts:
+        delta["content"] = "".join(text_parts)
 
     if reasoning_pieces:
         reasoning = "\n".join(
@@ -161,12 +164,21 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         delta["thinking"] = reasoning
         delta["thought"] = reasoning
 
+    # Map Gemini finish reason to OpenAI format
+    from src.core.domain.translators.gemini.finish_reason import map_gemini_finish_reason
+    canonical_finish_reason = map_gemini_finish_reason(finish_reason)
+
     if tool_calls:
         delta["tool_calls"] = tool_calls
-        delta.pop("content", None)
-        finish_reason = "tool_calls"
-    elif content:
-        delta["content"] = content
+        # Fix: only set finish_reason if Gemini actually provided one.
+        # Premature finish_reason causes clients like Roo-Code to stop reading the stream
+        # before subsequent tool calls are received, breaking parallel tool calling.
+        if canonical_finish_reason:
+            finish_reason = "tool_calls"
+        else:
+            finish_reason = None
+    else:
+        finish_reason = canonical_finish_reason
 
     return {
         "id": response_id,

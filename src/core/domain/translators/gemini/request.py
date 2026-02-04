@@ -53,6 +53,14 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
     if request.top_logprobs is not None:
         config["logprobs"] = request.top_logprobs
 
+    # Enable parallel function calling if requested (Gemini API parity)
+    if request.parallel_tool_calls is not None:
+        config["parallelToolCalling"] = request.parallel_tool_calls
+    else:
+        # Default to True for Gemini 3 models to match native CLI behavior
+        if "gemini-3" in str(request.model).lower():
+            config["parallelToolCalling"] = True
+
     def _resolve_thinking_budget(
         reasoning_effort: str | None, explicit_budget: int | None
     ) -> int | None:
@@ -196,13 +204,13 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
             if message.reasoning_content:
                 parts.append({"text": message.reasoning_content})
 
-            # Regular content should be excluded when tool_calls are present
-            # to avoid Gemini API errors about function response parts matching
-            if not has_tool_calls:
-                if isinstance(message.content, str):
-                    if message.content:
-                        parts.append({"text": message.content})
-                elif isinstance(message.content, list):
+            # Regular content: Include text even if tool calls are present
+            # This matches native Gemini CLI behavior and provides better context for the model
+            # to plan parallel tool calls.
+            if isinstance(message.content, str):
+                if message.content:
+                    parts.append({"text": message.content})
+            elif isinstance(message.content, list):
                     for part in message.content:
                         if hasattr(part, "type") and part.type == "image_url":
                             processed_image = media_utils._process_gemini_image_part(
