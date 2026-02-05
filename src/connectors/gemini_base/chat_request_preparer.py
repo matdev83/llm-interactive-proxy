@@ -365,15 +365,24 @@ class ChatRequestPreparer:
             with_signatures = self._count_tool_calls_with_thought_signature(
                 canonical_request
             )
+            sample_missing = self._collect_missing_tool_call_samples(
+                canonical_request,
+                signature_session_id=(
+                    signature_session_id if strict_signature_validation else None
+                ),
+                strict_validation=strict_signature_validation,
+            )
             logger.warning(
                 "Downgrading tool calls to plain text due to missing Gemini thought signatures",
                 extra={
                     "missing_signatures": missing_signatures,
                     "tool_calls_total": total_tool_calls,
                     "tool_calls_with_signatures": with_signatures,
+                    "missing_tool_call_samples": sample_missing,
                     "effective_model": effective_model,
                     "session_id": session_id[:8] if session_id else "none",
                     "signature_namespace": signature_namespace or "none",
+                    "strict_signature_validation": strict_signature_validation,
                 },
             )
             canonical_request = self._downgrade_tool_calls_to_text(
@@ -655,9 +664,7 @@ class ChatRequestPreparer:
             return env_bool
 
         extras = self._get_backend_extras()
-        extra_value = (
-            extras.get("strip_reasoning_content") if isinstance(extras, dict) else None
-        )
+        extra_value = extras.get("strip_reasoning_content")
         extra_bool = self._coerce_bool(extra_value)
         if extra_bool is not None:
             return extra_bool
@@ -682,7 +689,7 @@ class ChatRequestPreparer:
                 "truncateToolOutputThreshold",
                 "tool_output_max_chars",
             ):
-                if isinstance(extras, dict) and key in extras:
+                if key in extras:
                     max_chars = self._coerce_positive_int(extras.get(key))
                     if max_chars is not None:
                         break
@@ -695,7 +702,7 @@ class ChatRequestPreparer:
                 "truncateToolOutputLines",
                 "tool_output_max_lines",
             ):
-                if isinstance(extras, dict) and key in extras:
+                if key in extras:
                     max_lines = self._coerce_positive_int(extras.get(key))
                     if max_lines is not None:
                         break
@@ -730,11 +737,7 @@ class ChatRequestPreparer:
             return level
 
         extras = self._get_backend_extras()
-        extra_value = (
-            extras.get("tool_output_truncation_log_level")
-            if isinstance(extras, dict)
-            else None
-        )
+        extra_value = extras.get("tool_output_truncation_log_level")
         return self._coerce_log_level(extra_value)
 
     @staticmethod
@@ -769,12 +772,10 @@ class ChatRequestPreparer:
             alt_extras = self._lookup_backend_extras(config, alt_key)
             if alt_extras:
                 return alt_extras
-            if isinstance(alt_extras, dict):
+            if alt_extras is not None:
                 return alt_extras
 
-        if isinstance(extras, dict):
-            return extras
-        return {}
+        return extras or {}
 
     @staticmethod
     def _lookup_backend_extras(config: Any, backend_key: str) -> dict[str, Any] | None:
@@ -927,6 +928,65 @@ class ChatRequestPreparer:
         if isinstance(tc_id, str) and tc_id:
             return tc_id
         return None
+
+    def _extract_tool_call_name(self, tc: Any) -> str | None:
+        if isinstance(tc, dict):
+            function = tc.get("function")
+            if isinstance(function, dict):
+                name = function.get("name")
+            else:
+                name = tc.get("name")
+        else:
+            function = getattr(tc, "function", None)
+            name = getattr(function, "name", None) if function else None
+
+        if isinstance(name, str) and name:
+            return name
+        return None
+
+    def _collect_missing_tool_call_samples(
+        self,
+        canonical_request: Any,
+        *,
+        signature_session_id: str | None,
+        strict_validation: bool,
+        max_samples: int = 5,
+    ) -> list[dict[str, Any]]:
+        messages = getattr(canonical_request, "messages", None)
+        if not isinstance(messages, list) or not messages:
+            return []
+
+        samples: list[dict[str, Any]] = []
+        for idx, msg in enumerate(messages):
+            if isinstance(msg, dict):
+                role = msg.get("role")
+                tool_calls = msg.get("tool_calls")
+            else:
+                role = getattr(msg, "role", None)
+                tool_calls = getattr(msg, "tool_calls", None)
+
+            if role != "assistant" or not tool_calls:
+                continue
+            if not isinstance(tool_calls, list):
+                continue
+
+            for tc in tool_calls:
+                if self._is_signature_valid(
+                    tc,
+                    signature_session_id=signature_session_id,
+                    strict_validation=strict_validation,
+                ):
+                    continue
+                sample = {
+                    "name": self._extract_tool_call_name(tc) or "unknown",
+                    "id": self._extract_tool_call_id(tc) or "unknown",
+                    "message_index": idx,
+                }
+                samples.append(sample)
+                if len(samples) >= max_samples:
+                    return samples
+
+        return samples
 
     def _extract_thought_signature(self, tc: Any) -> str | None:
         extra_content: Any | None = None

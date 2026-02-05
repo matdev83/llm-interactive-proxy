@@ -15,6 +15,7 @@ from src.connectors.gemini_base.streaming_executor import (
 )
 from src.core.common.exceptions import BackendError
 from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.services.translation_service import TranslationService
 
 
 class _RetryPolicyStub:
@@ -201,6 +202,108 @@ async def test_streaming_executor_retries_on_header_retry_after(
 
     assert any(bool(chunk.metadata.get("_keepalive")) for chunk in chunks)
     assert any(chunk.content == "ok" for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_streaming_executor_retries_header_429_with_code_assist_tool_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.connectors.gemini_base import streaming_executor as module_under_test
+
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
+
+    prepared = PreparedChatRequest(
+        auth_session=MagicMock(),
+        project_id="p",
+        canonical_request=None,
+        code_assist_request={},
+        prompt_tokens_estimate=0,
+        effective_model="google/gemini-3-pro-high",
+        session_id="sess-tool-retry",
+        signature_session_id="sess-tool-retry",
+        build_request_body=lambda: {"request": {}},
+    )
+
+    translation_service = TranslationService()
+    executor = StreamingExecutor(translation_service=translation_service)
+
+    error_response = requests.Response()
+    error_response.status_code = 429
+    error_response._content = (
+        b'{"error":{"status":"RESOURCE_EXHAUSTED","message":"Rate limited"}}'
+    )
+    error_response.headers = CaseInsensitiveDict({"Retry-After": "0.01"})
+
+    code_assist_payload = (
+        b'{"response":{"candidates":[{"content":{"parts":[{"functionCall":'
+        b'{"name":"Read","args":{"file_path":"README.md"}}}]},'
+        b'"finishReason":"STOP"}]}}'
+    )
+    success_response = MagicMock()
+    success_response.status_code = 200
+    success_response.headers = CaseInsensitiveDict({})
+    success_response.iter_content = lambda **_: [
+        b"data: " + code_assist_payload + b"\n",
+        b"data: [DONE]\n",
+    ]
+    success_response.close = MagicMock()
+
+    request_calls = 0
+
+    def _request(*_args, **_kwargs):
+        nonlocal request_calls
+        request_calls += 1
+        return error_response if request_calls == 1 else success_response
+
+    prepared.auth_session.request = _request
+
+    retry_policy = RateLimitRetryPolicy(retry_delay_extractor=extract_retry_delay)
+    processor = SSELineProcessor(
+        translation_service=translation_service,
+        effective_model=prepared.effective_model,
+        retry_delay_extractor=None,
+        backend_type="gemini",
+    )
+
+    chunks: list[ProcessedResponse] = []
+    async for chunk in executor._stream_generator(
+        prepared=prepared,
+        url="https://example.invalid",
+        processor=processor,
+        prompt_tokens=0,
+        retry_policy=retry_policy,
+    ):
+        chunks.append(chunk)
+
+    assert any(bool(chunk.metadata.get("_keepalive")) for chunk in chunks)
+
+    tool_calls = None
+    for chunk in chunks:
+        content = chunk.content
+        if not isinstance(content, dict):
+            continue
+        choices = content.get("choices")
+        if not isinstance(choices, list) or not choices:
+            continue
+        choice = choices[0]
+        if not isinstance(choice, dict):
+            continue
+        delta = choice.get("delta")
+        if not isinstance(delta, dict):
+            continue
+        candidate_calls = delta.get("tool_calls")
+        if isinstance(candidate_calls, list) and candidate_calls:
+            tool_calls = candidate_calls
+            break
+
+    assert tool_calls is not None, "Expected a tool call chunk after retry"
+    assert isinstance(tool_calls, list)
+    assert tool_calls
+    first_call = tool_calls[0]
+    assert isinstance(first_call, dict)
+    assert first_call.get("index") == 0
+    assert request_calls == 2
 
 
 @pytest.mark.asyncio
