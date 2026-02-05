@@ -245,6 +245,10 @@ class OpenAIConnector(LLMBackend):
                     )
                 return False
 
+        except httpx.HTTPError as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Health check failed - transport error: %s", e)
+            return False
         except Exception as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(

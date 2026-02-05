@@ -389,7 +389,9 @@ class ThoughtSignatureManager:
         }
 
         # Offload write to background thread to avoid blocking event loop
-        def _write_task(p: pathlib.Path, data: dict[str, Any], timestamp: float) -> None:
+        def _write_task(
+            p: pathlib.Path, data: dict[str, Any], timestamp: float
+        ) -> None:
             try:
                 p.parent.mkdir(parents=True, exist_ok=True)
                 tmp_path = p.with_suffix(p.suffix + ".tmp")
@@ -403,7 +405,7 @@ class ThoughtSignatureManager:
         threading.Thread(
             target=_write_task, args=(path, payload, current_time), daemon=True
         ).start()
-        
+
         self._persist_last_write = float(current_time)
         self._persist_dirty = False
 
@@ -650,7 +652,7 @@ class ThoughtSignatureManager:
                         self._cache.move_to_end(cache_key)
                         self._enforce_size_limit_locked()
 
-            if not sig and not namespaced:
+            if not sig:
                 # Try anonymous cache if session_id was missing at store time
                 anon_key = f"anon:{tc_id}"
                 sig = self._get_cache_entry_locked(anon_key, current_time)
@@ -658,7 +660,7 @@ class ThoughtSignatureManager:
                     self._persist_dirty = True
                     self._maybe_persist_locked(current_time)
 
-            if not sig and not namespaced:
+            if not sig:
                 # Fallback to global index by tool_call_id (handles session re-keying)
                 sig = self._by_tool_call.get(tc_id)
 
@@ -753,6 +755,7 @@ class ThoughtSignatureManager:
             use_anonymous_cache = (
                 session_id is None or not self._is_namespaced_session_id(session_id)
             )
+            store_anonymous = True
             current_time = time.time()
             namespaced_dirty = False
 
@@ -784,18 +787,17 @@ class ThoughtSignatureManager:
                         namespaced_dirty = True
 
                     # Always store an anonymous copy for restart/session-id safety.
-                    if use_anonymous_cache:
+                    if store_anonymous:
                         anon_key = f"anon:{tc_id}"
                         self._cache[anon_key] = (sig, current_time)
                         self._cache.move_to_end(anon_key)
+                        self._by_tool_call[tc_id] = sig
+                        self._persist_dirty = True
 
                     # Move to end for LRU
                     self._cache.move_to_end(cache_key)
 
                     self._enforce_size_limit_locked()
-
-                    if use_anonymous_cache:
-                        self._persist_dirty = True
 
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -805,9 +807,9 @@ class ThoughtSignatureManager:
                             len(self._cache),
                         )
 
-            if use_anonymous_cache:
+            if store_anonymous:
                 self._maybe_persist_locked(current_time)
-            elif namespaced_dirty and session_id:
+            if namespaced_dirty and session_id:
                 self._mark_namespace_dirty(session_id)
                 self._maybe_persist_namespaced_locked(current_time)
 
