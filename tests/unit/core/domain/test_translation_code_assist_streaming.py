@@ -1,4 +1,5 @@
 import json
+from typing import Any, cast
 
 from src.core.domain.chat import (
     CanonicalChatRequest,
@@ -37,6 +38,7 @@ def test_code_assist_stream_chunk_maps_function_call_and_forces_finish_reason() 
     delta = mapped["choices"][0]["delta"]
     # Tool call is present and content omitted
     assert "tool_calls" in delta and isinstance(delta["tool_calls"], list)
+    assert delta["tool_calls"][0]["index"] == 0
     assert "content" not in delta
     # finish_reason must be tool_calls regardless of original STOP
     assert mapped["choices"][0]["finish_reason"] == "tool_calls"
@@ -211,7 +213,8 @@ def test_thought_signature_server_side_injection() -> None:
     service.inject_signatures(req, session_id)
 
     # Verify the signature was injected
-    injected_tc = req.messages[1].tool_calls[0]
+    tool_calls = cast(list[ToolCall], req.messages[1].tool_calls)
+    injected_tc = tool_calls[0]
     assert injected_tc.extra_content is not None
     assert "google" in injected_tc.extra_content
     assert (
@@ -228,14 +231,14 @@ def test_thought_signature_preserved_in_function_call_round_trip() -> None:
     the OpenAI format conversion.
     """
     # Simulate a Gemini response part with functionCall and thoughtSignature
-    gemini_part = {
+    gemini_part: dict[str, Any] = {
         "functionCall": {"name": "get_weather", "args": {"city": "Paris"}},
         "thoughtSignature": "test_signature_abc123",
     }
 
     # Process into ToolCall (should preserve signature)
     tool_call = Translation._process_gemini_function_call(
-        gemini_part["functionCall"], part=gemini_part
+        cast(dict[str, Any], gemini_part["functionCall"]), part=gemini_part
     )
 
     # Verify extra_content contains the signature

@@ -16,6 +16,24 @@ from src.core.domain.translators.openai.streaming import openai_to_domain_stream
 logger = logging.getLogger(__name__)
 
 
+def _strip_textual_tool_calls(content: str) -> str:
+    """Remove textual tool_call lines from content.
+
+    Some models emit tool call hints as plain text alongside structured tool calls.
+    Keep the natural language text while removing the tool_call lines to avoid
+    duplicate display in clients.
+    """
+    if not content:
+        return content
+    filtered: list[str] = []
+    for line in content.splitlines():
+        stripped = line.strip().lower()
+        if stripped.startswith(("tool_call:", "tool call:")):
+            continue
+        filtered.append(line)
+    return "\n".join(filtered).strip()
+
+
 def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
     """
     Translate a Code Assist API streaming chunk to a canonical dictionary format.
@@ -93,7 +111,9 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                     continue
 
                 if "text" in part:
-                    safe_text = _safe_string(part.get("text"))  # pyright: ignore[reportPrivateUsage]
+                    safe_text = _safe_string(
+                        part.get("text")
+                    )  # pyright: ignore[reportPrivateUsage]
                     if safe_text:
                         text_parts.append(safe_text)
 
@@ -118,13 +138,13 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                     try:
                         if tool_calls is None:
                             tool_calls = []
-                        tool_calls.append(
-                            _process_gemini_function_call(
-                                part["functionCall"],
-                                part=part,
-                                thought_signature=thought_signature,
-                            ).model_dump()
-                        )
+                        tool_call_dict = _process_gemini_function_call(
+                            part["functionCall"],
+                            part=part,
+                            thought_signature=thought_signature,
+                        ).model_dump()
+                        tool_call_dict["index"] = len(tool_calls)
+                        tool_calls.append(tool_call_dict)
                     except (KeyError, TypeError, AttributeError, ValueError) as e:
                         # Expected data transformation errors - log and skip this tool call
                         if logger.isEnabledFor(logging.WARNING):
@@ -152,7 +172,11 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         delta["thought_signature"] = thought_signature
 
     if text_parts:
-        delta["content"] = "".join(text_parts)
+        text_content = "".join(text_parts)
+        if tool_calls:
+            text_content = _strip_textual_tool_calls(text_content)
+        if text_content:
+            delta["content"] = text_content
 
     if reasoning_pieces:
         reasoning = "\n".join(
@@ -165,7 +189,10 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         delta["thought"] = reasoning
 
     # Map Gemini finish reason to OpenAI format
-    from src.core.domain.translators.gemini.finish_reason import map_gemini_finish_reason
+    from src.core.domain.translators.gemini.finish_reason import (
+        map_gemini_finish_reason,
+    )
+
     canonical_finish_reason = map_gemini_finish_reason(finish_reason)
 
     if tool_calls:

@@ -151,6 +151,24 @@ def extract_retry_delay(error: BackendError) -> float | None:
         # Try parsing from error message as last resort
         return parse_retry_from_message(str(error.message or ""))
 
+    retry_after = error.details.get("retry_after")
+    if retry_after is None:
+        retry_after = error.details.get("retryAfter")
+    if retry_after is not None:
+        try:
+            return float(retry_after)
+        except (TypeError, ValueError):
+            pass
+
+    headers = error.details.get("headers")
+    if isinstance(headers, dict):
+        for key in ("Retry-After", "retry-after", "retry_after", "retryAfter"):
+            if key in headers:
+                try:
+                    return float(headers[key])
+                except (TypeError, ValueError):
+                    break
+
     # Get the inner error object if present
     error_data = error.details.get("error", error.details)
 
