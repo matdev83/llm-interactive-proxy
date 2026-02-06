@@ -52,6 +52,12 @@ class StreamingMetrics:
         default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
     )
 
+    # Per-stream metadata: stream_id -> metadata values
+    # TTL: 1 hour, Max size: 10,000 active streams
+    _stream_metadata: MutableMapping[str, dict[str, Any]] = field(
+        default_factory=lambda: TTLCache(maxsize=10000, ttl=3600)
+    )
+
     # Global aggregated metrics
     _global_metrics: dict[str, int] = field(
         default_factory=lambda: {
@@ -212,6 +218,8 @@ class StreamingMetrics:
         """
         start_time = time.perf_counter()
         with self._lock:
+            if stream_id in self._stream_metrics:
+                return
             # Initialize metrics for this stream
             self._stream_metrics[stream_id] = {
                 "chunks_sent": 0,
@@ -224,6 +232,9 @@ class StreamingMetrics:
             if stream_id not in self._stream_timers:
                 self._stream_timers[stream_id] = {}
             self._stream_timers[stream_id]["total_duration"] = start_time
+            self._stream_timers[stream_id]["time_to_first_chunk"] = start_time
+            if stream_id not in self._stream_metadata:
+                self._stream_metadata[stream_id] = {}
 
     def end_stream(self, stream_id: str) -> None:
         """Mark the end of a stream and log metrics.
@@ -234,12 +245,18 @@ class StreamingMetrics:
         # Stop total duration timer (returns elapsed, already handles locks internally)
         duration = self.stop_timer(stream_id, "total_duration")
 
+        # Capture time-to-first-chunk if still running
+        time_to_first_chunk = self.stop_timer(stream_id, "time_to_first_chunk")
+
         # Get final metrics for this stream (snapshot under lock)
         with self._lock:
             metrics = dict(self._stream_metrics.get(stream_id, {}))
+            metadata = dict(self._stream_metadata.get(stream_id, {}))
 
         # Log metrics with guarded logging (snapshot already copied, no lock needed)
         if logger.isEnabledFor(logging.INFO):
+            if time_to_first_chunk is not None:
+                metadata.setdefault("time_to_first_chunk_seconds", time_to_first_chunk)
             logger.info(
                 "Stream completed",
                 extra={
@@ -249,6 +266,7 @@ class StreamingMetrics:
                     "sentinels_emitted": metrics.get("sentinels_emitted", 0),
                     "middleware_mutations": metrics.get("middleware_mutations", 0),
                     "error_terminations": metrics.get("error_terminations", 0),
+                    **metadata,
                 },
             )
 
@@ -258,6 +276,31 @@ class StreamingMetrics:
                 del self._stream_metrics[stream_id]
             if stream_id in self._stream_timers:
                 del self._stream_timers[stream_id]
+            if stream_id in self._stream_metadata:
+                del self._stream_metadata[stream_id]
+
+    def set_stream_metadata(self, stream_id: str, key: str, value: Any) -> None:
+        """Set a metadata value for a stream."""
+        with self._lock:
+            if stream_id not in self._stream_metadata:
+                self._stream_metadata[stream_id] = {}
+            self._stream_metadata[stream_id][key] = value
+
+    def get_stream_metadata(self, stream_id: str) -> dict[str, Any]:
+        """Get metadata for a specific stream."""
+        with self._lock:
+            return dict(self._stream_metadata.get(stream_id, {}))
+
+    def get_timer_elapsed(self, stream_id: str, timer_name: str) -> float | None:
+        """Return elapsed time without stopping the timer."""
+        end_time = time.perf_counter()
+        with self._lock:
+            if stream_id not in self._stream_timers:
+                return None
+            start_time = self._stream_timers[stream_id].get(timer_name)
+            if start_time is None:
+                return None
+            return end_time - start_time
 
     def reset(self) -> None:
         """Reset all metrics.

@@ -263,6 +263,30 @@ async def test_sse_assembly_handles_dict_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sse_assembly_emits_error_terminal_chunk() -> None:
+    assembler = SSEAssembler()
+    chunks = [
+        StreamingContent(
+            content="",
+            metadata={
+                "provider": "openai",
+                "finish_reason": "error",
+                "error": {"message": "boom"},
+            },
+            is_done=True,
+        )
+    ]
+
+    stream = async_iter(chunks)
+    result = [chunk async for chunk in assembler.assemble_stream(stream)]
+
+    assert result
+    combined = b"".join(result)
+    assert b"boom" in combined
+    assert combined.endswith(b"data: [DONE]\n\n")
+
+
+@pytest.mark.asyncio
 async def test_sse_assembler_samples_first_chunk() -> None:
     reset_sampler()
     sampler = get_sampler_instance()

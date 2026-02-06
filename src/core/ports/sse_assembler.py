@@ -72,6 +72,7 @@ class SSEAssembler(IStreamAssembler):
         last_stream_id: str | None = None
         chunk_count = 0
         metrics = get_metrics_instance()
+        first_data_emitted = False
 
         # Track OpenAI-style stream termination semantics.
         # Some clients rely on a terminal JSON chunk with non-null finish_reason
@@ -174,11 +175,38 @@ class SSEAssembler(IStreamAssembler):
                 )
                 has_cancellation = chunk.is_cancellation and chunk.content
 
+                _ensure_stream_started(stream_id_for_metrics)
+
+                if not first_data_emitted and not bool(
+                    chunk.metadata.get("_keepalive")
+                ):
+                    first_data_emitted = True
+                    elapsed = metrics.stop_timer(
+                        stream_id_for_metrics, "time_to_first_chunk"
+                    )
+                    if elapsed is not None:
+                        metrics.set_stream_metadata(
+                            stream_id_for_metrics,
+                            "time_to_first_chunk_seconds",
+                            elapsed,
+                        )
+
+                elapsed_total = metrics.get_timer_elapsed(
+                    stream_id_for_metrics, "total_duration"
+                )
+                if elapsed_total is not None:
+                    metrics.set_stream_metadata(
+                        stream_id_for_metrics,
+                        "last_chunk_elapsed_seconds",
+                        elapsed_total,
+                    )
+
+                # Convert chunk to bytes once for both paths
+                chunk_bytes = chunk.to_bytes()
+
                 if chunk.is_done and (has_error or has_cancellation):
                     # Error or cancellation chunk - serialize using serializer
                     # The serializer handles all framing and payload construction
-                    chunk_bytes = chunk.to_bytes()
-                    # CRITICAL: Final safety check for steering message leaks
                     protector = get_steering_leak_protector()
                     result = protector.sanitize_bytes(chunk_bytes)
                     chunk_bytes = result.data
@@ -188,7 +216,6 @@ class SSEAssembler(IStreamAssembler):
                             "for stream %s - sanitized before sending to client",
                             stream_id_for_metrics,
                         )
-                    _ensure_stream_started(stream_id_for_metrics)
 
                     if has_error:
                         _maybe_sample(
@@ -219,9 +246,6 @@ class SSEAssembler(IStreamAssembler):
 
                     done_emitted = True
                     break
-
-                # Convert chunk to bytes using StreamingContent's to_bytes method
-                chunk_bytes = chunk.to_bytes()
 
                 # CRITICAL: Apply steering leak protection as final safety net
                 # This ensures internal steering data NEVER reaches clients, even if
