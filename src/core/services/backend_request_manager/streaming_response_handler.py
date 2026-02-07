@@ -85,7 +85,6 @@ class AngelConfig:
     skip_verification: bool
 
 
-
 class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
     """Service for handling streaming backend responses."""
 
@@ -155,7 +154,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         if isinstance(accumulated_content, str) and accumulated_content.strip():
             return True
         accumulated_reasoning = metadata.get("accumulated_reasoning")
-        if isinstance(accumulated_reasoning, str) and accumulated_reasoning.strip():
+        if (
+            metadata.get("reasoning_is_output")
+            and isinstance(accumulated_reasoning, str)
+            and accumulated_reasoning.strip()
+        ):
+            return True
+        metadata_reasoning = (
+            metadata.get("reasoning_content")
+            or metadata.get("reasoning")
+            or metadata.get("thinking")
+            or metadata.get("thought")
+        )
+        if isinstance(metadata_reasoning, str) and metadata_reasoning.strip():
             return True
 
         # Check for finish_reason in metadata (error/cancelled/terminal cases)
@@ -209,12 +220,31 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 "created",
             }
 
-        # Check for tool calls
+        # Check for tool calls or reasoning content in delta
         if isinstance(content, dict):
             choices = content.get("choices", [])
             if choices and isinstance(choices, list):
                 for choice in choices:
                     if isinstance(choice, dict):
+
+                        def _has_reasoning_text(payload: Any) -> bool:
+                            if not isinstance(payload, dict):
+                                return False
+                            for key in (
+                                "reasoning_content",
+                                "reasoning",
+                                "thinking",
+                                "thought",
+                            ):
+                                value = payload.get(key)
+                                if isinstance(value, str) and value.strip():
+                                    return True
+                            return False
+
+                        delta = choice.get("delta", {})
+                        message = choice.get("message")
+                        if _has_reasoning_text(delta) or _has_reasoning_text(message):
+                            return True
                         finish = choice.get("finish_reason")
                         if isinstance(finish, str) and finish in {
                             "error",
@@ -223,7 +253,6 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                             "tool_calls",
                         }:
                             return True
-                        delta = choice.get("delta", {})
                         if delta.get("tool_calls"):
                             return True
                         # PERFORMANCE: Check for content directly to avoid expensive serialization
@@ -374,7 +403,6 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             eligible_turn_count=eligible_turn_count,
             skip_verification=skip_verification,
         )
-
 
     def _wrap_with_middleware(
         self,
@@ -945,10 +973,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         )
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
-                            "Empty stream recovery exhausted for session %s (retry=%s)",
+                            "Empty stream recovery exhausted for session %s (retry=%s): %s",
                             processing_context.session_id,
                             exc.retry_count,
-                            exc_info=True,
+                            exc,
                         )
                     self._raise_empty_stream_error(
                         session_id=processing_context.session_id,
@@ -962,10 +990,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     )
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
-                        "Empty streaming response retry triggered for session %s (retry=%s)",
+                        "Empty streaming response retry triggered for session %s (retry=%s): %s",
                         processing_context.session_id,
                         exc.retry_count,
-                        exc_info=True,
+                        exc,
                     )
 
                 # Cancellation gate: ensure session is not cancelled before empty stream retry

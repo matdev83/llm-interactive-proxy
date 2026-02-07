@@ -733,11 +733,10 @@ class QwenOAuthConnector(OpenAIConnector):
                 logger.debug(
                     "Synchronous JSON parse failed during token refresh: %s",
                     e,
-                    exc_info=True,
                 )
                 data = None
         except (json.JSONDecodeError, ValueError, AttributeError) as e:
-            logger.debug("JSON parse failed during token refresh: %s", e, exc_info=True)
+            logger.debug("JSON parse failed during token refresh: %s", e)
             data = None
 
         if data is None:
