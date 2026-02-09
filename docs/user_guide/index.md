@@ -117,6 +117,7 @@ Backend provider configuration and usage:
 - **[ZAI Backend](backends/zai.md)** - Zhipu/Z.ai configuration
 - **[Qwen Backend](backends/qwen.md)** - Alibaba Qwen OAuth configuration
 - **[Minimax Backend](backends/minimax.md)** - Minimax API configuration
+- **[InternLM Backend](backends/internlm.md)** - InternLM AI models with API key rotation
 - **[Zenmux Backend](backends/zenmux.md)** - Zenmux API configuration
 - **[OpenCode Zen Backend](backends/opencode-zen.md)** - OpenCode Zen API configuration
 - **[Custom Backends](backends/custom-backends.md)** - Creating and configuring custom backend connectors

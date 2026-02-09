@@ -142,6 +142,7 @@ See [Front-End APIs Overview](docs/user_guide/backends/overview.md#front-end-api
 - **[ZAI](docs/user_guide/backends/zai.md)** (Zhipu AI / GLM models)
 - **[Qwen](docs/user_guide/backends/qwen.md)** (Alibaba Cloud Qwen models)
 - **[MiniMax](docs/user_guide/backends/minimax.md)** (Hailuo AI reasoning models)
+- **[InternLM](docs/user_guide/backends/internlm.md)** (InternLM AI models with API key rotation)
 - **[ZenMux](docs/user_guide/backends/zenmux.md)** (Unified model aggregator)
 - **[Cline](docs/user_guide/backends/cline.md)** (Specialized debugging backend)
 - **[Hybrid](docs/user_guide/features/hybrid-backend.md)** (Virtual backend for two-phase reasoning)

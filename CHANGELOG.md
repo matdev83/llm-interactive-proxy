@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **InternLM Backend**: Added `internlm` backend connector for InternLM AI models with support for multiple API key rotation via `INTERNAI_API_KEY`, `INTERNAI_API_KEY_1`, etc. Supports vendor prefix routing (`internlm/`). Note: InternLM API uses non-streaming requests internally with SSE synthesis for client compatibility.
 - **Model Registry**: Implemented automated LLM model catalog registry and limit enforcement. This includes `ModelCatalogService` for metadata discovery, `ModelCatalogUpdater` for periodic background updates from models.dev, and automated enforcement of context window/token limits in `BackendPreparer` when local configuration is missing.
 - **Model Registry**: Added input modality validation (image/audio) when registry data provides `modalities` for a model; skipped when registry or model metadata is missing.
 - **Notification Service**: Implemented a SOLID-based desktop notification system with provider-based architecture. This includes `NotificationService` for coordination and `DesktopNotifierProvider` as a pluggable delivery mechanism.

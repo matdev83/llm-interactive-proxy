@@ -25,6 +25,7 @@ The proxy supports the following backend providers out of the box:
 | `minimax` | Minimax | API Key | Minimax AI models |
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
 | `qwen-oauth` | Alibaba Qwen | Local OAuth token | Qwen CLI OAuth |
+| `internlm` | InternLM AI | API Key | InternLM models with key rotation |
 | `hybrid` | Virtual (orchestrates two models) | Inherits from sub-backends | Two-phase reasoning + execution |
 | `antigravity-oauth` | Google Gemini (Antigravity) | Antigravity Token | Internal debugging (Gemini models) |
 
@@ -65,6 +66,7 @@ export ZENMUX_API_KEY="..."
 export ZAI_API_KEY="..."
 export KIMI_API_KEY="..."
 export MINIMAX_API_KEY="..."
+export INTERNAI_API_KEY="..."
 
 # For GCP-based Gemini
 export GOOGLE_CLOUD_PROJECT="your-project-id"
