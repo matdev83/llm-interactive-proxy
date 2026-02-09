@@ -322,45 +322,72 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     ProcessedResponse,
                 )
 
+                def _split_sse_frames(payload: bytes) -> list[bytes]:
+                    """Split possibly coalesced SSE payload into frame-sized chunks.
+
+                    Some transports/coordinators may coalesce multiple SSE events into a
+                    single bytes chunk. Downstream decoders in the response adapter
+                    expect one SSE frame at a time; passing coalesced payloads can cause
+                    JSON parsing to fail and produce synthetic empty assistant chunks.
+                    """
+                    if not payload:
+                        return []
+
+                    normalized = payload.replace(b"\r\n", b"\n")
+                    if b"\n\n" not in normalized:
+                        return [payload]
+
+                    frames: list[bytes] = []
+                    parts = normalized.split(b"\n\n")
+                    for part in parts:
+                        if not part.strip():
+                            continue
+                        frames.append(part + b"\n\n")
+
+                    return frames or [payload]
+
                 async for b in wrapped_stream:
-                    # Normalize bytes to ProcessedChunkContent before wrapping
-                    normalized_content = normalize_to_processed_chunk_content(b)
+                    for frame in _split_sse_frames(b):
+                        # Normalize bytes to ProcessedChunkContent before wrapping
+                        normalized_content = normalize_to_processed_chunk_content(frame)
 
-                    # Extract metadata from SSE bytes to preserve model info
-                    extracted_metadata: dict[str, Any] = {}
-                    if session_id:
-                        extracted_metadata["session_id"] = session_id
-                        extracted_metadata["stream_id"] = session_id
+                        # Extract metadata from SSE bytes to preserve model info
+                        extracted_metadata: dict[str, Any] = {}
+                        if session_id:
+                            extracted_metadata["session_id"] = session_id
+                            extracted_metadata["stream_id"] = session_id
 
-                    # Try to parse SSE data and extract metadata
-                    try:
-                        text = b.decode("utf-8", errors="replace")
-                        stripped = text.strip()
-                        if stripped == "data:" or stripped == "data: ":
-                            extracted_metadata["_keepalive"] = True
-                            extracted_metadata["model"] = effective_model
-                        elif stripped.startswith("data: "):
-                            json_part = stripped[6:].strip()
-                            if json_part and json_part != "[DONE]":
-                                try:
-                                    parsed = _json_mod.loads(json_part)
-                                    if isinstance(parsed, dict):
-                                        for key in (
-                                            "id",
-                                            "model",
-                                            "created",
-                                        ):
-                                            if key in parsed:
-                                                extracted_metadata[key] = parsed[key]
-                                except _json_mod.JSONDecodeError:
-                                    pass
-                    except (UnicodeDecodeError, AttributeError):
-                        pass
+                        # Try to parse SSE data and extract metadata
+                        try:
+                            text = frame.decode("utf-8", errors="replace")
+                            stripped = text.strip()
+                            if stripped == "data:" or stripped == "data: ":
+                                extracted_metadata["_keepalive"] = True
+                                extracted_metadata["model"] = effective_model
+                            elif stripped.startswith("data: "):
+                                json_part = stripped[6:].strip()
+                                if json_part and json_part != "[DONE]":
+                                    try:
+                                        parsed = _json_mod.loads(json_part)
+                                        if isinstance(parsed, dict):
+                                            for key in (
+                                                "id",
+                                                "model",
+                                                "created",
+                                            ):
+                                                if key in parsed:
+                                                    extracted_metadata[key] = parsed[
+                                                        key
+                                                    ]
+                                    except _json_mod.JSONDecodeError:
+                                        pass
+                        except (UnicodeDecodeError, AttributeError):
+                            pass
 
-                    yield ProcessedResponse(
-                        content=normalized_content,
-                        metadata=extracted_metadata,
-                    )
+                        yield ProcessedResponse(
+                            content=normalized_content,
+                            metadata=extracted_metadata,
+                        )
 
             result.content = _to_processed_with_capture()  # type: ignore[assignment]
 
