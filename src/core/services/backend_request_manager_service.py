@@ -229,15 +229,17 @@ class BackendRequestManager(IBackendRequestManager):
         Bypass is only allowed via explicit header for compatibility with legacy
         clients that implement their own deduplication.
         """
-        # InternLM streaming is handled via a connector shim (non-streaming upstream + synthetic SSE).
-        # Some real-world clients retry/replay identical streaming requests (e.g. after reconnects),
-        # and the generic dedup "done-only" response can look like a silent empty completion.
-        # To keep InternLM usable with such clients, bypass dedup for InternLM *streaming* requests.
+        # InternLM and Kimi streaming are handled by connectors where clients may replay
+        # identical requests (e.g. reconnects or immediate retry after upstream validation
+        # failures). The generic dedup "done-only" response can look like a silent empty
+        # completion in these flows, so bypass dedup for these streaming backends.
         model = getattr(request, "model", None)
         if (
             bool(getattr(request, "stream", False))
             and isinstance(model, str)
-            and model.strip().lower().startswith(("internlm:", "internlm/"))
+            and model.strip()
+            .lower()
+            .startswith(("internlm:", "internlm/", "kimi-code:", "kimi/"))
         ):
             return True
 
@@ -403,7 +405,8 @@ class BackendRequestManager(IBackendRequestManager):
                                 client_disconnected = False
                                 last_status_code: int | None = None
                                 saw_done_sentinel = False
-                                terminal_finish_reason: str | None = None
+                                saw_terminal_finish = False
+                                saw_terminal_error = False
                                 terminal_status_code: int | None = None
 
                                 def _item_contains_done_sentinel(item: Any) -> bool:
@@ -415,9 +418,10 @@ class BackendRequestManager(IBackendRequestManager):
                                     return False
 
                                 def _try_extract_terminal_status(item: Any) -> None:
-                                    nonlocal terminal_finish_reason, terminal_status_code
+                                    nonlocal saw_terminal_finish, saw_terminal_error
+                                    nonlocal terminal_status_code
 
-                                    if terminal_finish_reason is not None:
+                                    if saw_terminal_finish:
                                         return
 
                                     payload = getattr(item, "content", None)
@@ -458,8 +462,9 @@ class BackendRequestManager(IBackendRequestManager):
                                             continue
                                         finish = first.get("finish_reason")
                                         if isinstance(finish, str) and finish:
-                                            terminal_finish_reason = finish
+                                            saw_terminal_finish = True
                                             if finish == "error":
+                                                saw_terminal_error = True
                                                 err = obj.get("error")
                                                 if isinstance(err, dict):
                                                     status = err.get("status_code")
@@ -472,6 +477,8 @@ class BackendRequestManager(IBackendRequestManager):
                                                         terminal_status_code = int(
                                                             status
                                                         )
+                                                if terminal_status_code is None:
+                                                    terminal_status_code = 500
                                             return
 
                                 try:
@@ -498,18 +505,17 @@ class BackendRequestManager(IBackendRequestManager):
                                     # before the stream naturally exhausts. Treat this as a success to
                                     # avoid misclassifying completions as disconnects.
                                     if client_disconnected and (
-                                        saw_done_sentinel
-                                        or terminal_finish_reason is not None
+                                        saw_done_sentinel or saw_terminal_finish
                                     ):
                                         client_disconnected = False
-                                        if terminal_finish_reason == "error":
+                                        if saw_terminal_error:
                                             last_status_code = (
                                                 terminal_status_code or 500
                                             )
                                         else:
                                             last_status_code = 200
 
-                                    if terminal_finish_reason == "error":
+                                    if saw_terminal_error:
                                         last_status_code = (
                                             terminal_status_code
                                             or last_status_code

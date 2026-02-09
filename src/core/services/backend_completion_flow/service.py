@@ -1001,6 +1001,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     # handler. Without this marker, record_failure would be called twice for
                     # the same error.
                     normalized_exc.__handled_by_inner_handler__ = True  # type: ignore[attr-defined]
+
+                if stream:
+                    return await self._build_terminal_error_stream_envelope(
+                        error=normalized_exc,
+                        provider=current_backend,
+                    )
                 raise normalized_exc
 
         except asyncio.CancelledError:
@@ -1051,6 +1057,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         exc_info=True,
                     )
 
+            if stream:
+                return await self._build_terminal_error_stream_envelope(
+                    error=exc,
+                    provider=backend_type,
+                )
+
             # Propagate expected exceptions as-is
             raise
         except Exception as exc:
@@ -1083,6 +1095,12 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         exc_info=True,
                     )
 
+            if stream:
+                return await self._build_terminal_error_stream_envelope(
+                    error=normalized_exc,
+                    provider=backend_type,
+                )
+
             if isinstance(normalized_exc, LLMProxyError):
                 raise normalized_exc from exc
 
@@ -1095,13 +1113,68 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self, *, error: Exception, provider: str
     ) -> StreamingResponseEnvelope:
         """Return a streaming envelope that emits a single terminal error chunk."""
+        import time
+
         from src.core.domain.responses import StreamingResponseEnvelope
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
         from src.core.services.streaming.error_mapping import handle_streaming_error
 
-        async def _iterator():
-            yield await handle_streaming_error(error, stream_id=None, provider=provider)
+        normalized_error = self._normalize_backend_exception(error, provider)
 
-        return StreamingResponseEnvelope(content=_iterator())
+        status_code = getattr(normalized_error, "status_code", None)
+        if not isinstance(status_code, int):
+            status_code = getattr(error, "status_code", None)
+        if not isinstance(status_code, int):
+            status_code = 500
+
+        error_code = getattr(normalized_error, "code", None)
+
+        async def _iterator():
+            terminal_chunk = await handle_streaming_error(
+                normalized_error,
+                stream_id=None,
+                provider=provider,
+            )
+
+            metadata = dict(getattr(terminal_chunk, "metadata", {}) or {})
+            metadata.setdefault("finish_reason", "error")
+
+            error_payload = metadata.get("error")
+            if not isinstance(error_payload, dict):
+                error_payload = {
+                    "type": type(normalized_error).__name__,
+                    "message": str(normalized_error),
+                    "code": str(error_code or status_code),
+                    "status_code": status_code,
+                }
+                metadata["error"] = error_payload
+
+            content = getattr(terminal_chunk, "content", "")
+            if not content:
+                content = {
+                    "id": f"chatcmpl-error-{int(time.time())}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": provider,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "error"}],
+                    "error": {
+                        "type": error_payload.get("type")
+                        or type(normalized_error).__name__,
+                        "message": error_payload.get("message")
+                        or str(normalized_error),
+                        "code": error_payload.get("code")
+                        or str(error_code or status_code),
+                        "status_code": error_payload.get("status_code") or status_code,
+                    },
+                }
+
+            yield ProcessedResponse(
+                content=normalize_to_processed_chunk_content(content),
+                metadata=metadata,
+                usage=getattr(terminal_chunk, "usage", None),
+            )
+
+        return StreamingResponseEnvelope(content=_iterator(), status_code=status_code)
 
     async def cleanup(self) -> None:
         """Clean up pending cancellation tasks to prevent resource leaks.

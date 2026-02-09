@@ -38,6 +38,7 @@ class KimiCodeConnector(OpenAIConnector):
     # Kimi-for-coding appears gated behind coding-agent fingerprints.
     # In practice, Kilo Code / Roo Code / Cline clients send additional headers.
     _KILO_VERSION: str = "4.111.0"
+    _CONTINUATION_WARN_BYTES_DEFAULT: int = 0
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -387,7 +388,54 @@ class KimiCodeConnector(OpenAIConnector):
         if self.VENDOR_PREFIX and "model" in payload:
             payload["model"] = strip_vendor_prefix(payload["model"], self.VENDOR_PREFIX)
 
+        self._validate_continuation_payload_size(payload)
+
         return payload
+
+    @staticmethod
+    def _parse_positive_int_env(var_name: str, default: int) -> int:
+        raw_value = os.getenv(var_name)
+        if raw_value is None:
+            return default
+        try:
+            parsed = int(raw_value)
+        except ValueError:
+            return default
+        return parsed if parsed >= 0 else default
+
+    def _validate_continuation_payload_size(self, payload: dict[str, Any]) -> None:
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return
+
+        is_continuation = len(messages) > 1
+        if not is_continuation:
+            return
+
+        try:
+            payload_text = json.dumps(
+                payload, ensure_ascii=False, separators=(",", ":")
+            )
+        except (TypeError, ValueError):
+            return
+
+        payload_size_bytes = len(payload_text.encode("utf-8"))
+
+        warn_limit = self._parse_positive_int_env(
+            "KIMI_CONTINUATION_WARN_BYTES",
+            self._CONTINUATION_WARN_BYTES_DEFAULT,
+        )
+
+        if (
+            warn_limit > 0
+            and payload_size_bytes >= warn_limit
+            and logger.isEnabledFor(logging.WARNING)
+        ):
+            logger.warning(
+                "Kimi continuation payload size=%d bytes (messages=%d)",
+                payload_size_bytes,
+                len(messages),
+            )
 
     def get_provider_name(self) -> str:
         """Return the provider name for logging/metrics."""

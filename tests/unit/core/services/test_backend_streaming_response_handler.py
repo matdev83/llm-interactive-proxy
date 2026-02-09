@@ -256,6 +256,7 @@ class TestMiddlewareWrapping:
             content=input_stream,
             media_type="text/event-stream",
             headers={"X-Custom": "value"},
+            status_code=413,
             cancel_callback=cancel_cb,
         )
 
@@ -275,6 +276,7 @@ class TestMiddlewareWrapping:
         # Assert
         assert result.media_type == "text/event-stream"
         assert result.headers == {"X-Custom": "value"}
+        assert result.status_code == 413
         assert result.cancel_callback == cancel_cb
 
 

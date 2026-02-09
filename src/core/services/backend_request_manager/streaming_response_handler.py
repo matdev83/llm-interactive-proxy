@@ -1038,6 +1038,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             content=content_stream,
             media_type=stream.media_type,
             headers=stream.headers,
+            status_code=stream.status_code,
             cancel_callback=stream.cancel_callback,
             metadata=stream.metadata,
         )

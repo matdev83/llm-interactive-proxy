@@ -178,6 +178,56 @@ def test_code_assist_stream_chunk_deduplicates_textual_tool_calls() -> None:
     assert tool_calls[1]["function"]["name"] == "read"
 
 
+def test_code_assist_stream_chunk_preserves_trailing_space_without_tool_calls() -> None:
+    """Regression: content-only chunks must preserve trailing whitespace."""
+    chunk = {
+        "response": {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": "This project is a ",
+                            }
+                        ]
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+    }
+
+    mapped = Translation.code_assist_to_domain_stream_chunk(chunk)
+    content = mapped["choices"][0]["delta"].get("content")
+    assert content == "This project is a "
+
+
+def test_code_assist_stream_chunk_preserves_leading_newline_without_tool_calls() -> (
+    None
+):
+    """Regression: content-only chunks must preserve leading newlines."""
+    chunk = {
+        "response": {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": "\nThe project follows a modular architecture.",
+                            }
+                        ]
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+    }
+
+    mapped = Translation.code_assist_to_domain_stream_chunk(chunk)
+    content = mapped["choices"][0]["delta"].get("content")
+    assert content == "\nThe project follows a modular architecture."
+
+
 def test_assistant_tool_calls_only_mapped_to_function_call_parts() -> None:
     # Assistant with tool_calls and no textual content should be accepted
     tc = ToolCall(

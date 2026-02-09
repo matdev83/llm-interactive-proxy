@@ -69,7 +69,13 @@ def parse_textual_tool_calls(content: str) -> tuple[str, list[dict[str, Any]]]:
             }
         )
 
-    cleaned_content = "\n".join(cleaned_lines).strip()
+    if not parsed_calls:
+        # Preserve chunk text exactly when no textual tool call was extracted.
+        # Stripping here breaks streaming token boundaries and can merge words
+        # across chunks (e.g. "a " + "Universal" -> "aUniversal").
+        return content, []
+
+    cleaned_content = "\n".join(cleaned_lines)
     return cleaned_content, parsed_calls
 
 
