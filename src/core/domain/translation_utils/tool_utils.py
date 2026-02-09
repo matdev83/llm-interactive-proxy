@@ -6,14 +6,14 @@ from typing import Any
 
 from src.core.domain.chat import FunctionCall, ToolCall
 from src.core.domain.translation_utils.json_utils import (
-    _sanitize_dict_for_json,
-    _sanitize_list_for_json,
+    sanitize_dict_for_json,
+    sanitize_list_for_json,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_tool_arguments(args: Any) -> str:
+def normalize_tool_arguments(args: Any) -> str:
     """Normalize tool call arguments to a JSON string."""
     if args is None:
         return "{}"
@@ -66,14 +66,14 @@ def _normalize_tool_arguments(args: Any) -> str:
         try:
             return json.dumps(args)
         except TypeError:
-            sanitized_dict = _sanitize_dict_for_json(args)
+            sanitized_dict = sanitize_dict_for_json(args)
             return json.dumps(sanitized_dict)
 
     if isinstance(args, list | tuple):
         try:
             return json.dumps(args if isinstance(args, list) else list(args))
         except TypeError:
-            sanitized_list = _sanitize_list_for_json(
+            sanitized_list = sanitize_list_for_json(
                 args if isinstance(args, list) else list(args)
             )
             return json.dumps(sanitized_list)
@@ -84,7 +84,7 @@ def _normalize_tool_arguments(args: Any) -> str:
     return "{}"
 
 
-def _process_gemini_function_call(
+def process_gemini_function_call(
     function_call: dict[str, Any],
     part: dict[str, Any] | None = None,
     thought_signature: str | None = None,
@@ -95,7 +95,7 @@ def _process_gemini_function_call(
     name = function_call.get("name", "")
     call_id = function_call.get("id") or f"call_{uuid.uuid4().hex[:12]}"
     raw_args = function_call.get("args", function_call.get("arguments"))
-    normalized_args = _normalize_tool_arguments(raw_args)
+    normalized_args = normalize_tool_arguments(raw_args)
 
     extra_content: dict[str, Any] | None = None
     thought_sig = thought_signature

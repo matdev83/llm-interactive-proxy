@@ -8,7 +8,7 @@ from src.core.domain.chat import (
     StreamingChatCompletionChoice,
     StreamingChatCompletionChoiceDelta,
 )
-from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
+from src.core.domain.translation_utils.content_utils import coerce_reasoning_text
 
 logger = logging.getLogger(__name__)
 
@@ -105,17 +105,17 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
 
             normalized_reasoning = None
             if "reasoning_content" in delta:
-                normalized_reasoning = _coerce_reasoning_text(
+                normalized_reasoning = coerce_reasoning_text(
                     delta.get("reasoning_content")
                 )
             if not normalized_reasoning and "reasoning" in delta:
-                normalized_reasoning = _coerce_reasoning_text(delta.get("reasoning"))
+                normalized_reasoning = coerce_reasoning_text(delta.get("reasoning"))
             if not normalized_reasoning and "thinking" in delta:
-                normalized_reasoning = _coerce_reasoning_text(delta.get("thinking"))
+                normalized_reasoning = coerce_reasoning_text(delta.get("thinking"))
             if not normalized_reasoning and "thought" in delta:
-                normalized_reasoning = _coerce_reasoning_text(delta.get("thought"))
+                normalized_reasoning = coerce_reasoning_text(delta.get("thought"))
             if not normalized_reasoning and isinstance(delta.get("metadata"), dict):
-                normalized_reasoning = _coerce_reasoning_text(
+                normalized_reasoning = coerce_reasoning_text(
                     delta["metadata"].get("reasoning")
                 )
 
@@ -181,10 +181,11 @@ def from_domain_to_openai_stream_chunk(chunk: Any) -> dict[str, Any]:
                 ],
             }
 
+    raw_choices = chunk_dict.get("choices")
     choices: list[dict[str, Any]] = []
-    if isinstance(chunk_dict.get("choices"), list):
-        raw_choices = chunk_dict.get("choices", [])
+    if isinstance(raw_choices, list):
         choices = [c for c in raw_choices if isinstance(c, dict)]
+
     if not choices:
         choices = [
             {
@@ -194,7 +195,7 @@ def from_domain_to_openai_stream_chunk(chunk: Any) -> dict[str, Any]:
             }
         ]
 
-    first_choice = choices[0] or {}
+    first_choice = choices[0]
     delta = first_choice.get("delta") or {}
     tool_call_text = None
     if isinstance(delta, dict) and "_tool_call_text" in delta:

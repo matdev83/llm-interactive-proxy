@@ -13,9 +13,9 @@ from src.core.domain.chat import (
 )
 
 logger = logging.getLogger(__name__)
-from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
-from src.core.domain.translation_utils.tool_utils import _normalize_tool_arguments
-from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
+from src.core.domain.translation_utils.content_utils import coerce_reasoning_text
+from src.core.domain.translation_utils.tool_utils import normalize_tool_arguments
+from src.core.domain.translation_utils.usage_utils import normalize_usage_metadata
 from src.core.domain.translators.openai.response import openai_to_domain_response
 from src.core.domain.usage_summary import UsageSummary
 
@@ -57,14 +57,14 @@ def responses_to_domain_response(response: Any) -> CanonicalChatResponse:
                     text_segments.append(str(text_value))
             elif part_type in {"reasoning", "thinking", "assistant_reasoning"}:
                 reasoning_value = part.get("text") or part.get("value")
-                normalized_reasoning = _coerce_reasoning_text(reasoning_value)
+                normalized_reasoning = coerce_reasoning_text(reasoning_value)
                 if normalized_reasoning:
                     reasoning_segments.append(normalized_reasoning)
             elif part_type == "tool_call":
                 function_payload = (
                     part.get("function") or part.get("function_call") or {}
                 )
-                normalized_args = _normalize_tool_arguments(
+                normalized_args = normalize_tool_arguments(
                     function_payload.get("arguments")
                     or function_payload.get("args")
                     or function_payload.get("arguments_json")
@@ -82,7 +82,7 @@ def responses_to_domain_response(response: Any) -> CanonicalChatResponse:
                 metadata = part.get("metadata") or {}
                 for key in ("thought", "thinking", "reasoning"):
                     if metadata.get(key):
-                        normalized_reasoning = _coerce_reasoning_text(metadata[key])
+                        normalized_reasoning = coerce_reasoning_text(metadata[key])
                         if normalized_reasoning:
                             reasoning_segments.append(normalized_reasoning)
                             break
@@ -160,7 +160,7 @@ def responses_to_domain_response(response: Any) -> CanonicalChatResponse:
         return openai_to_domain_response(response)
 
     usage = response.get("usage") or {}
-    normalized_usage = _normalize_usage_metadata(usage, "openai-responses")
+    normalized_usage = normalize_usage_metadata(usage, "openai-responses")
 
     return CanonicalChatResponse(
         id=response.get("id", f"resp-{int(time.time())}"),

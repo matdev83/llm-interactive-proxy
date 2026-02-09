@@ -312,7 +312,7 @@ def test_thought_signature_preserved_in_function_call_round_trip() -> None:
     }
 
     # Process into ToolCall (should preserve signature)
-    tool_call = Translation._process_gemini_function_call(
+    tool_call = Translation.process_gemini_function_call(
         cast(dict[str, Any], gemini_part["functionCall"]), part=gemini_part
     )
 

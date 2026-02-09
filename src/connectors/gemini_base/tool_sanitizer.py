@@ -59,7 +59,7 @@ def _sanitize_parameters(params: Any) -> dict[str, Any]:
     normalized = _normalize_schema_properties(params)
     if not isinstance(normalized, dict):
         return {}
-    result = Translation._sanitize_gemini_parameters(normalized)
+    result = Translation.sanitize_gemini_parameters(normalized)
     return result
 
 

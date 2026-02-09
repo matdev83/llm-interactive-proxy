@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from src.connectors.kimi_code import KimiCodeConnector
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
-from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
+from src.core.domain.translation_utils.content_utils import coerce_reasoning_text
 
 
 class AsyncMockIterable:
@@ -106,18 +106,18 @@ async def test_regression_kimi_reasoning_delta_conversion_all_aliases(connector)
 
 def test_regression_coerce_reasoning_preserves_whitespace_tokens():
     """
-    REGRESSION TEST: Ensures _coerce_reasoning_text does NOT strip whitespace.
+    REGRESSION TEST: Ensures coerce_reasoning_text does NOT strip whitespace.
     Stripping whitespace in streaming tokens causes "word word" -> "wordword" bug.
     """
     # Leading space token
-    assert _coerce_reasoning_text(" user") == " user"
+    assert coerce_reasoning_text(" user") == " user"
 
     # Newline token
-    assert _coerce_reasoning_text("\n2.") == "\n2."
+    assert coerce_reasoning_text("\n2.") == "\n2."
 
     # Nested structure with whitespace (common in Gemini/DeepSeek)
     payload = {"thinking": " Step 1"}
-    assert _coerce_reasoning_text(payload) == " Step 1"
+    assert coerce_reasoning_text(payload) == " Step 1"
 
 
 @pytest.mark.asyncio

@@ -169,7 +169,7 @@ def test_process_gemini_image_part_handles_data_uri_without_comma() -> None:
     part = MessageContentPartImage(
         image_url=ImageURL(url="data:image/png;base64", detail=None)
     )
-    converted = media_utils._process_gemini_image_part(part)
+    converted = media_utils.process_gemini_image_part(part)
     assert converted == {
         "inline_data": {"mime_type": "image/png", "data": ""},
     }

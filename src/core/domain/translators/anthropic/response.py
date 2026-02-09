@@ -11,8 +11,8 @@ from src.core.domain.chat import (
     ChatCompletionChoiceMessage,
     ChatResponse,
 )
-from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
-from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
+from src.core.domain.translation_utils.content_utils import coerce_reasoning_text
+from src.core.domain.translation_utils.usage_utils import normalize_usage_metadata
 from src.core.domain.usage_summary import UsageSummary
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,7 @@ def anthropic_to_domain_response(response: Any) -> CanonicalChatResponse:
                 or block.get("value")
                 or block
             )
-            normalized_reasoning = _coerce_reasoning_text(reasoning_value)
+            normalized_reasoning = coerce_reasoning_text(reasoning_value)
             if normalized_reasoning:
                 reasoning_segments.append(normalized_reasoning)
 
@@ -83,7 +83,7 @@ def anthropic_to_domain_response(response: Any) -> CanonicalChatResponse:
     ]
 
     usage = response.get("usage", {})
-    normalized_usage = _normalize_usage_metadata(usage, "anthropic")
+    normalized_usage = normalize_usage_metadata(usage, "anthropic")
 
     return CanonicalChatResponse(
         id=response.get("id", f"chatcmpl-anthropic-{int(time.time())}"),

@@ -35,10 +35,9 @@ class SSEDecoder:
                 text_payload = payload.decode("utf-8")
             except UnicodeDecodeError:
                 return DecodedSSE(content=payload, metadata={}, is_done=False)
-        elif isinstance(payload, str):
-            text_payload = payload
         else:
-            return DecodedSSE(content=payload, metadata={}, is_done=False)
+            # Type hint for payload is bytes | str. If not bytes, it must be str.
+            text_payload = payload
 
         # Security: Check payload size limit
         if len(text_payload) > self.MAX_PAYLOAD_SIZE:
@@ -46,14 +45,17 @@ class SSEDecoder:
                 content=payload, metadata={"error": "payload_too_large"}, is_done=False
             )
 
-        stripped = text_payload.strip()
-        if "data:" not in stripped:
+        if "data:" not in text_payload:
             return DecodedSSE(content=payload, metadata={}, is_done=False)
 
         data_lines: list[str] = []
-        for line in stripped.splitlines():
+        for line in text_payload.splitlines():
             if line.startswith("data:"):
-                data_lines.append(line[5:].lstrip())
+                # SSE spec: remove at most one leading space after 'data:'
+                data_val = line[5:]
+                if data_val.startswith(" "):
+                    data_val = data_val[1:]
+                data_lines.append(data_val)
 
                 # Security: Limit number of data lines to prevent memory exhaustion
                 if len(data_lines) >= self.MAX_DATA_LINES:
@@ -73,7 +75,7 @@ class SSEDecoder:
                 content="", metadata={"finish_reason": "stop"}, is_done=True
             )
 
-        data_body = "\n".join(data_lines).strip()
+        data_body = "\n".join(data_lines)
         if data_body in ("[DONE]", '["DONE"]'):
             return DecodedSSE(
                 content="", metadata={"finish_reason": "stop"}, is_done=True

@@ -5,8 +5,8 @@ import logging
 from typing import Any, cast
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
-from src.core.domain import translation as translation_module
 from src.core.domain.chat import FunctionCall, ToolCall
+from src.core.domain.tool_text_renderer import render_tool_call
 from src.core.domain.translation_utils.tool_call_state import (
     assign_tool_call_index,
     cache_function_name,
@@ -137,10 +137,8 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             arguments_fragment = delta_payload
         else:
             arguments_fragment = _extract_text(delta_payload)
-            if not isinstance(arguments_fragment, str):
+            if not arguments_fragment:
                 arguments_fragment = json.dumps(delta_payload)
-        if arguments_fragment is None:
-            arguments_fragment = ""
         tool_index = assign_tool_call_index(
             chunk_id, chunk.get("output_index"), call_id
         )
@@ -179,7 +177,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
             type="function",
             function=FunctionCall(name=name, arguments=arguments),
         )
-        tool_text = translation_module.render_tool_call(tool_call_obj)
+        tool_text = render_tool_call(tool_call_obj)
         delta = {
             "tool_calls": [
                 {
@@ -235,7 +233,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 type="function",
                 function=FunctionCall(name=item.get("name", ""), arguments=arguments),
             )
-            tool_text = translation_module.render_tool_call(tool_call_obj)
+            tool_text = render_tool_call(tool_call_obj)
             delta = {
                 "tool_calls": [
                     {
@@ -272,7 +270,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                     name=item.get("name", ""), arguments=input_payload
                 ),
             )
-            tool_text = translation_module.render_tool_call(tool_call_obj)
+            tool_text = render_tool_call(tool_call_obj)
             delta = {
                 "tool_calls": [
                     {
@@ -305,7 +303,7 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                 type="function",
                 function=FunctionCall(name="shell", arguments=arguments),
             )
-            tool_text = translation_module.render_tool_call(tool_call_obj)
+            tool_text = render_tool_call(tool_call_obj)
             delta = {
                 "tool_calls": [
                     {
@@ -439,8 +437,8 @@ def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                         },
                     }
 
-                function_payload = call_data.get("function") or {}
-                if isinstance(function_payload, dict):
+                function_payload = cast(dict[str, Any], call_data.get("function") or {})
+                if function_payload:
                     arguments = function_payload.get("arguments")
                     if isinstance(arguments, dict | list):
                         function_payload["arguments"] = json.dumps(arguments)

@@ -26,7 +26,7 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
 
     logger = logging.getLogger(__name__)
 
-    _validate_request_parameters(request)
+    validate_request_parameters(request)
 
     config: dict[str, Any] = {}
     if request.top_k is not None:
@@ -206,7 +206,7 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
                 elif isinstance(message.content, list):
                     for part in message.content:
                         if hasattr(part, "type") and part.type == "image_url":
-                            processed_image = media_utils._process_gemini_image_part(  # pyright: ignore[reportPrivateUsage]
+                            processed_image = media_utils.process_gemini_image_part(
                                 part
                             )
                             if processed_image:
@@ -391,7 +391,7 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
     return result
 
 
-def _validate_request_parameters(request: CanonicalChatRequest) -> None:
+def validate_request_parameters(request: CanonicalChatRequest) -> None:
     if not request.model:
         raise ValueError("Model is required")
 

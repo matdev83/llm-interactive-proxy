@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 from src.core.domain.chat import ImageURL, MessageContentPartImage
@@ -33,7 +34,7 @@ def test_process_gemini_image_part_uri_scheme_validation(
     )
 
     # Act
-    result = Translation._process_gemini_image_part(part)
+    result = Translation.process_gemini_image_part(part)
 
     # Assert
     if expected_scheme in ["data", "http", "https"]:
@@ -52,17 +53,17 @@ def test_normalize_tool_arguments_limits_json_dumps(
 ) -> None:
     """Ensure sanitization does not repeatedly serialize large payloads."""
 
-    from src.core.domain import translation as translation_module
+    from src.core.domain.translation_utils import tool_utils
 
-    original_dumps = translation_module.json.dumps
+    original_dumps = tool_utils.json.dumps
     call_count = 0
 
-    def counting_dumps(obj: object, *args: object, **kwargs: object) -> str:
+    def counting_dumps(obj: object, *args: Any, **kwargs: Any) -> str:
         nonlocal call_count
         call_count += 1
         return original_dumps(obj, *args, **kwargs)
 
-    monkeypatch.setattr(translation_module.json, "dumps", counting_dumps)
+    monkeypatch.setattr(tool_utils.json, "dumps", counting_dumps)
 
     large_payload = {
         "tool": {
@@ -79,7 +80,7 @@ def test_normalize_tool_arguments_limits_json_dumps(
         }
     }
 
-    normalized = Translation._normalize_tool_arguments(large_payload)
+    normalized = Translation.normalize_tool_arguments(large_payload)
 
     assert isinstance(normalized, str)
     assert call_count == 2

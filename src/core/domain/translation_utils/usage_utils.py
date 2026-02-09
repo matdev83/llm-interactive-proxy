@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def _normalize_usage_metadata(
+def normalize_usage_metadata(
     usage: dict[str, Any], source_format: str
 ) -> dict[str, Any]:
     """Normalize usage metadata from different API formats to a standard structure."""

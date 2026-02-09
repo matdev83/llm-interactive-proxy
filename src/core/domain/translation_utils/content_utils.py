@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 
-def _collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
+def collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
     """Recursively collect textual fragments from nested reasoning payloads."""
     if value is None or depth > 50:
         return []
@@ -17,7 +17,7 @@ def _collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
     if isinstance(value, list | tuple | set):
         sequence_values: list[str] = []
         for item in value:
-            sequence_values.extend(_collect_reasoning_lines(item, depth + 1))
+            sequence_values.extend(collect_reasoning_lines(item, depth + 1))
         return sequence_values
 
     if isinstance(value, dict):
@@ -32,18 +32,18 @@ def _collect_reasoning_lines(value: Any, depth: int = 0) -> list[str]:
             "delta",
         ):
             if key in value:
-                collected_values.extend(_collect_reasoning_lines(value[key], depth + 1))
+                collected_values.extend(collect_reasoning_lines(value[key], depth + 1))
         return collected_values
 
     return [str(value)]
 
 
-def _coerce_reasoning_text(value: Any) -> str | None:
+def coerce_reasoning_text(value: Any) -> str | None:
     """Flatten nested reasoning payloads into a normalized text snippet."""
     # IMPORTANT: Do NOT strip segments here. In streaming mode, segments are often
     # single tokens (spaces, newlines, or words with leading/trailing spaces).
     # Stripping them causes concatenation issues (e.g. "word word" -> "wordword").
-    parts = _collect_reasoning_lines(value)
+    parts = collect_reasoning_lines(value)
     if not parts:
         return None
     
@@ -62,7 +62,7 @@ def _coerce_reasoning_text(value: Any) -> str | None:
 
 
 
-def _safe_string(value: Any) -> str:
+def safe_string(value: Any) -> str:
     if value is None:
         return ""
     if isinstance(value, str):

@@ -10,11 +10,11 @@ from src.core.domain.chat import (
     ChatResponse,
 )
 from src.core.domain.translation_utils.content_utils import (
-    _coerce_reasoning_text,
-    _safe_string,
+    coerce_reasoning_text,
+    safe_string,
 )
-from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
-from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
+from src.core.domain.translation_utils.tool_utils import process_gemini_function_call
+from src.core.domain.translation_utils.usage_utils import normalize_usage_metadata
 from src.core.domain.translators.gemini.finish_reason import map_gemini_finish_reason
 from src.core.domain.usage_summary import UsageSummary
 
@@ -56,7 +56,7 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
 
                     # Prioritize explicit reasoning type
                     if part.get("type") in {"reasoning", "thinking"}:
-                        normalized_reasoning = _coerce_reasoning_text(
+                        normalized_reasoning = coerce_reasoning_text(
                             part.get("text") or part.get("value")
                         )
                         if normalized_reasoning:
@@ -64,13 +64,13 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
                         continue
 
                     if "text" in part and not part.get("functionCall"):
-                        safe_text = _safe_string(part.get("text"))
+                        safe_text = safe_string(part.get("text"))
 
                         # Check if metadata indicates this is also reasoning
                         metadata = part.get("metadata", {})
                         if isinstance(metadata, dict):
                             # Try to get reasoning from specific metadata fields first
-                            metadata_reasoning = _coerce_reasoning_text(
+                            metadata_reasoning = coerce_reasoning_text(
                                 metadata.get("thought")
                                 or metadata.get("thinking")
                                 or metadata.get("reasoning")
@@ -98,7 +98,7 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
                             tool_calls = []
 
                         tool_calls.append(
-                            _process_gemini_function_call(
+                            process_gemini_function_call(
                                 part["functionCall"],
                                 part=part,
                                 thought_signature=thought_signature,
@@ -139,7 +139,7 @@ def gemini_to_domain_response(response: Any) -> CanonicalChatResponse:
     }
     if isinstance(response, dict) and "usageMetadata" in response:
         usage_metadata = response["usageMetadata"]
-        usage_dict = _normalize_usage_metadata(usage_metadata, "gemini")
+        usage_dict = normalize_usage_metadata(usage_metadata, "gemini")
 
     if not choices:
         choices = [

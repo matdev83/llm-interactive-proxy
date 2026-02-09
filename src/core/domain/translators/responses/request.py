@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.responses_api import ResponsesRequest
 from src.core.domain.translation_utils import (
-    _safe_string,  # type: ignore[reportPrivateUsage]
+    safe_string,
 )
 
 
@@ -47,7 +47,7 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
         if (
             not messages or (isinstance(messages, list) and len(messages) == 0)
         ) and "input" in normalized_payload:
-            normalized_payload["messages"] = _normalize_responses_input_to_messages(
+            normalized_payload["messages"] = normalize_responses_input_to_messages(
                 normalized_payload["input"]
             )
         return normalized_payload
@@ -86,7 +86,7 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
 
         input_value = getattr(request, "input", None)
         if (not request_payload.get("messages")) and input_value is not None:
-            request_payload["messages"] = _normalize_responses_input_to_messages(
+            request_payload["messages"] = normalize_responses_input_to_messages(
                 input_value
             )
 
@@ -161,7 +161,7 @@ def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
     if not messages and responses_request.input:
         from src.core.domain.chat import ChatMessage
 
-        normalized_messages = _normalize_responses_input_to_messages(
+        normalized_messages = normalize_responses_input_to_messages(
             responses_request.input
         )
         # Convert dict messages to ChatMessage objects
@@ -275,14 +275,14 @@ def from_domain_to_responses_request(request: CanonicalChatRequest) -> dict[str,
             else:
                 payload["response_format"] = response_format
 
-        safe_extra_body = _filter_responses_extra_body(extra_body_copy)
+        safe_extra_body = filter_responses_extra_body(extra_body_copy)
         if safe_extra_body:
             payload.update(safe_extra_body)
 
     return payload
 
 
-def _filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
+def filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
     if not extra_body:
         return {}
 
@@ -308,7 +308,7 @@ def _filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in extra_body.items() if key in allowed_keys}
 
 
-def _normalize_responses_input_to_messages(
+def normalize_responses_input_to_messages(
     input_payload: Any,
 ) -> NormalizedResponsesMessageList:
     """Coerce OpenAI Responses API input payloads into chat messages.
@@ -334,7 +334,7 @@ def _normalize_responses_input_to_messages(
             role = str(raw_role)
             message: dict[str, Any] = {"role": role}
 
-            content = _normalize_responses_content(entry.get("content"))
+            content = normalize_responses_content(entry.get("content"))
             if content is not None:
                 if isinstance(content, list):
                     message["content_parts"] = content
@@ -383,7 +383,7 @@ def _normalize_responses_input_to_messages(
     return [{"role": "user", "content": str(input_payload)}]
 
 
-def _normalize_responses_content(content: Any) -> Any:
+def normalize_responses_content(content: Any) -> Any:
     """Normalize Responses API content blocks into chat-compatible structures."""
 
     def _coerce_text_value(value: Any) -> str:
@@ -410,7 +410,7 @@ def _normalize_responses_content(content: Any) -> Any:
         return _coerce_text_value(content)
 
     if isinstance(content, dict):
-        normalized_parts = _normalize_responses_content_part(content)
+        normalized_parts = normalize_responses_content_part(content)
         if not normalized_parts:
             return None
         if len(normalized_parts) == 1 and normalized_parts[0].get("type") == "text":
@@ -421,7 +421,7 @@ def _normalize_responses_content(content: Any) -> Any:
         collected_parts: list[dict[str, Any]] = []
         for part in content:
             if isinstance(part, dict):
-                collected_parts.extend(_normalize_responses_content_part(part))
+                collected_parts.extend(normalize_responses_content_part(part))
             elif isinstance(part, str | bytes | bytearray):
                 collected_parts.append(
                     {"type": "text", "text": _coerce_text_value(part)}
@@ -435,7 +435,7 @@ def _normalize_responses_content(content: Any) -> Any:
     return str(content)
 
 
-def _normalize_responses_content_part(
+def normalize_responses_content_part(
     part: dict[str, Any],
 ) -> NormalizedResponsesContentPartList:
     """Normalize a single Responses API content part.
@@ -455,7 +455,7 @@ def _normalize_responses_content_part(
         text_value = part.get("text")
         if text_value is None:
             text_value = part.get("value")
-        normalized_parts.append({"type": "text", "text": _safe_string(text_value)})
+        normalized_parts.append({"type": "text", "text": safe_string(text_value)})
     elif "image" in part_type:
         image_payload = (
             part.get("image_url")

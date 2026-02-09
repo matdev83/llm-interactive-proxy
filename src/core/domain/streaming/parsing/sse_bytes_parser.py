@@ -67,19 +67,39 @@ class SSEBytesParser(IParserStrategy):
             )
 
         try:
-            decoded_str = bytes(raw_data).decode("utf-8").strip()
-            if decoded_str.startswith("data: "):
-                json_part = decoded_str[6:]
+            decoded_str = bytes(raw_data).decode("utf-8")
+            if "data:" in decoded_str:
+                # Find first data:
+                data_idx = decoded_str.find("data:")
+                json_part = decoded_str[data_idx + 5 :]
+                if json_part.startswith(" "):
+                    json_part = json_part[1:]
+
                 if json_part.strip() == "[DONE]":
                     return StreamingContent(is_done=True, raw_data=raw_data)
                 else:
                     try:
+                        # SSE spec says we should strip the trailing CRLF/LF that terminates the event
+                        # but we should be careful not to strip internal whitespaces.
+                        # Usually single chunks end with \n\n or \n.
+                        content_to_parse = json_part
+                        if content_to_parse.endswith("\n\n"):
+                            content_to_parse = content_to_parse[:-2]
+                        elif content_to_parse.endswith("\n"):
+                            content_to_parse = content_to_parse[:-1]
+
                         # DoS protection: Parse JSON with depth limit
-                        parsed_json = self._parse_json_safely(json_part)
+                        parsed_json = self._parse_json_safely(content_to_parse)
                         # Recursively parse JSON using StreamingContent.from_raw
                         return StreamingContent.from_raw(parsed_json)
                     except json.JSONDecodeError:
-                        return StreamingContent(content=json_part, raw_data=raw_data)
+                        # If it's not JSON, it's plain text. We should still handle the SSE terminator.
+                        text_content = json_part
+                        if text_content.endswith("\n\n"):
+                            text_content = text_content[:-2]
+                        elif text_content.endswith("\n"):
+                            text_content = text_content[:-1]
+                        return StreamingContent(content=text_content, raw_data=raw_data)
                     except ValueError as e:
                         if "depth" in str(e).lower():
                             logger.warning(

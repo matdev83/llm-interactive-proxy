@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json  # noqa: F401
 from typing import Any, cast
 
 from src.core.domain.base_translator import BaseTranslator
@@ -11,7 +10,6 @@ from src.core.domain.chat import (
     ChatResponse,
     ToolCall,
 )
-from src.core.domain.tool_text_renderer import render_tool_call  # noqa: F401
 from src.core.domain.translation_utils import (
     json_utils,
     media_utils,
@@ -19,10 +17,10 @@ from src.core.domain.translation_utils import (
     usage_utils,
 )
 from src.core.domain.translation_utils.content_utils import (
-    _safe_string as _safe_string_value,
+    safe_string as safe_string_value,
 )
 from src.core.domain.translation_utils.gemini_schema_utils import (
-    _sanitize_gemini_parameters as _sanitize_gemini_parameters_impl,
+    sanitize_gemini_parameters as _sanitize_gemini_parameters_impl,
 )
 from src.core.domain.translation_utils.schema_validation import (
     basic_schema_validation,
@@ -35,19 +33,19 @@ from src.core.domain.translation_utils.structured_output import (
     iter_json_candidates,
 )
 from src.core.domain.translation_utils.tool_call_state import (
-    _codex_function_name_cache as _tool_call_function_name_cache,
-)
-from src.core.domain.translation_utils.tool_call_state import (
-    _codex_tool_call_index_base as _tool_call_index_base,
-)
-from src.core.domain.translation_utils.tool_call_state import (
-    _codex_tool_call_item_index as _tool_call_item_index,
-)
-from src.core.domain.translation_utils.tool_call_state import (
     assign_tool_call_index,
     cache_function_name,
     get_cached_function_name,
     reset_tool_call_state,
+)
+from src.core.domain.translation_utils.tool_call_state import (
+    codex_function_name_cache as _tool_call_function_name_cache,
+)
+from src.core.domain.translation_utils.tool_call_state import (
+    codex_tool_call_index_base as _tool_call_index_base,
+)
+from src.core.domain.translation_utils.tool_call_state import (
+    codex_tool_call_item_index as _tool_call_item_index,
 )
 from src.core.domain.translators.defaults import (
     ensure_default_translator_factories_registered,
@@ -116,53 +114,152 @@ class Translation(BaseTranslator):
         return basic_schema_validation(json_data, schema)
 
     @staticmethod
-    def _detect_image_mime_type(url: str) -> str:
-        return media_utils._detect_image_mime_type(url)
-
-    @staticmethod
-    def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
-        return media_utils._process_gemini_image_part(part)
-
-    @staticmethod
-    def _normalize_usage_metadata(
-        usage: dict[str, Any], source_format: str
-    ) -> dict[str, Any]:
-        return usage_utils._normalize_usage_metadata(usage, source_format)
-
-    @staticmethod
     def _normalize_responses_input_to_messages(
         input_payload: Any,
     ) -> list[dict[str, Any]]:
+        return Translation.normalize_responses_input_to_messages(input_payload)
+
+    @staticmethod
+    def normalize_responses_input_to_messages(
+        input_payload: Any,
+    ) -> list[dict[str, Any]]:
         from src.core.domain.translators.responses.request import (
-            _normalize_responses_input_to_messages,
+            normalize_responses_input_to_messages,
         )
 
-        return _normalize_responses_input_to_messages(input_payload)
+        return normalize_responses_input_to_messages(input_payload)
 
     @staticmethod
     def _normalize_responses_content(content: Any) -> Any:
+        return Translation.normalize_responses_content(content)
+
+    @staticmethod
+    def normalize_responses_content(content: Any) -> Any:
         from src.core.domain.translators.responses.request import (
-            _normalize_responses_content,
+            normalize_responses_content,
         )
 
-        return _normalize_responses_content(content)
+        return normalize_responses_content(content)
 
     @staticmethod
     def _normalize_responses_content_part(
         content: dict[str, Any]
     ) -> list[dict[str, Any]]:
+        return Translation.normalize_responses_content_part(content)
+
+    @staticmethod
+    def normalize_responses_content_part(
+        content: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         from src.core.domain.translators.responses.request import (
-            _normalize_responses_content_part,
+            normalize_responses_content_part,
         )
 
-        return _normalize_responses_content_part(content)
+        return normalize_responses_content_part(content)
+
+    @staticmethod
+    def _normalize_tool_arguments(args: Any) -> str:
+        return Translation.normalize_tool_arguments(args)
+
+    @staticmethod
+    def normalize_tool_arguments(args: Any) -> str:
+        return tool_utils.normalize_tool_arguments(args)
+
+    @staticmethod
+    def _is_json_serializable(
+        value: Any,
+        *,
+        max_depth: int,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> bool:
+        return Translation.is_json_serializable(value, max_depth=max_depth)
+
+    @staticmethod
+    def is_json_serializable(
+        value: Any,
+        *,
+        max_depth: int,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> bool:
+        return json_utils.is_json_serializable(
+            value,
+            max_depth=max_depth,
+        )
+
+    @staticmethod
+    def _sanitize_dict_for_json(
+        data: dict[str, Any],
+        *,
+        max_depth: int = _MAX_SANITIZE_DEPTH,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> dict[str, Any]:
+        return Translation.sanitize_dict_for_json(data, max_depth=max_depth)
+
+    @staticmethod
+    def sanitize_dict_for_json(
+        data: dict[str, Any],
+        *,
+        max_depth: int = _MAX_SANITIZE_DEPTH,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> dict[str, Any]:
+        return json_utils.sanitize_dict_for_json(
+            data,
+            max_depth=max_depth,
+        )
+
+    @staticmethod
+    def _sanitize_list_for_json(
+        data: list[Any],
+        *,
+        max_depth: int = _MAX_SANITIZE_DEPTH,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> list[Any]:
+        return Translation.sanitize_list_for_json(data, max_depth=max_depth)
+
+    @staticmethod
+    def sanitize_list_for_json(
+        data: list[Any],
+        *,
+        max_depth: int = _MAX_SANITIZE_DEPTH,
+        _depth: int = 0,
+        _seen: set[int] | None = None,
+    ) -> list[Any]:
+        return json_utils.sanitize_list_for_json(
+            data,
+            max_depth=max_depth,
+        )
+
+    @staticmethod
+    def _process_gemini_function_call(
+        function_call: dict[str, Any], part: dict[str, Any] | None = None
+    ) -> ToolCall:
+        return Translation.process_gemini_function_call(function_call, part=part)
+
+    @staticmethod
+    def process_gemini_function_call(
+        function_call: dict[str, Any], part: dict[str, Any] | None = None
+    ) -> ToolCall:
+        return tool_utils.process_gemini_function_call(function_call, part=part)
 
     @staticmethod
     def _safe_string(value: Any) -> str:
-        return _safe_string_value(value)
+        return Translation.safe_string(value)
+
+    @staticmethod
+    def safe_string(value: Any) -> str:
+        return safe_string_value(value)
 
     @staticmethod
     def _map_gemini_finish_reason(finish_reason: str | None) -> str | None:
+        return Translation.map_gemini_finish_reason(finish_reason)
+
+    @staticmethod
+    def map_gemini_finish_reason(finish_reason: str | None) -> str | None:
         if finish_reason is None:
             return None
 
@@ -177,6 +274,10 @@ class Translation(BaseTranslator):
 
     @staticmethod
     def _normalize_stop_sequences(stop: Any) -> list[str] | None:
+        return Translation.normalize_stop_sequences(stop)
+
+    @staticmethod
+    def normalize_stop_sequences(stop: Any) -> list[str] | None:
         if stop is None:
             return None
         if isinstance(stop, str):
@@ -184,61 +285,6 @@ class Translation(BaseTranslator):
         if isinstance(stop, list):
             return [str(s) for s in stop]
         return [str(stop)]
-
-    @staticmethod
-    def _normalize_tool_arguments(args: Any) -> str:
-        return tool_utils._normalize_tool_arguments(args)
-
-    @staticmethod
-    def _is_json_serializable(
-        value: Any,
-        *,
-        max_depth: int,
-        _depth: int = 0,
-        _seen: set[int] | None = None,
-    ) -> bool:
-        return json_utils._is_json_serializable(
-            value,
-            max_depth=max_depth,
-            _depth=_depth,
-            _seen=_seen,
-        )
-
-    @staticmethod
-    def _sanitize_dict_for_json(
-        data: dict[str, Any],
-        *,
-        max_depth: int = _MAX_SANITIZE_DEPTH,
-        _depth: int = 0,
-        _seen: set[int] | None = None,
-    ) -> dict[str, Any]:
-        return json_utils._sanitize_dict_for_json(
-            data,
-            max_depth=max_depth,
-            _depth=_depth,
-            _seen=_seen,
-        )
-
-    @staticmethod
-    def _sanitize_list_for_json(
-        data: list[Any],
-        *,
-        max_depth: int = _MAX_SANITIZE_DEPTH,
-        _depth: int = 0,
-        _seen: set[int] | None = None,
-    ) -> list[Any]:
-        return json_utils._sanitize_list_for_json(
-            data,
-            max_depth=max_depth,
-            _depth=_depth,
-            _seen=_seen,
-        )
-
-    @staticmethod
-    def _process_gemini_function_call(
-        function_call: dict[str, Any], part: dict[str, Any] | None = None
-    ) -> ToolCall:
-        return tool_utils._process_gemini_function_call(function_call, part=part)
 
     @staticmethod
     def gemini_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -275,7 +321,7 @@ class Translation(BaseTranslator):
         translator = Translation._translator("gemini")
         return cast(
             dict[str, Any] | CanonicalStreamChunk,
-            cast(Any, translator).to_domain_stream_chunk(chunk),
+            translator.to_domain_stream_chunk(chunk),
         )
 
     @staticmethod
@@ -293,6 +339,13 @@ class Translation(BaseTranslator):
         )
 
     @staticmethod
+    def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
+        return cast(
+            CanonicalChatRequest,
+            Translation._translator("responses").to_domain_request(request),
+        )
+
+    @staticmethod
     def responses_to_domain_response(response: Any) -> CanonicalChatResponse:
         return cast(
             CanonicalChatResponse,
@@ -306,13 +359,13 @@ class Translation(BaseTranslator):
         translator = Translation._translator("openai")
         return cast(
             dict[str, Any] | CanonicalStreamChunk,
-            cast(Any, translator).to_domain_stream_chunk(chunk),
+            translator.to_domain_stream_chunk(chunk),
         )
 
     @staticmethod
     def responses_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         translator = Translation._translator("responses")
-        return cast(dict[str, Any], cast(Any, translator).to_domain_stream_chunk(chunk))
+        return cast(dict[str, Any], translator.to_domain_stream_chunk(chunk))
 
     @staticmethod
     def openrouter_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -323,11 +376,15 @@ class Translation(BaseTranslator):
 
     @staticmethod
     def _validate_request_parameters(request: CanonicalChatRequest) -> None:
+        Translation.validate_request_parameters(request)
+
+    @staticmethod
+    def validate_request_parameters(request: CanonicalChatRequest) -> None:
         from src.core.domain.translators.gemini.request import (
-            _validate_request_parameters,
+            validate_request_parameters,
         )
 
-        _validate_request_parameters(request)
+        validate_request_parameters(request)
 
     @staticmethod
     def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, Any]:
@@ -338,6 +395,10 @@ class Translation(BaseTranslator):
 
     @staticmethod
     def _sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
+        return Translation.sanitize_gemini_parameters(schema)
+
+    @staticmethod
+    def sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
         return _sanitize_gemini_parameters_impl(schema)
 
     @staticmethod
@@ -350,7 +411,7 @@ class Translation(BaseTranslator):
     @staticmethod
     def anthropic_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         translator = Translation._translator("anthropic")
-        return cast(dict[str, Any], cast(Any, translator).to_domain_stream_chunk(chunk))
+        return cast(dict[str, Any], translator.to_domain_stream_chunk(chunk))
 
     @staticmethod
     def from_domain_to_anthropic_request(
@@ -378,7 +439,7 @@ class Translation(BaseTranslator):
     @staticmethod
     def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
         translator = Translation._translator("code_assist")
-        return cast(dict[str, Any], cast(Any, translator).to_domain_stream_chunk(chunk))
+        return cast(dict[str, Any], translator.to_domain_stream_chunk(chunk))
 
     @staticmethod
     def raw_text_to_domain_request(request: Any) -> CanonicalChatRequest:
@@ -401,14 +462,7 @@ class Translation(BaseTranslator):
         translator = Translation._translator("raw_text")
         return cast(
             dict[str, Any] | CanonicalStreamChunk,
-            cast(Any, translator).to_domain_stream_chunk(chunk),
-        )
-
-    @staticmethod
-    def responses_to_domain_request(request: Any) -> CanonicalChatRequest:
-        return cast(
-            CanonicalChatRequest,
-            Translation._translator("responses").to_domain_request(request),
+            translator.to_domain_stream_chunk(chunk),
         )
 
     @staticmethod
@@ -429,11 +483,43 @@ class Translation(BaseTranslator):
 
     @staticmethod
     def _filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
+        return Translation.filter_responses_extra_body(extra_body)
+
+    @staticmethod
+    def filter_responses_extra_body(extra_body: dict[str, Any]) -> dict[str, Any]:
         from src.core.domain.translators.responses.request import (
-            _filter_responses_extra_body,
+            filter_responses_extra_body,
         )
 
-        return _filter_responses_extra_body(extra_body)
+        return filter_responses_extra_body(extra_body)
+
+    @staticmethod
+    def _normalize_usage_metadata(
+        usage: dict[str, Any], source_format: str
+    ) -> dict[str, Any]:
+        return Translation.normalize_usage_metadata(usage, source_format)
+
+    @staticmethod
+    def normalize_usage_metadata(
+        usage: dict[str, Any], source_format: str
+    ) -> dict[str, Any]:
+        return usage_utils.normalize_usage_metadata(usage, source_format)
+
+    @staticmethod
+    def _detect_image_mime_type(url: str) -> str:
+        return Translation.detect_image_mime_type(url)
+
+    @staticmethod
+    def detect_image_mime_type(url: str) -> str:
+        return media_utils.detect_image_mime_type(url)
+
+    @staticmethod
+    def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
+        return Translation.process_gemini_image_part(part)
+
+    @staticmethod
+    def process_gemini_image_part(part: Any) -> dict[str, Any] | None:
+        return media_utils.process_gemini_image_part(part)
 
     @staticmethod
     def enhance_structured_output_response(

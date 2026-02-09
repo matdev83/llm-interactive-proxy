@@ -13,8 +13,8 @@ from src.core.domain.chat import (
     ChatResponse,
     ToolCall,
 )
-from src.core.domain.translation_utils.content_utils import _coerce_reasoning_text
-from src.core.domain.translation_utils.usage_utils import _normalize_usage_metadata
+from src.core.domain.translation_utils.content_utils import coerce_reasoning_text
+from src.core.domain.translation_utils.usage_utils import normalize_usage_metadata
 from src.core.domain.usage_summary import UsageSummary
 
 
@@ -68,15 +68,15 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
 
         reasoning_content = msg.get("reasoning_content")
         if reasoning_content is None and "reasoning" in msg:
-            reasoning_content = _coerce_reasoning_text(msg.get("reasoning"))
+            reasoning_content = coerce_reasoning_text(msg.get("reasoning"))
         if reasoning_content is None:
-            metadata_reasoning = _coerce_reasoning_text(
+            metadata_reasoning = coerce_reasoning_text(
                 msg.get("metadata", {}).get("reasoning")
             )
             if metadata_reasoning:
                 reasoning_content = metadata_reasoning
         if reasoning_content is None:
-            choice_reasoning = _coerce_reasoning_text(
+            choice_reasoning = coerce_reasoning_text(
                 ch.get("reasoning") or ch.get("metadata", {}).get("reasoning")
             )
             if choice_reasoning:
@@ -106,7 +106,7 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
         )
 
     usage = response.get("usage") or {}
-    normalized_usage = _normalize_usage_metadata(usage, "openai")
+    normalized_usage = normalize_usage_metadata(usage, "openai")
 
     result = CanonicalChatResponse(
         id=response.get("id", "chatcmpl-openai-unk"),

@@ -10,10 +10,10 @@ from src.core.domain.chat import (
     StreamingChatCompletionChoiceDelta,
 )
 from src.core.domain.translation_utils.content_utils import (
-    _coerce_reasoning_text,
-    _safe_string,
+    coerce_reasoning_text,
+    safe_string,
 )
-from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
+from src.core.domain.translation_utils.tool_utils import process_gemini_function_call
 from src.core.domain.translators.gemini.finish_reason import map_gemini_finish_reason
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
 
     logger.debug(
         "gemini_to_domain_stream_chunk: Processing chunk with keys=%s",
-        list(chunk.keys()) if isinstance(chunk, dict) else "N/A",
+        list(chunk.keys()),
     )
 
     if "candidates" in chunk:
@@ -63,7 +63,7 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                     if not isinstance(part, dict):
                         continue
                     if part.get("type") in {"reasoning", "thinking"}:
-                        normalized_reasoning = _coerce_reasoning_text(
+                        normalized_reasoning = coerce_reasoning_text(
                             part.get("text") or part.get("value")
                         )
                         if normalized_reasoning:
@@ -71,13 +71,13 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                         continue
 
                     if "text" in part and not part.get("functionCall"):
-                        safe_text = _safe_string(part.get("text"))
+                        safe_text = safe_string(part.get("text"))
 
                         # Check if metadata indicates this is also reasoning
                         metadata = part.get("metadata", {})
                         if isinstance(metadata, dict):
                             # Try to get reasoning from specific metadata fields first
-                            metadata_reasoning = _coerce_reasoning_text(
+                            metadata_reasoning = coerce_reasoning_text(
                                 metadata.get("thought")
                                 or metadata.get("thinking")
                                 or metadata.get("reasoning")
@@ -102,7 +102,7 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                             content_pieces.append(safe_text)
                     elif "functionCall" in part:
                         try:
-                            tool_call_dict = _process_gemini_function_call(
+                            tool_call_dict = process_gemini_function_call(
                                 part["functionCall"],
                                 part=part,
                                 thought_signature=thought_signature,
@@ -127,9 +127,7 @@ def gemini_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
     if content_pieces:
         delta_dict["content"] = "".join(content_pieces)
     if reasoning_pieces:
-        reasoning = "\n".join(
-            segment for segment in reasoning_pieces if segment
-        ).strip()
+        reasoning = "\n".join(segment for segment in reasoning_pieces if segment)
         delta_dict["reasoning_content"] = reasoning
         # Add aliases for compatibility with various clients
         delta_dict["reasoning"] = reasoning

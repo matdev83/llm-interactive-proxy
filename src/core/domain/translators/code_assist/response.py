@@ -9,10 +9,10 @@ from src.core.domain.chat import (
     ChatCompletionChoiceMessage,
 )
 from src.core.domain.translation_utils.content_utils import (
-    _coerce_reasoning_text,
-    _safe_string,
+    coerce_reasoning_text,
+    safe_string,
 )
-from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
+from src.core.domain.translation_utils.tool_utils import process_gemini_function_call
 from src.core.domain.translators.code_assist.textual_tool_call_parser import (
     parse_textual_tool_calls,
 )
@@ -96,7 +96,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
 
                 # Prioritize explicit reasoning type
                 if part.get("type") in {"reasoning", "thinking"}:
-                    normalized_reasoning = _coerce_reasoning_text(
+                    normalized_reasoning = coerce_reasoning_text(
                         part.get("text") or part.get("value")
                     )
                     if normalized_reasoning:
@@ -104,7 +104,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                     continue
 
                 if "text" in part and not part.get("functionCall"):
-                    safe_text = _safe_string(part.get("text"))
+                    safe_text = safe_string(part.get("text"))
                     if safe_text:
                         text_parts.append(safe_text)
 
@@ -114,7 +114,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                         meta_type = str(metadata.get("type", "")).lower()
                         if meta_type in {"thinking", "thought"}:
                             # Try to get reasoning from specific metadata fields first
-                            metadata_reasoning = _coerce_reasoning_text(
+                            metadata_reasoning = coerce_reasoning_text(
                                 metadata.get("thought")
                                 or metadata.get("thinking")
                                 or metadata.get("reasoning")
@@ -128,7 +128,7 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                 elif "functionCall" in part:
                     try:
                         tool_calls.append(
-                            _process_gemini_function_call(
+                            process_gemini_function_call(
                                 part["functionCall"],
                                 part=part,
                                 thought_signature=thought_signature,

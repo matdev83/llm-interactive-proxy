@@ -19,7 +19,7 @@ class TestTranslationEdgeCases:
 
         broken_arguments = "{'query': 'weather"  # unterminated string literal
 
-        normalized = Translation._normalize_tool_arguments(broken_arguments)
+        normalized = Translation.normalize_tool_arguments(broken_arguments)
 
         assert normalized == "{}"
 
@@ -27,17 +27,17 @@ class TestTranslationEdgeCases:
         """Non-http/https image URLs should be rejected for Gemini payloads."""
 
         invalid_part = MessageContentPartImage(
-            image_url=ImageURL(url="ftp://example.com/image.png")
+            image_url=ImageURL(url="ftp://example.com/image.png", detail=None)
         )
 
-        assert Translation._process_gemini_image_part(invalid_part) is None
+        assert Translation.process_gemini_image_part(invalid_part) is None
 
     def test_missing_required_fields(self):
         """Responses payload entries missing a role should default to 'user'."""
 
         input_payload = [{"content": [{"type": "text", "text": "hello"}]}]
 
-        normalized = Translation._normalize_responses_input_to_messages(input_payload)
+        normalized = Translation.normalize_responses_input_to_messages(input_payload)
 
         assert normalized == [
             {
@@ -65,7 +65,9 @@ class TestTranslationEdgeCases:
                     content=[
                         MessageContentPartText(text="Describe this image"),
                         MessageContentPartImage(
-                            image_url=ImageURL(url="https://example.com/cat.png")
+                            image_url=ImageURL(
+                                url="https://example.com/cat.png", detail=None
+                            )
                         ),
                     ],
                 )
@@ -117,7 +119,7 @@ class TestTranslationEdgeCases:
         Tests that _normalize_tool_arguments correctly handles various string inputs,
         especially those containing single and double quotes, without corrupting the data.
         """
-        normalized_args = Translation._normalize_tool_arguments(args_input)
+        normalized_args = Translation.normalize_tool_arguments(args_input)
 
         # We compare the parsed JSON objects to be sure of semantic equivalence.
         expected_output = json.loads(expected_output_str)

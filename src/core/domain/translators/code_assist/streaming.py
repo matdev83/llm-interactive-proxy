@@ -5,11 +5,11 @@ from typing import Any
 
 from src.core.domain.chat import CanonicalStreamChunk
 from src.core.domain.translation_utils.content_utils import (
-    _coerce_reasoning_text,  # pyright: ignore[reportPrivateUsage]
-    _safe_string,  # pyright: ignore[reportPrivateUsage]
+    coerce_reasoning_text,
+    safe_string,
 )
 from src.core.domain.translation_utils.tool_utils import (
-    _process_gemini_function_call,  # pyright: ignore[reportPrivateUsage]
+    process_gemini_function_call,
 )
 from src.core.domain.translators.code_assist.textual_tool_call_parser import (
     parse_textual_tool_calls,
@@ -88,7 +88,7 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
 
                 # Prioritize explicit reasoning type
                 if part.get("type") in {"reasoning", "thinking"}:
-                    normalized_reasoning = _coerce_reasoning_text(
+                    normalized_reasoning = coerce_reasoning_text(
                         part.get("text") or part.get("value")
                     )
                     if normalized_reasoning:
@@ -96,7 +96,7 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                     continue
 
                 if "text" in part:
-                    safe_text = _safe_string(
+                    safe_text = safe_string(
                         part.get("text")
                     )  # pyright: ignore[reportPrivateUsage]
                     if safe_text:
@@ -108,7 +108,7 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                         meta_type = str(metadata.get("type", "")).lower()
                         if meta_type in {"thinking", "thought"}:
                             # Try to get reasoning from specific metadata fields first
-                            metadata_reasoning = _coerce_reasoning_text(
+                            metadata_reasoning = coerce_reasoning_text(
                                 metadata.get("thought")
                                 or metadata.get("thinking")
                                 or metadata.get("reasoning")
@@ -123,7 +123,7 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
                     try:
                         if tool_calls is None:
                             tool_calls = []
-                        tool_call_dict = _process_gemini_function_call(
+                        tool_call_dict = process_gemini_function_call(
                             part["functionCall"],
                             part=part,
                             thought_signature=thought_signature,

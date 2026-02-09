@@ -7,7 +7,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-def _detect_image_mime_type(url: str) -> str:
+def detect_image_mime_type(url: str) -> str:
     """Detect the MIME type for an image URL or data URI."""
     if url.startswith("data:"):
         header = url.split(",", 1)[0]
@@ -30,7 +30,7 @@ def _detect_image_mime_type(url: str) -> str:
     return "image/jpeg"
 
 
-def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
+def process_gemini_image_part(part: Any) -> dict[str, Any] | None:
     """Convert a multimodal image part to Gemini format."""
     from src.core.domain.chat import MessageContentPartImage
 
@@ -42,7 +42,7 @@ def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
         return None
 
     if url_str.startswith("data:"):
-        mime_type = _detect_image_mime_type(url_str)
+        mime_type = detect_image_mime_type(url_str)
         try:
             _, base64_data = url_str.split(",", 1)
         except ValueError:
@@ -72,7 +72,7 @@ def _process_gemini_image_part(part: Any) -> dict[str, Any] | None:
     if scheme not in allowed_schemes:
         return None
 
-    mime_type = _detect_image_mime_type(url_str)
+    mime_type = detect_image_mime_type(url_str)
     return {
         "file_data": {
             "mime_type": mime_type,

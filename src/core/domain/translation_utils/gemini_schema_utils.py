@@ -3,16 +3,13 @@ from __future__ import annotations
 from typing import Any, cast
 
 
-def _sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
+def sanitize_gemini_parameters(schema: dict[str, Any]) -> dict[str, Any]:
     """Sanitize OpenAI tool JSON schema for Gemini Code Assist function_declarations.
 
     The Code Assist API (when routing to Claude models) rejects certain JSON Schema
     keywords that don't conform to JSON Schema draft 2020-12. This removes unsupported
     keywords while preserving core structure.
     """
-
-    if not isinstance(schema, dict):
-        return {}
 
     blacklist: set[str] = {
         "$schema",
