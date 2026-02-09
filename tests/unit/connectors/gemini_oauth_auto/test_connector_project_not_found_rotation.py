@@ -33,6 +33,7 @@ async def test_chat_completions_rotates_on_project_not_found_backend_error() -> 
 
     connector._enable_gemini_oauth_auto_backend_debugging_override = True
     connector.is_functional = True
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
 
     account1 = MagicMock()
     account1.account_id = "acct-1"
@@ -136,6 +137,7 @@ async def test_chat_completions_rotates_on_project_permission_denied_backend_err
 
     connector._enable_gemini_oauth_auto_backend_debugging_override = True
     connector.is_functional = True
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
 
     account1 = MagicMock()
     account1.account_id = "acct-1"
@@ -242,11 +244,12 @@ async def test_chat_completions_rotates_on_missing_project_id_backend_error() ->
 
     connector._enable_gemini_oauth_auto_backend_debugging_override = True
     connector.is_functional = True
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
 
     account1 = MagicMock()
     account1.account_id = "acct-1"
     account1.email = "a@example.com"
-    account1.project_id = None
+    account1.project_id = "bad-project"
     account1.to_credentials_dict.return_value = {}
 
     account2 = MagicMock()
@@ -345,6 +348,7 @@ async def test_chat_completions_rotates_on_missing_project_id_without_current_ac
 
     connector._enable_gemini_oauth_auto_backend_debugging_override = True
     connector.is_functional = True
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
 
     account2 = MagicMock()
     account2.account_id = "acct-2"
@@ -432,6 +436,7 @@ async def test_chat_completions_rotates_on_project_not_found_streaming_error() -
 
     connector._enable_gemini_oauth_auto_backend_debugging_override = True
     connector.is_functional = True
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
     connector._STREAM_PRIME_TIMEOUT_SECONDS = 0.01
 
     account1 = MagicMock()
@@ -544,12 +549,13 @@ async def test_chat_completions_rotates_on_missing_project_id_streaming_error() 
 
     connector._enable_gemini_oauth_auto_backend_debugging_override = True
     connector.is_functional = True
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
     connector._STREAM_PRIME_TIMEOUT_SECONDS = 0.01
 
     account1 = MagicMock()
     account1.account_id = "acct-1"
     account1.email = "a@example.com"
-    account1.project_id = None
+    account1.project_id = "bad-project"
     account1.to_credentials_dict.return_value = {}
 
     account2 = MagicMock()
@@ -658,6 +664,7 @@ async def test_chat_completions_rotates_on_project_permission_denied_streaming_e
 
     connector._enable_gemini_oauth_auto_backend_debugging_override = True
     connector.is_functional = True
+    connector.gemini_api_base_url = "https://cloudcode-pa.googleapis.com"
     connector._STREAM_PRIME_TIMEOUT_SECONDS = 0.01
 
     account1 = MagicMock()
