@@ -47,7 +47,7 @@ When working on specs, the user will invoke `/kiro:*` commands. Follow the instr
 1. **Environment**: Windows-based. ALWAYS use `./.venv/Scripts/python.exe`.
 2. **Config**: `cp config/config.example.yaml config/config.yaml` (if missing).
 3. **Start**: `./.venv/Scripts/python.exe -m src.core.cli`
-4. **Onboarding**: Open `@README.md` for fundamental project description.
+4. **Onboarding**: Open `README.md` for fundamental project description.
 5. **Docs**: Check `docs/` for architecture deep-dives.
 6. **Logs**: Check `var/logs/` for runtime logs.
 7. **Captures**: Check `var/wire_captures_cbor/` for binary captures of all traffic. Use `scripts/inspect_cbor_capture.py` to inspect them.
