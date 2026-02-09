@@ -1,9 +1,9 @@
-"""Tests for tool call repair processor pass-through behavior.
+"""Tests for tool call repair processor behavior.
 
-DESIGN DECISION: Virtual tool call detection has been DISABLED.
-The processor now passes content through unchanged (no buffering).
-
-These tests verify the pass-through behavior.
+DESIGN DECISION: Virtual tool call detection is disabled. Text/XML content must
+pass through unchanged. Native OpenAI `tool_calls` are preserved, with one
+exception: malformed streaming `function.arguments` may receive a minimal
+suffix fix on terminal chunks.
 """
 
 import pytest
@@ -35,7 +35,7 @@ def processor(
 
 
 class TestPassThroughBehavior:
-    """Test that processor passes content through unchanged."""
+    """Test transparent pass-through with native tool-call argument fixes."""
 
     @pytest.mark.asyncio
     async def test_content_passes_through_unchanged(
@@ -109,3 +109,91 @@ class TestPassThroughBehavior:
         # Native tool_calls preserved
         assert result.metadata.get("tool_calls") == [native_call]
         assert result.metadata.get("finish_reason") == "tool_calls"
+
+    @pytest.mark.asyncio
+    async def test_repairs_missing_closing_brace_on_terminal_chunk(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """When streamed arguments are unterminated, append only the missing suffix."""
+        first_chunk = StreamingContent(
+            content="",
+            is_done=False,
+            metadata={
+                "stream_id": "repair-stream-1",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_123",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": '{"path": "test.py"',
+                        },
+                    }
+                ],
+            },
+        )
+        terminal_chunk = StreamingContent(
+            content="",
+            is_done=True,
+            metadata={
+                "stream_id": "repair-stream-1",
+                "finish_reason": "tool_calls",
+            },
+        )
+
+        await processor.process(first_chunk)
+        repaired = await processor.process(terminal_chunk)
+
+        repaired_tool_calls = repaired.metadata.get("tool_calls")
+        assert isinstance(repaired_tool_calls, list)
+        assert len(repaired_tool_calls) == 1
+        assert repaired_tool_calls[0]["index"] == 0
+        assert repaired_tool_calls[0]["function"]["arguments"] == "}"
+
+    @pytest.mark.asyncio
+    async def test_repairs_suffix_on_existing_terminal_tool_call_fragment(
+        self, processor: ToolCallRepairProcessor
+    ) -> None:
+        """If terminal chunk already has a fragment, suffix is appended in-place."""
+        first_chunk = StreamingContent(
+            content="",
+            is_done=False,
+            metadata={
+                "stream_id": "repair-stream-2",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": "call_456",
+                        "type": "function",
+                        "function": {
+                            "name": "search_files",
+                            "arguments": '{"path": "src"',
+                        },
+                    }
+                ],
+            },
+        )
+        terminal_chunk = StreamingContent(
+            content="",
+            is_done=True,
+            metadata={
+                "stream_id": "repair-stream-2",
+                "finish_reason": "tool_calls",
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "type": "function",
+                        "function": {"arguments": ', "recursive": true'},
+                    }
+                ],
+            },
+        )
+
+        await processor.process(first_chunk)
+        repaired = await processor.process(terminal_chunk)
+
+        repaired_tool_calls = repaired.metadata.get("tool_calls")
+        assert isinstance(repaired_tool_calls, list)
+        assert len(repaired_tool_calls) == 1
+        assert repaired_tool_calls[0]["function"]["arguments"] == ', "recursive": true}'

@@ -718,6 +718,7 @@ def _discover_api_keys_from_config_backends(
                         # Map backend names to environment variables (handle exceptions)
                         backend_env_map = {
                             "kimi-code": "KIMI_API_KEY",
+                            "internlm": "INTERNAI_API_KEY",
                         }
                         env_var = backend_env_map.get(
                             b, f"{b.upper().replace('-', '_')}_API_KEY"
@@ -780,6 +781,7 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
         "ZAI_API_KEY",
         "MINIMAX_API_KEY",
         "KIMI_API_KEY",
+        "INTERNAI_API_KEY",
         "LLM_INTERACTIVE_PROXY_API_KEY",
         "OPENAI_API_KEY",
         "AUTH_TOKEN",
@@ -788,9 +790,11 @@ def _discover_api_keys_from_environment(found: set[str]) -> None:
         if key := os.getenv(var):
             found.add(key)
 
-    # Also scan for numbered API keys, e.g., GEMINI_API_KEY_1
+    # Also scan for numbered API keys, e.g., GEMINI_API_KEY_1, INTERNAI_API_KEY_1
     for i in range(1, 21):
         if key := os.getenv(f"GEMINI_API_KEY_{i}"):
+            found.add(key)
+        if key := os.getenv(f"INTERNAI_API_KEY_{i}"):
             found.add(key)
 
 
