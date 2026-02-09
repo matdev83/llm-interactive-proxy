@@ -110,6 +110,10 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                 )
             if not normalized_reasoning and "reasoning" in delta:
                 normalized_reasoning = _coerce_reasoning_text(delta.get("reasoning"))
+            if not normalized_reasoning and "thinking" in delta:
+                normalized_reasoning = _coerce_reasoning_text(delta.get("thinking"))
+            if not normalized_reasoning and "thought" in delta:
+                normalized_reasoning = _coerce_reasoning_text(delta.get("thought"))
             if not normalized_reasoning and isinstance(delta.get("metadata"), dict):
                 normalized_reasoning = _coerce_reasoning_text(
                     delta["metadata"].get("reasoning")

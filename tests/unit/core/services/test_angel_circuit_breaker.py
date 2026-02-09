@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Generator
 from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
 from src.core.interfaces.notification_service_interface import INotificationService
 from src.core.services.angel_service import AngelService, _model_health
 
@@ -14,7 +16,14 @@ class MockNotificationService(INotificationService):
         self.notifications: list[tuple[str, str]] = []
         self._enabled = True
 
-    async def send_notification(self, title: str, message: str) -> str | None:
+    async def send_notification(
+        self,
+        title: str,
+        message: str,
+        *,
+        url: str | None = None,
+        url_label: str = "",
+    ) -> str | None:
         self.notifications.append((title, message))
         return "notif-id"
 
@@ -24,7 +33,7 @@ class MockNotificationService(INotificationService):
 
 
 @pytest.fixture
-def clean_health() -> None:
+def clean_health() -> Generator[None, None, None]:
     """Clear global health state before/after tests."""
     with _model_health_lock_context():
         _model_health.clear()
@@ -35,6 +44,7 @@ def clean_health() -> None:
 
 def _model_health_lock_context():
     from src.core.services.angel_service import _health_lock
+
     return _health_lock
 
 
@@ -85,7 +95,7 @@ async def test_circuit_breaker_resets_on_success(clean_health: Any) -> None:
 
     # Success should reset counter
     await svc.report_success()
-    
+
     # Needs 3 more failures to trip
     await svc.report_failure()
     await svc.report_failure()
@@ -95,6 +105,7 @@ async def test_circuit_breaker_resets_on_success(clean_health: Any) -> None:
 
 
 @pytest.mark.asyncio
+@freeze_time("2026-02-02 12:00:00")
 async def test_circuit_breaker_cooldown_expiry(clean_health: Any) -> None:
     model_spec = "test:model"
     # Use very short cooldown
@@ -109,8 +120,11 @@ async def test_circuit_breaker_cooldown_expiry(clean_health: Any) -> None:
 
     # Mock time passage by modifying the health record
     from src.core.services.angel_service import _health_lock
+
     with _health_lock:
-        _model_health[model_spec].unhealthy_until = datetime.now() - timedelta(seconds=1)
+        _model_health[model_spec].unhealthy_until = datetime.now() - timedelta(
+            seconds=1
+        )
 
     # Should be healthy again
     assert svc.is_healthy() is True

@@ -6,6 +6,7 @@ Welcome to the LLM Interactive Proxy User Guide. This guide provides comprehensi
 
 - **[Quick Start Guide](quick-start.md)** - Get up and running in minutes with installation, basic configuration, and first steps
 - **[Configuration Guide](configuration.md)** - Learn about configuration methods, precedence, and common scenarios
+- **[Access Modes](access-modes.md)** - Single-user vs multi-user access mode behavior and configuration
 - **[CLI Parameters Reference](cli-parameters.md)** - Complete reference for all CLI arguments and environment variables
 - **[Database Configuration](database-configuration.md)** - Database setup for SQLite (default) and PostgreSQL
 

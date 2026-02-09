@@ -192,6 +192,40 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
                     stream_id=stream_id,
                 )
 
+            fallback_content = None
+            for key in ("content", "text", "response", "output"):
+                value = event_data.get(key)
+                if isinstance(value, str) and len(value) > 0:
+                    fallback_content = value
+                    break
+
+            if fallback_content is None:
+                message_payload = event_data.get("message")
+                if isinstance(message_payload, dict):
+                    for key in ("content", "text"):
+                        value = message_payload.get(key)
+                        if isinstance(value, str) and len(value) > 0:
+                            fallback_content = value
+                            break
+
+            if fallback_content is not None:
+                fallback_metadata: dict[str, Any] = {"provider": self.provider}
+                if stream_id:
+                    fallback_metadata["stream_id"] = stream_id
+                if "model" in event_data:
+                    fallback_metadata["model"] = event_data["model"]
+                if "id" in event_data:
+                    fallback_metadata["id"] = event_data["id"]
+                if "created" in event_data:
+                    fallback_metadata["created"] = event_data["created"]
+                return self.create_normalized_chunk(
+                    content=fallback_content,
+                    metadata=fallback_metadata,
+                    is_done=False,
+                    is_empty=False,
+                    stream_id=stream_id,
+                )
+
             # Empty choices - skip this chunk
             return None
 
@@ -200,9 +234,14 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         delta = choice.get("delta", {}) or {}
         if not isinstance(delta, dict):
             delta = {}
+        message = choice.get("message", {}) or {}
+        if not isinstance(message, dict):
+            message = {}
 
         # Extract content from delta
         raw_content = delta.get("content")
+        if raw_content in (None, ""):
+            raw_content = message.get("content", raw_content)
         content: str | dict | bytes
         if raw_content is None:
             content = ""
@@ -232,17 +271,23 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         if "created" in event_data:
             metadata["created"] = event_data["created"]
 
-        # Add role if present in delta
+        # Add role if present in delta or message
         if "role" in delta:
             metadata["role"] = delta["role"]
+        elif "role" in message:
+            metadata["role"] = message["role"]
 
         # Add finish_reason if present
         finish_reason = choice.get("finish_reason")
+        if isinstance(finish_reason, str) and not finish_reason.strip():
+            finish_reason = None
         if finish_reason:
             metadata["finish_reason"] = finish_reason
 
         # Add tool_calls if present and is a valid list
         tool_calls_val = delta.get("tool_calls")
+        if not tool_calls_val:
+            tool_calls_val = message.get("tool_calls")
         if isinstance(tool_calls_val, list) and tool_calls_val:
             metadata["tool_calls"] = tool_calls_val
 
@@ -251,7 +296,19 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
             metadata["tool_call_id"] = delta["tool_call_id"]
 
         # Extract reasoning content if present
-        reasoning_content = delta.get("reasoning_content") or delta.get("reasoning")
+        reasoning_content = (
+            delta.get("reasoning_content")
+            or delta.get("reasoning")
+            or delta.get("thinking")
+            or delta.get("thought")
+        )
+        if not reasoning_content:
+            reasoning_content = (
+                message.get("reasoning_content")
+                or message.get("reasoning")
+                or message.get("thinking")
+                or message.get("thought")
+            )
         if reasoning_content:
             metadata["reasoning_content"] = reasoning_content
 

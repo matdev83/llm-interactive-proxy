@@ -92,6 +92,26 @@ def test_openai_translator_to_domain_stream_chunk_matches_translation_facade() -
     )
 
 
+def test_openai_stream_chunk_maps_thinking_to_reasoning_content() -> None:
+    chunk = {
+        "id": "chatcmpl-stream-thinking",
+        "object": "chat.completion.chunk",
+        "created": 1700000001,
+        "model": "gpt-4",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"thinking": "Plan the response."},
+                "finish_reason": None,
+            }
+        ],
+    }
+
+    result = Translation.openai_to_domain_stream_chunk(chunk)
+    assert isinstance(result, CanonicalStreamChunk)
+    assert result.choices[0].delta.reasoning_content == "Plan the response."
+
+
 def test_openai_translator_from_domain_request_matches_translation_facade() -> None:
     payload = {
         "model": "gpt-4o-mini",

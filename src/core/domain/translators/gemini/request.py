@@ -194,32 +194,35 @@ def from_domain_to_gemini_request(request: CanonicalChatRequest) -> dict[str, An
             if message.reasoning_content:
                 parts.append({"text": message.reasoning_content})
 
-            # Regular content: Include text even if tool calls are present
-            # This matches native Gemini CLI behavior and provides better context for the model
-            # to plan parallel tool calls.
-            if isinstance(message.content, str):
-                if message.content:
-                    parts.append({"text": message.content})
-            elif isinstance(message.content, list):
-                for part in message.content:
-                    if hasattr(part, "type") and part.type == "image_url":
-                        processed_image = media_utils._process_gemini_image_part(  # pyright: ignore[reportPrivateUsage]
-                            part
-                        )
-                        if processed_image:
-                            parts.append(processed_image)
-                    elif hasattr(part, "type") and part.type == "text":
-                        from src.core.domain.chat import MessageContentPartText
+            # Regular content: exclude when assistant tool_calls are present to avoid
+            # Gemini API errors (functionCall + text in same turn).
+            include_regular_content = not (
+                has_tool_calls and message.role == "assistant"
+            )
+            if include_regular_content:
+                if isinstance(message.content, str):
+                    if message.content:
+                        parts.append({"text": message.content})
+                elif isinstance(message.content, list):
+                    for part in message.content:
+                        if hasattr(part, "type") and part.type == "image_url":
+                            processed_image = media_utils._process_gemini_image_part(  # pyright: ignore[reportPrivateUsage]
+                                part
+                            )
+                            if processed_image:
+                                parts.append(processed_image)
+                        elif hasattr(part, "type") and part.type == "text":
+                            from src.core.domain.chat import MessageContentPartText
 
-                        if isinstance(part, MessageContentPartText) and hasattr(
-                            part, "text"
-                        ):
-                            parts.append({"text": part.text})
-                    else:
-                        if hasattr(part, "model_dump"):
-                            part_dict = part.model_dump()
-                            if "text" in part_dict:
-                                parts.append({"text": part_dict["text"]})
+                            if isinstance(part, MessageContentPartText) and hasattr(
+                                part, "text"
+                            ):
+                                parts.append({"text": part.text})
+                        else:
+                            if hasattr(part, "model_dump"):
+                                part_dict = part.model_dump()
+                                if "text" in part_dict:
+                                    parts.append({"text": part_dict["text"]})
 
         if message.role == "tool":
             tool_messages = [message]

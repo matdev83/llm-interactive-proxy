@@ -297,6 +297,8 @@ properties:
         minimum: 1
         default: 1
       angel_max_history: { type: ["integer", "null"], minimum: 1 }
+      angel_max_consecutive_failures: { type: integer, minimum: 1 }
+      angel_cooldown_seconds: { type: integer, minimum: 0 }
   backends:
     type: object
     additionalProperties: true

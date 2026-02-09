@@ -230,11 +230,11 @@ async def test_sse_assembly_with_reasoning_content() -> None:
         result.append(chunk_bytes)
 
     # Assert
-    assert len(result) == 3
+    assert len(result) == 2
     chunk_str = result[0].decode("utf-8")
     assert "reasoning_content" in chunk_str
     assert "Let me think..." in chunk_str
-    assert b'"finish_reason": "stop"' in result[1]
+    assert result[1] == b"data: [DONE]\n\n"
 
 
 @pytest.mark.asyncio

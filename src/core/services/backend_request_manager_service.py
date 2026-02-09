@@ -229,6 +229,18 @@ class BackendRequestManager(IBackendRequestManager):
         Bypass is only allowed via explicit header for compatibility with legacy
         clients that implement their own deduplication.
         """
+        # InternLM streaming is handled via a connector shim (non-streaming upstream + synthetic SSE).
+        # Some real-world clients retry/replay identical streaming requests (e.g. after reconnects),
+        # and the generic dedup "done-only" response can look like a silent empty completion.
+        # To keep InternLM usable with such clients, bypass dedup for InternLM *streaming* requests.
+        model = getattr(request, "model", None)
+        if (
+            bool(getattr(request, "stream", False))
+            and isinstance(model, str)
+            and model.strip().lower().startswith(("internlm:", "internlm/"))
+        ):
+            return True
+
         headers = getattr(context, "headers", {})
         if isinstance(headers, Mapping):
             dedup_override = headers.get("x-llmproxy-no-dedup")

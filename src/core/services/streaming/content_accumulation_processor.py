@@ -226,8 +226,11 @@ class ContentAccumulationProcessor(IStreamProcessor):
                     extracted_content += delta_content
 
                 # Extract and accumulate reasoning content
-                delta_reasoning = delta.get("reasoning_content") or delta.get(
-                    "reasoning"
+                delta_reasoning = (
+                    delta.get("reasoning_content")
+                    or delta.get("reasoning")
+                    or delta.get("thinking")
+                    or delta.get("thought")
                 )
                 if isinstance(delta_reasoning, str):
                     extracted_reasoning += delta_reasoning

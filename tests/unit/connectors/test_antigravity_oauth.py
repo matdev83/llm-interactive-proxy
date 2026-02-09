@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, Mock
 import httpx
 import pytest
 from src.connectors.antigravity_oauth import AntigravityOAuthConnector
+from src.connectors.contracts import ConnectorChatCompletionsRequest
 from src.connectors.mixins.antigravity_auth_mixin import (
     ANTIGRAVITY_AUTH_KEY,
     ANTIGRAVITY_SANDBOX_ENDPOINT,
@@ -38,6 +39,21 @@ def connector(mock_client):
     translation_service = TranslationService()
     return AntigravityOAuthConnector(
         mock_client, config, translation_service, name="antigravity-oauth"
+    )
+
+
+def _make_connector_request(
+    request_data, processed_messages, effective_model
+) -> ConnectorChatCompletionsRequest:
+    return ConnectorChatCompletionsRequest(
+        request=request_data,
+        processed_messages=processed_messages,
+        effective_model=effective_model,
+        options={},
+        identity=None,
+        cancellation_token=None,
+        cancellation_coordinator=None,
+        context=None,
     )
 
 
@@ -133,9 +149,7 @@ class TestAntigravityOAuthConnector:
         assert connector.client.get.await_count == 0
 
     @pytest.mark.asyncio
-    async def test_model_enumeration_skips_deprecated_api(
-        self, connector, monkeypatch
-    ):
+    async def test_model_enumeration_skips_deprecated_api(self, connector, monkeypatch):
         """Verify that non-sandbox base URLs also skip fetchAvailableModels (deprecated)."""
         connector.gemini_api_base_url = "https://custom-endpoint.example.com"
         connector._oauth_credentials = {"access_token": "test-token"}
@@ -147,7 +161,7 @@ class TestAntigravityOAuthConnector:
 
         # Should NOT call fetchAvailableModels
         assert connector.client.get.call_count == 0
-        assert connector.available_models # Loaded from fallback
+        assert connector.available_models  # Loaded from fallback
 
     @pytest.mark.asyncio
     async def test_model_enumeration_fallback_on_failure(self, connector, monkeypatch):
@@ -198,9 +212,7 @@ class TestAntigravityOAuthConnector:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_list_models_skips_deprecated_api(
-        self, connector, monkeypatch
-    ):
+    async def test_list_models_skips_deprecated_api(self, connector, monkeypatch):
         """list_models should skip fetchAvailableModels and use fallback."""
         connector._oauth_credentials = {"access_token": "test-token"}
         connector.gemini_api_base_url = "https://custom-endpoint.example.com"
@@ -758,11 +770,12 @@ class TestModelValidation:
         )
 
         # Should NOT raise for invalid model because validation is disabled
-        await connector.chat_completions(
-            request_data=request_data,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="invalid-model-xyz",
+        request = _make_connector_request(
+            request_data,
+            [ChatMessage(role="user", content="Hello")],
+            "invalid-model-xyz",
         )
+        await connector.chat_completions(request)
 
         # Verify the invalid model was passed through to the coordinator
         assert mock_coordinator.execute.called
@@ -982,11 +995,12 @@ class TestGemini3ProModelMapping:
             reasoning_effort=None,  # Default to high
         )
 
-        await connector.chat_completions(
-            request_data=request_data,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="google/gemini-3-pro",  # With vendor prefix
+        request = _make_connector_request(
+            request_data,
+            [ChatMessage(role="user", content="Hello")],
+            "google/gemini-3-pro",  # With vendor prefix
         )
+        await connector.chat_completions(request)
 
         # Verify the model was mapped to gemini-3-pro-high
         assert mock_coordinator.execute.called
@@ -1041,11 +1055,12 @@ class TestGemini3ProModelMapping:
             reasoning_effort="low",
         )
 
-        await connector.chat_completions(
-            request_data=request_data,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="gemini-3-pro",
+        request = _make_connector_request(
+            request_data,
+            [ChatMessage(role="user", content="Hello")],
+            "gemini-3-pro",
         )
+        await connector.chat_completions(request)
 
         # Verify the model was mapped to gemini-3-pro-low
         assert mock_coordinator.execute.called
@@ -1361,11 +1376,12 @@ class TestGptOssModelMapping:
             reasoning_effort=None,  # Should still map to thinking
         )
 
-        await connector.chat_completions(
-            request_data=request_data,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="anthropic/claude-opus-4.5",  # With vendor prefix
+        request = _make_connector_request(
+            request_data,
+            [ChatMessage(role="user", content="Hello")],
+            "anthropic/claude-opus-4.5",  # With vendor prefix
         )
+        await connector.chat_completions(request)
 
         # Verify the model was mapped to claude-opus-4-5-thinking (always)
         assert mock_coordinator.execute.called
@@ -1423,11 +1439,12 @@ class TestGptOssModelMapping:
             reasoning_effort="low",  # Should still map to thinking (ignored)
         )
 
-        await connector.chat_completions(
-            request_data=request_data,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="anthropic/claude-opus-4.5",
+        request = _make_connector_request(
+            request_data,
+            [ChatMessage(role="user", content="Hello")],
+            "anthropic/claude-opus-4.5",
         )
+        await connector.chat_completions(request)
 
         # Verify the model was mapped to claude-opus-4-5-thinking (always, ignoring reasoning_effort)
         assert mock_coordinator.execute.called
@@ -1486,11 +1503,12 @@ class TestGptOssModelMapping:
             reasoning_effort="high",
         )
 
-        await connector.chat_completions(
-            request_data=request_data,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="anthropic/claude-sonnet-4.5",
+        request = _make_connector_request(
+            request_data,
+            [ChatMessage(role="user", content="Hello")],
+            "anthropic/claude-sonnet-4.5",
         )
+        await connector.chat_completions(request)
 
         assert mock_coordinator.execute.called
         call_args = mock_coordinator.execute.call_args
@@ -1544,11 +1562,12 @@ class TestGptOssModelMapping:
             reasoning_effort="high",  # Should be ignored
         )
 
-        await connector.chat_completions(
-            request_data=request_data,
-            processed_messages=[ChatMessage(role="user", content="Hello")],
-            effective_model="openai/gpt-oss-120b",
+        request = _make_connector_request(
+            request_data,
+            [ChatMessage(role="user", content="Hello")],
+            "openai/gpt-oss-120b",
         )
+        await connector.chat_completions(request)
 
         # Verify the model was mapped to gpt-oss-120b-medium (always)
         assert mock_coordinator.execute.called

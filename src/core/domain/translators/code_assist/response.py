@@ -13,6 +13,9 @@ from src.core.domain.translation_utils.content_utils import (
     _safe_string,
 )
 from src.core.domain.translation_utils.tool_utils import _process_gemini_function_call
+from src.core.domain.translators.code_assist.textual_tool_call_parser import (
+    parse_textual_tool_calls,
+)
 from src.core.domain.usage_summary import UsageSummary
 
 logger = logging.getLogger(__name__)
@@ -150,6 +153,10 @@ def code_assist_to_domain_response(response: Any) -> CanonicalChatResponse:
                             )
                         continue
             generated_text = "".join(text_parts)
+            cleaned_text, textual_tool_calls = parse_textual_tool_calls(generated_text)
+            generated_text = cleaned_text
+            if textual_tool_calls and not tool_calls:
+                tool_calls = textual_tool_calls
 
         if "finishReason" in candidate:
             finish_reason = (

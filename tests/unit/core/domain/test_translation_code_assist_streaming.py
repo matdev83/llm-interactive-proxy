@@ -103,6 +103,81 @@ def test_code_assist_stream_chunk_passes_through_openai_format_with_content() ->
     assert mapped["choices"][0]["delta"]["content"] == "Hello, world!"
 
 
+def test_code_assist_stream_chunk_repairs_textual_tool_calls() -> None:
+    chunk = {
+        "response": {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": (
+                                    "I will run checks.\n"
+                                    "tool_call: bash for '.venv\\Scripts\\python.exe -m pytest tests/unit -v'\n"
+                                    "tool_call: read for absolute_path 'C:\\Users\\Mateusz\\source\\repos\\demo\\client.py' offset 500 limit 20"
+                                )
+                            }
+                        ]
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+    }
+
+    mapped = Translation.code_assist_to_domain_stream_chunk(chunk)
+    choice = mapped["choices"][0]
+    delta = choice["delta"]
+    tool_calls = delta.get("tool_calls")
+
+    assert isinstance(tool_calls, list)
+    assert len(tool_calls) == 2
+    assert tool_calls[0]["function"]["name"] == "bash"
+    assert json.loads(tool_calls[0]["function"]["arguments"]) == {
+        "command": ".venv\\Scripts\\python.exe -m pytest tests/unit -v"
+    }
+    assert tool_calls[1]["function"]["name"] == "read"
+    assert json.loads(tool_calls[1]["function"]["arguments"]) == {
+        "absolute_path": "C:\\Users\\Mateusz\\source\\repos\\demo\\client.py",
+        "offset": 500,
+        "limit": 20,
+    }
+    assert delta.get("content") == "I will run checks."
+    assert choice["finish_reason"] == "tool_calls"
+
+
+def test_code_assist_stream_chunk_deduplicates_textual_tool_calls() -> None:
+    chunk = {
+        "response": {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "text": (
+                                    "tool_call: bash for '.venv\\Scripts\\python.exe -m pytest tests/unit -v'\n"
+                                    "tool_call: bash for '.venv\\Scripts\\python.exe -m pytest tests/unit -v'\n"
+                                    "tool_call: read for absolute_path 'C:\\Users\\Mateusz\\source\\repos\\demo\\client.py' offset 500 limit 20\n"
+                                    "tool_call: read for absolute_path 'C:\\Users\\Mateusz\\source\\repos\\demo\\client.py' offset 500 limit 20"
+                                )
+                            }
+                        ]
+                    },
+                    "finishReason": "STOP",
+                }
+            ]
+        }
+    }
+
+    mapped = Translation.code_assist_to_domain_stream_chunk(chunk)
+    tool_calls = mapped["choices"][0]["delta"].get("tool_calls")
+
+    assert isinstance(tool_calls, list)
+    assert len(tool_calls) == 2
+    assert tool_calls[0]["function"]["name"] == "bash"
+    assert tool_calls[1]["function"]["name"] == "read"
+
+
 def test_assistant_tool_calls_only_mapped_to_function_call_parts() -> None:
     # Assistant with tool_calls and no textual content should be accepted
     tc = ToolCall(

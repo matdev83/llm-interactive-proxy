@@ -10,8 +10,8 @@ from src.core.domain.translators.code_assist.streaming import (
 from src.core.domain.translators.gemini.request import from_domain_to_gemini_request
 
 
-def test_gemini_request_preserves_assistant_text_with_tools():
-    # Regression test for: assistant text being stripped when tool calls are present
+def test_gemini_request_excludes_assistant_text_with_tools():
+    # Regression test for: assistant text must be excluded when tool calls are present
     req = CanonicalChatRequest(
         model="gemini-2.0-pro",
         messages=[
@@ -40,7 +40,7 @@ def test_gemini_request_preserves_assistant_text_with_tools():
     )
     has_tool = any("functionCall" in p for p in parts)
 
-    assert has_text, "Assistant text content was stripped"
+    assert not has_text, "Assistant text content should be excluded"
     assert has_tool, "Tool call was stripped"
 
 
@@ -103,7 +103,7 @@ def test_code_assist_streaming_finish_reason_wait():
 if __name__ == "__main__":
     # Allow running directly for quick verification
     try:
-        test_gemini_request_preserves_assistant_text_with_tools()
+        test_gemini_request_excludes_assistant_text_with_tools()
         test_code_assist_streaming_finish_reason_wait()
         print("All regression tests PASSED")
     except Exception as e:

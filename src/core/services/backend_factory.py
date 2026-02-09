@@ -184,6 +184,10 @@ class BackendFactory(IBackendFactory):
             if backend_config.api_url:
                 init_config["api_base_url"] = backend_config.api_url
 
+            # Pass api_keys list if available in extra (for InternLM multiple keys support)
+            if "api_keys" in backend_config.extra:
+                init_config["api_keys"] = backend_config.extra["api_keys"]
+
             # Pass credentials_path if available
             if backend_config.credentials_path:
                 init_config["credentials_path"] = backend_config.credentials_path

@@ -110,6 +110,9 @@ async def test_override_marker_never_reaches_client(
         def get_required_service(self, t: Any) -> Any:
             return service
 
+        def get_service(self, t: Any) -> Any:
+            return None
+
     monkeypatch.setattr(
         "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )
@@ -159,6 +162,9 @@ async def test_client_never_sees_angel_xml(monkeypatch: pytest.MonkeyPatch) -> N
         def get_required_service(self, t: Any) -> Any:
             return service
 
+        def get_service(self, t: Any) -> Any:
+            return None
+
     monkeypatch.setattr(
         "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )
@@ -198,6 +204,9 @@ async def test_angel_frequency_can_skip_turns(monkeypatch: pytest.MonkeyPatch) -
     class DummyProvider:
         def get_required_service(self, t: Any) -> Any:
             return DummyBackendService()
+
+        def get_service(self, t: Any) -> Any:
+            return None
 
     monkeypatch.setattr(
         "src.core.di.services.get_service_provider", lambda: DummyProvider()

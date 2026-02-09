@@ -204,6 +204,27 @@ async def test_accumulated_reasoning_metadata_is_preserved(
 
 
 @pytest.mark.asyncio
+async def test_accumulates_thinking_fields_from_stream_delta(
+    content_accumulation_processor,
+) -> None:
+    """Ensure thinking/thought deltas are accumulated as reasoning."""
+    first_chunk = StreamingContent(
+        content={"choices": [{"delta": {"thinking": "First idea."}}]},
+        metadata={"stream_id": "thinking-stream"},
+    )
+    final_chunk = StreamingContent(
+        content={"choices": [{"delta": {"thought": "Second idea."}}]},
+        metadata={"stream_id": "thinking-stream"},
+        is_done=True,
+    )
+
+    await content_accumulation_processor.process(first_chunk)
+    result = await content_accumulation_processor.process(final_chunk)
+
+    assert result.metadata.get("accumulated_reasoning") == "First idea.Second idea."
+
+
+@pytest.mark.asyncio
 async def test_openai_format_chunks_pass_through_unchanged(
     content_accumulation_processor,
 ) -> None:

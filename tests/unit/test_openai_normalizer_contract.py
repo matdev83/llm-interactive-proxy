@@ -104,6 +104,26 @@ class TestOpenAIStreamNormalizerContract:
         assert chunk.metadata["provider"] == "openai"
 
     @pytest.mark.asyncio
+    async def test_ignores_empty_finish_reason(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """Empty finish_reason should not mark chunk as done."""
+        raw_chunk = b'data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":""}]}\n\n'
+
+        async def mock_stream():
+            yield raw_chunk
+
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "openai")
+        ]
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+        assert chunk.is_done is False
+        assert "finish_reason" not in chunk.metadata
+
+    @pytest.mark.asyncio
     async def test_normalizes_chunk_with_tool_calls(
         self, normalizer: OpenAIStreamNormalizer
     ) -> None:
@@ -239,6 +259,48 @@ class TestOpenAIStreamNormalizerContract:
         assert chunk.metadata["provider"] == "openai"
 
     @pytest.mark.asyncio
+    async def test_normalizes_chunk_with_thinking_field(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """Test normalization of chunk with thinking field (alternative)."""
+        raw_chunk = b'data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"thinking":"Plan step."}}]}\n\n'
+
+        async def mock_stream():
+            yield raw_chunk
+
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "openai")
+        ]
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+        assert chunk.metadata["reasoning_content"] == "Plan step."
+        assert chunk.is_empty is False
+        assert chunk.metadata["provider"] == "openai"
+
+    @pytest.mark.asyncio
+    async def test_normalizes_chunk_with_message_fallback(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """Use message content when delta content is empty."""
+        raw_chunk = b'data: {"id":"chatcmpl-123","choices":[{"index":0,"delta":{"content":""},"message":{"content":"Hello"}}]}\n\n'
+
+        async def mock_stream():
+            yield raw_chunk
+
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "openai")
+        ]
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+        assert chunk.content == "Hello"
+        assert chunk.is_empty is False
+        assert chunk.metadata["provider"] == "openai"
+
+    @pytest.mark.asyncio
     async def test_handles_reasoning_only_with_null_content(
         self, normalizer: OpenAIStreamNormalizer
     ) -> None:
@@ -341,6 +403,26 @@ class TestOpenAIStreamNormalizerContract:
         # Assert
         # Empty choices should be skipped
         assert len(chunks) == 0
+
+    @pytest.mark.asyncio
+    async def test_handles_content_without_choices(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """Fallback to top-level content when choices are missing."""
+        raw_chunk = b'data: {"id":"chatcmpl-123","content":"Hello"}\n\n'
+
+        async def mock_stream():
+            yield raw_chunk
+
+        chunks = [
+            chunk
+            async for chunk in normalizer.normalize_stream(mock_stream(), "openai")
+        ]
+
+        assert len(chunks) == 1
+        chunk = chunks[0]
+        assert chunk.content == "Hello"
+        assert chunk.metadata["provider"] == "openai"
 
     @pytest.mark.asyncio
     async def test_handles_empty_delta(

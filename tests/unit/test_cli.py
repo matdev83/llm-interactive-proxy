@@ -153,6 +153,8 @@ def test_cli_backend_choices_match_registry() -> None:
         mock_args.llm_assessment_model = None
         mock_args.replacement_enabled = False
         mock_args.replacement_backend_model = None
+        mock_args.single_user_mode = False
+        mock_args.multi_user_mode = False
         mock_parser_instance.parse_args.return_value = mock_args
 
         # Call the function that creates the parser

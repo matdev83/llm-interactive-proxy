@@ -1,5 +1,4 @@
-import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,9 +14,9 @@ async def test_mark_current_account_rate_limited_deduplication():
     storage = MagicMock()
     storage.save_account = AsyncMock()
     refresh_service = MagicMock()
-    
+
     selector = AccountSelectorService(storage=storage, refresh_service=refresh_service)
-    
+
     account = StoredAccount(
         account_id="test-acc",
         email="test@example.com",
@@ -25,34 +24,35 @@ async def test_mark_current_account_rate_limited_deduplication():
         refresh_token="def",
         token_type="Bearer",
         scope="https://www.googleapis.com/auth/cloud-platform",
-        expiry_date=int(time.time() * 1000) + 3600000,
-        updated_at=datetime.now(timezone.utc).isoformat()
+        expiry_date=int(datetime.now(timezone.utc).timestamp() * 1000) + 3600000,
+        updated_at=datetime.now(timezone.utc).isoformat(),
     )
-    
+
     selector._accounts = [account]
     selector._current_account = account
-    
+
     # First marking should proceed
     await selector.mark_current_account_rate_limited(retry_after_seconds=10.0)
     assert storage.save_account.call_count == 1
-    
+
     # Immediately marking again should be skipped
     await selector.mark_current_account_rate_limited(retry_after_seconds=10.0)
     assert storage.save_account.call_count == 1
-    
+
     # Update timestamp to be older than 2 seconds
     selector._current_account = selector._current_account.model_copy(
         update={"updated_at": (datetime.now(timezone.utc).timestamp() - 5)}
     )
     # Manually setting updated_at as string because model expects it
-    selector._current_account.updated_at = datetime.fromtimestamp(
-        time.time() - 5, tz=timezone.utc
+    selector._current_account.updated_at = (
+        datetime.now(timezone.utc) - timedelta(seconds=5)
     ).isoformat()
-    
+
     # Now it should proceed again
     # We need to wait or mock time for the cooldown to expire
     # In the code we use time.time(), so let's mock it if possible or just test the per-account isolation
-    
+
+
 @pytest.mark.asyncio
 @freeze_time("2026-02-02 12:00:00")
 async def test_mark_current_account_rate_limited_per_account_isolation():
@@ -60,9 +60,9 @@ async def test_mark_current_account_rate_limited_per_account_isolation():
     storage = MagicMock()
     storage.save_account = AsyncMock()
     refresh_service = MagicMock()
-    
+
     selector = AccountSelectorService(storage=storage, refresh_service=refresh_service)
-    
+
     acc1 = StoredAccount(
         account_id="acc1",
         email="acc1@example.com",
@@ -70,8 +70,8 @@ async def test_mark_current_account_rate_limited_per_account_isolation():
         refresh_token="def",
         token_type="Bearer",
         scope="scope",
-        expiry_date=int(time.time() * 1000) + 3600000,
-        updated_at=datetime.now(timezone.utc).isoformat()
+        expiry_date=int(datetime.now(timezone.utc).timestamp() * 1000) + 3600000,
+        updated_at=datetime.now(timezone.utc).isoformat(),
     )
     acc2 = StoredAccount(
         account_id="acc2",
@@ -80,21 +80,21 @@ async def test_mark_current_account_rate_limited_per_account_isolation():
         refresh_token="uvw",
         token_type="Bearer",
         scope="scope",
-        expiry_date=int(time.time() * 1000) + 3600000,
-        updated_at=datetime.now(timezone.utc).isoformat()
+        expiry_date=int(datetime.now(timezone.utc).timestamp() * 1000) + 3600000,
+        updated_at=datetime.now(timezone.utc).isoformat(),
     )
-    
+
     selector._accounts = [acc1, acc2]
-    
+
     # 1. Mark acc1
     selector._current_account = acc1
     await selector.mark_current_account_rate_limited(retry_after_seconds=10.0)
     assert storage.save_account.call_count == 1
-    
+
     # 2. Mark acc1 again (should be skipped)
     await selector.mark_current_account_rate_limited(retry_after_seconds=10.0)
     assert storage.save_account.call_count == 1
-    
+
     # 3. Switch to acc2 and mark (should NOT be skipped)
     selector._current_account = acc2
     await selector.mark_current_account_rate_limited(retry_after_seconds=10.0)

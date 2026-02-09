@@ -295,6 +295,8 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | `--use-angel-model BACKEND:MODEL` | `ANGEL_MODEL` | Enable Angel verification with model. |
 | `--angel-frequency N` | `ANGEL_FREQUENCY` | Run verification every N user turns (default: 1). |
 | `--angel-max-history N` | `ANGEL_MAX_HISTORY` | Truncate history for Angel verification to last N messages (optional). |
+| `--angel-max-consecutive-failures N` | `ANGEL_MAX_CONSECUTIVE_FAILURES` | Trip the Angel circuit breaker after N consecutive failures (default: 5). |
+| `--angel-cooldown-seconds N` | `ANGEL_COOLDOWN_SECONDS` | Cooldown period before Angel verification can retry (default: 300s). |
 
 ### Tool Access Control
 

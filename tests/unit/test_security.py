@@ -79,7 +79,7 @@ async def test_env_disable_auth_forces_localhost():
 
     with (
         patch.dict(
-            os.environ, {"DISABLE_AUTH": "true", "PROXY_HOST": "0.0.0.0"}, clear=True
+            os.environ, {"DISABLE_AUTH": "true", "APP_HOST": "0.0.0.0"}, clear=True
         ),
         patch(
             "src.core.cli_support.logging_configurator.LoggingConfigurator.configure"

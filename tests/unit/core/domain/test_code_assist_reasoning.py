@@ -1,5 +1,7 @@
 """Tests for Code Assist translation of reasoning content."""
 
+import json
+
 from src.core.domain.translators.code_assist.response import (
     code_assist_to_domain_response,
 )
@@ -92,3 +94,44 @@ class TestCodeAssistTranslationReasoning:
 
         assert choice.message.content == "Final answer."
         assert choice.message.reasoning_content == "I am thinking."
+
+    def test_response_textual_tool_calls_are_repaired(self) -> None:
+        response = {
+            "response": {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": (
+                                        "Running checks.\n"
+                                        "tool_call: bash for '.venv\\Scripts\\python.exe -m pytest tests/unit -v'\n"
+                                        "tool_call: read for absolute_path 'C:\\Users\\Mateusz\\source\\repos\\demo\\client.py' offset 500 limit 20"
+                                    )
+                                }
+                            ]
+                        },
+                        "finishReason": "STOP",
+                    }
+                ]
+            }
+        }
+
+        domain_response = code_assist_to_domain_response(response)
+        choice = domain_response.choices[0]
+        tool_calls = choice.message.tool_calls
+
+        assert tool_calls is not None
+        assert len(tool_calls) == 2
+        assert tool_calls[0].function.name == "bash"
+        assert json.loads(tool_calls[0].function.arguments or "{}") == {
+            "command": ".venv\\Scripts\\python.exe -m pytest tests/unit -v"
+        }
+        assert tool_calls[1].function.name == "read"
+        assert json.loads(tool_calls[1].function.arguments or "{}") == {
+            "absolute_path": "C:\\Users\\Mateusz\\source\\repos\\demo\\client.py",
+            "offset": 500,
+            "limit": 20,
+        }
+        assert choice.message.content == "Running checks."
+        assert choice.finish_reason == "tool_calls"

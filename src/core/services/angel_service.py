@@ -137,7 +137,7 @@ class AngelService:
                     seconds=self._cooldown_seconds
                 )
                 health.unhealthy_until = unhealthy_until
-                
+
                 logger.warning(
                     "Angel model %s reached %d consecutive failures; "
                     "tripping circuit breaker until %s",
@@ -154,10 +154,26 @@ class AngelService:
                             f"Model '{self._model_spec}' reached {health.consecutive_failures} "
                             f"consecutive failures. Angel is disabled until {unhealthy_until.strftime('%H:%M:%S')}."
                         )
-                        # Fire and forget notification
+                        # Fire and forget notification, but keep a reference to avoid
+                        # unobserved task warnings and satisfy linting expectations.
                         import asyncio
-                        asyncio.create_task(
+
+                        notification_task = asyncio.create_task(
                             self._notification_service.send_notification(title, message)
+                        )
+
+                        def _consume_notification_result(task: asyncio.Task) -> None:
+                            try:
+                                task.result()
+                            except Exception:
+                                if logger.isEnabledFor(logging.DEBUG):
+                                    logger.debug(
+                                        "Angel notification task failed",
+                                        exc_info=True,
+                                    )
+
+                        notification_task.add_done_callback(
+                            _consume_notification_result
                         )
                     except Exception as e:
                         logger.debug("Failed to send Angel failure notification: %s", e)

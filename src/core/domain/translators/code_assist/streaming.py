@@ -11,27 +11,12 @@ from src.core.domain.translation_utils.content_utils import (
 from src.core.domain.translation_utils.tool_utils import (
     _process_gemini_function_call,  # pyright: ignore[reportPrivateUsage]
 )
+from src.core.domain.translators.code_assist.textual_tool_call_parser import (
+    parse_textual_tool_calls,
+)
 from src.core.domain.translators.openai.streaming import openai_to_domain_stream_chunk
 
 logger = logging.getLogger(__name__)
-
-
-def _strip_textual_tool_calls(content: str) -> str:
-    """Remove textual tool_call lines from content.
-
-    Some models emit tool call hints as plain text alongside structured tool calls.
-    Keep the natural language text while removing the tool_call lines to avoid
-    duplicate display in clients.
-    """
-    if not content:
-        return content
-    filtered: list[str] = []
-    for line in content.splitlines():
-        stripped = line.strip().lower()
-        if stripped.startswith(("tool_call:", "tool call:")):
-            continue
-        filtered.append(line)
-    return "\n".join(filtered).strip()
 
 
 def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
@@ -173,10 +158,14 @@ def code_assist_to_domain_stream_chunk(chunk: Any) -> dict[str, Any]:
 
     if text_parts:
         text_content = "".join(text_parts)
-        if tool_calls:
-            text_content = _strip_textual_tool_calls(text_content)
-        if text_content:
-            delta["content"] = text_content
+        cleaned_text, textual_tool_calls = parse_textual_tool_calls(text_content)
+        if textual_tool_calls and tool_calls is None:
+            for idx, tool_call in enumerate(textual_tool_calls):
+                tool_call["index"] = idx
+            tool_calls = textual_tool_calls
+
+        if cleaned_text:
+            delta["content"] = cleaned_text
 
     if reasoning_pieces:
         reasoning = "\n".join(

@@ -238,6 +238,9 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
         def get_required_service(self, t):
             return backend_service
 
+        def get_service(self, t):
+            return None
+
     monkeypatch.setattr(
         "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )

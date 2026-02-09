@@ -282,6 +282,9 @@ class SSEAssembler(IStreamAssembler):
                     )
 
                 is_final_chunk = SentinelManager.is_done_marker(chunk)
+                is_openai_stream = chunk.metadata.get("provider") == "openai" or (
+                    isinstance(chunk.content, dict) and "choices" in chunk.content
+                )
 
                 for event_bytes in _iter_sse_events(chunk_bytes):
                     stripped = event_bytes.strip()
@@ -293,9 +296,9 @@ class SSEAssembler(IStreamAssembler):
 
                     if has_content:
                         # Best-effort detection of OpenAI-stream semantics from serialized bytes.
-                        if b'"choices"' in event_bytes:
+                        if is_openai_stream and b'"choices"' in event_bytes:
                             saw_openai_payload = True
-                        if b'"tool_calls"' in event_bytes:
+                        if is_openai_stream and b'"tool_calls"' in event_bytes:
                             saw_tool_calls = True
                         if (
                             b'"finish_reason"' in event_bytes
@@ -303,7 +306,8 @@ class SSEAssembler(IStreamAssembler):
                         ):
                             saw_finish_reason = True
                         if (
-                            b'"choices"' in event_bytes
+                            is_openai_stream
+                            and b'"choices"' in event_bytes
                             and event_bytes.lstrip().startswith(b"data:")
                         ):
                             try:
@@ -363,7 +367,6 @@ class SSEAssembler(IStreamAssembler):
                                 f"data: {json.dumps(terminal)}\n\n".encode()
                             )
                             _ensure_stream_started(stream_id_for_metrics)
-                            metrics.increment_chunks_sent(stream_id_for_metrics)
                             yield terminal_bytes
                             terminal_finish_emitted = True
                             saw_finish_reason = True

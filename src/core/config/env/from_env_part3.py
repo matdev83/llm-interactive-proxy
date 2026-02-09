@@ -324,6 +324,62 @@ def apply_config_part3(
                 origin="MINIMAX_API_KEY",
             )
 
+    # Collect INTERNAI_API_KEY and all numbered variants (INTERNAI_API_KEY_1, _2, etc.)
+    internai_api_keys: list[str] = []
+    if env.get("INTERNAI_API_KEY"):
+        internai_api_keys.append(env["INTERNAI_API_KEY"])
+
+    # Collect numbered variants
+    i = 1
+    while True:
+        key_name = f"INTERNAI_API_KEY_{i}"
+        if key_name in env:
+            key_value = env[key_name]
+            if key_value and key_value not in internai_api_keys:
+                internai_api_keys.append(key_value)
+            i += 1
+        else:
+            break
+
+    if internai_api_keys:
+        config_backends["internlm"] = config_backends.get("internlm", {})
+        # Set primary api_key for backward compatibility
+        config_backends["internlm"]["api_key"] = internai_api_keys[0]
+        # Set list of all keys for rotation in extra dict
+        if "extra" not in config_backends["internlm"]:
+            config_backends["internlm"]["extra"] = {}
+        config_backends["internlm"]["extra"]["api_keys"] = internai_api_keys
+        config_backends["internlm"]["api_url"] = _get_env_value(
+            env,
+            "INTERNAI_API_BASE_URL",
+            "https://chat.intern-ai.org.cn/api/v1",
+            path="backends.internlm.api_url",
+            resolution=resolution,
+        )
+        internai_timeout = _get_env_value(
+            env,
+            "INTERNAI_TIMEOUT",
+            None,
+            path="backends.internlm.timeout",
+            resolution=resolution,
+            transform=lambda value: _to_int(value, 0),
+        )
+        if internai_timeout:
+            config_backends["internlm"]["timeout"] = internai_timeout
+        if resolution is not None:
+            resolution.record(
+                "backends.internlm.api_key",
+                config_backends["internlm"]["api_key"],
+                ParameterSource.ENVIRONMENT,
+                origin="INTERNAI_API_KEY",
+            )
+            resolution.record(
+                "backends.internlm.extra.api_keys",
+                config_backends["internlm"]["extra"]["api_keys"],
+                ParameterSource.ENVIRONMENT,
+                origin="INTERNAI_API_KEY + numbered variants",
+            )
+
     default_backend_type: str = str(config["backends"].get("default_backend", "openai"))
     if default_backend_type not in config_backends:
         config_backends[default_backend_type] = config_backends.get(

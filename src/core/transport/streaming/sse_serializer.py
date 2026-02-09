@@ -20,6 +20,7 @@ from src.core.domain.streaming.stop_chunk_with_usage import (
     UsageChunkLeakError,
 )
 from src.core.domain.streaming.streaming_content import StreamingContent
+from src.core.transport.streaming.sse_serializer_utils import get_first_delta
 
 logger = logging.getLogger(__name__)
 
@@ -323,7 +324,7 @@ class SSESerializer:
                     sanitized_calls.append(sanitized_dict)
 
             if sanitized_calls:
-                delta = self._get_first_delta(content_copy)
+                delta = get_first_delta(content_copy)
                 if delta:
                     delta["tool_calls"] = sanitized_calls
                     if content_copy.get("choices") and isinstance(
@@ -366,15 +367,6 @@ class SSESerializer:
                     tc_list = container.get("tool_calls")
                     if isinstance(tc_list, list) and tc_list:
                         container["tool_calls"] = self._sanitize_tool_calls(tc_list)
-
-    def _get_first_delta(self, content_copy: dict[str, Any]) -> dict[str, Any] | None:
-        """Get first choice delta dict, or None."""
-        choices = content_copy.get("choices", [])
-        if choices and isinstance(choices, list) and isinstance(choices[0], dict):
-            delta = choices[0].get("delta", {})
-            if isinstance(delta, dict):
-                return delta
-        return None
 
     def _inject_reasoning_content(
         self, delta: dict[str, Any], reasoning: str | None
@@ -422,7 +414,7 @@ class SSESerializer:
             self._normalize_openai_chat_completion_to_stream_chunk(working_content)
         )
         self._sanitize_chunk_tool_calls_in_place(content_copy)
-        delta = self._get_first_delta(content_copy)
+        delta = get_first_delta(content_copy)
 
         if delta is not None:
             if is_virtual_tc:

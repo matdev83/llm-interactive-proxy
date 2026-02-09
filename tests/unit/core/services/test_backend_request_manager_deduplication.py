@@ -271,6 +271,51 @@ class TestBackendRequestManagerDeduplication:
         mock_backend_processor.process_backend_request.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_streaming_dedup_bypassed_for_internlm_streaming_requests(
+        self,
+        backend_request_manager: BackendRequestManager,
+        mock_dedup_service: AsyncMock,
+        mock_backend_processor: MagicMock,
+    ) -> None:
+        """InternLM streaming requests bypass dedup to avoid silent empty duplicates.
+
+        Real-world clients may replay identical streaming requests (e.g. after reconnects).
+        The generic streaming-dedup behavior returns a done-only stream, which can look
+        like a successful but empty completion. For InternLM we bypass dedup so the
+        request reaches the backend.
+        """
+        request = ChatRequest(
+            model="internlm:internlm/intern-s1-pro",
+            messages=[ChatMessage(role="user", content="test")],
+            stream=True,
+        )
+        session_id = "test-session"
+        context = RequestContext(
+            headers={"user-agent": "generic-client/1.0"},
+            cookies={},
+            state=MagicMock(),
+            app_state=MagicMock(),
+            agent="generic-client/1.0",
+        )
+
+        async def _empty_stream():
+            if False:  # pragma: no cover - type hint placeholder
+                yield ProcessedResponse()
+            return
+
+        mock_backend_processor.process_backend_request = AsyncMock(
+            return_value=StreamingResponseEnvelope(content=_empty_stream())
+        )
+        mock_dedup_service.check_and_register.return_value = (True, "hash123", 10.0)
+
+        await backend_request_manager.process_backend_request(
+            request, session_id, context
+        )
+
+        mock_dedup_service.check_and_register.assert_not_called()
+        mock_backend_processor.process_backend_request.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_streaming_dedup_marks_complete_only_after_stream_consumed(
         self,
         backend_request_manager: BackendRequestManager,

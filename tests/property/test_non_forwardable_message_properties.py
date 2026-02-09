@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """
 Property-based tests for non-forwardable message tagging.
 
@@ -789,13 +790,29 @@ async def test_property_filtering_scope_semantics(
     identity_service = NonForwardableMessageIdentityService()
     # Ensure all messages are unique to avoid identity collisions between segments
     unique_client_messages = [
-        msg.model_copy(update={"content": f"CLIENT_{i}: {msg.content}"})
-        if isinstance(msg.content, str) else msg
+        msg.model_copy(
+            update={
+                "content": (
+                    f"CLIENT_{i}: {msg.content}"
+                    if isinstance(msg.content, str)
+                    else msg.content
+                ),
+                "name": f"client-{i}",
+            }
+        )
         for i, msg in enumerate(client_messages)
     ]
     unique_injected_messages = [
-        msg.model_copy(update={"content": f"INJECTED_{i}: {msg.content}"})
-        if isinstance(msg.content, str) else msg
+        msg.model_copy(
+            update={
+                "content": (
+                    f"INJECTED_{i}: {msg.content}"
+                    if isinstance(msg.content, str)
+                    else msg.content
+                ),
+                "name": f"injected-{i}",
+            }
+        )
         for i, msg in enumerate(injected_messages)
     ]
     all_messages = unique_client_messages + unique_injected_messages
@@ -890,7 +907,8 @@ async def test_property_filtering_scope_semantics(
 
     # Verify untagged injected messages pass through
     untagged_injected_indices = (
-        set(range(len(unique_client_messages), len(all_messages))) - injected_tagged_indices
+        set(range(len(unique_client_messages), len(all_messages)))
+        - injected_tagged_indices
     )
     for idx in untagged_injected_indices:
         msg_identity = identities[idx]

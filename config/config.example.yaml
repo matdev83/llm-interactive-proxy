@@ -272,6 +272,12 @@ backends:
     # API key set via ZAI_API_KEY environment variable
     timeout: 120
 
+  internlm:
+    # API key set via INTERNAI_API_KEY environment variable
+    # Multiple keys supported: INTERNAI_API_KEY (primary), INTERNAI_API_KEY_1, INTERNAI_API_KEY_2, etc.
+    # Keys are rotated round-robin for load balancing
+    timeout: 120
+
   openai_codex:
     # API key set via OpenAI OAuth flow (see docs)
     timeout: 120
