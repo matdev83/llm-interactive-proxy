@@ -22,7 +22,7 @@ def test_code_assist_stream_chunk_maps_function_call_and_forces_finish_reason() 
                             {
                                 "functionCall": {
                                     "name": "Read",
-                                    "args": {"file_path": "CHANGELOG.md"},
+                                    "args": {"file_path": "CHQUALITY_VERIFIEROG.md"},
                                 }
                             }
                         ],

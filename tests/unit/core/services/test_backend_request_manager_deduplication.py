@@ -12,9 +12,11 @@ from src.core.common.exceptions import DuplicateRequestError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
-from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.quality_verifier_service_interface import (
+    IQualityVerifierServiceFactory,
+)
 from src.core.interfaces.request_deduplication_interface import (
     IRequestDeduplicationService,
 )
@@ -39,8 +41,8 @@ class TestBackendRequestManagerDeduplication:
         return MagicMock(spec=IResponseProcessor)
 
     @pytest.fixture
-    def mock_angel_service_factory(self) -> MagicMock:
-        return MagicMock(spec=IAngelServiceFactory)
+    def mock_quality_verifier_service_factory(self) -> MagicMock:
+        return MagicMock(spec=IQualityVerifierServiceFactory)
 
     @pytest.fixture
     def mock_dedup_service(self) -> AsyncMock:
@@ -55,7 +57,7 @@ class TestBackendRequestManagerDeduplication:
         self,
         mock_backend_processor: MagicMock,
         mock_response_processor: MagicMock,
-        mock_angel_service_factory: MagicMock,
+        mock_quality_verifier_service_factory: MagicMock,
         mock_dedup_service: AsyncMock,
         mock_config: MagicMock,
     ) -> BackendRequestManager:

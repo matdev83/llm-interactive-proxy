@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 from src.core.interfaces.backend_request_manager_components import (
-    IAngelStreamVerifier,
     IBackendRequestPreparation,
     ILoopDetectorFactory,
     INonStreamingBackendResponseHandler,
+    IQualityVerifierStreamVerifier,
     IStreamingBackendResponseHandler,
     IStructuredOutputEnforcer,
     IToolCallRetryCoordinator,
@@ -103,15 +103,15 @@ class TestILoopDetectorFactory:
         assert callable(ILoopDetectorFactory.create)
 
 
-class TestIAngelStreamVerifier:
-    """Tests for IAngelStreamVerifier interface contract."""
+class TestIQualityVerifierStreamVerifier:
+    """Tests for IQualityVerifierStreamVerifier interface contract."""
 
     def test_interface_is_abstract(self) -> None:
-        """Test that IAngelStreamVerifier cannot be instantiated."""
+        """Test that IQualityVerifierStreamVerifier cannot be instantiated."""
         with pytest.raises(TypeError):
-            IAngelStreamVerifier()  # type: ignore[abstract]
+            IQualityVerifierStreamVerifier()  # type: ignore[abstract]
 
     def test_interface_has_verify_or_passthrough_method(self) -> None:
-        """Test that IAngelStreamVerifier defines verify_or_passthrough method."""
-        assert hasattr(IAngelStreamVerifier, "verify_or_passthrough")
-        assert callable(IAngelStreamVerifier.verify_or_passthrough)
+        """Test that IQualityVerifierStreamVerifier defines verify_or_passthrough method."""
+        assert hasattr(IQualityVerifierStreamVerifier, "verify_or_passthrough")
+        assert callable(IQualityVerifierStreamVerifier.verify_or_passthrough)

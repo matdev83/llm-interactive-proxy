@@ -74,13 +74,9 @@ async def test_qwen_oauth_static_routing_model_override_regression():
             mock_refresh.return_value = True
             mock_load_creds.return_value = True
 
-            # Mock the parent OpenAIConnector.chat_completions method to capture the call
-            # Use __bases__[0] to ensure we patch the exact base class object QwenOAuthConnector is using,
-            # which handles cases where modules might be reloaded during tests.
-            base_cls = QwenOAuthConnector.__bases__[0]
-            with patch.object(
-                base_cls,
-                "chat_completions",
+            # Mock the runtime OpenAIConnector entrypoint used by QwenOAuthConnector.
+            with patch(
+                "src.connectors.openai.OpenAIConnector.chat_completions",
                 new_callable=AsyncMock,
             ) as mock_parent_chat:
 
@@ -201,13 +197,9 @@ async def test_qwen_oauth_model_name_processing_with_static_routes():
             mock_refresh.return_value = True
             mock_load_creds.return_value = True
 
-            # Mock the parent OpenAIConnector.chat_completions method
-            # Use __bases__[0] to ensure we patch the exact base class object QwenOAuthConnector is using,
-            # which handles cases where modules might be reloaded during tests.
-            base_cls = QwenOAuthConnector.__bases__[0]
-            with patch.object(
-                base_cls,
-                "chat_completions",
+            # Mock the runtime OpenAIConnector entrypoint used by QwenOAuthConnector.
+            with patch(
+                "src.connectors.openai.OpenAIConnector.chat_completions",
                 new_callable=AsyncMock,
             ) as mock_parent_chat:
 
@@ -332,13 +324,9 @@ async def test_qwen_oauth_prevents_original_model_leakage():
             mock_refresh.return_value = True
             mock_load_creds.return_value = True
 
-            # Mock the parent OpenAIConnector.chat_completions method
-            # Use __bases__[0] to ensure we patch the exact base class object QwenOAuthConnector is using,
-            # which handles cases where modules might be reloaded during tests.
-            base_cls = QwenOAuthConnector.__bases__[0]
-            with patch.object(
-                base_cls,
-                "chat_completions",
+            # Mock the runtime OpenAIConnector entrypoint used by QwenOAuthConnector.
+            with patch(
+                "src.connectors.openai.OpenAIConnector.chat_completions",
                 new_callable=AsyncMock,
             ) as mock_parent_chat:
 

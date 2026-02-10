@@ -21,7 +21,9 @@ def test_stream_adapter_cleanup_removes_rendered_tool_text_from_content(
     from unittest.mock import patch
 
     # Mock the render_tool_call to return expected XML content
-    with patch("src.core.domain.translation.render_tool_call") as mock_render:
+    with patch(
+        "src.core.domain.translators.responses.streaming.render_tool_call"
+    ) as mock_render:
         mock_render.return_value = (
             "<execute_command><command>ls -l</command></execute_command>"
         )

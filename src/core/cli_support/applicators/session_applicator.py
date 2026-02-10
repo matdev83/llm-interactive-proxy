@@ -3,7 +3,7 @@
 This applicator handles:
 - disable_interactive_mode, force_set_project, project_dir_resolution_*
 - disable_interactive_commands, strict_command_detection
-- use_angel_model, angel_frequency
+- quality_verifier_model, quality_verifier_frequency
 - Planning phase settings
 - Pytest settings
 - Tool access overrides
@@ -54,7 +54,7 @@ class SessionApplicator:
         """
         self._apply_interactive_settings(args, overrides, resolution)
         self._apply_project_settings(args, overrides, resolution)
-        self._apply_angel_settings(args, overrides, resolution)
+        self._apply_quality_verifier_settings(args, overrides, resolution)
         self._apply_planning_phase(args, overrides, resolution)
         self._apply_pytest_settings(args, overrides, resolution)
         self._apply_tool_access(args, overrides, resolution)
@@ -136,40 +136,40 @@ class SessionApplicator:
                 origin="--project-dir-resolution-mode",
             )
 
-    def _apply_angel_settings(
+    def _apply_quality_verifier_settings(
         self,
         args: CliArgs,
         overrides: CliOverrides,
         resolution: ParameterResolution,
     ) -> None:
-        """Apply Angel model settings."""
-        if getattr(args, "use_angel_model", None) is not None:
+        """Apply Quality Verifier model settings."""
+        if getattr(args, "quality_verifier_model", None) is not None:
             session = overrides.setdefault("session", {})
-            session["angel_model"] = args.use_angel_model
-            os.environ["ANGEL_MODEL"] = args.use_angel_model
+            session["quality_verifier_model"] = args.quality_verifier_model
+            os.environ["QUALITY_VERIFIER_MODEL"] = args.quality_verifier_model
             resolution.record(
-                "session.angel_model",
-                args.use_angel_model,
+                "session.quality_verifier_model",
+                args.quality_verifier_model,
                 ParameterSource.CLI,
-                origin="--use-angel-model",
+                origin="--quality-verifier-model",
             )
 
-        if getattr(args, "angel_frequency", None) is not None:
-            frequency = max(1, int(args.angel_frequency))
+        if getattr(args, "quality_verifier_frequency", None) is not None:
+            frequency = max(1, int(args.quality_verifier_frequency))
             session = overrides.setdefault("session", {})
-            session["angel_frequency"] = frequency
-            os.environ["ANGEL_FREQUENCY"] = str(frequency)
+            session["quality_verifier_frequency"] = frequency
+            os.environ["QUALITY_VERIFIER_FREQUENCY"] = str(frequency)
             resolution.record(
-                "session.angel_frequency",
+                "session.quality_verifier_frequency",
                 frequency,
                 ParameterSource.CLI,
-                origin="--angel-frequency",
+                origin="--quality-verifier-frequency",
             )
 
-        if getattr(args, "angel_max_history", None) is not None:
+        if getattr(args, "quality_verifier_max_history", None) is not None:
             max_history: int | None
             try:
-                max_history = int(args.angel_max_history)
+                max_history = int(args.quality_verifier_max_history)
             except (TypeError, ValueError):
                 max_history = None
 
@@ -178,40 +178,40 @@ class SessionApplicator:
                 max_history = None
 
             session = overrides.setdefault("session", {})
-            session["angel_max_history"] = max_history
+            session["quality_verifier_max_history"] = max_history
             if max_history is None:
-                os.environ.pop("ANGEL_MAX_HISTORY", None)
+                os.environ.pop("QUALITY_VERIFIER_MAX_HISTORY", None)
             else:
-                os.environ["ANGEL_MAX_HISTORY"] = str(max_history)
+                os.environ["QUALITY_VERIFIER_MAX_HISTORY"] = str(max_history)
             resolution.record(
-                "session.angel_max_history",
+                "session.quality_verifier_max_history",
                 max_history,
                 ParameterSource.CLI,
-                origin="--angel-max-history",
+                origin="--quality-verifier-max-history",
             )
 
-        if getattr(args, "angel_max_consecutive_failures", None) is not None:
-            failures = max(1, int(args.angel_max_consecutive_failures))
+        if getattr(args, "quality_verifier_max_consecutive_failures", None) is not None:
+            failures = max(1, int(args.quality_verifier_max_consecutive_failures))
             session = overrides.setdefault("session", {})
-            session["angel_max_consecutive_failures"] = failures
-            os.environ["ANGEL_MAX_CONSECUTIVE_FAILURES"] = str(failures)
+            session["quality_verifier_max_consecutive_failures"] = failures
+            os.environ["QUALITY_VERIFIER_MAX_CONSECUTIVE_FAILURES"] = str(failures)
             resolution.record(
-                "session.angel_max_consecutive_failures",
+                "session.quality_verifier_max_consecutive_failures",
                 failures,
                 ParameterSource.CLI,
-                origin="--angel-max-consecutive-failures",
+                origin="--quality-verifier-max-consecutive-failures",
             )
 
-        if getattr(args, "angel_cooldown_seconds", None) is not None:
-            cooldown = max(0, int(args.angel_cooldown_seconds))
+        if getattr(args, "quality_verifier_cooldown_seconds", None) is not None:
+            cooldown = max(0, int(args.quality_verifier_cooldown_seconds))
             session = overrides.setdefault("session", {})
-            session["angel_cooldown_seconds"] = cooldown
-            os.environ["ANGEL_COOLDOWN_SECONDS"] = str(cooldown)
+            session["quality_verifier_cooldown_seconds"] = cooldown
+            os.environ["QUALITY_VERIFIER_COOLDOWN_SECONDS"] = str(cooldown)
             resolution.record(
-                "session.angel_cooldown_seconds",
+                "session.quality_verifier_cooldown_seconds",
                 cooldown,
                 ParameterSource.CLI,
-                origin="--angel-cooldown-seconds",
+                origin="--quality-verifier-cooldown-seconds",
             )
 
     def _apply_planning_phase(

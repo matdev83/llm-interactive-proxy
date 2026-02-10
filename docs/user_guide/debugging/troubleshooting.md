@@ -461,26 +461,21 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 
 ## Feature-Specific Issues
 
-### LLM Assessment Not Working
 
-**Problem**: [LLM Assessment System](../features/llm-assessment.md) not detecting loops
 
 **Solutions**:
 
 1. **Verify assessment is enabled**:
    ```bash
-   python -m src.core.cli --enable-llm-assessment
    ```
 
 2. **Check turn threshold**:
    ```yaml
-   llm_assessment:
      turn_threshold: 30  # Lower for more frequent checks
    ```
 
 3. **Verify assessment backend is configured**:
    ```yaml
-   llm_assessment:
      backend: openai
      model: gpt-4o-mini
    ```

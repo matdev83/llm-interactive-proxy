@@ -316,4 +316,3 @@ The system automatically detects completion signals from these agents without re
 - [Pytest Full-Suite Steering](features/pytest-full-suite-steering.md) - Prevents agents from running entire test suites inadvertently
 - [Dangerous Command Protection](features/dangerous-command-protection.md) - Blocks destructive operations
 - [Tool Access Control](features/tool-access-control.md) - Fine-grained control over tool usage
-- [LLM Assessment](features/llm-assessment.md) - Detects conversation loops and stuck patterns

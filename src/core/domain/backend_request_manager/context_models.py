@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 # Type alias for streaming context dictionary
 # This matches the middleware context pattern used throughout the codebase
-# and aligns with design.md specification for IAngelStreamVerifier
+# and aligns with design.md specification for IQualityVerifierStreamVerifier
 StreamingContext = dict[str, Any]
 
 

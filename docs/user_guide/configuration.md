@@ -247,10 +247,10 @@ session:
   fix_think_tags_enabled: false
   fix_think_tags_streaming_buffer_size: 4096
   
-  # Angel Verification
-  angel_model: null            # "backend:model"
-  angel_frequency: 10          # Every N eligible turns (main-model turns)
-  angel_max_history: null      # Optional history truncation (int)
+  # Quality Verifier
+  quality_verifier_model: null            # "backend:model"
+  quality_verifier_frequency: 10          # Every N eligible turns (main-model turns)
+  quality_verifier_max_history: null      # Optional history truncation (int)
   
   # Planning Phase
   planning_phase:
@@ -349,10 +349,8 @@ edit_precision:
   exclude_agents_regex: null
 ```
 
-### LLM Assessment (`assessment`)
 
 ```yaml
-assessment:
   enabled: false
   backend: "openai"
   model: "gpt-4o-mini"

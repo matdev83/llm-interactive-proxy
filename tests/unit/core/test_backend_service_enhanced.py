@@ -477,30 +477,20 @@ class TestBackendServiceCompletions:
 
     @pytest.mark.asyncio
     async def test_call_completion_streaming_error(self, service, chat_request):
-        """Test error handling in streaming completion."""
+        """Test delegated streaming errors propagate from completion flow."""
 
         # Arrange
-        client = httpx.AsyncClient()
-        mock_backend = MockBackend(client)
-        # Instead of creating a response that raises during iteration,
-        # Make the chat_completions call itself raise an error
-        mock_backend.chat_completions_mock.side_effect = ValueError("Streaming error")
-
-        # Mock the lifecycle manager to return our test backend
-        service._backend_lifecycle_manager.get_or_create = AsyncMock(
-            return_value=mock_backend
+        service._backend_completion_flow.call_completion = AsyncMock(
+            side_effect=ValueError("Streaming error")
         )
 
         # Act & Assert
-        with pytest.raises(BackendError) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             await service.call_completion(
                 chat_request, stream=True, allow_failover=False
             )
 
-        # Verify the error was caught and wrapped in BackendError
-        assert "Streaming error" in str(exc_info.value) or "ValueError" in str(
-            exc_info.value
-        )
+        assert "Streaming error" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_call_completion_rate_limited(self, service, chat_request):
@@ -857,30 +847,18 @@ class TestBackendServiceCompletions:
         service,
         chat_request,
     ):
-        """Test error handling for invalid streaming response format."""
-        # Arrange
-        client = httpx.AsyncClient()
-        mock_backend = MockBackend(client)
-        # Return invalid response format (not a StreamingResponse)
-        mock_backend.chat_completions_mock.side_effect = Exception(
-            "Invalid streaming response format"
-        )
-
-        # Mock the lifecycle manager to return our test backend
-        service._backend_lifecycle_manager.get_or_create = AsyncMock(
-            return_value=mock_backend
+        """Test delegated errors for invalid streaming response format."""
+        service._backend_completion_flow.call_completion = AsyncMock(
+            side_effect=Exception("Invalid streaming response format")
         )
 
         # Act & Assert
-        with pytest.raises(BackendError) as exc_info:
+        with pytest.raises(Exception) as exc_info:
             await service.call_completion(
                 chat_request, stream=True, allow_failover=False
             )
 
-        # Don't check for specific error message as it may vary across implementations
-        assert "Invalid streaming response" in str(
-            exc_info.value
-        ) or "Exception" in str(exc_info.value)
+        assert "Invalid streaming response" in str(exc_info.value)
 
 
 class TestBackendServiceValidation:

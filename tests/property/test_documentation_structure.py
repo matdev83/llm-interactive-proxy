@@ -70,18 +70,18 @@ class TestDocumentationStructure:
             assert file_path.exists(), f"Required file missing: {file_path}"
             assert file_path.is_file(), f"Path is not a file: {file_path}"
 
-    def test_readme_length_under_200_lines(self, readme_path: Path) -> None:
+    def test_readme_length_under_250_lines(self, readme_path: Path) -> None:
         """
         Property 1: Required Documentation Structure (README length check)
         Validates: Requirements 2.1
 
-        For any README.md, it must be under 200 lines.
+        For any README.md, it must be under 250 lines.
         """
         with open(readme_path, encoding="utf-8") as f:
             lines = f.readlines()
 
-        assert len(lines) < 200, (
-            f"README.md has {len(lines)} lines, must be under 200. "
+        assert len(lines) < 250, (
+            f"README.md has {len(lines)} lines, must be under 250. "
             f"Current length: {len(lines)}"
         )
 

@@ -289,27 +289,19 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | :--- | :--- | :--- | :--- |
 | `--enable-activity-tracking` | `ENABLE_ACTIVITY_TRACKING=1` | `enable_activity_tracking: true` | Enable connection activity tracking (RX/TX counters per session). |
 
-### LLM Assessment
 
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
-| `--enable-llm-assessment` | `LLM_ASSESSMENT_ENABLED=true` | Enable conversation assessment. |
-| `--disable-llm-loop-assessment` | `LLM_ASSESSMENT_ENABLED=false` | Disable conversation assessment. |
-| `--llm-assessment-turn-threshold N` | `LLM_ASSESSMENT_TURN_THRESHOLD` | Turns before assessment activates. |
-| `--llm-assessment-confidence-threshold FLOAT` | `LLM_ASSESSMENT_CONFIDENCE_THRESHOLD` | Confidence threshold for intervention. |
-| `--llm-assessment-model BACKEND:MODEL` | `LLM_ASSESSMENT_MODEL` | Backend and model for assessment. |
-| `--llm-assessment-history-window N` | `LLM_ASSESSMENT_HISTORY_WINDOW` | History window size. |
-| N/A | `LLM_ASSESSMENT_BACKEND` | Backend for assessment. |
 
-### Angel Verification
+### Quality Verifier
 
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
-| `--use-angel-model BACKEND:MODEL` | `ANGEL_MODEL` | Enable Angel verification with model. |
-| `--angel-frequency N` | `ANGEL_FREQUENCY` | Run verification every N user turns (default: 1). |
-| `--angel-max-history N` | `ANGEL_MAX_HISTORY` | Truncate history for Angel verification to last N messages (optional). |
-| `--angel-max-consecutive-failures N` | `ANGEL_MAX_CONSECUTIVE_FAILURES` | Trip the Angel circuit breaker after N consecutive failures (default: 5). |
-| `--angel-cooldown-seconds N` | `ANGEL_COOLDOWN_SECONDS` | Cooldown period before Angel verification can retry (default: 300s). |
+| `--quality-verifier-model BACKEND:MODEL` | `QUALITY_VERIFIER_MODEL` | Enable Quality Verifier with model. |
+| `--quality-verifier-frequency N` | `QUALITY_VERIFIER_FREQUENCY` | Run verification every N user turns (default: 1). |
+| `--quality-verifier-max-history N` | `QUALITY_VERIFIER_MAX_HISTORY` | Truncate history for Quality Verifier to last N messages (optional). |
+| `--quality-verifier-max-consecutive-failures N` | `QUALITY_VERIFIER_MAX_CONSECUTIVE_FAILURES` | Trip the Angel circuit breaker after N consecutive failures (default: 5). |
+| `--quality-verifier-cooldown-seconds N` | `QUALITY_VERIFIER_COOLDOWN_SECONDS` | Cooldown period before Quality Verifier can retry (default: 300s). |
 
 ### Tool Access Control
 

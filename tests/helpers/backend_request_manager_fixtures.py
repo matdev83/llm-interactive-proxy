@@ -21,7 +21,7 @@ from src.core.services.backend_request_preparation_service import (
     BackendRequestPreparationService,
 )
 from src.core.services.tool_call_retry_coordinator import ToolCallRetryCoordinator
-from tests.helpers.angel_factory_stub import AngelFactoryStub
+from tests.helpers.quality_verifier_factory_stub import QualityVerifierFactoryStub
 
 
 def create_backend_request_manager(
@@ -101,23 +101,23 @@ def create_backend_request_manager(
     )
 
     # Create streaming handler
-    from src.core.services.backend_request_manager.angel_stream_verifier import (
-        AngelStreamVerifier,
-    )
     from src.core.services.backend_request_manager.loop_detector_factory import (
         LoopDetectorFactory,
     )
+    from src.core.services.backend_request_manager.quality_verifier_stream_verifier import (
+        QualityVerifierStreamVerifier,
+    )
 
     loop_detector_factory = LoopDetectorFactory(provider=mock_provider)
-    angel_verifier = AngelStreamVerifier(
-        angel_service_factory=AngelFactoryStub(),
+    angel_verifier = QualityVerifierStreamVerifier(
+        quality_verifier_service_factory=QualityVerifierFactoryStub(),
         provider=mock_provider,
     )
 
     streaming_handler = BackendStreamingResponseHandler(
         response_processor=response_processor,
         loop_detector_factory=loop_detector_factory,
-        angel_stream_verifier=angel_verifier,
+        quality_verifier_stream_verifier=angel_verifier,
         tool_call_retry_coordinator=retry_coordinator,
         backend_processor=backend_processor,
     )
@@ -137,7 +137,7 @@ def create_backend_request_manager(
     return BackendRequestManager(
         backend_processor=backend_processor,
         response_processor=response_processor,
-        angel_service_factory=AngelFactoryStub(),
+        quality_verifier_service_factory=QualityVerifierFactoryStub(),
         request_preparation=request_preparation,
         non_streaming_handler=non_streaming_handler,
         streaming_handler=streaming_handler,

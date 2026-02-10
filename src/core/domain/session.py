@@ -86,10 +86,10 @@ class SessionState(ValueObject):
     replacement_disabled: bool = False
     client_os: str | None = None
 
-    # Angel verification turn accounting
+    # Quality Verifier turn accounting
     # Counts only "eligible" turns (i.e., turns handled by the main model, excluding
     # tool-result continuation requests and random replacement-model turns).
-    angel_eligible_turn_count: int = 0
+    quality_verifier_eligible_turn_count: int = 0
 
     def with_backend_config(self, backend_config: BackendConfiguration) -> SessionState:
         """Create a new session state with updated backend config."""

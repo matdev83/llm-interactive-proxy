@@ -61,14 +61,6 @@ def _get_action_by_dest(
     return None
 
 
-def _get_groups(parser: argparse.ArgumentParser) -> dict[str, argparse.Action]:
-    """Get all argument groups and their actions."""
-    groups: dict[str, list[argparse.Action]] = {}
-    for group in parser._action_groups:
-        groups[group.title or "default"] = list(group._group_actions)
-    return groups  # type: ignore[return-value]
-
-
 # =============================================================================
 # Core Parser Construction Tests
 # =============================================================================
@@ -122,8 +114,8 @@ class TestBackendSelectionFlags:
             "--hybrid-reasoning-model-timeout",
             "--hybrid-reasoning-force-initial-turns",
             "--model-alias",
-            "--use-angel-model",
-            "--angel-frequency",
+            "--quality-verifier-model",
+            "--quality-verifier-frequency",
         ],
     )
     def test_backend_flags_present(
@@ -518,29 +510,27 @@ class TestRoutingFlags:
 
 
 # =============================================================================
-# LLM Assessment Flags Tests
+# Quality Verifier Flags Tests
 # =============================================================================
 
 
-class TestLlmAssessmentFlags:
-    """Tests for LLM assessment CLI arguments."""
+class TestQualityVerifierFlags:
+    """Tests for Quality Verifier CLI arguments."""
 
     @pytest.mark.parametrize(
         "flag",
         [
-            "--enable-llm-assessment",
-            "--enable-llm-loop-assessment",  # Legacy alias
-            "--disable-llm-loop-assessment",
-            "--llm-assessment-turn-threshold",
-            "--llm-assessment-confidence-threshold",
-            "--llm-assessment-model",
-            "--llm-assessment-history-window",
+            "--quality-verifier-model",
+            "--quality-verifier-frequency",
+            "--quality-verifier-max-history",
+            "--quality-verifier-max-consecutive-failures",
+            "--quality-verifier-cooldown-seconds",
         ],
     )
-    def test_llm_assessment_flags_present(
+    def test_quality_verifier_flags_present(
         self, parser: argparse.ArgumentParser, flag: str
     ) -> None:
-        """LLM assessment flags are present."""
+        """Quality Verifier flags are present."""
         flags = _collect_cli_flags(parser)
         assert flag in flags, f"Flag {flag} not found in parser"
 
@@ -755,11 +745,6 @@ class TestArgumentGroups:
         """Parser has a Routing Control argument group."""
         group_names = [g.title for g in parser._action_groups]
         assert "Routing Control" in group_names
-
-    def test_has_llm_assessment_group(self, parser: argparse.ArgumentParser) -> None:
-        """Parser has a LLM Assessment argument group."""
-        group_names = [g.title for g in parser._action_groups]
-        assert "LLM Assessment" in group_names
 
     def test_has_client_identity_override_group(
         self, parser: argparse.ArgumentParser

@@ -303,14 +303,14 @@ properties:
       tool_access_global_overrides: { type: ["object", "null"] }
       force_reprocess_tool_calls: { type: boolean }
       log_skipped_tool_calls: { type: boolean }
-      angel_model: { type: ["string", "null"] }
-      angel_frequency:
+      quality_verifier_model: { type: ["string", "null"] }
+      quality_verifier_frequency:
         type: integer
         minimum: 1
         default: 1
-      angel_max_history: { type: ["integer", "null"], minimum: 1 }
-      angel_max_consecutive_failures: { type: integer, minimum: 1 }
-      angel_cooldown_seconds: { type: integer, minimum: 0 }
+      quality_verifier_max_history: { type: ["integer", "null"], minimum: 1 }
+      quality_verifier_max_consecutive_failures: { type: integer, minimum: 1 }
+      quality_verifier_cooldown_seconds: { type: integer, minimum: 0 }
   backends:
     type: object
     additionalProperties: true
@@ -582,19 +582,3 @@ properties:
         minimum: 1
         default: 10000
         description: "Maximum number of stored non-forwardable identities per session"
-  assessment:
-    type: object
-    additionalProperties: false
-    properties:
-      enabled: { type: boolean }
-      turn_threshold: { type: integer, minimum: 1 }
-      confidence_threshold: { type: number, minimum: 0, maximum: 1 }
-      history_window: { type: integer, minimum: 1 }
-      min_interval: { type: integer, minimum: 1 }
-      max_interval: { type: integer, minimum: 1 }
-      default_interval: { type: integer, minimum: 1 }
-      backend: { type: string }
-      model: { type: string }
-      disable_for_sessions:
-        type: array
-        items: { type: string }

@@ -214,6 +214,5 @@ session:
 
 ## Related Features
 
-- [LLM Assessment System](llm-assessment.md) - Monitors conversation quality over time
-- [Angel Verification System](angel-verification.md) - Verifies individual responses for quality
+- [Quality Verifier System](quality-verifier.md) - Verifies individual responses for quality
 - [Hybrid Backend](hybrid-backend.md) - Uses reasoning from one model to improve another

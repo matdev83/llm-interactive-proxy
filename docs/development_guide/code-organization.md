@@ -98,7 +98,7 @@ src/core/
 **`services/`** - Business Services
 
 - [LLM Assessment Service](../user_guide/features/llm-assessment.md)
-- [Angel Verification Service](../user_guide/features/angel-verification.md)
+- [Quality Verifier Service](../user_guide/features/quality-verifier.md)
 - [Session Management Service](../user_guide/features/session-management.md)
 - [Tool Call Reactor Service](../user_guide/features/tool-access-control.md)
 - Performance Tracking Service
@@ -250,7 +250,7 @@ Configuration files and templates:
 config/
 ├── backends/               # Backend-specific configurations
 ├── prompts/                # Prompt templates
-│   └── angel_prompts/     # Angel verification prompts
+│   └── quality_verifier_prompts/     # Quality Verifier prompts
 ├── replacements/           # Text replacement rules
 ├── schemas/                # JSON schemas
 ├── config.example.yaml     # Example configuration
@@ -316,7 +316,7 @@ scripts/
 ### Quality Assurance
 
 - **LLM Assessment** (`src/core/services/`): Monitors conversation quality
-- **Angel Verification** (`src/core/services/`): Verifies individual responses
+- **Quality Verifier** (`src/core/services/`): Verifies individual responses
 - **Tool Call Validation** (`src/tool_call_loop/`): Validates and repairs tool calls
 
 ### Observability

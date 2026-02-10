@@ -67,7 +67,6 @@ class ArgumentParserBuilder:
         self._add_tool_access_arguments(parser)
         self._add_routing_arguments(parser)
         self._add_auxiliary_routing_arguments(parser)
-        self._add_llm_assessment_arguments(parser)
         self._add_identity_arguments(parser)
         self._add_memory_arguments(parser)
         self._add_failure_handling_arguments(parser)
@@ -255,43 +254,43 @@ class ArgumentParserBuilder:
             help="Add a model name rewrite rule. Pattern is a regex, replacement can use capture groups (\\1, \\2, etc.). Can be specified multiple times. Example: --model-alias '^gpt-(.*)=openrouter:openai/gpt-\\1'",
         )
 
-        # Angel verification model (experimental)
+        # Quality Verifier model (experimental)
         parser.add_argument(
-            "--use-angel-model",
-            dest="use_angel_model",
+            "--quality-verifier-model",
+            dest="quality_verifier_model",
             metavar="BACKEND:MODEL[?params]",
             help=(
-                "Enable Angel verification with model spec (e.g., "
+                "Enable Quality Verifier with model spec (e.g., "
                 "anthropic:claude-3-5-sonnet?temperature=1&reasoning_effort=high)"
             ),
         )
         parser.add_argument(
-            "--angel-frequency",
-            dest="angel_frequency",
+            "--quality-verifier-frequency",
+            dest="quality_verifier_frequency",
             type=int,
             metavar="N",
-            help="Run Angel verification every N eligible turns (default: 10)",
+            help="Run Quality Verifier every N eligible turns (default: 10)",
         )
         parser.add_argument(
-            "--angel-max-history",
-            dest="angel_max_history",
+            "--quality-verifier-max-history",
+            dest="quality_verifier_max_history",
             type=int,
             metavar="N",
-            help="Truncate history for Angel verification to N messages (default: unlimited/disabled)",
+            help="Truncate history for Quality Verifier to N messages (default: unlimited/disabled)",
         )
         parser.add_argument(
-            "--angel-max-consecutive-failures",
-            dest="angel_max_consecutive_failures",
+            "--quality-verifier-max-consecutive-failures",
+            dest="quality_verifier_max_consecutive_failures",
             type=int,
             metavar="N",
-            help="Maximum consecutive failures for Angel model before tripping circuit breaker (default: 5)",
+            help="Maximum consecutive failures for Quality Verifier model before tripping circuit breaker (default: 5)",
         )
         parser.add_argument(
-            "--angel-cooldown-seconds",
-            dest="angel_cooldown_seconds",
+            "--quality-verifier-cooldown-seconds",
+            dest="quality_verifier_cooldown_seconds",
             type=int,
             metavar="SECONDS",
-            help="Cooldown period in seconds for Angel circuit breaker (default: 300)",
+            help="Cooldown period in seconds for Quality Verifier circuit breaker (default: 300)",
         )
 
     def _validate_model_alias(self, value: str) -> tuple[str, str]:
@@ -1254,56 +1253,6 @@ class ArgumentParserBuilder:
             type=int,
             metavar="N",
             help="Maximum message count for a request to be considered auxiliary (default: 3)",
-        )
-
-    def _add_llm_assessment_arguments(self, parser: argparse.ArgumentParser) -> None:
-        """Add LLM assessment arguments."""
-        assessment_group = parser.add_argument_group(
-            "LLM Assessment", "Options for LLM-based conversation assessment"
-        )
-        # Primary enable flag (opt-in design - feature is disabled by default)
-        assessment_group.add_argument(
-            "--enable-llm-assessment",
-            action="store_true",
-            dest="llm_assessment_enabled",
-            help="Enable LLM-based conversation assessment for detecting unproductive patterns",
-        )
-        # Legacy alias for backward compatibility
-        assessment_group.add_argument(
-            "--enable-llm-loop-assessment",
-            action="store_true",
-            dest="llm_assessment_enabled",
-            help=argparse.SUPPRESS,  # Hide from help, kept for backward compatibility
-        )
-        assessment_group.add_argument(
-            "--disable-llm-loop-assessment",
-            action="store_false",
-            dest="llm_assessment_enabled",
-            default=None,
-            help="Disable LLM-based conversation assessment (overrides config)",
-        )
-
-        assessment_group.add_argument(
-            "--llm-assessment-turn-threshold",
-            type=int,
-            help="Number of turns before assessment is activated (default: 30, replicates gemini-cli LLM_CHECK_AFTER_TURNS)",
-        )
-        assessment_group.add_argument(
-            "--llm-assessment-confidence-threshold",
-            type=float,
-            help="Confidence threshold for triggering interventions (default: 0.9)",
-        )
-        assessment_group.add_argument(
-            "--llm-assessment-model",
-            type=str,
-            dest="llm_assessment_model",
-            metavar="BACKEND:MODEL",
-            help="Consolidated backend and model for loop assessment (e.g., openai:gpt-4o-mini)",
-        )
-        assessment_group.add_argument(
-            "--llm-assessment-history-window",
-            type=int,
-            help="Number of recent conversation turns to include in assessment (default: 20, replicates gemini-cli LLM_LOOP_CHECK_HISTORY_COUNT)",
         )
 
     def _add_identity_arguments(self, parser: argparse.ArgumentParser) -> None:

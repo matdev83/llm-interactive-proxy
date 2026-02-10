@@ -15,6 +15,7 @@ Test-Driven Development (TDD):
 from __future__ import annotations
 
 import argparse
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -25,7 +26,7 @@ import pytest
 
 
 @pytest.fixture
-def validator() -> object:
+def validator() -> Any:
     """Create a CliArgsValidator instance."""
     from src.core.cli_support.cli_args_validator import CliArgsValidator
 
@@ -167,121 +168,6 @@ class TestRandomModelReplacementValidation:
         validator.validate(args)  # type: ignore[union-attr]
 
 
-class TestLlmAssessmentValidation:
-    """Tests for LLM assessment configuration validation."""
-
-    def test_passes_when_assessment_disabled(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation passes when assessment is not enabled."""
-        args.llm_assessment_enabled = False
-        args.llm_assessment_model = None
-        validator.validate(args)  # type: ignore[union-attr]
-
-    def test_passes_when_assessment_none(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation passes when assessment is None (not set)."""
-        args.llm_assessment_enabled = None
-        args.llm_assessment_model = None
-        validator.validate(args)  # type: ignore[union-attr]
-
-    def test_raises_when_assessment_enabled_no_model(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation raises ValueError when assessment enabled but model missing."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = None
-
-        with pytest.raises(ValueError) as exc_info:
-            validator.validate(args)  # type: ignore[union-attr]
-
-        assert "LLM assessment model must be specified" in str(exc_info.value)
-        assert "--enable-llm-assessment" in str(exc_info.value)
-        assert "--llm-assessment-model" in str(exc_info.value)
-
-    def test_raises_when_assessment_enabled_empty_model(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation raises ValueError when assessment enabled but model is empty."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = "   "
-
-        with pytest.raises(ValueError) as exc_info:
-            validator.validate(args)  # type: ignore[union-attr]
-
-        assert "LLM assessment model must be specified" in str(exc_info.value)
-
-    def test_raises_when_model_format_invalid(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation raises ValueError when model format is invalid (no colon)."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = "openai-gpt-4o-mini"  # Missing colon
-
-        with pytest.raises(ValueError) as exc_info:
-            validator.validate(args)  # type: ignore[union-attr]
-
-        assert "Invalid format" in str(exc_info.value)
-        assert "BACKEND:MODEL" in str(exc_info.value)
-
-    def test_raises_when_backend_empty(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation raises ValueError when backend part is empty."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = ":gpt-4o-mini"  # Empty backend
-
-        with pytest.raises(ValueError) as exc_info:
-            validator.validate(args)  # type: ignore[union-attr]
-
-        assert "Both backend and model must be specified" in str(exc_info.value)
-
-    def test_raises_when_model_name_empty(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation raises ValueError when model name part is empty."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = "openai:"  # Empty model
-
-        with pytest.raises(ValueError) as exc_info:
-            validator.validate(args)  # type: ignore[union-attr]
-
-        assert "Both backend and model must be specified" in str(exc_info.value)
-
-    def test_passes_with_valid_model_format(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation passes with valid BACKEND:MODEL format."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = "openai:gpt-4o-mini"
-
-        # Mock backend registry to return the backend
-        with patch(
-            "src.core.cli_support.cli_args_validator.backend_registry"
-        ) as mock_registry:
-            mock_registry.get_registered_backends.return_value = ["openai", "gemini"]
-            validator.validate(args)  # type: ignore[union-attr]
-
-    def test_raises_when_backend_not_registered(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Validation raises ValueError when backend is not registered."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = "invalid:gpt-4o-mini"
-
-        with patch(
-            "src.core.cli_support.cli_args_validator.backend_registry"
-        ) as mock_registry:
-            mock_registry.get_registered_backends.return_value = ["openai", "gemini"]
-
-            with pytest.raises(ValueError) as exc_info:
-                validator.validate(args)  # type: ignore[union-attr]
-
-            assert "Invalid backend 'invalid'" in str(exc_info.value)
-            assert "Available backends" in str(exc_info.value)
-
-
 # =============================================================================
 # Error Message Format Tests
 # =============================================================================
@@ -290,34 +176,25 @@ class TestLlmAssessmentValidation:
 class TestErrorMessageFormat:
     """Tests for stable, testable error messages."""
 
-    def test_error_message_includes_example(
-        self, validator: object, args: argparse.Namespace
-    ) -> None:
-        """Error messages include usage examples."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = None
-
-        with pytest.raises(ValueError) as exc_info:
-            validator.validate(args)  # type: ignore[union-attr]
-
-        assert "Example:" in str(exc_info.value)
-        assert "openai:gpt-4o-mini" in str(exc_info.value)
-
     def test_error_message_is_stable(
         self, validator: object, args: argparse.Namespace
     ) -> None:
         """Error messages are deterministic for the same input."""
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = None
+        args.replacement_enabled = True
+        args.replacement_rules = None
+        args.replacement_backend_model = "invalid:gpt-4o-mini"
 
         errors: list[str] = []
         for _ in range(3):
-            try:
-                validator.validate(args)  # type: ignore[union-attr]
-            except ValueError as e:
-                errors.append(str(e))
+            with patch(
+                "src.core.cli_support.cli_args_validator.backend_registry"
+            ) as mock_registry:
+                mock_registry.get_registered_backends.return_value = ["openai", "gemini"]
+                try:
+                    validator.validate(args)  # type: ignore[union-attr]
+                except ValueError as e:
+                    errors.append(str(e))
 
-        # All error messages should be identical
         assert len(set(errors)) == 1
 
 
@@ -331,8 +208,8 @@ class TestMultipleValidations:
 
     def test_validator_is_reusable(self, validator: object) -> None:
         """Validator can be used multiple times."""
-        args1 = argparse.Namespace(llm_assessment_enabled=None)
-        args2 = argparse.Namespace(llm_assessment_enabled=False)
+        args1 = argparse.Namespace(single_user_mode=False, multi_user_mode=False)
+        args2 = argparse.Namespace(single_user_mode=False, multi_user_mode=False)
 
         validator.validate(args1)  # type: ignore[union-attr]
         validator.validate(args2)  # type: ignore[union-attr]
@@ -341,15 +218,18 @@ class TestMultipleValidations:
         self, validator: object, args: argparse.Namespace
     ) -> None:
         """Validator checks all validation rules."""
-        # Set up valid assessment config
-        args.llm_assessment_enabled = True
-        args.llm_assessment_model = "openai:gpt-4o-mini"
+        args.single_user_mode = False
+        args.multi_user_mode = False
+        args.replacement_enabled = True
+        args.replacement_rules = ["gpt-4o=openai:gpt-4o-mini"]
+        args.replacement_backend_model = None
+        args.replacement_probability = 0.5
+        args.replacement_turn_count = 2
 
         with patch(
             "src.core.cli_support.cli_args_validator.backend_registry"
         ) as mock_registry:
             mock_registry.get_registered_backends.return_value = ["openai"]
-            # Should pass - all validations succeed
             validator.validate(args)  # type: ignore[union-attr]
 
 

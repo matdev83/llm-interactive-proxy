@@ -231,9 +231,9 @@ export LLM_ASSESSMENT_ENABLED=true
 export LLM_ASSESSMENT_BACKEND=openai
 export LLM_ASSESSMENT_MODEL=gpt-4o-mini
 
-# [Angel Verification](../user_guide/features/angel-verification.md)
-export ANGEL_MODEL="openai:gpt-4o-mini"
-export ANGEL_FREQUENCY=1
+# [Quality Verifier](../user_guide/features/quality-verifier.md)
+export QUALITY_VERIFIER_MODEL="openai:gpt-4o-mini"
+export QUALITY_VERIFIER_FREQUENCY=1
 ```
 
 ### Database Configuration

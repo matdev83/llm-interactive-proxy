@@ -279,7 +279,6 @@ class ConfigurationApplicator:
         """
         from src.core.cli_support.applicators import (
             AccessModeApplicator,
-            AssessmentApplicator,
             AuthApplicator,
             AuxiliaryRoutingApplicator,
             BackendApplicator,
@@ -308,7 +307,6 @@ class ConfigurationApplicator:
             BackendApplicator(),
             SessionApplicator(),
             AuthApplicator(),
-            AssessmentApplicator(),
             MemoryApplicator(),
             ModelRegistryApplicator(),
             FailureHandlingApplicator(),

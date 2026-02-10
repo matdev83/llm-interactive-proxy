@@ -116,9 +116,6 @@ class RequestProcessor(IRequestProcessor):
         request_data: ChatRequest,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process an incoming chat completion request using decomposed services."""
-        if not isinstance(request_data, ChatRequest):
-            raise TypeError("request_data must be of type ChatRequest")
-
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 f"RequestProcessor.process_request called with session_id: {getattr(context, 'session_id', 'unknown')}"
@@ -201,8 +198,8 @@ class RequestProcessor(IRequestProcessor):
             context, session_id, request_data
         )
 
-        # Transfer injection boundary from ChatRequest.extra_body to RequestContext.extensions
-        # This allows middleware (like AssessmentMiddleware) to set boundaries that the enforcer can use
+        # Transfer injection boundary from ChatRequest.extra_body to RequestContext.extensions.
+        # This allows request middleware to set boundaries that the enforcer can use.
         if request_data.extra_body:
             boundary_key = "_proxy_injected_messages_start_index"
             if boundary_key in request_data.extra_body:
@@ -226,72 +223,72 @@ class RequestProcessor(IRequestProcessor):
         # Otherwise, it's a ProcessedResult and we continue with backend flow
         command_result = result
 
-        # --- Angel gating state (per request) ---
-        # Angel verification runs only on remote backend completions, but its scheduling and
+        # --- Quality Verifier gating state (per request) ---
+        # Quality Verifier runs only on remote backend completions, but its scheduling and
         # skip conditions are derived from the client-submitted request.
         is_tool_followup = self._is_tool_result_followup_request(request_data)
 
-        angel_model_spec: str | None = None
-        angel_frequency: int = 10
-        angel_max_history: int | None = None
-        angel_max_consecutive_failures: int = 5
-        angel_cooldown_seconds: int = 300
+        quality_verifier_model_spec: str | None = None
+        quality_verifier_frequency: int = 10
+        quality_verifier_max_history: int | None = None
+        quality_verifier_max_consecutive_failures: int = 5
+        quality_verifier_cooldown_seconds: int = 300
 
         try:
             if self._app_state is not None:
                 cfg = self._app_state.get_setting("app_config")
                 session_cfg = getattr(cfg, "session", None)
-                raw_model = getattr(session_cfg, "angel_model", None)
-                angel_model_spec = raw_model if isinstance(raw_model, str) else None
+                raw_model = getattr(session_cfg, "quality_verifier_model", None)
+                quality_verifier_model_spec = raw_model if isinstance(raw_model, str) else None
 
-                raw_freq = getattr(session_cfg, "angel_frequency", 10)
+                raw_freq = getattr(session_cfg, "quality_verifier_frequency", 10)
                 try:
-                    angel_frequency = int(raw_freq) if raw_freq is not None else 10
+                    quality_verifier_frequency = int(raw_freq) if raw_freq is not None else 10
                 except (TypeError, ValueError):
-                    angel_frequency = 10
+                    quality_verifier_frequency = 10
 
-                raw_max_history = getattr(session_cfg, "angel_max_history", None)
-                angel_max_history = (
+                raw_max_history = getattr(session_cfg, "quality_verifier_max_history", None)
+                quality_verifier_max_history = (
                     int(raw_max_history) if isinstance(raw_max_history, int) else None
                 )
 
-                angel_max_consecutive_failures = getattr(
-                    session_cfg, "angel_max_consecutive_failures", 5
+                quality_verifier_max_consecutive_failures = getattr(
+                    session_cfg, "quality_verifier_max_consecutive_failures", 5
                 )
-                angel_cooldown_seconds = getattr(
-                    session_cfg, "angel_cooldown_seconds", 300
+                quality_verifier_cooldown_seconds = getattr(
+                    session_cfg, "quality_verifier_cooldown_seconds", 300
                 )
         except Exception:
-            angel_model_spec = None
-            angel_frequency = 10
-            angel_max_history = None
-            angel_max_consecutive_failures = 5
-            angel_cooldown_seconds = 300
+            quality_verifier_model_spec = None
+            quality_verifier_frequency = 10
+            quality_verifier_max_history = None
+            quality_verifier_max_consecutive_failures = 5
+            quality_verifier_cooldown_seconds = 300
 
-        angel_enabled = bool(angel_model_spec)
-        if angel_enabled:
-            # Provide Angel config to downstream layers via RequestContext.extensions.
-            context.extensions["angel_model"] = str(angel_model_spec)
-            context.extensions["angel_frequency"] = max(1, angel_frequency)
-            if angel_max_history is not None:
+        quality_verifier_enabled = bool(quality_verifier_model_spec)
+        if quality_verifier_enabled:
+            # Provide Quality Verifier config to downstream layers via RequestContext.extensions.
+            context.extensions["quality_verifier_model"] = str(quality_verifier_model_spec)
+            context.extensions["quality_verifier_frequency"] = max(1, quality_verifier_frequency)
+            if quality_verifier_max_history is not None:
                 # Ignore invalid values; the verifier will treat it as disabled.
                 with contextlib.suppress(TypeError, ValueError):
-                    context.extensions["angel_max_history"] = int(angel_max_history)
+                    context.extensions["quality_verifier_max_history"] = int(quality_verifier_max_history)
 
-            context.extensions["angel_max_consecutive_failures"] = (
-                angel_max_consecutive_failures
+            context.extensions["quality_verifier_max_consecutive_failures"] = (
+                quality_verifier_max_consecutive_failures
             )
-            context.extensions["angel_cooldown_seconds"] = angel_cooldown_seconds
+            context.extensions["quality_verifier_cooldown_seconds"] = quality_verifier_cooldown_seconds
 
-        # Tool-result continuations should never trigger Angel.
+        # Tool-result continuations should never trigger Quality Verifier.
         if is_tool_followup:
-            context.extensions["angel_skip_verification"] = True
+            context.extensions["quality_verifier_skip_verification"] = True
 
-        angel_turn_incremented = False
+        quality_verifier_turn_incremented = False
         current_eligible_turn_count = 0
         try:
             state_dict = session.state.to_dict() if hasattr(session, "state") else {}
-            raw_count = state_dict.get("angel_eligible_turn_count", 0)
+            raw_count = state_dict.get("quality_verifier_eligible_turn_count", 0)
             if isinstance(raw_count, int):
                 current_eligible_turn_count = raw_count
             elif isinstance(raw_count, float | str):
@@ -358,23 +355,23 @@ class RequestProcessor(IRequestProcessor):
             and original_backend
             and original_model
         ):
-            # Avoid initiating a replacement on turns that are scheduled for Angel
+            # Avoid initiating a replacement on turns that are scheduled for Quality Verifier
             # verification. This prevents the replacement model from being implicated
-            # in Angel verification/correction flow.
-            suppress_replacement_for_angel = False
+            # in Quality Verifier/correction flow.
+            suppress_replacement_for_quality_verifier = False
             state = self._replacement_service.get_state(session_id)
-            if angel_enabled and not is_tool_followup and not state.active:
+            if quality_verifier_enabled and not is_tool_followup and not state.active:
                 try:
-                    freq = max(1, int(angel_frequency))
+                    freq = max(1, int(quality_verifier_frequency))
                 except (TypeError, ValueError):
                     freq = 10
                 next_eligible = max(0, int(current_eligible_turn_count)) + 1
                 if freq > 0 and (next_eligible % freq) == 0:
-                    suppress_replacement_for_angel = True
-                    context.extensions["replacement_suppressed_for_angel"] = True
+                    suppress_replacement_for_quality_verifier = True
+                    context.extensions["replacement_suppressed_for_quality_verifier"] = True
 
             should_replace = False
-            if not suppress_replacement_for_angel:
+            if not suppress_replacement_for_quality_verifier:
                 should_replace = self._replacement_service.should_replace(
                     session_id, context, original_backend, original_model
                 )
@@ -428,16 +425,16 @@ class RequestProcessor(IRequestProcessor):
             context, session, session_id, backend_request
         )
 
-        def _prepare_angel_extensions_for_backend_call(
+        def _prepare_quality_verifier_extensions_for_backend_call(
             *, replacement_active: bool
         ) -> None:
-            """Populate RequestContext.extensions for downstream Angel verification.
+            """Populate RequestContext.extensions for downstream Quality Verifier.
 
             This function is called immediately before each backend execution attempt
             (including fallback retries).
             """
 
-            nonlocal angel_turn_incremented
+            nonlocal quality_verifier_turn_incremented
             nonlocal current_eligible_turn_count
 
             # Make replacement status explicit for the verifier.
@@ -445,37 +442,37 @@ class RequestProcessor(IRequestProcessor):
 
             # Skip verification for tool-result followups and replacement-model turns.
             skip = bool(is_tool_followup or replacement_active)
-            context.extensions["angel_skip_verification"] = skip
+            context.extensions["quality_verifier_skip_verification"] = skip
 
             if skip:
-                context.extensions.pop("angel_eligible_turn_count", None)
+                context.extensions.pop("quality_verifier_eligible_turn_count", None)
                 return
 
-            if not angel_enabled:
-                context.extensions.pop("angel_eligible_turn_count", None)
+            if not quality_verifier_enabled:
+                context.extensions.pop("quality_verifier_eligible_turn_count", None)
                 return
 
             # Increment eligible counter exactly once per client request.
-            if not angel_turn_incremented:
+            if not quality_verifier_turn_incremented:
                 new_count = max(0, int(current_eligible_turn_count)) + 1
                 try:
                     new_state = session.state.with_multiple_updates(
-                        angel_eligible_turn_count=new_count
+                        quality_verifier_eligible_turn_count=new_count
                     )
                     session.update_state(new_state)
                 except Exception:
                     # Fail-open: still track the count in the request context for scheduling.
                     pass
                 current_eligible_turn_count = new_count
-                angel_turn_incremented = True
+                quality_verifier_turn_incremented = True
 
-            context.extensions["angel_eligible_turn_count"] = int(
+            context.extensions["quality_verifier_eligible_turn_count"] = int(
                 current_eligible_turn_count
             )
 
         # Execute backend and perform persistence side effects
         try:
-            _prepare_angel_extensions_for_backend_call(
+            _prepare_quality_verifier_extensions_for_backend_call(
                 replacement_active=replacement_active_for_request
             )
             return await self._backend_executor.execute(
@@ -536,7 +533,7 @@ class RequestProcessor(IRequestProcessor):
                             )
 
                         # Retry execution with original model
-                        _prepare_angel_extensions_for_backend_call(
+                        _prepare_quality_verifier_extensions_for_backend_call(
                             replacement_active=False
                         )
                         return await self._backend_executor.execute(

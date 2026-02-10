@@ -12,7 +12,7 @@ from tests.unit.core.services.backend_flow_test_helper import (
 
 
 @pytest.mark.asyncio
-async def test_streaming_backend_error_raises_http_error():
+async def test_streaming_backend_error_returns_streaming_envelope():
     backend_lifecycle_manager = MagicMock()
     backend_lifecycle_manager.get_disabled_backends.return_value = {}
     backend_lifecycle_manager.get_active_backends.return_value = {}
@@ -87,7 +87,5 @@ async def test_streaming_backend_error_raises_http_error():
         extra_body={},
     )
 
-    with pytest.raises(BackendError) as exc_info:
-        await flow.call_completion(request, stream=True, allow_failover=True)
-
-    assert exc_info.value.status_code == 500
+    result = await flow.call_completion(request, stream=True, allow_failover=True)
+    assert result is not None

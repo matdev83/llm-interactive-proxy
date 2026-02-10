@@ -131,3 +131,32 @@ class TestOAuthFlowService:
                 poll_interval_seconds=1,
                 timeout_seconds=2,
             )
+
+    @pytest.mark.asyncio
+    async def test_poll_for_token_times_out_when_pending_forever(
+        self, flow: OAuthFlowService, mock_http_client: MagicMock
+    ) -> None:
+        pending = MagicMock()
+        pending.status_code = 400
+        pending.json.return_value = {"error": "authorization_pending"}
+        mock_http_client.post = AsyncMock(return_value=pending)
+
+        with (
+            patch(
+                "src.connectors.kiro_oauth_auto.oauth_flow.asyncio_sleep",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.connectors.kiro_oauth_auto.oauth_flow.monotonic_time",
+                side_effect=[0.0, 0.0, 10.0],
+            ),
+            pytest.raises(OAuthError, match="Authorization timed out"),
+        ):
+            await flow.poll_for_token(
+                client_id="cid",
+                client_secret="csec",
+                device_code="dc",
+                region="us-east-1",
+                poll_interval_seconds=1,
+                timeout_seconds=2,
+            )

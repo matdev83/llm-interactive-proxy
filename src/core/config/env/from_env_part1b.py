@@ -305,25 +305,25 @@ def apply_config_part1b(
             path="session.log_skipped_tool_calls",
             resolution=resolution,
         ),
-        "angel_model": _get_env_value(
+        "quality_verifier_model": _get_env_value(
             env,
-            "ANGEL_MODEL",
+            "QUALITY_VERIFIER_MODEL",
             None,
-            path="session.angel_model",
+            path="session.quality_verifier_model",
             resolution=resolution,
         ),
-        "angel_frequency": _env_to_int(
-            "ANGEL_FREQUENCY",
+        "quality_verifier_frequency": _env_to_int(
+            "QUALITY_VERIFIER_FREQUENCY",
             10,
             env,
-            path="session.angel_frequency",
+            path="session.quality_verifier_frequency",
             resolution=resolution,
         ),
-        "angel_max_history": _get_env_value(
+        "quality_verifier_max_history": _get_env_value(
             env,
-            "ANGEL_MAX_HISTORY",
+            "QUALITY_VERIFIER_MAX_HISTORY",
             None,
-            path="session.angel_max_history",
+            path="session.quality_verifier_max_history",
             resolution=resolution,
             transform=_optional_int,
         ),

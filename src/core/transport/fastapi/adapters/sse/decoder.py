@@ -35,9 +35,10 @@ class SSEDecoder:
                 text_payload = payload.decode("utf-8")
             except UnicodeDecodeError:
                 return DecodedSSE(content=payload, metadata={}, is_done=False)
-        else:
-            # Type hint for payload is bytes | str. If not bytes, it must be str.
+        elif isinstance(payload, str):
             text_payload = payload
+        else:
+            return DecodedSSE(content=payload, metadata={}, is_done=False)
 
         # Security: Check payload size limit
         if len(text_payload) > self.MAX_PAYLOAD_SIZE:

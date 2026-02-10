@@ -345,10 +345,11 @@ class TestConfigurationApplicatorDefaultApplicators:
         expected_applicators = [
             "ServerApplicator",
             "LoggingApplicator",
+            "AccessModeApplicator",
+            "NotificationApplicator",
             "BackendApplicator",
             "SessionApplicator",
             "AuthApplicator",
-            "AssessmentApplicator",
             "MemoryApplicator",
             "FailureHandlingApplicator",
             "ReplacementApplicator",

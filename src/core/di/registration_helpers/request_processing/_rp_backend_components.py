@@ -7,7 +7,7 @@ Registers:
 - BackendNonStreamingResponseHandler / INonStreamingBackendResponseHandler
 - BackendRequestPreparationService / IBackendRequestPreparation
 - LoopDetectorFactory / ILoopDetectorFactory
-- AngelStreamVerifier / IAngelStreamVerifier
+- QualityVerifierStreamVerifier / IQualityVerifierStreamVerifier
 - BackendStreamingResponseHandler / IStreamingBackendResponseHandler
 - LoopDetector / ILoopDetector (HybridLoopDetector)
 """
@@ -46,7 +46,7 @@ def register_backend_component_services(services: ServiceCollection) -> None:
     _register_backend_non_streaming_response_handler(services)
     _register_backend_request_preparation_service(services)
     _register_loop_detector_factory(services)
-    _register_angel_stream_verifier(services)
+    _register_quality_verifier_stream_verifier(services)
     _register_backend_streaming_response_handler(services)
     _register_loop_detector(services)
 
@@ -318,50 +318,52 @@ def _register_loop_detector_factory(services: ServiceCollection) -> None:
             )
 
 
-def _register_angel_stream_verifier(services: ServiceCollection) -> None:
-    """Register AngelStreamVerifier and IAngelStreamVerifier."""
+def _register_quality_verifier_stream_verifier(services: ServiceCollection) -> None:
+    """Register QualityVerifierStreamVerifier and IQualityVerifierStreamVerifier."""
     from src.core.di.registrations._shared import register_singleton_if_absent
-    from src.core.interfaces.angel_service_interface import IAngelServiceFactory
     from src.core.interfaces.backend_request_manager_components import (
-        IAngelStreamVerifier,
+        IQualityVerifierStreamVerifier,
+    )
+    from src.core.interfaces.quality_verifier_service_interface import (
+        IQualityVerifierServiceFactory,
     )
     from src.core.interfaces.session_cancellation_coordinator_interface import (
         ISessionCancellationCoordinator,
     )
-    from src.core.services.backend_request_manager.angel_stream_verifier import (
-        AngelStreamVerifier,
+    from src.core.services.backend_request_manager.quality_verifier_stream_verifier import (
+        QualityVerifierStreamVerifier,
     )
 
-    def _angel_stream_verifier_factory(
+    def _quality_verifier_stream_verifier_factory(
         provider: IServiceProvider,
-    ) -> AngelStreamVerifier:
-        angel_service_factory: IAngelServiceFactory = provider.get_required_service(
-            cast(type, IAngelServiceFactory)
+    ) -> QualityVerifierStreamVerifier:
+        quality_verifier_service_factory: IQualityVerifierServiceFactory = provider.get_required_service(
+            cast(type, IQualityVerifierServiceFactory)
         )
         cancellation_coordinator = provider.get_service(
             cast(type, ISessionCancellationCoordinator)
         )
-        return AngelStreamVerifier(
-            angel_service_factory=angel_service_factory,
+        return QualityVerifierStreamVerifier(
+            quality_verifier_service_factory=quality_verifier_service_factory,
             provider=provider,
             cancellation_coordinator=cancellation_coordinator,
         )
 
     register_singleton_if_absent(
         services,
-        AngelStreamVerifier,
-        implementation_factory=_angel_stream_verifier_factory,
+        QualityVerifierStreamVerifier,
+        implementation_factory=_quality_verifier_stream_verifier_factory,
     )
     try:
         register_singleton_if_absent(
             services,
-            cast(type, IAngelStreamVerifier),
-            implementation_factory=_angel_stream_verifier_factory,  # type: ignore[type-abstract]
+            cast(type, IQualityVerifierStreamVerifier),
+            implementation_factory=_quality_verifier_stream_verifier_factory,  # type: ignore[type-abstract]
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                "Failed to register IAngelStreamVerifier interface: %s",
+                "Failed to register IQualityVerifierStreamVerifier interface: %s",
                 e,
                 exc_info=True,
             )
@@ -374,8 +376,8 @@ def _register_backend_streaming_response_handler(
     from src.core.di.registrations._shared import register_singleton_if_absent
     from src.core.interfaces.backend_processor_interface import IBackendProcessor
     from src.core.interfaces.backend_request_manager_components import (
-        IAngelStreamVerifier,
         ILoopDetectorFactory,
+        IQualityVerifierStreamVerifier,
         IStreamingBackendResponseHandler,
         IToolCallRetryCoordinator,
     )
@@ -396,8 +398,8 @@ def _register_backend_streaming_response_handler(
         loop_detector_factory: ILoopDetectorFactory = provider.get_required_service(
             cast(type, ILoopDetectorFactory)
         )
-        angel_stream_verifier: IAngelStreamVerifier = provider.get_required_service(
-            cast(type, IAngelStreamVerifier)
+        quality_verifier_stream_verifier: IQualityVerifierStreamVerifier = provider.get_required_service(
+            cast(type, IQualityVerifierStreamVerifier)
         )
         tool_call_retry_coordinator: IToolCallRetryCoordinator = (
             provider.get_required_service(cast(type, IToolCallRetryCoordinator))
@@ -411,7 +413,7 @@ def _register_backend_streaming_response_handler(
         return BackendStreamingResponseHandler(
             response_processor=response_processor,
             loop_detector_factory=loop_detector_factory,
-            angel_stream_verifier=angel_stream_verifier,
+            quality_verifier_stream_verifier=quality_verifier_stream_verifier,
             tool_call_retry_coordinator=tool_call_retry_coordinator,
             backend_processor=backend_processor,
             cancellation_coordinator=cancellation_coordinator,

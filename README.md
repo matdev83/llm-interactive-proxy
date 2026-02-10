@@ -77,21 +77,25 @@ Zero changes to your client code. Just point it at the proxy and gain control.
 ## Key Capabilities
 
 ### Universal Connectivity
+
 - **Protocol Translation** — Use OpenAI SDK with Anthropic, Claude client with Gemini, any combination
 - **Subscription Consolidation** — Leverage all your premium LLM accounts through one endpoint
 - **Flexible Deployment** — Single-user mode for development, multi-user mode for production
 
 ### Cost & Performance Optimization
+
 - **Smart Routing** — Rotate API keys to maximize free tiers, automatically fallback to cheaper models
 - **Context Window Compression** — Reduce token usage and improve inference speed without losing quality
 - **Full Observability** — Wire capture, usage tracking, token counting, performance metrics
 
 ### Intelligent Session Control
+
 - **Loop Detection** — Automatically detect and resolve infinite loops and repetitive patterns
 - **Dynamic Model Switching** — Change models mid-conversation for diverse perspectives without losing context
-- **Guardian Angel** — Deploy a secondary model to monitor sessions and assist when the primary model struggles
+- **Quality Verifier** — Deploy a secondary model to verify responses when the primary model struggles
 
 ### Behavioral Customization
+
 - **Prompt & Response Rewriting** — Modify content on-the-fly to fine-tune agent behavior
 - **Tool Call Reactors** — Override and intercept tool calls to suppress unwanted behaviors
 - **Usage Limits** — Enforce quotas and control resource consumption

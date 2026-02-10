@@ -97,51 +97,6 @@ def apply_config_part2(
         ),
     }
 
-    config["assessment"] = {
-        "enabled": _env_to_bool(
-            "LLM_ASSESSMENT_ENABLED",
-            False,
-            env,
-            path="assessment.enabled",
-            resolution=resolution,
-        ),
-        "turn_threshold": _env_to_int(
-            "LLM_ASSESSMENT_TURN_THRESHOLD",
-            30,
-            env,
-            path="assessment.turn_threshold",
-            resolution=resolution,
-        ),
-        "confidence_threshold": _env_to_float(
-            "LLM_ASSESSMENT_CONFIDENCE_THRESHOLD",
-            0.9,
-            env,
-            path="assessment.confidence_threshold",
-            resolution=resolution,
-        ),
-        "backend": _get_env_value(
-            env,
-            "LLM_ASSESSMENT_BACKEND",
-            "openai",
-            path="assessment.backend",
-            resolution=resolution,
-        ),
-        "model": _get_env_value(
-            env,
-            "LLM_ASSESSMENT_MODEL",
-            "gpt-4o-mini",
-            path="assessment.model",
-            resolution=resolution,
-        ),
-        "history_window": _env_to_int(
-            "LLM_ASSESSMENT_HISTORY_WINDOW",
-            20,
-            env,
-            path="assessment.history_window",
-            resolution=resolution,
-        ),
-    }
-
     config["sandboxing"] = {
         "enabled": _env_to_bool(
             "ENABLE_SANDBOXING",

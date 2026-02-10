@@ -12,6 +12,10 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
 
+def _credentials_dict() -> dict[str, str]:
+    return {"access_token": "test-access-token"}
+
+
 @pytest.mark.asyncio
 async def test_chat_completions_rotates_on_project_not_found_backend_error() -> None:
     mock_client = MagicMock()
@@ -39,13 +43,13 @@ async def test_chat_completions_rotates_on_project_not_found_backend_error() -> 
     account1.account_id = "acct-1"
     account1.email = "a@example.com"
     account1.project_id = "bad-project"
-    account1.to_credentials_dict.return_value = {}
+    account1.to_credentials_dict.return_value = _credentials_dict()
 
     account2 = MagicMock()
     account2.account_id = "acct-2"
     account2.email = "b@example.com"
     account2.project_id = "good-project"
-    account2.to_credentials_dict.return_value = {}
+    account2.to_credentials_dict.return_value = _credentials_dict()
 
     current: dict[str, object] = {"account": account1}
 
@@ -143,13 +147,13 @@ async def test_chat_completions_rotates_on_project_permission_denied_backend_err
     account1.account_id = "acct-1"
     account1.email = "a@example.com"
     account1.project_id = "bad-project"
-    account1.to_credentials_dict.return_value = {}
+    account1.to_credentials_dict.return_value = _credentials_dict()
 
     account2 = MagicMock()
     account2.account_id = "acct-2"
     account2.email = "b@example.com"
     account2.project_id = "good-project"
-    account2.to_credentials_dict.return_value = {}
+    account2.to_credentials_dict.return_value = _credentials_dict()
 
     current: dict[str, object] = {"account": account1}
 
@@ -250,13 +254,13 @@ async def test_chat_completions_rotates_on_missing_project_id_backend_error() ->
     account1.account_id = "acct-1"
     account1.email = "a@example.com"
     account1.project_id = "bad-project"
-    account1.to_credentials_dict.return_value = {}
+    account1.to_credentials_dict.return_value = _credentials_dict()
 
     account2 = MagicMock()
     account2.account_id = "acct-2"
     account2.email = "b@example.com"
     account2.project_id = "good-project"
-    account2.to_credentials_dict.return_value = {}
+    account2.to_credentials_dict.return_value = _credentials_dict()
 
     current: dict[str, object] = {"account": account1}
 
@@ -354,7 +358,7 @@ async def test_chat_completions_rotates_on_missing_project_id_without_current_ac
     account2.account_id = "acct-2"
     account2.email = "b@example.com"
     account2.project_id = "good-project"
-    account2.to_credentials_dict.return_value = {}
+    account2.to_credentials_dict.return_value = _credentials_dict()
 
     current: dict[str, object] = {"account": None}
 
@@ -443,13 +447,13 @@ async def test_chat_completions_rotates_on_project_not_found_streaming_error() -
     account1.account_id = "acct-1"
     account1.email = "a@example.com"
     account1.project_id = "bad-project"
-    account1.to_credentials_dict.return_value = {}
+    account1.to_credentials_dict.return_value = _credentials_dict()
 
     account2 = MagicMock()
     account2.account_id = "acct-2"
     account2.email = "b@example.com"
     account2.project_id = "good-project"
-    account2.to_credentials_dict.return_value = {}
+    account2.to_credentials_dict.return_value = _credentials_dict()
 
     current: dict[str, object] = {"account": account1}
 
@@ -556,13 +560,13 @@ async def test_chat_completions_rotates_on_missing_project_id_streaming_error() 
     account1.account_id = "acct-1"
     account1.email = "a@example.com"
     account1.project_id = "bad-project"
-    account1.to_credentials_dict.return_value = {}
+    account1.to_credentials_dict.return_value = _credentials_dict()
 
     account2 = MagicMock()
     account2.account_id = "acct-2"
     account2.email = "b@example.com"
     account2.project_id = "good-project"
-    account2.to_credentials_dict.return_value = {}
+    account2.to_credentials_dict.return_value = _credentials_dict()
 
     current: dict[str, object] = {"account": account1}
 
@@ -671,13 +675,13 @@ async def test_chat_completions_rotates_on_project_permission_denied_streaming_e
     account1.account_id = "acct-1"
     account1.email = "a@example.com"
     account1.project_id = "bad-project"
-    account1.to_credentials_dict.return_value = {}
+    account1.to_credentials_dict.return_value = _credentials_dict()
 
     account2 = MagicMock()
     account2.account_id = "acct-2"
     account2.email = "b@example.com"
     account2.project_id = "good-project"
-    account2.to_credentials_dict.return_value = {}
+    account2.to_credentials_dict.return_value = _credentials_dict()
 
     current: dict[str, object] = {"account": account1}
 
