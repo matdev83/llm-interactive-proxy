@@ -221,14 +221,14 @@ def _resolve_b2bua_echo_header(
     config_candidates: list[Any] = []
     app_state = getattr(context, "app_state", None)
     if app_state is not None:
-        app_config_candidate = getattr(app_state, "app_config", None)
-        if app_config_candidate is not None and not _is_mock_object(
-            app_config_candidate
-        ):
-            config_candidates.append(app_config_candidate)
-        config_candidate = getattr(app_state, "config", None)
-        if config_candidate is not None and not _is_mock_object(config_candidate):
-            config_candidates.append(config_candidate)
+        for attribute_name in ("app_config", "config"):
+            try:
+                config_candidate = getattr(app_state, attribute_name, None)
+            except Exception:
+                # Some secure state proxies intentionally block direct config access.
+                continue
+            if config_candidate is not None and not _is_mock_object(config_candidate):
+                config_candidates.append(config_candidate)
 
     from src.core.interfaces.configuration_interface import IConfig
 

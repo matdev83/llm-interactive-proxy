@@ -12,8 +12,14 @@ def _with_b2bua_enabled(config: AppConfig) -> AppConfig:
     return config.model_copy(update={"session": session_config})
 
 
+def _with_b2bua_disabled(config: AppConfig) -> AppConfig:
+    b2bua_config = config.session.b2bua.model_copy(update={"enabled": False})
+    session_config = config.session.model_copy(update={"b2bua": b2bua_config})
+    return config.model_copy(update={"session": session_config})
+
+
 async def test_create_entry_generates_session_id_when_missing() -> None:
-    service = BufferedWireCapture(AppConfig())
+    service = BufferedWireCapture(_with_b2bua_disabled(AppConfig()))
     context = RequestContext(
         headers={},
         cookies={},

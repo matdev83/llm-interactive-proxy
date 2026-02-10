@@ -12,6 +12,9 @@ from src.core.interfaces.client_session_id_extractor_interface import (
 from src.core.interfaces.session_resolver_interface import ISessionResolver
 from src.core.services.b2bua_session_id_factory import B2BUASessionIdFactory
 
+_ANONYMOUS_AUTH_SCOPE_PREFIX = "__b2bua-anon-auth__"
+_ANONYMOUS_CLIENT_SESSION_ID = "__b2bua-anon-client__"
+
 
 class B2BUASessionResolver(ISessionResolver):
     """Resolve canonical internal A-leg session ids for B2BUA mode."""
@@ -55,11 +58,17 @@ class B2BUASessionResolver(ISessionResolver):
             )
         else:
             # Strict isolation default: no client session id or no auth scope -> new A-leg.
-            a_session_id = self._session_id_factory.generate_a_session_id()
+            generated_a_session_id = self._session_id_factory.generate_a_session_id()
+            continuity = await self._mapping_store.resolve_or_create_a_session_id(
+                auth_scope_id=f"{_ANONYMOUS_AUTH_SCOPE_PREFIX}:{generated_a_session_id}",
+                client_session_id=_ANONYMOUS_CLIENT_SESSION_ID,
+                create_a_session_id=lambda: generated_a_session_id,
+            )
+            a_session_id = continuity.a_session_id
             context.ensure_processing_context().update(
                 {
                     "b2bua_continuity_reused_existing": False,
-                    "b2bua_continuity_store_error": False,
+                    "b2bua_continuity_store_error": continuity.had_store_error,
                 }
             )
 

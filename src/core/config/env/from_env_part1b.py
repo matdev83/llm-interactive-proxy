@@ -236,7 +236,7 @@ def apply_config_part1b(
         "b2bua": {
             "enabled": _env_to_bool(
                 "SESSION_B2BUA_ENABLED",
-                False,
+                True,
                 env,
                 path="session.b2bua.enabled",
                 resolution=resolution,

@@ -68,6 +68,27 @@ async def test_resolver_assigns_new_a_leg_when_client_session_id_missing() -> No
 
 
 @pytest.mark.asyncio
+async def test_resolver_bootstraps_a_leg_mapping_when_continuity_keys_missing() -> None:
+    config = AppConfig()
+    mapping_store = InMemoryB2buaMappingStore(continuity_ttl_seconds=60)
+    resolver = B2BUASessionResolver(
+        client_session_extractor=DefaultClientSessionIdExtractor(config=config),
+        auth_scope_resolver=DefaultAuthScopeResolver(config=config),
+        mapping_store=mapping_store,
+        session_id_factory=B2BUASessionIdFactory(
+            uuid_factory=lambda: UUID("12345678-1234-1234-1234-123456789abc")
+        ),
+    )
+
+    context = _context(state={"auth_scope_id": "token-1"})
+    a_session_id = await resolver.resolve_session_id(context)
+    first_b_seq = await mapping_store.allocate_next_b_seq(a_session_id)
+
+    assert a_session_id == "llm-b2bua-12345678-1234-1234-1234-123456789abc"
+    assert first_b_seq == 1
+
+
+@pytest.mark.asyncio
 async def test_resolver_reuses_mapping_with_same_auth_scope_and_client_session() -> (
     None
 ):

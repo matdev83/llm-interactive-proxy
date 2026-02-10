@@ -103,7 +103,7 @@ Zero changes to your client code. Just point it at the proxy and gain control.
 - **Tool Access Control** — Fine-grained control over which tools LLMs can invoke
 
 ### Enterprise Features
-- **B2BUA Session Isolation** — Internal session identity generation and strict trust boundaries
+- **B2BUA Session Isolation** — Internal session identity generation and strict trust boundaries (enabled by default; use `--disable-b2bua-session-handling` to opt out)
 
 See [User Guide](docs/user_guide/index.md) for the complete feature list.
 

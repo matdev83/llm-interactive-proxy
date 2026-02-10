@@ -22,7 +22,6 @@ from src.core.di.container import ServiceCollection
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.response_parser_interface import IResponseParser
-from src.core.interfaces.session_resolver_interface import ISessionResolver
 
 # from src.core.interfaces.secure_state_interface import ISecureStateService # Removed unresolved import
 from src.core.interfaces.streaming_response_processor_interface import (
@@ -82,7 +81,11 @@ class CoreServicesStage(InitializationStage):
             implementation_factory=lambda p: ModelCatalogUpdater(
                 config.model_registry,
                 p.get_required_service(ModelCatalogService),
-                p.get_service(httpx.AsyncClient) if p.has_service(httpx.AsyncClient) else None,
+                (
+                    p.get_service(httpx.AsyncClient)
+                    if p.has_service(httpx.AsyncClient)
+                    else None
+                ),
             ),
         )
 
@@ -241,9 +244,9 @@ class CoreServicesStage(InitializationStage):
     def _register_session_resolver(
         self,
         services: ServiceCollection,
-        config: AppConfig,  # Re-added config parameter
+        config: AppConfig,
     ) -> None:
-        """Register session resolver as singleton instance."""
+        """Register intelligent resolver fallback and core DI session wiring."""
         from src.core.interfaces.repositories_interface import ISessionRepository
         from src.core.services.conversation_fingerprint_service import (
             ConversationFingerprintService,
@@ -275,13 +278,8 @@ class CoreServicesStage(InitializationStage):
             implementation_factory=session_resolver_factory,
         )
 
-        services.add_singleton(
-            cast(type, ISessionResolver),
-            implementation_factory=session_resolver_factory,
-        )
-
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Registered intelligent session resolver instance")
+            logger.debug("Registered intelligent session resolver fallback instance")
 
         # from src.core.services.secure_state_service import SecureStateService # Already imported
 

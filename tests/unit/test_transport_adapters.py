@@ -290,6 +290,38 @@ class TestResponseAdapters:
 
         assert response.headers.get("x-b2bua-session-id") is None
 
+    def test_to_fastapi_response_tolerates_restricted_app_state_access(self):
+        """Secure state proxies that block config access should not break responses."""
+
+        class _RestrictedAppState:
+            @property
+            def app_config(self):
+                raise RuntimeError("config access blocked")
+
+            @property
+            def config(self):
+                raise RuntimeError("config access blocked")
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=_RestrictedAppState(),
+            session_id="llm-b2bua-a-1234",
+            b2bua_identity=B2buaIdentity(a_session_id="llm-b2bua-a-1234"),
+        )
+
+        response = to_fastapi_response(
+            ResponseEnvelope(content={"ok": True}, media_type="application/json"),
+            context=context,
+        )
+
+        assert response.status_code == 200
+        assert response.headers.get("x-b2bua-session-id") in (
+            None,
+            "llm-b2bua-a-1234",
+        )
+
     @pytest.mark.asyncio
     async def test_to_fastapi_streaming_response_sets_b2bua_echo_header(self):
         """A-leg echo header is emitted for streaming responses when enabled."""

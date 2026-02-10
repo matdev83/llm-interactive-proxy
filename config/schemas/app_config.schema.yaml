@@ -141,7 +141,7 @@ properties:
         type: object
         additionalProperties: false
         properties:
-          enabled: { type: boolean }
+          enabled: { type: boolean, default: true }
           max_failed_attempts: { type: integer, minimum: 1 }
           ttl_seconds: { type: integer, minimum: 1 }
           initial_block_seconds: { type: integer, minimum: 1 }

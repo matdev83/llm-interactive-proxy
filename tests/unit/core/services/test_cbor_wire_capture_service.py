@@ -42,6 +42,12 @@ def _with_b2bua_enabled(config: AppConfig) -> AppConfig:
     return config.model_copy(update={"session": session_config})
 
 
+def _with_b2bua_disabled(config: AppConfig) -> AppConfig:
+    b2bua_config = config.session.b2bua.model_copy(update={"enabled": False})
+    session_config = config.session.model_copy(update={"b2bua": b2bua_config})
+    return config.model_copy(update={"session": session_config})
+
+
 @pytest.fixture
 async def capture_service(mock_config, temp_capture_dir):
     """Create a CborWireCaptureService for testing."""
@@ -317,9 +323,15 @@ class TestCaptureSession:
 class TestCborWireCaptureService:
     """Tests for CborWireCaptureService."""
 
-    def test_extract_context_metadata_uses_request_id_fallback_when_b2bua_disabled(
-        self, capture_service
-    ):
+    @pytest.mark.asyncio
+    async def test_extract_context_metadata_uses_request_id_fallback_when_b2bua_disabled(
+        self, mock_config, temp_capture_dir
+    ) -> None:
+        service = CborWireCaptureService(
+            config=_with_b2bua_disabled(mock_config),
+            capture_dir=temp_capture_dir,
+            session_id="capture-session",
+        )
         context = RequestContext(
             headers={},
             cookies={},
@@ -328,12 +340,13 @@ class TestCborWireCaptureService:
             request_id="req-legacy-fallback",
         )
 
-        metadata = capture_service._extract_context_metadata(
+        metadata = service._extract_context_metadata(
             context=context,
             session_id=None,
         )
 
         assert metadata.session_id == "req-legacy-fallback"
+        await service.shutdown()
 
     @pytest.mark.asyncio
     async def test_extract_context_metadata_skips_request_id_fallback_when_b2bua_enabled(

@@ -156,7 +156,7 @@ class B2BUAConfig(DomainModel):
 
     model_config = ConfigDict(frozen=True)
 
-    enabled: bool = False
+    enabled: bool = True
     continuity_max_age_seconds: int = Field(default=3600, ge=1)
     continuity_sliding_expiration: bool = True
     persistent_mapping_store_enabled: bool = False

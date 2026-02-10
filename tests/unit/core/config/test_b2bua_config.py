@@ -6,10 +6,10 @@ from src.core.config.app_config import AppConfig, load_config
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 
 
-def test_b2bua_defaults_are_safe() -> None:
+def test_b2bua_defaults_are_enabled() -> None:
     cfg = AppConfig()
 
-    assert cfg.session.b2bua.enabled is False
+    assert cfg.session.b2bua.enabled is True
     assert cfg.session.b2bua.continuity_max_age_seconds == 3600
     assert cfg.session.b2bua.continuity_sliding_expiration is True
     assert cfg.session.b2bua.persistent_mapping_store_enabled is False
