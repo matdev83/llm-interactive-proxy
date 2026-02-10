@@ -7,7 +7,6 @@ responses in a consistent way, regardless of the source or format.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -145,23 +144,19 @@ class LoopDetectionProcessor(IStreamProcessor):
         # Get the detector instance for this specific session
         loop_detector = self._get_detector_for_session(session_id)
 
-        # Process the content for loop detection
-        # Ensure content is a string for loop detector
-        content_value = content.content
-        if isinstance(content_value, bytes):
-            try:
-                content_str = content_value.decode("utf-8")
-            except UnicodeDecodeError:
-                content_str = content_value.decode("latin-1", errors="ignore")
-        elif isinstance(content_value, dict):
-            # Use dict() to safely handle StopChunkWithUsage which is a dict
-            # subclass that raises an error on str()
-            content_str = json.dumps(dict(content_value))
-        else:
-            content_str = str(content_value or "")
+        # Process loop detection using visible textual payload only.
+        # This avoids false positives on repeated metadata-only JSON chunks.
+        content_str = self._extract_loop_detection_text(content.content)
+        if not content_str:
+            if content.is_done:
+                self.cleanup_session(session_id)
+            return content
+
         stripped_content = content_str.lstrip()
 
         if stripped_content.startswith(_SSE_PREFIXES):
+            if content.is_done:
+                self.cleanup_session(session_id)
             return content
 
         if logger.isEnabledFor(TRACE_LEVEL):
@@ -214,6 +209,90 @@ class LoopDetectionProcessor(IStreamProcessor):
         else:
             # No loop detected, pass through the content
             return content
+
+    def _extract_loop_detection_text(self, content_value: Any) -> str:
+        """Extract user-visible text from streaming chunks for loop detection."""
+        if isinstance(content_value, bytes):
+            try:
+                return content_value.decode("utf-8")
+            except UnicodeDecodeError:
+                return content_value.decode("latin-1", errors="ignore")
+
+        if isinstance(content_value, dict):
+            visible_from_choices = self._extract_visible_text_from_choices(
+                content_value
+            )
+            if visible_from_choices is not None:
+                return visible_from_choices
+
+            for key in ("content", "text"):
+                normalized = self._normalize_text_field(content_value.get(key))
+                if normalized:
+                    return normalized
+
+            # Metadata-only payloads should not drive loop detection.
+            return ""
+
+        if content_value is None:
+            return ""
+
+        return str(content_value)
+
+    def _extract_visible_text_from_choices(self, payload: dict[str, Any]) -> str | None:
+        """Extract visible content from OpenAI-style choices payloads.
+
+        Returns:
+            A string (possibly empty) when the payload is OpenAI-style.
+            None when payload does not contain a choices list.
+        """
+        choices = payload.get("choices")
+        if not isinstance(choices, list):
+            return None
+
+        text_parts: list[str] = []
+        has_choice_blocks = False
+
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+
+            block = choice.get("delta")
+            if not isinstance(block, dict):
+                block = choice.get("message")
+            if not isinstance(block, dict):
+                continue
+
+            has_choice_blocks = True
+            normalized = self._normalize_text_field(block.get("content"))
+            if normalized:
+                text_parts.append(normalized)
+
+        if text_parts:
+            return "".join(text_parts)
+        if has_choice_blocks:
+            return ""
+        return None
+
+    def _normalize_text_field(self, value: Any) -> str:
+        """Normalize content/text fields that may be strings or content-part lists."""
+        if isinstance(value, str):
+            return value
+
+        if not isinstance(value, list):
+            return ""
+
+        parts: list[str] = []
+        for item in value:
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            text_value = item.get("text")
+            if isinstance(text_value, str) and text_value:
+                parts.append(text_value)
+
+        return "".join(parts)
 
     def _create_cancellation_content(
         self, detection_event: LoopDetectionEvent | None, session_id: str

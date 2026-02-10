@@ -14,6 +14,10 @@ from src.core.common.contract_serialization import (
 )
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.request_context import RequestContext
+from src.core.domain.usage_canonical_record import (
+    CanonicalUsageRecord,
+    UsageCompletionOutcome,
+)
 from src.core.domain.usage_summary import UsageSummary
 
 
@@ -121,6 +125,27 @@ class TestSerializeForCapture:
         decoded = json.loads(result1.decode("utf-8"))
         assert list(decoded.keys()) == ["a", "m", "z"]
         assert list(decoded["z"].keys()) == ["a", "b", "c"]
+
+    def test_serialize_for_capture_dict_with_nested_domain_model(self) -> None:
+        """Nested domain models inside dict payloads are JSON-serialized safely."""
+        usage = CanonicalUsageRecord(
+            provider_id="gemini",
+            prompt_tokens=10,
+            completion_tokens=5,
+            completion_outcome=UsageCompletionOutcome.complete,
+        )
+        payload = {
+            "content": {"text": "ok"},
+            "canonical_usage": usage,
+        }
+
+        result = serialize_for_capture(payload)
+        decoded = json.loads(result.decode("utf-8"))
+
+        assert decoded["canonical_usage"]["provider_id"] == "gemini"
+        assert decoded["canonical_usage"]["prompt_tokens"] == 10
+        assert decoded["canonical_usage"]["completion_tokens"] == 5
+        assert decoded["canonical_usage"]["completion_outcome"] == "complete"
 
 
 class TestSerializeForLogging:

@@ -1,10 +1,10 @@
-import json
 import pytest
-from src.core.transport.fastapi.adapters.sse.decoder import SSEDecoder
-from src.core.domain.streaming.parsing.sse_string_parser import SSEStringParser
-from src.core.domain.streaming.parsing.sse_bytes_parser import SSEBytesParser
-from src.core.domain.translators.gemini.streaming import gemini_to_domain_stream_chunk
 from src.core.domain.chat import CanonicalStreamChunk
+from src.core.domain.streaming.parsing.sse_bytes_parser import SSEBytesParser
+from src.core.domain.streaming.parsing.sse_string_parser import SSEStringParser
+from src.core.domain.translators.gemini.streaming import gemini_to_domain_stream_chunk
+from src.core.transport.fastapi.adapters.sse.decoder import SSEDecoder
+
 
 class TestStreamingWhitespaceRegression:
     """
@@ -111,7 +111,9 @@ class TestStreamingWhitespaceRegression:
 
     def test_openai_dict_parser_preserves_whitespace(self):
         """Verify OpenAIDictParser preserves whitespace in deltas."""
-        from src.core.domain.streaming.parsing.openai_dict_parser import OpenAIDictParser
+        from src.core.domain.streaming.parsing.openai_dict_parser import (
+            OpenAIDictParser,
+        )
         parser = OpenAIDictParser()
         
         raw_dict = {

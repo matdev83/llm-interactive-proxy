@@ -13,6 +13,35 @@ from typing import Any
 from src.core.common.logging_utils import redact_dict
 
 
+def _json_default(value: Any) -> Any:
+    """Best-effort conversion for objects that are not JSON-serializable by default."""
+    if isinstance(value, bytes | bytearray):
+        return bytes(value).decode("utf-8", errors="replace")
+
+    if hasattr(value, "model_dump") and callable(value.model_dump):
+        with contextlib.suppress(TypeError, ValueError, AttributeError):
+            return value.model_dump(mode="json")
+        with contextlib.suppress(TypeError, ValueError, AttributeError):
+            return value.model_dump()
+
+    if hasattr(value, "__dict__"):
+        with contextlib.suppress(TypeError, ValueError):
+            return dict(value.__dict__)
+
+    return str(value)
+
+
+def _dump_json_bytes(value: Any) -> bytes:
+    """Serialize value to deterministic UTF-8 JSON bytes."""
+    return json.dumps(
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        default=_json_default,
+    ).encode("utf-8")
+
+
 def serialize_for_capture(contract: Any) -> bytes:
     """Serialize canonical contract for capture with deterministic ordering.
 
@@ -47,34 +76,28 @@ def serialize_for_capture(contract: Any) -> bytes:
         try:
             # Use mode="json" to ensure JSON-safe types
             data = contract.model_dump(mode="json")
-            return json.dumps(
-                data, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-            ).encode("utf-8")
+            return _dump_json_bytes(data)
         except (TypeError, ValueError, AttributeError):
             # Fallback to regular model_dump if mode="json" not supported
             try:
                 data = contract.model_dump()
-                return json.dumps(
-                    data, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-                ).encode("utf-8")
+                return _dump_json_bytes(data)
             except (TypeError, ValueError, AttributeError):
                 # Final fallback: string representation
                 return str(contract).encode("utf-8")
 
     # Handle dicts and lists
     if isinstance(contract, dict | list):
-        return json.dumps(
-            contract, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-        ).encode("utf-8")
+        with contextlib.suppress(TypeError, ValueError):
+            return _dump_json_bytes(contract)
+        return str(contract).encode("utf-8")
 
     # Handle objects with __dict__
     if hasattr(contract, "__dict__"):
         with contextlib.suppress(TypeError, ValueError):
             # Fall back to string representation if __dict__ conversion fails
             data = dict(contract.__dict__)
-            return json.dumps(
-                data, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-            ).encode("utf-8")
+            return _dump_json_bytes(data)
 
     # Final fallback: string representation
     return str(contract).encode("utf-8")
@@ -163,6 +186,4 @@ def serialize_dict_for_capture(data: dict[str, Any]) -> bytes:
         >>> bytes_data = serialize_dict_for_capture(metadata)
         >>> # Keys are sorted: {"a": 1, "m": 2, "z": 3}
     """
-    return json.dumps(
-        data, sort_keys=True, ensure_ascii=False, separators=(",", ":")
-    ).encode("utf-8")
+    return _dump_json_bytes(data)
