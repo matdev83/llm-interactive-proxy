@@ -2,8 +2,11 @@
 Tests for the transport adapters.
 """
 
+import asyncio
+import contextlib
 import json
-from unittest.mock import MagicMock
+from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.responses import JSONResponse
@@ -16,8 +19,21 @@ from src.core.common.exceptions import (
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.b2bua_identity import B2buaIdentity
+from src.core.domain.client_termination import (
+    ClientEndOfSessionSignal,
+    ClientTerminationReason,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
+from src.core.domain.session_key import SessionKey
+from src.core.interfaces.client_end_of_session_service_interface import (
+    IClientEndOfSessionService,
+)
+from src.core.interfaces.session_cancellation_coordinator_interface import ICancellable
+from src.core.services.session_cancellation_coordinator import (
+    SessionCancellationCoordinator,
+)
+from src.core.transport.fastapi import response_adapters as response_adapters_module
 from src.core.transport.fastapi.exception_adapters import (
     map_domain_exception_to_http_exception,
 )
@@ -28,6 +44,9 @@ from src.core.transport.fastapi.response_adapters import (
     domain_response_to_fastapi,
     to_fastapi_response,
     to_fastapi_streaming_response,
+)
+from src.core.transport.session_key_resolver import (
+    resolve_session_key_from_request_context,
 )
 from starlette.datastructures import Headers, QueryParams
 from starlette.responses import Response, StreamingResponse
@@ -51,6 +70,29 @@ class MockRequest:
         self.state = MagicMock()
         self.query_params = QueryParams({})
         self.path_params: dict[str, str] = {}
+
+
+class _TrackedCancellable(ICancellable):
+    def __init__(self) -> None:
+        self.cancel_calls = 0
+
+    def cancel(self) -> None:
+        self.cancel_calls += 1
+
+
+class _CancellationBridgeService(IClientEndOfSessionService):
+    def __init__(self, coordinator: SessionCancellationCoordinator) -> None:
+        self._coordinator = coordinator
+        self.reported_signals: list[ClientEndOfSessionSignal] = []
+
+    async def report_client_termination(self, signal: ClientEndOfSessionSignal) -> None:
+        self.reported_signals.append(signal)
+        self._coordinator.cancel_session(signal.session_key, signal.reason)
+
+    async def report_client_termination_if_applicable(
+        self, session_key: SessionKey, observed_exception: BaseException | None
+    ) -> None:
+        return None
 
 
 class TestRequestAdapters:
@@ -363,6 +405,122 @@ class TestResponseAdapters:
         )
 
         assert response.headers.get("x-stream-a-session") == a_session_id
+
+    @pytest.mark.asyncio
+    async def test_stream_disconnect_cancels_all_registered_cancellables(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        coordinator = SessionCancellationCoordinator(ttl_seconds=60)
+        bridge_service = _CancellationBridgeService(coordinator)
+
+        original_resolver = response_adapters_module._resolve_service
+
+        def _resolve_with_bridge(service_type: type):
+            if service_type is IClientEndOfSessionService:
+                return bridge_service
+            return original_resolver(service_type)
+
+        monkeypatch.setattr(
+            response_adapters_module, "_resolve_service", _resolve_with_bridge
+        )
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=MagicMock(),
+            request_id="req-disconnect-cancel-all",
+            session_id="llm-b2bua-a-cancel-all",
+            b2bua_identity=B2buaIdentity(a_session_id="llm-b2bua-a-cancel-all"),
+        )
+
+        session_key = resolve_session_key_from_request_context(context)
+        assert session_key is not None
+
+        first_bleg = _TrackedCancellable()
+        second_bleg = _TrackedCancellable()
+        coordinator.register_cancellable(session_key, first_bleg)
+        coordinator.register_cancellable(session_key, second_bleg)
+
+        async def content_generator():
+            yield ProcessedResponse(content="first", metadata={})
+            await asyncio.sleep(5)
+
+        response = to_fastapi_streaming_response(
+            StreamingResponseEnvelope(
+                content=content_generator(),
+                headers={},
+                media_type="text/event-stream",
+            ),
+            context=context,
+        )
+
+        body_iter = cast(Any, response.body_iterator)
+        _ = await body_iter.__anext__()
+        with contextlib.suppress(GeneratorExit, RuntimeError):
+            await body_iter.aclose()
+
+        await asyncio.sleep(0.05)
+
+        assert first_bleg.cancel_calls == 1
+        assert second_bleg.cancel_calls == 1
+        assert bridge_service.reported_signals
+        assert (
+            bridge_service.reported_signals[0].reason
+            == ClientTerminationReason.CLIENT_DISCONNECTED
+        )
+
+    @pytest.mark.asyncio
+    async def test_stream_disconnect_invokes_explicit_cancel_callback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        cancel_callback = AsyncMock(return_value=None)
+        original_resolver = response_adapters_module._resolve_service
+
+        def _resolve_without_eos(service_type: type):
+            if service_type is IClientEndOfSessionService:
+                return None
+            return original_resolver(service_type)
+
+        monkeypatch.setattr(
+            response_adapters_module, "_resolve_service", _resolve_without_eos
+        )
+
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=MagicMock(),
+            request_id="req-disconnect-cancel-callback",
+            session_id="llm-b2bua-a-cancel-callback",
+            b2bua_identity=B2buaIdentity(a_session_id="llm-b2bua-a-cancel-callback"),
+        )
+
+        async def content_generator():
+            yield ProcessedResponse(content="first", metadata={})
+            await asyncio.sleep(5)
+
+        response = to_fastapi_streaming_response(
+            StreamingResponseEnvelope(
+                content=content_generator(),
+                headers={},
+                media_type="text/event-stream",
+                cancel_callback=cancel_callback,
+            ),
+            context=context,
+        )
+
+        body_iter = cast(Any, response.body_iterator)
+        _ = await body_iter.__anext__()
+        with contextlib.suppress(GeneratorExit, RuntimeError):
+            await body_iter.aclose()
+
+        await asyncio.sleep(0.05)
+        cancel_callback.assert_awaited_once()
 
 
 class TestExceptionAdapters:

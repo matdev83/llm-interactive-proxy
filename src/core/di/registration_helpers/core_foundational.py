@@ -112,11 +112,20 @@ def register_session_services(services: ServiceCollection) -> None:
     from src.core.services.session_resolver_service import DefaultSessionResolver
     from src.core.services.session_service_impl import SessionService
 
-    register_singleton_if_absent(services, DefaultAuthScopeResolver)
+    def _auth_scope_resolver_factory(
+        provider: IServiceProvider,
+    ) -> DefaultAuthScopeResolver:
+        return DefaultAuthScopeResolver(config=provider.get_service(AppConfig))
+
+    register_singleton_if_absent(
+        services,
+        DefaultAuthScopeResolver,
+        implementation_factory=_auth_scope_resolver_factory,
+    )
     register_singleton_if_absent(
         services,
         IAuthScopeResolver,
-        implementation_type=DefaultAuthScopeResolver,  # type: ignore[type-abstract]
+        implementation_factory=lambda p: p.get_required_service(DefaultAuthScopeResolver),  # type: ignore[type-abstract]
     )
 
     register_singleton_if_absent(services, DefaultClientSessionIdExtractor)

@@ -11,8 +11,9 @@ import asyncio
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Callable
-from typing import Any, TypeVar
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from datetime import datetime, timezone
+from typing import Any, TypeVar, cast
 
 from fastapi.responses import Response
 from pydantic.types import JsonValue
@@ -109,6 +110,123 @@ def _schedule_stream_close(
                 "Failed to schedule stream cleanup task",
                 exc_info=True,
             )
+
+
+def _schedule_disconnect_cleanup(
+    cleanup: Callable[[], Coroutine[Any, Any, None]],
+    *,
+    request_id: str | None,
+) -> None:
+    """Schedule disconnect cleanup without blocking stream shutdown."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Skipping disconnect cleanup scheduling; no running event loop",
+                exc_info=True,
+            )
+        return
+
+    def _consume_task_exception(task: asyncio.Task[None]) -> None:
+        try:
+            task.exception()
+        except asyncio.CancelledError:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Disconnect cleanup task cancelled",
+                    extra={"request_id": request_id},
+                )
+        except Exception:
+            # Exception is already consumed from task.exception();
+            # this guard prevents callback-level crashes.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to consume disconnect cleanup task exception",
+                    extra={"request_id": request_id},
+                    exc_info=True,
+                )
+
+    try:
+        task: asyncio.Task[None] = loop.create_task(cleanup())
+        task.add_done_callback(_consume_task_exception)
+    except RuntimeError:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to schedule disconnect cleanup task",
+                exc_info=True,
+            )
+
+
+async def _handle_client_stream_disconnect(
+    *,
+    domain_response: StreamingResponseEnvelope,
+    context: RequestContext | None,
+    request_id: str | None,
+    cancel_reason: str,
+    details: str,
+    termination_reason: Any,
+) -> None:
+    """Run explicit stream cancel + session-scoped cancellation report."""
+    if context is not None:
+        context.ensure_processing_context().update({"cancel_reason": cancel_reason})
+
+    cancel_callback = getattr(domain_response, "cancel_callback", None)
+    if callable(cancel_callback):
+        try:
+            cancellation_result = cancel_callback()
+            if isinstance(cancellation_result, Awaitable):
+                await cancellation_result
+            elif cancellation_result is not None:
+                logger.warning(
+                    "Streaming cancel callback returned non-awaitable result",
+                    extra={"request_id": request_id},
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to run streaming cancel callback on disconnect: %s",
+                exc,
+                exc_info=True,
+                extra={"request_id": request_id},
+            )
+
+    if context is None:
+        return
+
+    from src.core.domain.client_termination import ClientEndOfSessionSignal
+    from src.core.interfaces.client_end_of_session_service_interface import (
+        IClientEndOfSessionService,
+    )
+    from src.core.transport.session_key_resolver import (
+        resolve_session_key_from_request_context,
+    )
+
+    session_key = resolve_session_key_from_request_context(context)
+    if session_key is None:
+        return
+
+    client_eos_service = _resolve_service(
+        cast(type[IClientEndOfSessionService], IClientEndOfSessionService)
+    )
+    if client_eos_service is None:
+        return
+
+    signal = ClientEndOfSessionSignal(
+        session_key=session_key,
+        observed_at=datetime.now(timezone.utc),
+        reason=termination_reason,
+        details=details,
+    )
+
+    try:
+        await asyncio.shield(client_eos_service.report_client_termination(signal))
+    except Exception as exc:
+        logger.warning(
+            "Failed to report client stream termination: %s",
+            exc,
+            exc_info=True,
+            extra={"request_id": request_id},
+        )
 
 
 def _is_mock_object(value: Any) -> bool:
@@ -693,6 +811,8 @@ def to_fastapi_streaming_response(
     Returns:
         A FastAPI streaming response
     """
+    from src.core.domain.client_termination import ClientTerminationReason
+
     # Resolve yield interval from config if using default
     if yield_interval == 100:
         config_to_use: Any | None = None
@@ -730,6 +850,7 @@ def to_fastapi_streaming_response(
         rid = getattr(context, "request_id", None)
         if rid is not None:
             request_id = str(rid)
+    disconnect_cleanup_scheduled = False
 
     content_iter = domain_response.content
     if content_iter is None:
@@ -769,6 +890,28 @@ def to_fastapi_streaming_response(
     async def _convert_and_assemble() -> AsyncIterator[bytes]:
         """Convert raw stream to SSE bytes."""
 
+        def _schedule_client_disconnect_cleanup(
+            reason: ClientTerminationReason,
+            *,
+            cancel_reason: str,
+            details: str,
+        ) -> None:
+            nonlocal disconnect_cleanup_scheduled
+            if disconnect_cleanup_scheduled:
+                return
+            disconnect_cleanup_scheduled = True
+            _schedule_disconnect_cleanup(
+                lambda: _handle_client_stream_disconnect(
+                    domain_response=domain_response,
+                    context=context,
+                    request_id=request_id,
+                    cancel_reason=cancel_reason,
+                    details=details,
+                    termination_reason=reason,
+                ),
+                request_id=request_id,
+            )
+
         # Ensure async iterator of ProcessedResponse
         async def _ensure_async_iterator(
             source: AsyncIterator[ProcessedResponse] | Any,
@@ -790,6 +933,13 @@ def to_fastapi_streaming_response(
                     )
             except GeneratorExit:
                 # Close the source iterator if it supports aclose
+                _schedule_stream_close(
+                    source,
+                    name="source_iter",
+                    request_id=request_id,
+                )
+                raise
+            except asyncio.CancelledError:
                 _schedule_stream_close(
                     source,
                     name="source_iter",
@@ -824,7 +974,25 @@ def to_fastapi_streaming_response(
                 if chunk_count % yield_interval == 0:
                     await asyncio.sleep(0)
         except GeneratorExit:
-            # Client disconnected - clean up the SSE iterator
+            # Client disconnected - cancel backend work and clean up iterators.
+            _schedule_client_disconnect_cleanup(
+                ClientTerminationReason.CLIENT_DISCONNECTED,
+                cancel_reason="client_disconnect",
+                details="fastapi_stream_generator_exit",
+            )
+            _schedule_stream_close(
+                sse_bytes_iter,
+                name="sse_bytes_iter",
+                request_id=request_id,
+            )
+            raise
+        except asyncio.CancelledError:
+            # Request cancelled by transport/runtime - trigger same cleanup path.
+            _schedule_client_disconnect_cleanup(
+                ClientTerminationReason.CLIENT_CANCELLED,
+                cancel_reason="stream_cancelled",
+                details="fastapi_stream_cancelled_error",
+            )
             _schedule_stream_close(
                 sse_bytes_iter,
                 name="sse_bytes_iter",

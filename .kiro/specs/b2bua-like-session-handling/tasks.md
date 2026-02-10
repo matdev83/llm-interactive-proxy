@@ -157,7 +157,7 @@
   - Ensure usage outputs do not rely on `request_id` as a session fallback.
   - _Requirements: 7.6, 7.7, 7.10, 12.1_
 
-- [ ] 8. Protocol integration and verification
+- [x] 8. Protocol integration and verification
 - [x] 8.1 Align all protocol frontends on session resolution ordering for captures and backend calls
   - Ensure internal `a_session_id` is resolved before capturing inbound request metadata across all frontend protocols.
   - Ensure session resolution occurs before backend attempts are initiated so B-leg allocation and outbound correlation remain consistent.
@@ -192,3 +192,9 @@
   - Validate logs, wire captures, and usage records include appropriate A-leg and B-leg identifiers and omit request-id-based fallbacks.
   - Validate outbound provider correlation does not leak `a_session_id` or `client_session_id`.
   - _Requirements: 6.1, 6.2, 6.3, 6.5, 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.10, 12.1, 12.2, 13.3_
+
+- [x] 8.7 Unit test: stream disconnect triggers cancellation fan-out and explicit cancel callback
+  - Validate FastAPI streaming adapter reports non-normal client termination into session cancellation flow.
+  - Validate all registered in-flight cancellables for the request-scoped lifecycle session are cancelled.
+  - Validate connector `cancel_callback` is invoked on disconnect to submit explicit upstream cancellation.
+  - _Requirements: 5.6, 9.6, 12.1_

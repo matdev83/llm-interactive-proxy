@@ -31,7 +31,6 @@ def mock_config():
     return config
 
 
-
 @pytest.fixture
 def translation_service():
     """Create a translation service."""
@@ -402,6 +401,55 @@ class TestAnthropicCanonicalAPI:
             # Verify non-streaming path was taken
             assert isinstance(result, ResponseEnvelope)
             mock_handler.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_canonical_payload_does_not_forward_internal_session_fields(
+        self, anthropic_backend, canonical_request
+    ):
+        non_streaming_request = CanonicalChatRequest(
+            model="claude-3-haiku-20240307",
+            messages=[ChatMessage(role="user", content="Hello")],
+            max_tokens=100,
+            stream=False,
+            extra_body={
+                "session_id": "llm-b2bua-a-123",
+                "backend_type": "anthropic",
+                "a_session_id": "llm-b2bua-a-123",
+                "b_session_id": "llm-b2bua-b-123-1",
+                "b_seq": 1,
+                "auth_scope_id": "localhost",
+                "client_session_id": "client-1",
+                "custom_flag": "preserve-me",
+            },
+        )
+        canonical_request.request = non_streaming_request
+
+        with patch.object(
+            anthropic_backend,
+            "_handle_non_streaming_response",
+            new_callable=AsyncMock,
+        ) as mock_handler:
+            mock_handler.return_value = ResponseEnvelope(
+                content={
+                    "id": "test-id",
+                    "model": "claude-3-haiku-20240307",
+                    "choices": [],
+                },
+                status_code=200,
+            )
+
+            await anthropic_backend.chat_completions(canonical_request)
+
+            mock_handler.assert_called_once()
+            payload = mock_handler.call_args.args[1]
+            assert payload.get("custom_flag") == "preserve-me"
+            assert "session_id" not in payload
+            assert "backend_type" not in payload
+            assert "a_session_id" not in payload
+            assert "b_session_id" not in payload
+            assert "b_seq" not in payload
+            assert "auth_scope_id" not in payload
+            assert "client_session_id" not in payload
 
     @pytest.mark.asyncio
     async def test_options_json_safety_validation(
