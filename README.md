@@ -6,7 +6,75 @@
 ![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 [![License](https://img.shields.io/github/license/matdev83/llm-interactive-proxy?color=blue)](LICENSE)
 
-A swiss-army knife proxy for LLM-powered applications. Sits between any LLM-aware client (agent) and any backend, presenting multiple front-end APIs (OpenAI, Responses API, Anthropic, Gemini) while routing to your chosen provider. Translate requests, override models, rotate API keys, prevent leaks, inspect traffic, and execute chat-embedded commands—all from a single drop-in gateway.
+A swiss-army knife proxy that sits between your LLM client and provider—giving you a universal adapter, cost optimization, and full visibility with zero code changes.
+
+## Why Use LLM Interactive Proxy?
+
+Think of it as a universal adapter and control plane for your LLM stack:
+
+- **Use any frontend with any backend**: Your OpenAI SDK app can call Anthropic, Claude desktop can hit Gemini, and any LLM tool can work with OpenRouter—no code changes required. The proxy handles protocol translation automatically.
+- **Consolidate all your LLM subscriptions**: Connect your agents to GPT Plus/Pro, Gemini Advanced, Google AI Pro/Ultra, Qwen, GLM Code, and other premium plans through a single endpoint. Maximize the value of every subscription you already have without juggling multiple APIs.
+- **Optimize costs without complexity**: Rotate multiple API keys to maximize free-tier allowances, switch to cheaper models automatically, or force specific models regardless of what apps request.
+- **Keep your keys safe**: Prevent API keys from leaking to external services. Configure keys once in the proxy, not in every client.
+- **See everything**: Capture and inspect every request and response in CBOR format. Debug issues, analyze usage patterns, and understand exactly what your LLM apps are doing.
+- **Stay in control**: Restrict file access to safe directories, block dangerous git operations, control which tools LLMs can access, and enforce usage limits.
+
+Zero changes to your client code. Just point it at the proxy and gain control, visibility, and flexibility.
+
+## Key Capabilities
+
+- **Universal Protocol Translation** — Use OpenAI SDK with Anthropic, Claude client with Gemini, any combo
+- **Cost Optimization** — API key rotation, free-tier maximization, automatic model fallback
+- **Full Observability** — Wire capture, usage tracking, token counting, performance metrics
+- **Security & Control** — Key isolation, file sandboxing, dangerous command blocking, tool access control
+- **Subscription Consolidation** — Leverage GPT Plus/Pro, Gemini Advanced, Google AI Pro/Ultra, and more through one endpoint
+- **Flexible Deployment** — Single-user mode for development, multi-user mode for production
+
+See [User Guide](docs/user_guide/index.md) for the complete feature list.
+
+## Quick Start
+
+### 1. Installation
+
+```bash
+git clone https://github.com/matdev83/llm-interactive-proxy.git
+cd llm-interactive-proxy
+python -m venv .venv
+source .venv/Scripts/activate  # Windows: .venv\Scripts\activate
+pip install -e .[dev]
+```
+
+### 2. Start the Proxy
+
+```bash
+export OPENAI_API_KEY="your-key-here"
+python -m src.core.cli --default-backend openai:gpt-4o
+```
+
+### 3. Point Your Client at the Proxy
+
+```python
+# Instead of direct API calls:
+from openai import OpenAI
+client = OpenAI(api_key="your-key")
+
+# Use the proxy (base_url only):
+from openai import OpenAI
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="dummy-key"  # Proxy handles real authentication
+)
+
+# Now use normally - requests go through the proxy
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+That's it. All your existing code works unchanged—the proxy handles routing, translation, and monitoring transparently.
+
+See [Quick Start Guide](docs/user_guide/quick-start.md) for detailed configuration.
 
 ## Architecture
 
@@ -44,73 +112,6 @@ graph TD
     BE --> P4
 ```
 
-## Key Features
-
-- **Connect Any App to Any Model**: Route requests from any LLM client to any backend, even across protocols
-- **Codebuff WebSocket Server**: Real-time AI communication via WebSocket with session management, streaming responses, and file context support - [Quick Start](docs/user_guide/features/codebuff-quick-start.md)
-- **Usage Tracking & Statistics**: Comprehensive monitoring of token consumption, costs, performance metrics, and request patterns - [Feature Guide](docs/user_guide/features/usage-tracking.md)
-- **Model Override**: Force applications to use your chosen model, regardless of hardcoded defaults
-- **API Key Rotation**: Aggregate and auto-rotate API keys to maximize free-tier usage
-- **Test Execution Reminder**: Automatically reminds agents to run tests before completing tasks (14+ languages)
-- **LLM Assessment**: Detect conversation loops and stuck patterns with intelligent monitoring
-- **Tool Access Control**: Fine-grained control over which tools LLMs can access
-- **Dangerous Command Protection**: Block destructive git operations before they cause damage
-- **File Access Sandboxing**: Restrict file operations to safe directories
-- **Wire Capture & Debugging**: Inspect and analyze all traffic for debugging
-- **Random Model Replacement**: Probabilistically swap models for session resilience and diversity - [Feature Guide](docs/user_guide/features/random-model-replacement.md)
-- **Edit Precision Tuning**: Auto-adjust parameters when models struggle with precise edits
-- **Angel Verification**: Real-time response verification with automatic correction
-- **And 10+ more features** - See [User Guide](docs/user_guide/index.md) for complete list
-
-## Access Modes
-
-The proxy supports two operational modes to enforce appropriate security boundaries:
-
-- **Single User Mode** (default): For local development. Allows OAuth connectors, optional authentication, localhost-only binding.
-- **Multi User Mode**: For production/shared deployments. Blocks OAuth connectors, requires authentication for remote access, allows any IP binding.
-
-### Quick Examples
-
-```bash
-# Single User Mode (default) - local development
-./.venv/Scripts/python.exe -m src.core.cli
-
-# Multi User Mode - production deployment
-./.venv/Scripts/python.exe -m src.core.cli --multi-user-mode --host=0.0.0.0 --api-keys key1,key2
-```
-
-See [Access Modes User Guide](docs/user_guide/access-modes.md) for detailed documentation.
-
-## Quick Start
-
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/matdev83/llm-interactive-proxy.git
-cd llm-interactive-proxy
-
-# Create virtual environment
-python -m venv .venv
-source .venv/Scripts/activate  # Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -e .[dev]
-```
-
-### Basic Usage
-
-```bash
-# Start the proxy with OpenAI backend
-export OPENAI_API_KEY="your-key-here"
-python -m src.core.cli --default-backend openai:gpt-4o
-
-# Or with custom configuration
-python -m src.core.cli --config config/my_config.yaml
-```
-
-For detailed setup instructions, see [Quick Start Guide](docs/user_guide/quick-start.md).
-
 ## Documentation
 
 - **[User Guide](docs/user_guide/index.md)** - Feature documentation, configuration, backends, debugging
@@ -134,21 +135,42 @@ See [Front-End APIs Overview](docs/user_guide/backends/overview.md#front-end-api
 
 ## Supported Backends
 
-- **[OpenAI](docs/user_guide/backends/openai.md)** (GPT-4, GPT-4o, o1)
+- **[OpenAI (Legacy)](docs/user_guide/backends/openai.md)** (GPT-4, GPT-4o, o1, standard Chat Completions)
+- **[OpenAI Responses API](docs/user_guide/backends/openai.md)** (Optimized for structured output generation)
 - **[Anthropic](docs/user_guide/backends/anthropic.md)** (Claude 3.5 Sonnet, Opus, Haiku)
 - **[Google Gemini](docs/user_guide/backends/gemini.md)** (API Key, OAuth, GCP, Vertex AI, Auto-OAuth)
-
 - **[OpenRouter](docs/user_guide/backends/openrouter.md)** (Access to 100+ models)
-- **[ZAI](docs/user_guide/backends/zai.md)** (Zhipu AI / GLM models)
-- **[Qwen](docs/user_guide/backends/qwen.md)** (Alibaba Cloud Qwen models)
+
+- **[ZAI (Zhipu AI)](docs/user_guide/backends/zai.md)** (GLM models, including support for the GLM Coding Plan)
+- **[Alibaba Qwen](docs/user_guide/backends/qwen.md)** (Coding-optimized LLM models)
 - **[MiniMax](docs/user_guide/backends/minimax.md)** (Hailuo AI reasoning models)
 - **[InternLM](docs/user_guide/backends/internlm.md)** (InternLM AI models with API key rotation)
 - **[ZenMux](docs/user_guide/backends/zenmux.md)** (Unified model aggregator)
+- **[Moonshot AI](docs/user_guide/backends/kimi-code.md)** (Kimi models, including Kimi Code for coding)
 - **[Cline](docs/user_guide/backends/cline.md)** (Specialized debugging backend)
 - **[Hybrid](docs/user_guide/features/hybrid-backend.md)** (Virtual backend for two-phase reasoning)
 - **[Antigravity](docs/user_guide/backends/antigravity-oauth.md)** (Internal debugging backends for Gemini/Claude)
 
 See [Backends Overview](docs/user_guide/backends/overview.md) for full details and configuration.
+
+## Access Modes
+
+The proxy supports two operational modes to enforce appropriate security boundaries:
+
+- **Single User Mode** (default): For local development. Allows OAuth connectors, optional authentication, localhost-only binding.
+- **Multi User Mode**: For production/shared deployments. Blocks OAuth connectors, requires authentication for remote access, allows any IP binding.
+
+### Quick Examples
+
+```bash
+# Single User Mode (default) - local development
+./.venv/Scripts/python.exe -m src.core.cli
+
+# Multi User Mode - production deployment
+./.venv/Scripts/python.exe -m src.core.cli --multi-user-mode --host=0.0.0.0 --api-keys key1,key2
+```
+
+See [Access Modes User Guide](docs/user_guide/access-modes.md) for detailed documentation.
 
 ## Support
 
