@@ -8,31 +8,6 @@
 
 A swiss-army knife proxy that sits between your LLM client and provider—giving you a universal adapter, cost optimization, and full visibility with zero code changes.
 
-## Why Use LLM Interactive Proxy?
-
-Think of it as a universal adapter and control plane for your LLM stack:
-
-- **Use any frontend with any backend**: Your OpenAI SDK app can call Anthropic, Claude desktop can hit Gemini, and any LLM tool can work with OpenRouter—no code changes required. The proxy handles protocol translation automatically.
-- **Consolidate all your LLM subscriptions**: Connect your agents to GPT Plus/Pro, Gemini Advanced, Google AI Pro/Ultra, Qwen, GLM Code, and other premium plans through a single endpoint. Maximize the value of every subscription you already have without juggling multiple APIs.
-- **Optimize costs without complexity**: Rotate multiple API keys to maximize free-tier allowances, switch to cheaper models automatically, or force specific models regardless of what apps request.
-- **Keep your keys safe**: Prevent API keys from leaking to external services. Configure keys once in the proxy, not in every client.
-- **See everything**: Capture and inspect every request and response in CBOR format. Debug issues, analyze usage patterns, and understand exactly what your LLM apps are doing.
-- **Stay in control**: Restrict file access to safe directories, block dangerous git operations, control which tools LLMs can access, and enforce usage limits.
-
-Zero changes to your client code. Just point it at the proxy and gain control, visibility, and flexibility.
-
-## Key Capabilities
-
-- **Universal Protocol Translation** — Use OpenAI SDK with Anthropic, Claude client with Gemini, any combo
-- **Cost Optimization** — API key rotation, free-tier maximization, automatic model fallback
-- **Full Observability** — Wire capture, usage tracking, token counting, performance metrics
-- **Security & Control** — Key isolation, file sandboxing, dangerous command blocking, tool access control
-- **B2BUA Session Isolation (Opt-In)** — Internal A-leg/B-leg session identity generation, auth-scope-aware continuity primitives, and strict client-session trust boundaries
-- **Subscription Consolidation** — Leverage GPT Plus/Pro, Gemini Advanced, Google AI Pro/Ultra, and more through one endpoint
-- **Flexible Deployment** — Single-user mode for development, multi-user mode for production
-
-See [User Guide](docs/user_guide/index.md) for the complete feature list.
-
 ## Quick Start
 
 ### 1. Installation
@@ -76,6 +51,61 @@ response = client.chat.completions.create(
 That's it. All your existing code works unchanged—the proxy handles routing, translation, and monitoring transparently.
 
 See [Quick Start Guide](docs/user_guide/quick-start.md) for detailed configuration.
+
+## Why Use LLM Interactive Proxy?
+
+**One configuration. Any client. Any provider.**
+
+Stop rewriting your code every time you want to try a different LLM. Stop managing API keys in a dozen different tools. Stop wondering why your agent is stuck in an infinite loop or why your API bill suddenly spiked.
+
+### Solve Real Problems
+
+**Tired of juggling multiple LLM subscriptions?**  
+Connect all your premium accounts—GPT Plus/Pro, Gemini Advanced, Qwen, GLM Code, and more—through one endpoint. Use them all without switching tools.
+
+**Worried about agent misbehavior?**  
+Fix stuck agents with automatic loop detection. Reduce token costs with intelligent context compression. Get a second opinion mid-conversation by switching models seamlessly.
+
+**Need more control over what LLMs actually do?**  
+Rewrite prompts and responses on-the-fly without touching client code. Block dangerous git commands before they execute. Add a "guardian angel" model that monitors and helps when your primary model drifts off track.
+
+**Want visibility into what's happening?**  
+Capture every request and response in CBOR format. Debug issues, audit usage, and understand exactly what your LLM apps are doing.
+
+Zero changes to your client code. Just point it at the proxy and gain control.
+
+## Key Capabilities
+
+### Universal Connectivity
+- **Protocol Translation** — Use OpenAI SDK with Anthropic, Claude client with Gemini, any combination
+- **Subscription Consolidation** — Leverage all your premium LLM accounts through one endpoint
+- **Flexible Deployment** — Single-user mode for development, multi-user mode for production
+
+### Cost & Performance Optimization
+- **Smart Routing** — Rotate API keys to maximize free tiers, automatically fallback to cheaper models
+- **Context Window Compression** — Reduce token usage and improve inference speed without losing quality
+- **Full Observability** — Wire capture, usage tracking, token counting, performance metrics
+
+### Intelligent Session Control
+- **Loop Detection** — Automatically detect and resolve infinite loops and repetitive patterns
+- **Dynamic Model Switching** — Change models mid-conversation for diverse perspectives without losing context
+- **Guardian Angel** — Deploy a secondary model to monitor sessions and assist when the primary model struggles
+
+### Behavioral Customization
+- **Prompt & Response Rewriting** — Modify content on-the-fly to fine-tune agent behavior
+- **Tool Call Reactors** — Override and intercept tool calls to suppress unwanted behaviors
+- **Usage Limits** — Enforce quotas and control resource consumption
+
+### Security & Safety
+- **Key Isolation** — Configure API keys once, never expose them to clients
+- **Directory Sandboxing** — Restrict LLM tool access to designated safe directories
+- **Command Protection** — Block harmful operations like aggressive git commands
+- **Tool Access Control** — Fine-grained control over which tools LLMs can invoke
+
+### Enterprise Features
+- **B2BUA Session Isolation** — Internal session identity generation and strict trust boundaries
+
+See [User Guide](docs/user_guide/index.md) for the complete feature list.
 
 ## Architecture
 
