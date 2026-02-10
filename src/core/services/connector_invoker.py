@@ -21,6 +21,7 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -67,10 +68,30 @@ class ConnectorInvoker:
 
         # Deep copy extensions dict to avoid shared mutable state
         extensions = copy.deepcopy(context.extensions) if context.extensions else {}
+        for sensitive_key in ("client_session_id", "a_session_id", "auth_scope_id"):
+            extensions.pop(sensitive_key, None)
+
+        b2bua_extension = extensions.get("b2bua")
+        if isinstance(b2bua_extension, dict):
+            sanitized_b2bua = dict(b2bua_extension)
+            for sensitive_key in ("client_session_id", "a_session_id", "auth_scope_id"):
+                sanitized_b2bua.pop(sensitive_key, None)
+            if sanitized_b2bua:
+                extensions["b2bua"] = sanitized_b2bua
+            else:
+                extensions.pop("b2bua", None)
+
+        projected_session_id = context.session_id
+        identity = getattr(context, "b2bua_identity", None)
+        if isinstance(identity, B2buaIdentity):
+            # Never fall back to A-leg at connector boundary in B2BUA mode.
+            projected_session_id = identity.b_session_id
+            if identity.b_seq is not None:
+                extensions["b2bua"] = {"b_seq": identity.b_seq}
 
         return ConnectorRequestContext(
             request_id=context.request_id,
-            session_id=context.session_id,
+            session_id=projected_session_id,
             client_host=context.client_host,
             extensions=extensions,
         )
@@ -326,4 +347,3 @@ class ConnectorInvoker:
                 cancellation_coordinator=cancellation_coordinator,
                 **kwargs,  # Options expanded here only
             )
-

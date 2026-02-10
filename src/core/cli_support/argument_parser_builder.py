@@ -63,6 +63,7 @@ class ArgumentParserBuilder:
         self._add_auth_arguments(parser)
         self._add_pytest_arguments(parser)
         self._add_session_testing_arguments(parser)
+        self._add_b2bua_arguments(parser)
         self._add_tool_access_arguments(parser)
         self._add_routing_arguments(parser)
         self._add_auxiliary_routing_arguments(parser)
@@ -1057,6 +1058,121 @@ class ArgumentParserBuilder:
             dest="disable_double_ampersand_fixes_for_windows",
             default=None,
             help="Disable automatic && to ; replacement in commands for Windows clients",
+        )
+
+    def _add_b2bua_arguments(self, parser: argparse.ArgumentParser) -> None:
+        """Add B2BUA session handling arguments."""
+        b2bua_group = parser.add_argument_group(
+            "B2BUA Session Handling",
+            "Options for A-leg/B-leg session identity isolation and continuity",
+        )
+
+        b2bua_toggle_group = b2bua_group.add_mutually_exclusive_group()
+        b2bua_toggle_group.add_argument(
+            "--enable-b2bua-session-handling",
+            dest="b2bua_enabled",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Enable B2BUA-like A-leg/B-leg session handling",
+        )
+        b2bua_toggle_group.add_argument(
+            "--disable-b2bua-session-handling",
+            dest="b2bua_enabled",
+            action="store_const",
+            const=False,
+            help="Disable B2BUA-like A-leg/B-leg session handling",
+        )
+
+        b2bua_group.add_argument(
+            "--b2bua-continuity-max-age-seconds",
+            dest="b2bua_continuity_max_age_seconds",
+            type=int,
+            metavar="SECONDS",
+            help="Maximum age for continuity mapping entries (default: 3600)",
+        )
+
+        expiration_group = b2bua_group.add_mutually_exclusive_group()
+        expiration_group.add_argument(
+            "--b2bua-continuity-sliding-expiration",
+            dest="b2bua_continuity_sliding_expiration",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Extend B2BUA continuity mapping expiry on activity",
+        )
+        expiration_group.add_argument(
+            "--b2bua-continuity-fixed-expiration",
+            dest="b2bua_continuity_sliding_expiration",
+            action="store_const",
+            const=False,
+            help="Use fixed expiration for B2BUA continuity mapping entries",
+        )
+
+        persistence_group = b2bua_group.add_mutually_exclusive_group()
+        persistence_group.add_argument(
+            "--enable-b2bua-persistent-mapping-store",
+            dest="b2bua_persistent_mapping_store_enabled",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Enable persistent continuity mapping store for B2BUA",
+        )
+        persistence_group.add_argument(
+            "--disable-b2bua-persistent-mapping-store",
+            dest="b2bua_persistent_mapping_store_enabled",
+            action="store_const",
+            const=False,
+            help="Disable persistent continuity mapping store for B2BUA",
+        )
+
+        echo_group = b2bua_group.add_mutually_exclusive_group()
+        echo_group.add_argument(
+            "--enable-b2bua-session-echo",
+            dest="b2bua_echo_enabled",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Enable A-leg session echo header in responses",
+        )
+        echo_group.add_argument(
+            "--disable-b2bua-session-echo",
+            dest="b2bua_echo_enabled",
+            action="store_const",
+            const=False,
+            help="Disable A-leg session echo header in responses",
+        )
+
+        b2bua_group.add_argument(
+            "--b2bua-session-echo-header-name",
+            dest="b2bua_echo_header_name",
+            metavar="HEADER",
+            help="Header name for A-leg session echo (default: x-b2bua-session-id)",
+        )
+
+        unsafe_group = b2bua_group.add_mutually_exclusive_group()
+        unsafe_group.add_argument(
+            "--enable-unsafe-legacy-session-inference",
+            dest="b2bua_enable_unsafe_heuristic_session_inference",
+            action="store_const",
+            const=True,
+            default=None,
+            help="Enable unsafe heuristic continuity when client_session_id is absent",
+        )
+        unsafe_group.add_argument(
+            "--disable-unsafe-legacy-session-inference",
+            dest="b2bua_enable_unsafe_heuristic_session_inference",
+            action="store_const",
+            const=False,
+            help="Disable unsafe heuristic continuity when client_session_id is absent",
+        )
+
+        b2bua_group.add_argument(
+            "--b2bua-deployment-mode",
+            dest="b2bua_deployment_mode",
+            choices=["single-process", "multi-worker"],
+            default=None,
+            help="Deployment mode for B2BUA sequence allocation guarantees",
         )
 
     def _add_tool_access_arguments(self, parser: argparse.ArgumentParser) -> None:

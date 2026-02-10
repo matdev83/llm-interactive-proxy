@@ -58,6 +58,7 @@ class SessionApplicator:
         self._apply_planning_phase(args, overrides, resolution)
         self._apply_pytest_settings(args, overrides, resolution)
         self._apply_tool_access(args, overrides, resolution)
+        self._apply_b2bua_settings(args, overrides, resolution)
         self._apply_session_flags(args, overrides, resolution)
         self._apply_strict_command_detection(args, overrides, resolution)
         self._apply_accounting(args, overrides, resolution)
@@ -427,6 +428,119 @@ class SessionApplicator:
         if tool_access_overrides:
             session = overrides.setdefault("session", {})
             session["tool_access_global_overrides"] = tool_access_overrides
+
+    def _apply_b2bua_settings(
+        self,
+        args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Apply B2BUA session handling settings."""
+        b2bua_args_present = any(
+            [
+                getattr(args, "b2bua_enabled", None) is not None,
+                getattr(args, "b2bua_continuity_max_age_seconds", None) is not None,
+                getattr(args, "b2bua_continuity_sliding_expiration", None) is not None,
+                getattr(args, "b2bua_persistent_mapping_store_enabled", None)
+                is not None,
+                getattr(args, "b2bua_echo_enabled", None) is not None,
+                getattr(args, "b2bua_echo_header_name", None) is not None,
+                getattr(
+                    args,
+                    "b2bua_enable_unsafe_heuristic_session_inference",
+                    None,
+                )
+                is not None,
+                getattr(args, "b2bua_deployment_mode", None) is not None,
+            ]
+        )
+        if not b2bua_args_present:
+            return
+
+        session = overrides.setdefault("session", {})
+        b2bua = session.setdefault("b2bua", {})
+
+        if getattr(args, "b2bua_enabled", None) is not None:
+            b2bua["enabled"] = args.b2bua_enabled
+            resolution.record(
+                "session.b2bua.enabled",
+                args.b2bua_enabled,
+                ParameterSource.CLI,
+                origin="--enable/disable-b2bua-session-handling",
+            )
+
+        if getattr(args, "b2bua_continuity_max_age_seconds", None) is not None:
+            max_age = max(1, int(args.b2bua_continuity_max_age_seconds))
+            b2bua["continuity_max_age_seconds"] = max_age
+            resolution.record(
+                "session.b2bua.continuity_max_age_seconds",
+                max_age,
+                ParameterSource.CLI,
+                origin="--b2bua-continuity-max-age-seconds",
+            )
+
+        if getattr(args, "b2bua_continuity_sliding_expiration", None) is not None:
+            b2bua["continuity_sliding_expiration"] = (
+                args.b2bua_continuity_sliding_expiration
+            )
+            resolution.record(
+                "session.b2bua.continuity_sliding_expiration",
+                args.b2bua_continuity_sliding_expiration,
+                ParameterSource.CLI,
+                origin="--b2bua-continuity-sliding-expiration/--b2bua-continuity-fixed-expiration",
+            )
+
+        if getattr(args, "b2bua_persistent_mapping_store_enabled", None) is not None:
+            b2bua["persistent_mapping_store_enabled"] = (
+                args.b2bua_persistent_mapping_store_enabled
+            )
+            resolution.record(
+                "session.b2bua.persistent_mapping_store_enabled",
+                args.b2bua_persistent_mapping_store_enabled,
+                ParameterSource.CLI,
+                origin="--enable/disable-b2bua-persistent-mapping-store",
+            )
+
+        if getattr(args, "b2bua_echo_enabled", None) is not None:
+            b2bua["echo_enabled"] = args.b2bua_echo_enabled
+            resolution.record(
+                "session.b2bua.echo_enabled",
+                args.b2bua_echo_enabled,
+                ParameterSource.CLI,
+                origin="--enable/disable-b2bua-session-echo",
+            )
+
+        if getattr(args, "b2bua_echo_header_name", None) is not None:
+            b2bua["echo_header_name"] = args.b2bua_echo_header_name
+            resolution.record(
+                "session.b2bua.echo_header_name",
+                args.b2bua_echo_header_name,
+                ParameterSource.CLI,
+                origin="--b2bua-session-echo-header-name",
+            )
+
+        if (
+            getattr(args, "b2bua_enable_unsafe_heuristic_session_inference", None)
+            is not None
+        ):
+            b2bua["enable_unsafe_heuristic_session_inference"] = (
+                args.b2bua_enable_unsafe_heuristic_session_inference
+            )
+            resolution.record(
+                "session.b2bua.enable_unsafe_heuristic_session_inference",
+                args.b2bua_enable_unsafe_heuristic_session_inference,
+                ParameterSource.CLI,
+                origin="--enable/disable-unsafe-legacy-session-inference",
+            )
+
+        if getattr(args, "b2bua_deployment_mode", None) is not None:
+            b2bua["deployment_mode"] = args.b2bua_deployment_mode
+            resolution.record(
+                "session.b2bua.deployment_mode",
+                args.b2bua_deployment_mode,
+                ParameterSource.CLI,
+                origin="--b2bua-deployment-mode",
+            )
 
     def _apply_session_flags(
         self,

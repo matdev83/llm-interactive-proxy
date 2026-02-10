@@ -172,6 +172,8 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                         "model": attempt.model,
                     }
                 )
+                if context is not None:
+                    context.extensions["b2bua_attempt_reason"] = "failover"
 
                 return await call_completion_callback(
                     request=attempt_request,
@@ -281,6 +283,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 retry_attempt = int(retry_value)
             context.extensions["retry_attempt"] = retry_attempt + 1
             context.extensions["is_retry"] = True
+            context.extensions["b2bua_attempt_reason"] = "retry"
 
         if wait_seconds is not None and wait_seconds > 0:
             if logger.isEnabledFor(logging.INFO):
@@ -437,6 +440,8 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 }
             }
         )
+        if context is not None:
+            context.extensions["b2bua_attempt_reason"] = "failover"
 
         return await call_completion_callback(
             request=failover_request,

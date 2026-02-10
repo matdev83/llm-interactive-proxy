@@ -16,6 +16,7 @@ from src.core.common.exceptions import (
     BackendError,
     RateLimitExceededError,
 )
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -98,6 +99,23 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         sanitized = sanitize_dict_for_json(metadata)
         return sanitized
 
+    @staticmethod
+    def _extract_b2bua_usage_metadata(
+        context: RequestContext | None,
+    ) -> dict[str, JsonValue] | None:
+        if context is None:
+            return None
+        identity = getattr(context, "b2bua_identity", None)
+        if not isinstance(identity, B2buaIdentity):
+            return None
+
+        metadata: dict[str, JsonValue] = {"a_session_id": identity.a_session_id}
+        if isinstance(identity.b_session_id, str) and identity.b_session_id.strip():
+            metadata["b_session_id"] = identity.b_session_id
+        if isinstance(identity.b_seq, int):
+            metadata["b_seq"] = identity.b_seq
+        return metadata
+
     def __init__(
         self,
         usage_tracking_service: IUsageTrackingService | None,
@@ -129,6 +147,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         effective_model: str,
         session: ISession | None,
         session_id_for_backend: str | None,
+        context: RequestContext | None = None,
     ) -> tuple[int, str | None, str | None]:
         """Calculate tokens and record request usage."""
         ctp_record_id = None
@@ -187,7 +206,27 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                     ):
                         proxy_user = getattr(session.state, "proxy_user", None)  # type: ignore[attr-defined]
 
-                    sid = session_id_for_backend or "unknown"
+                    usage_session_id = session_id_for_backend
+                    ptb_turn_number = 1
+                    if context is not None:
+                        context_session_id = getattr(context, "session_id", None)
+                        if (
+                            isinstance(context_session_id, str)
+                            and context_session_id.strip()
+                        ):
+                            usage_session_id = context_session_id
+                        b2bua_usage_metadata = self._extract_b2bua_usage_metadata(
+                            context
+                        )
+                        if b2bua_usage_metadata is not None:
+                            a_session_id = b2bua_usage_metadata.get("a_session_id")
+                            if isinstance(a_session_id, str) and a_session_id.strip():
+                                usage_session_id = a_session_id
+                            b_seq = b2bua_usage_metadata.get("b_seq")
+                            if isinstance(b_seq, int) and b_seq > 0:
+                                ptb_turn_number = b_seq
+
+                    sid = usage_session_id or "unknown"
 
                     ctp_record_id = await self._usage_tracking_service.record_request(
                         session_id=sid,
@@ -197,6 +236,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         leg=TrafficLeg.CLIENT_TO_PROXY,
                         prompt_tokens=verbatim_tokens,
                         proxy_user=proxy_user,
+                        turn_number=1,
                     )
 
                     ptb_record_id = await self._usage_tracking_service.record_request(
@@ -207,6 +247,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         leg=TrafficLeg.PROXY_TO_BACKEND,
                         prompt_tokens=outbound_tokens,
                         proxy_user=proxy_user,
+                        turn_number=ptb_turn_number,
                     )
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):
@@ -247,11 +288,15 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         effective_model: str | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Wrap response with usage tracking."""
+        b2bua_usage_metadata = self._extract_b2bua_usage_metadata(context)
+
         # Store outbound tokens in result metadata for tracking
         if hasattr(result, "metadata") and result.metadata is None:
             result.metadata = {}
         if hasattr(result, "metadata") and isinstance(result.metadata, dict):
             result.metadata["outbound_tokens"] = outbound_tokens
+            if b2bua_usage_metadata is not None:
+                result.metadata.setdefault("b2bua", dict(b2bua_usage_metadata))
 
         # Wrap result content for usage tracking
         if (
@@ -294,6 +339,9 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         usage_dict = usage  # type: ignore[reportUnknownVariableType]
                     else:
                         usage_dict = {}
+                    if b2bua_usage_metadata is not None:
+                        usage_dict = dict(usage_dict)
+                        usage_dict.setdefault("b2bua", dict(b2bua_usage_metadata))
 
                     completion_tokens_raw = usage_dict.get("completion_tokens", 0)  # type: ignore[reportUnknownMemberType]
                     completion_tokens = (
@@ -405,6 +453,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
 
         # Wrap with session_id injection and canonical usage tracking
         original_content = result.content
+        b2bua_usage_metadata = self._extract_b2bua_usage_metadata(context)
 
         async def _inject_session_id_and_track_usage() -> Any:
             from src.core.domain.usage_canonical_record import (
@@ -432,6 +481,8 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                             metadata["session_id"] = session_id
                         if session_id and "stream_id" not in metadata:
                             metadata["stream_id"] = session_id
+                        if b2bua_usage_metadata is not None and "b2bua" not in metadata:
+                            metadata["b2bua"] = dict(b2bua_usage_metadata)
 
                         # Track usage from chunks
                         if chunk.usage:
@@ -614,9 +665,13 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             instance_id = build_resilience_instance_id(backend_type, context)
             self._resilience.record_success(instance_id, effective_model)
 
-        if session_id_for_backend and self._planning_phase_manager:
+        session_id_for_state = session_id_for_backend
+        if context is not None and context.session_id:
+            session_id_for_state = context.session_id
+
+        if session_id_for_state and self._planning_phase_manager:
             await self._planning_phase_manager.update_counters(
-                session_id_for_backend, result
+                session_id_for_state, result
             )
 
         return result

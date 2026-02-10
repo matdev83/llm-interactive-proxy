@@ -14,6 +14,8 @@ from src.core.common.exceptions import (
     InvalidRequestError,
     RateLimitExceededError,
 )
+from src.core.config.app_config import AppConfig
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.transport.fastapi.exception_adapters import (
@@ -225,6 +227,110 @@ class TestResponseAdapters:
         body = json.loads(fastapi_converted.body)
         assert body["message"] == "REGULAR RESPONSE"
         assert "usage" in body  # Usage is added by the adapter
+
+    def test_to_fastapi_response_sets_b2bua_echo_header_when_enabled(self):
+        """A-leg echo header is emitted for non-streaming responses when enabled."""
+        app_config = AppConfig()
+        b2bua_config = app_config.session.b2bua.model_copy(
+            update={
+                "enabled": True,
+                "echo_enabled": True,
+                "echo_header_name": "x-test-a-session",
+            }
+        )
+        session_config = app_config.session.model_copy(update={"b2bua": b2bua_config})
+        app_config = app_config.model_copy(update={"session": session_config})
+
+        app_state = MagicMock()
+        app_state.config = app_config
+        a_session_id = "llm-b2bua-a-1234"
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=app_state,
+            session_id=a_session_id,
+            b2bua_identity=B2buaIdentity(a_session_id=a_session_id),
+        )
+
+        response = to_fastapi_response(
+            ResponseEnvelope(content={"ok": True}, media_type="application/json"),
+            context=context,
+        )
+
+        assert response.headers.get("x-test-a-session") == a_session_id
+
+    def test_to_fastapi_response_omits_b2bua_echo_header_when_disabled(self):
+        """A-leg echo header is omitted when echo feature is disabled."""
+        app_config = AppConfig()
+        b2bua_config = app_config.session.b2bua.model_copy(
+            update={
+                "enabled": True,
+                "echo_enabled": False,
+            }
+        )
+        session_config = app_config.session.model_copy(update={"b2bua": b2bua_config})
+        app_config = app_config.model_copy(update={"session": session_config})
+
+        app_state = MagicMock()
+        app_state.config = app_config
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=app_state,
+            session_id="llm-b2bua-a-1234",
+            b2bua_identity=B2buaIdentity(a_session_id="llm-b2bua-a-1234"),
+        )
+
+        response = to_fastapi_response(
+            ResponseEnvelope(content={"ok": True}, media_type="application/json"),
+            context=context,
+        )
+
+        assert response.headers.get("x-b2bua-session-id") is None
+
+    @pytest.mark.asyncio
+    async def test_to_fastapi_streaming_response_sets_b2bua_echo_header(self):
+        """A-leg echo header is emitted for streaming responses when enabled."""
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        app_config = AppConfig()
+        b2bua_config = app_config.session.b2bua.model_copy(
+            update={
+                "enabled": True,
+                "echo_enabled": True,
+                "echo_header_name": "x-stream-a-session",
+            }
+        )
+        session_config = app_config.session.model_copy(update={"b2bua": b2bua_config})
+        app_config = app_config.model_copy(update={"session": session_config})
+
+        app_state = MagicMock()
+        app_state.config = app_config
+        a_session_id = "llm-b2bua-a-9999"
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=app_state,
+            session_id=a_session_id,
+            b2bua_identity=B2buaIdentity(a_session_id=a_session_id),
+        )
+
+        async def content_generator():
+            yield ProcessedResponse(content="hello", metadata={})
+
+        response = to_fastapi_streaming_response(
+            StreamingResponseEnvelope(
+                content=content_generator(),
+                headers={},
+                media_type="text/event-stream",
+            ),
+            context=context,
+        )
+
+        assert response.headers.get("x-stream-a-session") == a_session_id
 
 
 class TestExceptionAdapters:

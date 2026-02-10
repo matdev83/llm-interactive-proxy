@@ -166,6 +166,19 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--end-of-session-emit-events` | N/A | Enable event emission (default when EoS is enabled). |
 | `--end-of-session-detect-only` | N/A | Enable detect-only mode (no events emitted). |
 | `--end-of-session-dispatch-timeout SECONDS` | N/A | Maximum time to wait for event dispatch (default: 5.0, 0 for fire-and-forget). |
+| `--enable-b2bua-session-handling` | `SESSION_B2BUA_ENABLED=true` | Enable B2BUA A-leg/B-leg session identity separation. |
+| `--disable-b2bua-session-handling` | `SESSION_B2BUA_ENABLED=false` | Disable B2BUA mode and keep legacy session behavior. |
+| `--b2bua-continuity-max-age-seconds SECONDS` | `SESSION_B2BUA_CONTINUITY_MAX_AGE_SECONDS` | Maximum age for (`auth_scope_id`, `client_session_id`) continuity mappings. |
+| `--b2bua-continuity-sliding-expiration` | `SESSION_B2BUA_CONTINUITY_SLIDING_EXPIRATION=true` | Extend continuity mapping expiry on activity. |
+| `--b2bua-continuity-fixed-expiration` | `SESSION_B2BUA_CONTINUITY_SLIDING_EXPIRATION=false` | Use fixed continuity mapping expiry without sliding updates. |
+| `--enable-b2bua-persistent-mapping-store` | `SESSION_B2BUA_PERSISTENT_MAPPING_STORE_ENABLED=true` | Persist continuity mapping and B-leg sequence state across restarts. |
+| `--disable-b2bua-persistent-mapping-store` | `SESSION_B2BUA_PERSISTENT_MAPPING_STORE_ENABLED=false` | Use in-memory continuity mapping store only. |
+| `--enable-b2bua-session-echo` | `SESSION_B2BUA_ECHO_ENABLED=true` | Emit A-leg session echo response header (diagnostic only). |
+| `--disable-b2bua-session-echo` | `SESSION_B2BUA_ECHO_ENABLED=false` | Disable A-leg session echo response header emission. |
+| `--b2bua-session-echo-header-name HEADER` | `SESSION_B2BUA_ECHO_HEADER_NAME` | Configure response header name used for A-leg echo. |
+| `--enable-unsafe-legacy-session-inference` | `SESSION_B2BUA_ENABLE_UNSAFE_HEURISTIC_SESSION_INFERENCE=true` | Allow unsafe fallback continuity inference when `client_session_id` is absent. |
+| `--disable-unsafe-legacy-session-inference` | `SESSION_B2BUA_ENABLE_UNSAFE_HEURISTIC_SESSION_INFERENCE=false` | Disable unsafe legacy continuity inference (recommended default). |
+| `--b2bua-deployment-mode {single-process,multi-worker}` | `SESSION_B2BUA_DEPLOYMENT_MODE` | Set deployment assumptions used for B2BUA startup validation and store selection. |
 | N/A | `SESSION_CLEANUP_ENABLED` | Enable session cleanup (boolean). |
 | N/A | `SESSION_CLEANUP_INTERVAL` | Cleanup interval in seconds. |
 | N/A | `SESSION_MAX_AGE` | Max session age in seconds. |

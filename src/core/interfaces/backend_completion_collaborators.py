@@ -295,6 +295,7 @@ class IUsageAccountingOrchestrator(ABC):
         effective_model: str,
         session: ISession | None,
         session_id_for_backend: str | None,
+        context: RequestContext | None = None,
     ) -> tuple[int, str | None, str | None]:
         """Calculate tokens and record request usage.
 

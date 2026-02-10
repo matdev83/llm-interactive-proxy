@@ -18,6 +18,7 @@ from fastapi.responses import Response
 from pydantic.types import JsonValue
 from starlette.responses import StreamingResponse
 
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -110,6 +111,11 @@ def _schedule_stream_close(
             )
 
 
+def _is_mock_object(value: Any) -> bool:
+    module_name = getattr(type(value), "__module__", "")
+    return isinstance(module_name, str) and module_name.startswith("unittest.mock")
+
+
 # Lazy singleton instances
 _json_builder: JSONResponseBuilder | None = None
 _streaming_builder: StreamingResponseBuilder | None = None
@@ -195,6 +201,67 @@ def _apply_usage_headers(
     if usage is None:
         return dict(headers)
     return _get_usage_header_injector().inject_headers(dict(headers), usage)
+
+
+def _resolve_b2bua_echo_header(
+    context: RequestContext | None,
+) -> tuple[str, str] | None:
+    if context is None:
+        return None
+    identity = getattr(context, "b2bua_identity", None)
+    if not isinstance(identity, B2buaIdentity):
+        return None
+    a_session_id = identity.a_session_id.strip()
+    if not a_session_id:
+        return None
+
+    header_name = "x-b2bua-session-id"
+    echo_enabled = False
+
+    config_candidates: list[Any] = []
+    app_state = getattr(context, "app_state", None)
+    if app_state is not None:
+        app_config_candidate = getattr(app_state, "app_config", None)
+        if app_config_candidate is not None and not _is_mock_object(
+            app_config_candidate
+        ):
+            config_candidates.append(app_config_candidate)
+        config_candidate = getattr(app_state, "config", None)
+        if config_candidate is not None and not _is_mock_object(config_candidate):
+            config_candidates.append(config_candidate)
+
+    from src.core.interfaces.configuration_interface import IConfig
+
+    config_candidates.append(_resolve_service(IConfig))
+
+    for config in config_candidates:
+        if config is None or _is_mock_object(config):
+            continue
+        b2bua_cfg = getattr(getattr(config, "session", None), "b2bua", None)
+        if b2bua_cfg is None:
+            continue
+        echo_enabled = bool(getattr(b2bua_cfg, "echo_enabled", False))
+        configured_name = getattr(b2bua_cfg, "echo_header_name", None)
+        if isinstance(configured_name, str) and configured_name.strip():
+            header_name = configured_name.strip().lower()
+        break
+
+    if not echo_enabled:
+        return None
+    return header_name, a_session_id
+
+
+def _apply_b2bua_echo_header(
+    headers: dict[str, str] | None,
+    context: RequestContext | None,
+) -> dict[str, str]:
+    result_headers = dict(headers or {})
+    resolved = _resolve_b2bua_echo_header(context)
+    if resolved is None:
+        return result_headers
+    header_name, a_session_id = resolved
+    result_headers[header_name] = a_session_id
+    return result_headers
 
 
 def _get_json_builder() -> JSONResponseBuilder:
@@ -587,6 +654,11 @@ def to_fastapi_response(
         coordinator = _get_wire_capture_coordinator(wire_capture)
         coordinator.schedule_capture(envelope, response_content, context=context)
 
+    echo_header = _resolve_b2bua_echo_header(context)
+    if echo_header is not None:
+        header_name, a_session_id = echo_header
+        response.headers[header_name] = a_session_id
+
     return response
 
 
@@ -676,6 +748,7 @@ def to_fastapi_streaming_response(
         empty_headers = header_injector.inject_headers(
             empty_headers, {}, canonical_usage=domain_response.canonical_usage
         )
+        empty_headers = _apply_b2bua_echo_header(empty_headers, context)
 
         return StreamingResponse(
             content=_empty_streamer(),
@@ -766,6 +839,7 @@ def to_fastapi_streaming_response(
     headers = header_injector.inject_headers(
         headers, {}, canonical_usage=domain_response.canonical_usage
     )
+    headers = _apply_b2bua_echo_header(headers, context)
 
     # Build streaming response
     return StreamingResponse(

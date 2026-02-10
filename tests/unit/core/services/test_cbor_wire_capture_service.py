@@ -9,6 +9,7 @@ from pathlib import Path
 import cbor2
 import pytest
 from src.core.config.app_config import AppConfig
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.cbor_capture import (
     CaptureDirection,
     CaptureEntry,
@@ -33,6 +34,12 @@ def temp_capture_dir():
 def mock_config():
     """Create a mock AppConfig."""
     return AppConfig.from_env()
+
+
+def _with_b2bua_enabled(config: AppConfig) -> AppConfig:
+    b2bua_config = config.session.b2bua.model_copy(update={"enabled": True})
+    session_config = config.session.model_copy(update={"b2bua": b2bua_config})
+    return config.model_copy(update={"session": session_config})
 
 
 @pytest.fixture
@@ -61,6 +68,9 @@ class TestCaptureMetadata:
         """Test to_dict with all fields."""
         meta = CaptureMetadata(
             session_id="sess-1",
+            a_session_id="llm-b2bua-a-1",
+            b_session_id="llm-b2bua-b-1-2",
+            b_seq=2,
             backend="openai",
             model="gpt-4",
             key_name="key-1",
@@ -75,6 +85,9 @@ class TestCaptureMetadata:
         )
         result = meta.to_dict()
         assert result["sid"] == "sess-1"
+        assert result["asid"] == "llm-b2bua-a-1"
+        assert result["bsid"] == "llm-b2bua-b-1-2"
+        assert result["bseq"] == 2
         assert result["be"] == "openai"
         assert result["mod"] == "gpt-4"
         assert result["ci"] == 5
@@ -85,6 +98,9 @@ class TestCaptureMetadata:
         """Test from_dict recreates original metadata."""
         original = CaptureMetadata(
             session_id="sess-1",
+            a_session_id="llm-b2bua-a-1",
+            b_session_id="llm-b2bua-b-1-3",
+            b_seq=3,
             backend="anthropic",
             model="claude-3",
             chunk_index=3,
@@ -92,6 +108,9 @@ class TestCaptureMetadata:
         dict_form = original.to_dict()
         recreated = CaptureMetadata.from_dict(dict_form)
         assert recreated.session_id == original.session_id
+        assert recreated.a_session_id == original.a_session_id
+        assert recreated.b_session_id == original.b_session_id
+        assert recreated.b_seq == original.b_seq
         assert recreated.backend == original.backend
         assert recreated.model == original.model
         assert recreated.chunk_index == original.chunk_index
@@ -297,6 +316,77 @@ class TestCaptureSession:
 
 class TestCborWireCaptureService:
     """Tests for CborWireCaptureService."""
+
+    def test_extract_context_metadata_uses_request_id_fallback_when_b2bua_disabled(
+        self, capture_service
+    ):
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            request_id="req-legacy-fallback",
+        )
+
+        metadata = capture_service._extract_context_metadata(
+            context=context,
+            session_id=None,
+        )
+
+        assert metadata.session_id == "req-legacy-fallback"
+
+    @pytest.mark.asyncio
+    async def test_extract_context_metadata_skips_request_id_fallback_when_b2bua_enabled(
+        self, mock_config, temp_capture_dir
+    ):
+        b2bua_config = _with_b2bua_enabled(mock_config)
+        service = CborWireCaptureService(
+            config=b2bua_config,
+            capture_dir=temp_capture_dir,
+            session_id="capture-session",
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            request_id="req-no-fallback",
+        )
+
+        metadata = service._extract_context_metadata(
+            context=context,
+            session_id=None,
+        )
+
+        assert metadata.session_id is None
+        await service.shutdown()
+
+    def test_extract_context_metadata_populates_b2bua_identity_fields(
+        self, capture_service
+    ):
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state=None,
+            app_state=None,
+            session_id="llm-b2bua-a-4321",
+            request_id="req-identity",
+            b2bua_identity=B2buaIdentity(
+                a_session_id="llm-b2bua-a-4321",
+                b_session_id="llm-b2bua-b-4321-5",
+                b_seq=5,
+            ),
+        )
+
+        metadata = capture_service._extract_context_metadata(
+            context=context,
+            session_id=None,
+        )
+
+        assert metadata.session_id == "llm-b2bua-a-4321"
+        assert metadata.a_session_id == "llm-b2bua-a-4321"
+        assert metadata.b_session_id == "llm-b2bua-b-4321-5"
+        assert metadata.b_seq == 5
 
     @pytest.mark.asyncio
     async def test_capture_stream_completion_with_canonical_usage(

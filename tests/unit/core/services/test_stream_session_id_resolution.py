@@ -19,6 +19,12 @@ def resolver():
     return StreamSessionIdResolver()
 
 
+@pytest.fixture
+def b2bua_resolver():
+    """Create a StreamSessionIdResolver with B2BUA mode enabled."""
+    return StreamSessionIdResolver(b2bua_enabled=True)
+
+
 class TestPrecedence:
     """Test resolution precedence rules (1 to 5)."""
 
@@ -152,3 +158,30 @@ class TestEdgeCases:
 
         # Should use context.request_id
         assert result == "context-request-id"
+
+    def test_b2bua_mode_skips_request_id_fallback(self, b2bua_resolver):
+        """When B2BUA is enabled request_id cannot be used as session surrogate."""
+        request = ChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+        context = Mock(spec=RequestContext)
+        context.request_id = "context-request-id"
+
+        result = b2bua_resolver.resolve_stream_session_id(None, context, request)
+
+        assert result != "context-request-id"
+        assert len(result) == 32
+
+    def test_b2bua_mode_keeps_explicit_session_id(self, b2bua_resolver):
+        """Explicit session ID still wins in B2BUA mode."""
+        context = Mock(spec=RequestContext)
+        context.request_id = "context-request-id"
+
+        result = b2bua_resolver.resolve_stream_session_id(
+            "llm-b2bua-a-1234",
+            context,
+            None,
+        )
+
+        assert result == "llm-b2bua-a-1234"

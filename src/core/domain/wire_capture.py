@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from src.core.domain.b2bua_identity import B2buaIdentity
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,6 +40,15 @@ class WireCaptureMetadata(BaseModel):
     """Metadata for wire capture entries."""
 
     session_id: str | None = Field(default=None, description="Session identifier")
+    a_session_id: str | None = Field(
+        default=None,
+        description="A-leg session identifier",
+    )
+    b_session_id: str | None = Field(
+        default=None,
+        description="B-leg session identifier",
+    )
+    b_seq: int | None = Field(default=None, description="B-leg sequence number")
     agent: str | None = Field(default=None, description="User agent information")
     backend: str = Field(description="Backend service name")
     model: str = Field(description="Model name")
@@ -202,6 +213,18 @@ def create_wire_capture_entry(
     # Extract source and destination info
     client_host = getattr(context, "client_host", None) if context else None
     agent = getattr(context, "agent", None) if context else None
+    a_session_id: str | None = None
+    b_session_id: str | None = None
+    b_seq: int | None = None
+    if context is not None:
+        identity = getattr(context, "b2bua_identity", None)
+        if isinstance(identity, B2buaIdentity):
+            if identity.a_session_id.strip():
+                a_session_id = identity.a_session_id.strip()
+            if isinstance(identity.b_session_id, str) and identity.b_session_id.strip():
+                b_session_id = identity.b_session_id.strip()
+            if isinstance(identity.b_seq, int):
+                b_seq = identity.b_seq
 
     # Calculate byte count if not provided
     if byte_count is None:
@@ -238,6 +261,9 @@ def create_wire_capture_entry(
     )
 
     known_fields = {
+        "a_session_id",
+        "b_session_id",
+        "b_seq",
         "status_code",
         "retry_after_seconds",
         "retry_attempt",
@@ -257,6 +283,12 @@ def create_wire_capture_entry(
                 metadata_kwargs[key] = value
             else:
                 extensions[key] = value
+    if a_session_id and "a_session_id" not in metadata_kwargs:
+        metadata_kwargs["a_session_id"] = a_session_id
+    if b_session_id and "b_session_id" not in metadata_kwargs:
+        metadata_kwargs["b_session_id"] = b_session_id
+    if b_seq is not None and "b_seq" not in metadata_kwargs:
+        metadata_kwargs["b_seq"] = b_seq
 
     # Create metadata
     metadata = WireCaptureMetadata(

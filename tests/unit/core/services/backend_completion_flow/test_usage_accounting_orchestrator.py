@@ -1,7 +1,9 @@
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import ChatRequest
+from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.planning_phase_manager_interface import IPlanningPhaseManager
 from src.core.interfaces.resilience_interface import IResilienceCoordinator
@@ -90,6 +92,50 @@ class TestUsageAccountingOrchestrator:
             assert usage_tracking_service.record_request.call_count == 2
 
     @pytest.mark.asyncio
+    async def test_calculate_and_record_usage_prefers_a_leg_and_b_seq(
+        self, orchestrator, usage_tracking_service
+    ):
+        usage_tracking_service.record_request = AsyncMock(
+            side_effect=["rec_ctp", "rec_ptb"]
+        )
+        request = Mock(spec=ChatRequest)
+        domain_request = Mock(spec=ChatRequest)
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=Mock(),
+            session_id="llm-b2bua-a-2020",
+            b2bua_identity=B2buaIdentity(
+                a_session_id="llm-b2bua-a-2020",
+                b_session_id="llm-b2bua-b-2020-4",
+                b_seq=4,
+            ),
+        )
+
+        with patch(
+            "src.core.services.backend_completion_flow.usage_accounting_orchestrator.calculate_outbound_tokens"
+        ) as mock_calc:
+            mock_calc.return_value = 123
+
+            await orchestrator.calculate_and_record_usage(
+                domain_request=domain_request,
+                request=request,
+                backend_type="openai",
+                effective_model="gpt-4",
+                session=None,
+                session_id_for_backend="llm-b2bua-b-2020-4",
+                context=context,
+            )
+
+        first_call = usage_tracking_service.record_request.call_args_list[0].kwargs
+        second_call = usage_tracking_service.record_request.call_args_list[1].kwargs
+        assert first_call["session_id"] == "llm-b2bua-a-2020"
+        assert first_call["turn_number"] == 1
+        assert second_call["session_id"] == "llm-b2bua-a-2020"
+        assert second_call["turn_number"] == 4
+
+    @pytest.mark.asyncio
     async def test_wrap_response_for_usage_non_streaming(
         self, orchestrator, usage_tracking_service
     ):
@@ -114,6 +160,48 @@ class TestUsageAccountingOrchestrator:
         assert result == response
         assert result.metadata["outbound_tokens"] == 100
         assert usage_tracking_service.record_response.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_wrap_response_for_usage_embeds_b2bua_attempt_metadata(
+        self, orchestrator, usage_tracking_service
+    ):
+        from src.core.domain.usage_summary import UsageSummary
+
+        response = ResponseEnvelope(
+            content="foo",
+            usage=UsageSummary.from_dict({"completion_tokens": 5}),
+        )
+        usage_tracking_service.record_response = AsyncMock()
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=Mock(),
+            session_id="llm-b2bua-a-3000",
+            b2bua_identity=B2buaIdentity(
+                a_session_id="llm-b2bua-a-3000",
+                b_session_id="llm-b2bua-b-3000-2",
+                b_seq=2,
+            ),
+        )
+
+        await orchestrator.wrap_response_for_usage(
+            result=response,
+            outbound_tokens=10,
+            ctp_record_id="rec_ctp",
+            ptb_record_id="rec_ptb",
+            start_time=1000.0,
+            context=context,
+        )
+
+        assert response.metadata is not None
+        assert response.metadata["b2bua"]["a_session_id"] == "llm-b2bua-a-3000"
+        assert response.metadata["b2bua"]["b_session_id"] == "llm-b2bua-b-3000-2"
+        assert response.metadata["b2bua"]["b_seq"] == 2
+        backend_usage = usage_tracking_service.record_response.call_args_list[0].kwargs[
+            "backend_reported_usage"
+        ]
+        assert backend_usage["b2bua"]["b_seq"] == 2
 
     @pytest.mark.asyncio
     async def test_wrap_response_for_usage_streaming(
@@ -188,3 +276,36 @@ class TestUsageAccountingOrchestrator:
         assert result == response
         resilience_coordinator.record_success.assert_called_with("openai", "gpt-4")
         planning_phase_manager.update_counters.assert_called_with("sess_1", response)
+
+    @pytest.mark.asyncio
+    async def test_handle_non_streaming_response_prefers_a_leg_session_from_context(
+        self, orchestrator, planning_phase_manager
+    ):
+        response = ResponseEnvelope(content="foo")
+        planning_phase_manager.update_counters = AsyncMock()
+        orchestrator._resilience = None  # type: ignore[attr-defined]
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=Mock(),
+            session_id="llm-b2bua-a-9999",
+            b2bua_identity=B2buaIdentity(
+                a_session_id="llm-b2bua-a-9999",
+                b_session_id="llm-b2bua-b-9999-3",
+                b_seq=3,
+            ),
+        )
+
+        await orchestrator.handle_non_streaming_response(
+            result=response,
+            backend_type="openai",
+            effective_model="gpt-4",
+            session_id_for_backend="llm-b2bua-b-9999-3",
+            context=context,
+        )
+
+        planning_phase_manager.update_counters.assert_called_with(
+            "llm-b2bua-a-9999",
+            response,
+        )

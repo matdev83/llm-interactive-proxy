@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
@@ -151,6 +151,29 @@ class SessionContinuityConfig(DomainModel):
     """
 
 
+class B2BUAConfig(DomainModel):
+    """Configuration for B2BUA-like A-leg/B-leg session handling."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = False
+    continuity_max_age_seconds: int = Field(default=3600, ge=1)
+    continuity_sliding_expiration: bool = True
+    persistent_mapping_store_enabled: bool = False
+    echo_enabled: bool = True
+    echo_header_name: str = "x-b2bua-session-id"
+    enable_unsafe_heuristic_session_inference: bool = False
+    deployment_mode: Literal["single-process", "multi-worker"] = "single-process"
+
+    @field_validator("echo_header_name")
+    @classmethod
+    def _validate_echo_header_name(cls, value: str) -> str:
+        header_name = value.strip()
+        if not header_name:
+            raise ValueError("session.b2bua.echo_header_name cannot be empty")
+        return header_name
+
+
 class StreamingSamplerConfig(DomainModel):
     """Configuration for the streaming sampler (debugging/observability)."""
 
@@ -209,6 +232,7 @@ class SessionConfig(DomainModel):
     session_continuity: SessionContinuityConfig = Field(
         default_factory=SessionContinuityConfig
     )
+    b2bua: B2BUAConfig = Field(default_factory=B2BUAConfig)
     tool_access_global_overrides: dict[str, Any] | None = None
     force_reprocess_tool_calls: bool = False
     log_skipped_tool_calls: bool = False

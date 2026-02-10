@@ -241,6 +241,18 @@ properties:
           max_session_age_seconds: { type: integer, minimum: 0 }
           client_key_includes_ip: { type: boolean }
           enable_topic_similarity_matching: { type: boolean }
+      b2bua:
+        type: object
+        additionalProperties: false
+        properties:
+          enabled: { type: boolean }
+          continuity_max_age_seconds: { type: integer, minimum: 1 }
+          continuity_sliding_expiration: { type: boolean }
+          persistent_mapping_store_enabled: { type: boolean }
+          echo_enabled: { type: boolean }
+          echo_header_name: { type: string, minLength: 1 }
+          enable_unsafe_heuristic_session_inference: { type: boolean }
+          deployment_mode: { type: string, enum: ["single-process", "multi-worker"] }
       planning_phase:
         type: object
         additionalProperties: false

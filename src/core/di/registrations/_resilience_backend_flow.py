@@ -104,6 +104,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             IUsageTrackingWrapper,
         )
         from src.core.interfaces.wire_capture_interface import IWireCapture
+        from src.core.services.b2bua_bleg_allocator_service import B2buaBlegAllocator
         from src.core.services.backend_completion_flow.availability_checker import (
             BackendAvailabilityChecker,
         )
@@ -498,6 +499,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
             non_forwardable_enforcer = provider.get_service(
                 cast(type, INonForwardableMessageEnforcer)
             )
+            b2bua_bleg_allocator = provider.get_service(B2buaBlegAllocator)
 
             return BackendCompletionFlow(
                 availability_checker=availability_checker,
@@ -514,6 +516,7 @@ def _register_backend_completion_flow(services: ServiceCollection) -> None:
                 eos_adapter=eos_adapter,
                 cancellation_coordinator=cancellation_coordinator,
                 non_forwardable_enforcer=non_forwardable_enforcer,
+                b2bua_bleg_allocator=b2bua_bleg_allocator,
             )
 
         register_singleton_if_absent(

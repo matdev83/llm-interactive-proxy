@@ -88,7 +88,7 @@ class TestAuthMiddleware:
         self, middleware: AuthMiddleware
     ) -> None:
         """Test extraction with missing Authorization header."""
-        request = {"headers": {}}
+        request: dict[str, object] = {"headers": {}}
 
         token = middleware.extract_bearer_token(request)
 
@@ -98,7 +98,7 @@ class TestAuthMiddleware:
         self, middleware: AuthMiddleware
     ) -> None:
         """Test extraction with missing headers dictionary."""
-        request = {}
+        request: dict[str, object] = {}
 
         token = middleware.extract_bearer_token(request)
 
@@ -392,7 +392,7 @@ class TestAuthMiddleware:
         mock_sandbox_handler: MagicMock,
     ) -> None:
         """Test request processing with no token."""
-        request = {"headers": {}}
+        request: dict[str, object] = {"headers": {}}
 
         response = await middleware(request)
 
@@ -531,6 +531,51 @@ class TestAuthMiddleware:
         # Should return None to allow request to proceed
         assert response is None
         mock_sandbox_handler.generate_login_banner.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    @freeze_time("2024-01-01 12:00:00")
+    async def test_call_valid_authenticated_injects_auth_identity_state(
+        self,
+        middleware: AuthMiddleware,
+        mock_token_service: MagicMock,
+        mock_token_repository: MagicMock,
+    ) -> None:
+        """Test authenticated requests expose token and user identity to downstream layers."""
+        from src.core.auth.sso.models import TokenRecord
+
+        request = {
+            "headers": {"Authorization": "Bearer test-token"},
+            "messages": [{"role": "user", "content": "Hello"}],
+        }
+        mock_token_repository.get_all_token_hashes.return_value = ["hash1"]
+        mock_token_service.verify_token.return_value = True
+
+        frozen_time = datetime.now(timezone.utc)
+        valid_token = TokenRecord(
+            id="token-id-abc",
+            token_hash="hash1",
+            user_id="user-123",
+            user_email="user@example.com",
+            provider="google",
+            is_authenticated=True,
+            is_active=True,
+            created_at=frozen_time,
+            last_authenticated_at=frozen_time,
+            auth_expires_at=frozen_time + timedelta(hours=1),
+        )
+        mock_token_repository.find_by_hash.return_value = valid_token
+
+        response = await middleware(request)
+
+        assert response is None
+        request_state = request.get("request_state")
+        assert isinstance(request_state, dict)
+        assert request_state["auth_scope_id"] == "token-id-abc"
+        assert request_state["authenticated_token_id"] == "token-id-abc"
+        assert request_state["token_id"] == "token-id-abc"
+        assert request_state["authenticated_user_id"] == "user-123"
+        assert request_state["user_id"] == "user-123"
+        assert "test-token" not in request_state.values()
 
     @pytest.mark.asyncio
     @freeze_time("2024-01-01 12:00:00")

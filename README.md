@@ -27,6 +27,7 @@ Zero changes to your client code. Just point it at the proxy and gain control, v
 - **Cost Optimization** — API key rotation, free-tier maximization, automatic model fallback
 - **Full Observability** — Wire capture, usage tracking, token counting, performance metrics
 - **Security & Control** — Key isolation, file sandboxing, dangerous command blocking, tool access control
+- **B2BUA Session Isolation (Opt-In)** — Internal A-leg/B-leg session identity generation, auth-scope-aware continuity primitives, and strict client-session trust boundaries
 - **Subscription Consolidation** — Leverage GPT Plus/Pro, Gemini Advanced, Google AI Pro/Ultra, and more through one endpoint
 - **Flexible Deployment** — Single-user mode for development, multi-user mode for production
 

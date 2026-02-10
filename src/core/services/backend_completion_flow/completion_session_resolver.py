@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
@@ -23,18 +24,43 @@ class CompletionSessionResolver(ICompletionSessionResolver):
         """Initialize the session resolver."""
         self._session_service = session_service
 
+    @staticmethod
+    def _resolve_b2bua_a_leg_session_id(
+        context: RequestContext | None,
+    ) -> str | None:
+        if context is None:
+            return None
+        identity = getattr(context, "b2bua_identity", None)
+        if not isinstance(identity, B2buaIdentity):
+            return None
+        a_session_id = identity.a_session_id.strip()
+        return a_session_id or None
+
     async def resolve_session(
         self, context: RequestContext | None, request: CanonicalChatRequest
     ) -> tuple[ISession | None, str | None]:
         """Resolve session from context or request."""
         session: ISession | None = None
         session_id_for_backend: str | None = None
+        b2bua_mode = False
+        if context is not None:
+            b2bua_mode = isinstance(
+                getattr(context, "b2bua_identity", None), B2buaIdentity
+            )
 
         # Resolve session from context when available
-        if context and context.session_id:
-            session_id_for_backend = context.session_id
+        if context:
+            b2bua_a_leg = self._resolve_b2bua_a_leg_session_id(context)
+            if b2bua_a_leg:
+                session_id_for_backend = b2bua_a_leg
+            elif getattr(context, "session_id", None):
+                session_id_for_backend = context.session_id
+
+        if session_id_for_backend:
             try:
-                session = await self._session_service.get_session(context.session_id)
+                session = await self._session_service.get_session(
+                    session_id_for_backend
+                )
             except asyncio.CancelledError:
                 # Propagate cancellation - session resolution should not block cancellation
                 raise
@@ -43,7 +69,7 @@ class CompletionSessionResolver(ICompletionSessionResolver):
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Failed to load session '%s' for backend call: %s",
-                        context.session_id,
+                        session_id_for_backend,
                         e,
                         exc_info=True,
                     )
@@ -52,13 +78,17 @@ class CompletionSessionResolver(ICompletionSessionResolver):
                 # Fallback for unexpected errors - log and continue (fail-open)
                 logger.warning(
                     "Unexpected error loading session '%s' for backend call: %s",
-                    context.session_id,
+                    session_id_for_backend,
                     e,
                     exc_info=True,
                 )
                 session = None
 
-        # Try to get session from request extra_body if not found in context
+        # In B2BUA mode, request-provided session IDs are never used for session state.
+        if b2bua_mode:
+            return session, session_id_for_backend
+
+        # Legacy mode: try to get session from request extra_body if not found in context
         request_session_id = (
             request.extra_body.get("session_id") if request.extra_body else None
         )

@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 def register_extracted_backend_services(services: ServiceCollection) -> None:
     """Register extracted backend-related services required by BackendService."""
+    from src.core.interfaces.configuration_interface import IConfig
     from src.core.interfaces.exception_normalizer_interface import (
         IExceptionNormalizer,
     )
@@ -122,7 +123,24 @@ def register_extracted_backend_services(services: ServiceCollection) -> None:
         implementation_factory=lambda p: p.get_required_service(PlanningPhaseManager),
     )
 
-    register_singleton_if_absent(services, StreamSessionIdResolver)
+    def _stream_session_id_resolver_factory(
+        provider: IServiceProvider,
+    ) -> StreamSessionIdResolver:
+        config = provider.get_service(cast(type, IConfig))
+        b2bua_enabled = bool(
+            getattr(
+                getattr(getattr(config, "session", None), "b2bua", None),
+                "enabled",
+                False,
+            )
+        )
+        return StreamSessionIdResolver(b2bua_enabled=b2bua_enabled)
+
+    register_singleton_if_absent(
+        services,
+        StreamSessionIdResolver,
+        implementation_factory=_stream_session_id_resolver_factory,
+    )
     register_singleton_if_absent(
         services,
         cast(type, IStreamSessionIdResolver),

@@ -312,6 +312,49 @@ def _warn_if_topic_similarity_matching_enabled(cfg: AppConfig) -> AppConfig:
     return cfg
 
 
+def _warn_if_b2bua_unsafe_heuristic_inference_enabled(cfg: AppConfig) -> AppConfig:
+    """Warn when unsafe legacy B2BUA inference mode is enabled."""
+    try:
+        b2bua_cfg = cfg.session.b2bua
+    except Exception:
+        return cfg
+
+    if getattr(b2bua_cfg, "enabled", False) and getattr(
+        b2bua_cfg, "enable_unsafe_heuristic_session_inference", False
+    ):
+        logging.warning(
+            "session.b2bua.enable_unsafe_heuristic_session_inference=true. "
+            "Unsafe legacy session inference can merge unrelated conversations. "
+            "Prefer explicit client session identifiers."
+        )
+
+    return cfg
+
+
+def _validate_b2bua_runtime_configuration(cfg: AppConfig) -> AppConfig:
+    """Validate startup-time B2BUA deployment constraints."""
+    try:
+        b2bua_cfg = cfg.session.b2bua
+    except Exception:
+        return cfg
+
+    if not getattr(b2bua_cfg, "enabled", False):
+        return cfg
+
+    deployment_mode = getattr(b2bua_cfg, "deployment_mode", "single-process")
+    persistent_store_enabled = getattr(
+        b2bua_cfg, "persistent_mapping_store_enabled", False
+    )
+
+    if deployment_mode == "multi-worker" and not persistent_store_enabled:
+        raise ValueError(
+            "B2BUA multi-worker mode requires persistent mapping store "
+            "(set session.b2bua.persistent_mapping_store_enabled=true)."
+        )
+
+    return cfg
+
+
 def _warn_if_angel_frequency_too_low(cfg: AppConfig) -> AppConfig:
     """Warn if Angel verification frequency is configured very aggressively.
 
@@ -382,6 +425,8 @@ async def main(
         cfg, resolution = cfg_result
         cfg = _warn_if_topic_similarity_matching_enabled(cfg)
         cfg = _warn_if_angel_frequency_too_low(cfg)
+        cfg = _warn_if_b2bua_unsafe_heuristic_inference_enabled(cfg)
+        cfg = _validate_b2bua_runtime_configuration(cfg)
 
         server_manager = ServerLifecycleManager(
             privilege_checker=PrivilegeChecker(),

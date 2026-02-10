@@ -28,6 +28,7 @@ from pydantic.types import JsonValue
 from src.core.common.contract_serialization import serialize_dict_for_capture
 from src.core.common.logging_utils import discover_api_keys_from_config_and_env
 from src.core.config.app_config import AppConfig
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.request_context import RequestContext
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.interfaces.stream_session_id_resolver_interface import (
@@ -195,8 +196,15 @@ class BufferedWireCapture(IWireCapture):
                 StreamSessionIdResolver,
             )
 
+            b2bua_enabled = bool(
+                getattr(
+                    getattr(getattr(config, "session", None), "b2bua", None),
+                    "enabled",
+                    False,
+                )
+            )
             self._stream_session_id_resolver: IStreamSessionIdResolver = (
-                StreamSessionIdResolver()
+                StreamSessionIdResolver(b2bua_enabled=b2bua_enabled)
             )
         else:
             self._stream_session_id_resolver = stream_session_id_resolver
@@ -243,7 +251,9 @@ class BufferedWireCapture(IWireCapture):
         self._buffers: dict[str, list[WireCaptureEntry]] = defaultdict(list)
         self._buffer_lock = asyncio.Lock()
         self._file_lock = asyncio.Lock()  # Protects disk I/O and rotation
-        self._active_flushes: set[asyncio.Task[Any]] = set()  # Track background flush tasks
+        self._active_flushes: set[asyncio.Task[Any]] = (
+            set()
+        )  # Track background flush tasks
         self._flush_task: asyncio.Task[None] | None = None
         self._last_flush_time: float = time.time()
         self._total_bytes_written: int = 0
@@ -808,14 +818,30 @@ class BufferedWireCapture(IWireCapture):
                 getattr(context, "request_id", None) if context else None
             ),
         }
+        identity = getattr(context, "b2bua_identity", None) if context else None
+        if isinstance(identity, B2buaIdentity):
+            entry_metadata["a_session_id"] = _sanitize_metadata_value(
+                identity.a_session_id
+            )
+            entry_metadata["b_session_id"] = _sanitize_metadata_value(
+                identity.b_session_id
+            )
+            entry_metadata["b_seq"] = _sanitize_metadata_value(identity.b_seq)
         if metadata:
             for key, value in metadata.items():
                 entry_metadata[key] = _sanitize_metadata_value(value)
 
         # Use centralized session ID resolver for consistency
+        session_hint = session_id
+        if (
+            not session_hint
+            and isinstance(identity, B2buaIdentity)
+            and identity.a_session_id.strip()
+        ):
+            session_hint = identity.a_session_id.strip()
         resolved_session_id = (
             self._stream_session_id_resolver.resolve_stream_session_id(
-                session_id=session_id,
+                session_id=session_hint,
                 context=context,
                 request=None,
             )
@@ -832,7 +858,7 @@ class BufferedWireCapture(IWireCapture):
             direction=direction,
             source=source,
             destination=destination,
-            session_id=str(resolved_session_id),
+            session_id=str(resolved_session_id) if resolved_session_id else None,
             backend=backend,
             model=model,
             key_name=key_name,
@@ -973,7 +999,6 @@ class BufferedWireCapture(IWireCapture):
                 await self._check_rotation()
             except RuntimeError:
                 self._write_entries_sync(entries)
-
 
     def _cleanup_empty_buffers_locked(self) -> None:
         """Remove empty buffers to free up space. Must be called with lock held."""
@@ -1145,7 +1170,9 @@ class BufferedWireCapture(IWireCapture):
                             entries = self._snapshot_and_clear_locked()
                     if entries:
                         # Use shield and track in active_flushes to ensure completion even during shutdown
-                        flush_task = asyncio.create_task(self._flush_entries_async(entries))
+                        flush_task = asyncio.create_task(
+                            self._flush_entries_async(entries)
+                        )
                         self._active_flushes.add(flush_task)
                         flush_task.add_done_callback(self._active_flushes.discard)
                         await asyncio.shield(flush_task)

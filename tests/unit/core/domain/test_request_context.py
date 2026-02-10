@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from pydantic.types import JsonValue
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.request_context import (
     RequestContext,
@@ -189,3 +190,55 @@ class TestRequestContextTypedFields:
         assert context.backend is None
         assert context.effective_model is None
         assert context.extensions == {}
+
+    def test_b2bua_identity_field_accepts_proxy_internal_identity(self) -> None:
+        """RequestContext should carry proxy-internal B2BUA identity."""
+        identity = B2buaIdentity(
+            a_session_id="llm-b2bua-abc",
+            b_session_id="llm-b2bua-b-abc-1",
+            b_seq=1,
+            auth_scope_id="token-123",
+            client_session_id="client-xyz",
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            session_id="llm-b2bua-abc",
+            b2bua_identity=identity,
+        )
+
+        assert context.b2bua_identity is not None
+        assert context.b2bua_identity.a_session_id == "llm-b2bua-abc"
+        assert context.b2bua_identity.b_session_id == "llm-b2bua-b-abc-1"
+        assert context.session_id == "llm-b2bua-abc"
+
+    def test_with_b2bua_attempt_identity_returns_copy_without_mutating_original(
+        self,
+    ) -> None:
+        """Per-attempt B-leg identity should be represented via copied context."""
+        base = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            session_id="llm-b2bua-abc",
+            b2bua_identity=B2buaIdentity(a_session_id="llm-b2bua-abc"),
+        )
+
+        attempt = base.with_b2bua_attempt_identity(
+            b_session_id="llm-b2bua-b-abc-1",
+            b_seq=1,
+        )
+
+        assert base.b2bua_identity is not None
+        assert base.b2bua_identity.b_session_id is None
+
+        assert attempt.b2bua_identity is not None
+        assert attempt.b2bua_identity.a_session_id == "llm-b2bua-abc"
+        assert attempt.b2bua_identity.b_session_id == "llm-b2bua-b-abc-1"
+        assert attempt.b2bua_identity.b_seq == 1
+        # A-leg identity remains stable on both contexts.
+        assert base.session_id == "llm-b2bua-abc"
+        assert attempt.session_id == "llm-b2bua-abc"

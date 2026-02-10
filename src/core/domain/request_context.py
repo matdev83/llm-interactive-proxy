@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic.types import JsonValue
 
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.interfaces.model_bases import InternalDTO
 
@@ -188,6 +189,7 @@ class RequestContext(InternalDTO):
     effective_model: str | None = None
     requested_model: str | None = None
     extensions: dict[str, JsonValue] = field(default_factory=dict)
+    b2bua_identity: B2buaIdentity | None = None
     """
     Extension container for vendor- and protocol-specific data.
     
@@ -251,9 +253,50 @@ class RequestContext(InternalDTO):
             client_host=self.client_host,
             session_id=self.session_id,
             request_id=self.request_id,
+            b2bua_identity=copy.deepcopy(self.b2bua_identity),
             agent=self.agent,
             original_request=self.original_request,
             processing_context=new_context,
+            domain_request=self.domain_request,
+            raw_body=self.raw_body,
+            backend=self.backend,
+            effective_model=self.effective_model,
+            requested_model=self.requested_model,
+            extensions=copy.deepcopy(self.extensions) if self.extensions else {},
+            original_domain_request=self.original_domain_request,
+        )
+
+    def with_b2bua_attempt_identity(
+        self,
+        *,
+        b_session_id: str,
+        b_seq: int | None,
+    ) -> RequestContext:
+        """Return an attempt-scoped copy with updated B-leg identity.
+
+        The original context remains unchanged so per-attempt B-leg metadata can
+        be represented without mutating shared request state.
+        """
+        if self.b2bua_identity is None:
+            raise ValueError(
+                "b2bua_identity must be set before creating attempt-scoped context"
+            )
+
+        return RequestContext(
+            headers=RequestHeaders(self.headers),
+            cookies=RequestCookies(self.cookies),
+            state=self.state,
+            app_state=self.app_state,
+            client_host=self.client_host,
+            session_id=self.session_id,
+            request_id=self.request_id,
+            b2bua_identity=self.b2bua_identity.with_attempt(
+                b_session_id=b_session_id,
+                b_seq=b_seq,
+            ),
+            agent=self.agent,
+            original_request=self.original_request,
+            processing_context=copy.deepcopy(self.processing_context),
             domain_request=self.domain_request,
             raw_body=self.raw_body,
             backend=self.backend,

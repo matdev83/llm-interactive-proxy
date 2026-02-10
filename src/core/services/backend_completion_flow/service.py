@@ -21,6 +21,7 @@ from src.core.common.exceptions import (
     RateLimitExceededError,
     SessionCancelledError,
 )
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -46,6 +47,7 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+from src.core.services.b2bua_bleg_allocator_service import B2buaBlegAllocator
 from src.core.services.boundary_validation import (
     log_boundary_validation_failure,
 )
@@ -123,6 +125,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         eos_adapter: BackendCompletionFlowEosAdapter | None = None,  # type: ignore[invalid-type-form]
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
         non_forwardable_enforcer: INonForwardableMessageEnforcer | None = None,
+        b2bua_bleg_allocator: B2buaBlegAllocator | None = None,
     ) -> None:
         """Initialize the completion flow orchestrator."""
         self._availability_checker = availability_checker
@@ -141,6 +144,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._cancellation_coordinator = cancellation_coordinator
         self._non_forwardable_enforcer = non_forwardable_enforcer
         self._connector_invoker = connector_invoker
+        self._b2bua_bleg_allocator = b2bua_bleg_allocator
         # Track cancellation tasks to prevent resource leaks
         self._cancellation_tasks: set[asyncio.Task[None]] = set()
         self._cancellation_tasks_lock = threading.Lock()
@@ -526,6 +530,79 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
         return capture_metadata
 
+    @staticmethod
+    def _resolve_b2bua_attempt_reason(context: RequestContext | None) -> str:
+        if context is None:
+            return "initial"
+
+        explicit_reason = context.extensions.get("b2bua_attempt_reason")
+        if isinstance(explicit_reason, str) and explicit_reason.strip():
+            return explicit_reason.strip()
+
+        is_retry = context.extensions.get("is_retry")
+        if isinstance(is_retry, bool) and is_retry:
+            return "retry"
+
+        return "initial"
+
+    async def _allocate_b2bua_attempt_context(
+        self,
+        *,
+        context: RequestContext | None,
+        a_session_id: str | None,
+        backend_type: str,
+        effective_model: str,
+    ) -> tuple[RequestContext | None, str | None]:
+        identity = getattr(context, "b2bua_identity", None) if context else None
+        if (
+            context is None
+            or not isinstance(identity, B2buaIdentity)
+            or self._b2bua_bleg_allocator is None
+        ):
+            return context, None
+
+        resolved_a_session_id = a_session_id or identity.a_session_id
+        if not resolved_a_session_id:
+            return context, None
+
+        try:
+            reason = self._resolve_b2bua_attempt_reason(context)
+            allocation = await self._b2bua_bleg_allocator.allocate(
+                a_session_id=resolved_a_session_id,
+                backend_type=backend_type,
+                effective_model=effective_model,
+                reason=reason,
+            )
+            attempt_context = context.with_b2bua_attempt_identity(
+                b_session_id=allocation.b_session_id,
+                b_seq=allocation.seq,
+            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Allocated B2BUA backend attempt identity",
+                    extra={
+                        "a_session_id": resolved_a_session_id,
+                        "b_session_id": allocation.b_session_id,
+                        "b_seq": allocation.seq,
+                        "backend_type": backend_type,
+                        "effective_model": effective_model,
+                        "reason": reason,
+                    },
+                )
+            return attempt_context, allocation.b_session_id
+        except Exception:
+            # Fail-open: retain A-leg processing and avoid leaking A-leg id outbound.
+            logger.warning(
+                "Failed to allocate B2BUA attempt identity",
+                exc_info=True,
+                extra={
+                    "a_session_id": resolved_a_session_id,
+                    "backend_type": backend_type,
+                    "effective_model": effective_model,
+                },
+            )
+            return context, None
+
     async def call_completion(
         self,
         request: ChatRequest,
@@ -646,6 +723,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         current_backend = backend_type
         content_started = False
         session_id_for_backend: str | None = None
+        outbound_session_id: str | None = None
+        attempt_context: RequestContext | None = context
 
         try:
 
@@ -667,6 +746,40 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             # Synchronize session_id back to context if it's missing (Requirement 8.1)
             if context and not context.session_id:
                 context.session_id = session_id_for_backend
+
+            # In B2BUA mode allocate per-attempt B-leg identity for outbound correlation
+            (
+                attempt_context,
+                outbound_session_id,
+            ) = await self._allocate_b2bua_attempt_context(
+                context=context,
+                a_session_id=session_id_for_backend,
+                backend_type=backend_type,
+                effective_model=effective_model,
+            )
+            if not isinstance(getattr(context, "b2bua_identity", None), B2buaIdentity):
+                # Legacy mode keeps the same outbound correlation semantics.
+                outbound_session_id = session_id_for_backend
+
+            attempt_identity = (
+                getattr(attempt_context, "b2bua_identity", None)
+                if attempt_context is not None
+                else None
+            )
+            if isinstance(attempt_identity, B2buaIdentity) and logger.isEnabledFor(
+                logging.INFO
+            ):
+                logger.info(
+                    "Dispatching backend attempt",
+                    extra={
+                        "request_id": getattr(attempt_context, "request_id", None),
+                        "backend_type": backend_type,
+                        "effective_model": effective_model,
+                        "a_session_id": attempt_identity.a_session_id,
+                        "b_session_id": attempt_identity.b_session_id,
+                        "b_seq": attempt_identity.b_seq,
+                    },
+                )
 
             # Step 6: Acquire backend instance
             backend = await self._backend_invoker.acquire_backend(
@@ -693,7 +806,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 session_id=session_id_for_backend,
                 canonical_request=canonical_request,
                 domain_request=domain_request,
-                context=context,
+                context=attempt_context,
                 backend_type=backend_type,
             )
 
@@ -712,7 +825,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     backend_type=backend_type,
                     effective_model=effective_model,
                     domain_request=domain_request,
-                    context=context,
+                    context=attempt_context,
                 )
 
                 # Resolve SessionKey for cancellation gating
@@ -727,9 +840,9 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
                 # Prepare backend call kwargs
                 backend_call_kwargs = self._request_preparer.prepare_backend_kwargs(
-                    session_id_for_backend=session_id_for_backend,
+                    session_id_for_backend=outbound_session_id,
                     session=session,
-                    context=context,
+                    context=attempt_context,
                     backend_type=backend_type,
                 )
 
@@ -747,6 +860,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     effective_model=effective_model,
                     session=session,
                     session_id_for_backend=session_id_for_backend,
+                    context=attempt_context,
                 )
 
                 # Execute the backend call through ConnectorInvoker
@@ -758,7 +872,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     identity=identity,
                     cancellation_token=session_key,
                     cancellation_coordinator=self._cancellation_coordinator,
-                    context=context,
+                    context=attempt_context,
                     options=backend_call_kwargs,
                 )
 
@@ -834,7 +948,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     ctp_record_id=ctp_record_id,
                     ptb_record_id=ptb_record_id,
                     start_time=start_time,
-                    context=context,
+                    context=attempt_context,
                     backend_type=backend_type,
                     effective_model=effective_model,
                 )
@@ -845,7 +959,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         result=result,
                         backend_type=backend_type,
                         effective_model=effective_model,
-                        context=context,
+                        context=attempt_context,
                         domain_request=domain_request,
                         session_id_for_backend=session_id_for_backend,
                         session_key=session_key,
@@ -857,7 +971,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     result=result,
                     backend_type=backend_type,
                     effective_model=effective_model,
-                    context=context,
+                    context=attempt_context,
                     session_id_for_backend=session_id_for_backend,
                     session_key=session_key,
                 )
@@ -927,8 +1041,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 # Note: For error cases, canonical_usage may not be available
 
                 await self._wire_capture_orchestrator.capture_inbound_response(
-                    context=context,
-                    session_id=getattr(context, "session_id", None),
+                    context=attempt_context,
+                    session_id=getattr(attempt_context, "session_id", None),
                     backend_type=backend_type,
                     effective_model=effective_model,
                     key_name=key_name,

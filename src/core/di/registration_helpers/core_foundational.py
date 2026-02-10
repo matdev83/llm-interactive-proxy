@@ -88,18 +88,104 @@ def register_event_bus(services: ServiceCollection) -> None:
 
 def register_session_services(services: ServiceCollection) -> None:
     """Register session-related services."""
+    from src.core.interfaces.auth_scope_resolver_interface import IAuthScopeResolver
+    from src.core.interfaces.b2bua_mapping_store_interface import IB2buaMappingStore
+    from src.core.interfaces.client_session_id_extractor_interface import (
+        IClientSessionIdExtractor,
+    )
     from src.core.interfaces.session_resolver_interface import ISessionResolver
     from src.core.interfaces.session_service_interface import ISessionService
     from src.core.repositories.in_memory_session_repository import (
         InMemorySessionRepository,
     )
+    from src.core.services.auth_scope_resolver_service import DefaultAuthScopeResolver
+    from src.core.services.b2bua_bleg_allocator_service import B2buaBlegAllocator
+    from src.core.services.b2bua_mapping_store_service import (
+        InMemoryB2buaMappingStore,
+        PersistentB2buaMappingStore,
+    )
+    from src.core.services.b2bua_session_id_factory import B2BUASessionIdFactory
+    from src.core.services.b2bua_session_resolver_service import B2BUASessionResolver
+    from src.core.services.client_session_id_extractor_service import (
+        DefaultClientSessionIdExtractor,
+    )
     from src.core.services.session_resolver_service import DefaultSessionResolver
     from src.core.services.session_service_impl import SessionService
 
+    register_singleton_if_absent(services, DefaultAuthScopeResolver)
+    register_singleton_if_absent(
+        services,
+        IAuthScopeResolver,
+        implementation_type=DefaultAuthScopeResolver,  # type: ignore[type-abstract]
+    )
+
+    register_singleton_if_absent(services, DefaultClientSessionIdExtractor)
+    register_singleton_if_absent(
+        services,
+        IClientSessionIdExtractor,
+        implementation_type=DefaultClientSessionIdExtractor,  # type: ignore[type-abstract]
+    )
+
+    def _b2bua_mapping_store_factory(provider: IServiceProvider) -> IB2buaMappingStore:
+        config = provider.get_service(AppConfig)
+        if config is None:
+            return InMemoryB2buaMappingStore()
+
+        b2bua_cfg = getattr(getattr(config, "session", None), "b2bua", None)
+        persistent_enabled = bool(
+            getattr(b2bua_cfg, "persistent_mapping_store_enabled", False)
+        )
+        if persistent_enabled:
+            return PersistentB2buaMappingStore(config=config)
+        return InMemoryB2buaMappingStore(config=config)
+
+    register_singleton_if_absent(
+        services,
+        IB2buaMappingStore,
+        implementation_factory=_b2bua_mapping_store_factory,
+    )
+
+    register_singleton_if_absent(services, B2BUASessionIdFactory)
+
+    def _b2bua_bleg_allocator_factory(provider: IServiceProvider) -> B2buaBlegAllocator:
+        return B2buaBlegAllocator(
+            mapping_store=provider.get_required_service(cast(Any, IB2buaMappingStore)),
+            session_id_factory=provider.get_required_service(B2BUASessionIdFactory),
+        )
+
+    register_singleton_if_absent(
+        services,
+        B2buaBlegAllocator,
+        implementation_factory=_b2bua_bleg_allocator_factory,
+    )
+
     # Register session resolver
     register_singleton_if_absent(services, DefaultSessionResolver)
+    register_singleton_if_absent(services, B2BUASessionResolver)
+
+    def _session_resolver_factory(provider: IServiceProvider) -> ISessionResolver:
+        config = provider.get_service(AppConfig)
+        b2bua_cfg = getattr(getattr(config, "session", None), "b2bua", None)
+        b2bua_enabled = bool(getattr(b2bua_cfg, "enabled", False))
+        if b2bua_enabled:
+            return B2BUASessionResolver(
+                client_session_extractor=provider.get_required_service(
+                    cast(Any, IClientSessionIdExtractor)
+                ),
+                auth_scope_resolver=provider.get_required_service(
+                    cast(Any, IAuthScopeResolver)
+                ),
+                mapping_store=provider.get_required_service(
+                    cast(Any, IB2buaMappingStore)
+                ),
+                session_id_factory=provider.get_required_service(B2BUASessionIdFactory),
+            )
+        return provider.get_required_service(DefaultSessionResolver)
+
     register_singleton_if_absent(
-        services, ISessionResolver, implementation_type=DefaultSessionResolver  # type: ignore[type-abstract]
+        services,
+        ISessionResolver,
+        implementation_factory=_session_resolver_factory,
     )
 
     # Register session service

@@ -10,6 +10,7 @@ from pydantic import ConfigDict
 
 from src.core.config.models import (
     AuthConfig,
+    B2BUAConfig,
     BackendConfig,
     BackendSettings,
     BruteForceProtectionConfig,
@@ -209,6 +210,7 @@ __all__ = [
     "AuthConfig",
     "BackendConfig",
     "BackendSettings",
+    "B2BUAConfig",
     "BruteForceProtectionConfig",
     "CodebuffConfig",
     "EditPrecisionConfig",
