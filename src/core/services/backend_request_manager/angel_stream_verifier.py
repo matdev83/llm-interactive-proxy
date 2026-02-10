@@ -262,7 +262,6 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 cast(type, IBackendService)
             )
 
-
             if not angel_service_instance:
                 # Should not happen given the check above, but safe fallback
                 from src.core.interfaces.notification_service_interface import (
@@ -298,38 +297,71 @@ class AngelStreamVerifier(IAngelStreamVerifier):
                 request, combined_text
             )
 
-            # Cancellation gate: ensure session is not cancelled before Angel verification backend call
-            if self._cancellation_coordinator and request_context:
-                session_key = resolve_session_key_from_request_context(request_context)
-                if session_key:
-                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
-
-            # Call Angel model
-            try:
-                angel_response = await backend_service.chat_completions(
-                    verification_request,
-                    stream=False,
-                    allow_failover=True,
-                    context=request_context,
-                )
-                angel_text = self._extract_text_from_response(angel_response)
-                # Success!
-                if angel_service_instance:
-                    await angel_service_instance.report_success()
-            except Exception as e:
-                # Fail-open if Angel model call fails (400, 429, 500, etc.)
-                if angel_service_instance:
-                    await angel_service_instance.report_failure()
-
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Angel model call failed (%s); failing-open and forwarding original chunks",
-                        type(e).__name__,
-                        exc_info=True,
+            def _ensure_angel_not_cancelled() -> None:
+                if self._cancellation_coordinator and request_context:
+                    session_key = resolve_session_key_from_request_context(
+                        request_context
                     )
+                    if session_key:
+                        self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
+            async def _call_angel_once(angel_request: ChatRequest) -> str | None:
+                try:
+                    _ensure_angel_not_cancelled()
+                    angel_response = await backend_service.chat_completions(
+                        angel_request,
+                        stream=False,
+                        allow_failover=True,
+                        context=request_context,
+                    )
+                    await angel_service_instance.report_success()
+                    return self._extract_text_from_response(angel_response)
+                except Exception as e:
+                    await angel_service_instance.report_failure()
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Angel model call failed (%s); failing-open and forwarding original chunks",
+                            type(e).__name__,
+                            exc_info=True,
+                        )
+                    return None
+
+            angel_text = await _call_angel_once(verification_request)
+            if angel_text is None:
                 for buffered in buffered_chunks:
                     yield buffered
                 return
+
+            is_valid_format, invalid_reason = (
+                angel_service_instance.validate_angel_output_format(angel_text)
+            )
+            if not is_valid_format:
+                retry_request = (
+                    angel_service_instance.build_invalid_format_retry_request(
+                        verification_request,
+                        angel_text,
+                        invalid_reason,
+                    )
+                )
+                retry_text = await _call_angel_once(retry_request)
+                if retry_text is None:
+                    for buffered in buffered_chunks:
+                        yield buffered
+                    return
+                angel_text = retry_text
+
+                is_valid_format, invalid_reason = (
+                    angel_service_instance.validate_angel_output_format(angel_text)
+                )
+                if not is_valid_format:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Angel response still invalid after single retry; failing-open and forwarding original chunks (%s)",
+                            invalid_reason or "invalid format",
+                        )
+                    for buffered in buffered_chunks:
+                        yield buffered
+                    return
 
             decision = angel_service_instance.parse_angel_output(angel_text)
             steering_msg = (decision.steering_message or "").strip()

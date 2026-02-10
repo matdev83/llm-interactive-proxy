@@ -194,3 +194,52 @@ async def test_streaming_usage_respects_outbound_token_hint_for_tool_calls() -> 
     usage = final_payload["usage"]
     assert usage["prompt_tokens"] == 4321
     assert usage["total_tokens"] >= usage["prompt_tokens"]
+
+
+@pytest.mark.asyncio
+async def test_streaming_backend_usage_not_overridden_by_prompt_hint() -> None:
+    """When backend usage exists, outbound hint must not replace provider values."""
+
+    async def stream():
+        yield ProcessedResponse(
+            content={
+                "id": "chatcmpl-provider-usage",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "gpt-4o",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 50,
+                    "completion_tokens": 10,
+                    "total_tokens": 60,
+                },
+            },
+            metadata={"stream_id": "stream-provider"},
+        )
+
+    envelope = StreamingResponseEnvelope(
+        content=stream(),
+        metadata={"outbound_tokens": 4321},
+    )
+
+    response = to_fastapi_streaming_response(envelope)
+    body = await _collect_streaming_body(response)
+
+    data_lines = [
+        line[len("data: ") :]
+        for line in body.splitlines()
+        if line.startswith("data: ")
+        and line.strip() not in {"data: [DONE]", 'data: ["DONE"]'}
+    ]
+    payloads = [
+        json.loads(line)
+        for line in data_lines
+        if line.strip() not in {"[DONE]", '["DONE"]'}
+    ]
+    final_payload = payloads[-1]
+
+    assert "usage" in final_payload
+    usage = final_payload["usage"]
+    assert usage["prompt_tokens"] == 50
+    assert usage["completion_tokens"] == 10
+    assert usage["total_tokens"] == 60

@@ -3,9 +3,26 @@
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 
 from src.core.domain.responses import ResponseEnvelope
+from src.core.domain.usage_summary import UsageSummary
 from src.core.transport.fastapi.response_adapters import to_fastapi_response
+
+
+def _usage(data: dict[str, int]) -> UsageSummary:
+    return UsageSummary.from_dict(data)
+
+
+def _parse_response_body(response: Any) -> dict[str, Any]:
+    body = response.body
+    if isinstance(body, memoryview):
+        body = body.tobytes()
+    if isinstance(body, bytes):
+        parsed = json.loads(body.decode("utf-8"))
+    else:
+        parsed = json.loads(str(body))
+    return cast(dict[str, Any], parsed)
 
 
 def test_usage_recalculated_when_content_differs():
@@ -31,11 +48,13 @@ def test_usage_recalculated_when_content_differs():
         },
         headers={"x-request-id": "req-123"},
         status_code=200,
-        usage={
-            "prompt_tokens": 100,
-            "completion_tokens": 500,  # Much higher than actual content
-            "total_tokens": 600,
-        },
+        usage=_usage(
+            {
+                "prompt_tokens": 100,
+                "completion_tokens": 500,  # Much higher than actual content
+                "total_tokens": 600,
+            }
+        ),
         metadata={"allow_usage_recalculation": True},
     )
 
@@ -43,7 +62,7 @@ def test_usage_recalculated_when_content_differs():
     response = to_fastapi_response(envelope)
 
     # Assert
-    body = json.loads(response.body)
+    body = _parse_response_body(response)
     assert "usage" in body
 
     assert response.headers["x-usage-prompt-tokens"] == str(
@@ -91,24 +110,65 @@ def test_usage_not_recalculated_when_close():
         },
         headers={"x-request-id": "req-456"},
         status_code=200,
-        usage={
-            "prompt_tokens": 100,
-            "completion_tokens": 130,  # Close to actual (~125), within 5% threshold
-            "total_tokens": 230,
-        },
+        usage=_usage(
+            {
+                "prompt_tokens": 100,
+                "completion_tokens": 130,  # Close to actual (~125), within 5% threshold
+                "total_tokens": 230,
+            }
+        ),
     )
 
     # Act
     response = to_fastapi_response(envelope)
 
     # Assert
-    body = json.loads(response.body)
+    body = _parse_response_body(response)
     assert "usage" in body
 
     # Usage should NOT be recalculated because difference is small (<5% and <10 tokens)
     assert body["usage"]["prompt_tokens"] == 100
     assert body["usage"]["completion_tokens"] == 130  # Original value preserved
     assert body["usage"]["total_tokens"] == 230
+
+
+def test_backend_usage_preserved_without_recalculation_flag():
+    """Backend usage remains authoritative when recalculation is not requested."""
+    envelope = ResponseEnvelope(
+        content={
+            "id": "chatcmpl-preserve-1",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "Tiny reply",
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        },
+        headers={"x-request-id": "req-preserve-1"},
+        status_code=200,
+        usage=_usage(
+            {
+                "prompt_tokens": 150,
+                "completion_tokens": 450,
+                "total_tokens": 600,
+            }
+        ),
+    )
+
+    response = to_fastapi_response(envelope)
+
+    body = _parse_response_body(response)
+    assert "usage" in body
+    assert body["usage"]["prompt_tokens"] == 150
+    assert body["usage"]["completion_tokens"] == 450
+    assert body["usage"]["total_tokens"] == 600
 
 
 def test_usage_recalculated_after_compression():
@@ -136,11 +196,13 @@ def test_usage_recalculated_after_compression():
         },
         headers={"x-request-id": "req-789"},
         status_code=200,
-        usage={
-            "prompt_tokens": 100,
-            "completion_tokens": 1250,  # Based on original uncompressed content
-            "total_tokens": 1350,
-        },
+        usage=_usage(
+            {
+                "prompt_tokens": 100,
+                "completion_tokens": 1250,  # Based on original uncompressed content
+                "total_tokens": 1350,
+            }
+        ),
         metadata={"allow_usage_recalculation": True},
     )
 
@@ -148,7 +210,7 @@ def test_usage_recalculated_after_compression():
     response = to_fastapi_response(envelope)
 
     # Assert
-    body = json.loads(response.body)
+    body = _parse_response_body(response)
     assert "usage" in body
 
     # Usage should be recalculated to match compressed content
@@ -171,18 +233,20 @@ def test_usage_preserved_for_non_chat_responses():
         },
         headers={"x-request-id": "req-999"},
         status_code=200,
-        usage={
-            "prompt_tokens": 50,
-            "completion_tokens": 25,
-            "total_tokens": 75,
-        },
+        usage=_usage(
+            {
+                "prompt_tokens": 50,
+                "completion_tokens": 25,
+                "total_tokens": 75,
+            }
+        ),
     )
 
     # Act
     response = to_fastapi_response(envelope)
 
     # Assert
-    body = json.loads(response.body)
+    body = _parse_response_body(response)
     assert "usage" in body
 
     # Usage should be preserved as-is (no recalculation for non-chat responses)
@@ -222,11 +286,13 @@ def test_usage_recalculated_with_tool_calls():
         },
         headers={"x-request-id": "req-tool-123"},
         status_code=200,
-        usage={
-            "prompt_tokens": 200,
-            "completion_tokens": 300,  # Much higher than actual content
-            "total_tokens": 500,
-        },
+        usage=_usage(
+            {
+                "prompt_tokens": 200,
+                "completion_tokens": 300,  # Much higher than actual content
+                "total_tokens": 500,
+            }
+        ),
         metadata={"allow_usage_recalculation": True},
     )
 
@@ -234,7 +300,7 @@ def test_usage_recalculated_with_tool_calls():
     response = to_fastapi_response(envelope)
 
     # Assert
-    body = json.loads(response.body)
+    body = _parse_response_body(response)
     assert "usage" in body
 
     # Usage should be recalculated based on content text
@@ -269,7 +335,7 @@ def test_no_usage_in_envelope():
     response = to_fastapi_response(envelope)
 
     # Assert
-    body = json.loads(response.body)
+    body = _parse_response_body(response)
     # Should not have usage field or should be None
     assert "usage" in body
     usage = body["usage"]

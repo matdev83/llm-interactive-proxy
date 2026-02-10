@@ -392,30 +392,8 @@ class JSONResponseBuilder:
                 )
             usage = usage_obj.to_openrouter_dict()
         else:
-
-            # Use existing usage, ensuring it's normalized
+            # Use existing usage as authoritative backend values.
             usage = existing_usage
-
-            # Still check if completion tokens need recalculation based on content
-            completion_tokens = self._calculate_completion_tokens(payload, model_name)
-            if completion_tokens is not None:
-                existing_completion = int(usage.get("completion_tokens", 0) or 0)
-                if self._should_replace_completion(
-                    existing_completion, completion_tokens
-                ):
-                    if (
-                        existing_completion != completion_tokens
-                        and logger.isEnabledFor(logging.INFO)
-                    ):
-                        logger.info(
-                            "Usage completion tokens recalculated: %s -> %s",
-                            existing_completion,
-                            completion_tokens,
-                        )
-                    usage["completion_tokens"] = completion_tokens
-                    usage["total_tokens"] = (
-                        usage.get("prompt_tokens", 0) + completion_tokens
-                    )
 
         # Apply usage to envelope and payload
         usage_to_apply: dict[str, Any] | None = usage if usage else None

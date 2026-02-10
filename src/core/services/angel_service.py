@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 import threading
@@ -67,6 +68,12 @@ class AngelService:
     _STEERING_MESSAGE_RE = re.compile(
         r"<angels_steering_message>([\s\S]*?)</angels_steering_message>", re.IGNORECASE
     )
+    _TOOL_DEFINITION_TAG_RE = re.compile(
+        r"<(?:tools|tool_definitions)>[\s\S]*?</(?:tools|tool_definitions)>",
+        re.IGNORECASE,
+    )
+    _FENCED_BLOCK_RE = re.compile(r"```(?:json|yaml)?\s*([\s\S]*?)```", re.IGNORECASE)
+    _MAX_INVALID_OUTPUT_CHARS = 4000
 
     def __init__(
         self,
@@ -278,16 +285,12 @@ class AngelService:
 
         # History stringification: convert tool calls/results to text for cross-backend compatibility.
         history = stringify_tool_calls_and_results(list(request.messages))
+        history = self._sanitize_history_for_angel(history)
 
         # Truncate history for Angel verification if enabled
         max_history = self._max_history
         if max_history is not None and max_history > 0 and len(history) > max_history:
-            # Always try to keep the original system prompt if it's the first message
-            if history and history[0].role == "system":
-                truncated = [history[0]] + history[-(max_history - 1) :]
-            else:
-                truncated = history[-max_history:]
-            history = truncated
+            history = history[-max_history:]
 
         # Include (potentially truncated) context
         messages.extend(history)
@@ -295,6 +298,160 @@ class AngelService:
         normalized = self._normalize_assistant_content(assistant_response)
         messages.append(ChatMessage(role="assistant", content=normalized))
         return messages
+
+    @staticmethod
+    def _looks_like_tool_definition_item(value: Any) -> bool:
+        if not isinstance(value, dict):
+            return False
+        if value.get("type") == "function" and isinstance(value.get("function"), dict):
+            return True
+        return isinstance(value.get("name"), str) and (
+            "parameters" in value or "description" in value
+        )
+
+    @classmethod
+    def _is_serialized_tool_definitions(cls, text: str) -> bool:
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if not stripped.startswith("{") and not stripped.startswith("["):
+            return False
+
+        try:
+            payload = json.loads(stripped)
+        except json.JSONDecodeError:
+            return False
+        except Exception:
+            return False
+
+        if isinstance(payload, dict):
+            tools = payload.get("tools")
+            if (
+                isinstance(tools, list)
+                and tools
+                and all(cls._looks_like_tool_definition_item(item) for item in tools)
+            ):
+                return True
+            return cls._looks_like_tool_definition_item(payload)
+
+        if isinstance(payload, list) and payload:
+            return all(cls._looks_like_tool_definition_item(item) for item in payload)
+
+        return False
+
+    @classmethod
+    def _strip_tool_definition_wrappers(cls, text: str) -> str:
+        cleaned = cls._TOOL_DEFINITION_TAG_RE.sub(
+            "[Tool definitions omitted for Angel audit.]", text
+        )
+
+        def _replace_fenced_block(match: re.Match[str]) -> str:
+            fenced_content = (match.group(1) or "").strip()
+            if cls._is_serialized_tool_definitions(fenced_content):
+                return "[Tool definitions omitted for Angel audit.]"
+            lower = fenced_content.lower()
+            if '"tools"' in lower and '"function"' in lower:
+                return "[Tool definitions omitted for Angel audit.]"
+            return match.group(0)
+
+        return cls._FENCED_BLOCK_RE.sub(_replace_fenced_block, cleaned)
+
+    def _sanitize_history_for_angel(
+        self, history: list[ChatMessage]
+    ) -> list[ChatMessage]:
+        sanitized: list[ChatMessage] = []
+        for message in history:
+            if message.role == "system":
+                continue
+
+            content = message.content
+            if isinstance(content, str):
+                content = self._strip_tool_definition_wrappers(content).strip() or None
+                if isinstance(content, str) and self._is_serialized_tool_definitions(
+                    content
+                ):
+                    content = "[Tool definitions omitted for Angel audit.]"
+
+            sanitized.append(
+                ChatMessage(
+                    role=message.role,
+                    content=content,
+                    reasoning_content=message.reasoning_content,
+                    name=message.name,
+                    metadata=message.metadata.copy() if message.metadata else None,
+                )
+            )
+
+        return sanitized
+
+    def validate_angel_output_format(self, text: str) -> tuple[bool, str | None]:
+        pass_match = bool(self._PASS_DECISION_RE.search(text))
+        steer_match = bool(self._STEER_DECISION_RE.search(text))
+        steering_message_match = self._STEERING_MESSAGE_RE.search(text)
+
+        if pass_match and steer_match:
+            return False, "Response contains conflicting Pass and Steer decisions."
+
+        if pass_match:
+            if steering_message_match:
+                return (
+                    False,
+                    "Pass decision must not include <angels_steering_message>.",
+                )
+            return True, None
+
+        if steer_match:
+            if not steering_message_match:
+                return (
+                    False,
+                    "Steer decision is missing <angels_steering_message>.",
+                )
+            if not steering_message_match.group(1).strip():
+                return False, "Steering message tag is empty."
+            return True, None
+
+        if steering_message_match:
+            return False, "Missing <angels_decision> tag."
+
+        return False, "Missing required XML decision tags."
+
+    def build_invalid_format_retry_request(
+        self,
+        verification_request: ChatRequest,
+        invalid_output: str,
+        failure_reason: str | None = None,
+    ) -> ChatRequest:
+        reason = (failure_reason or "Missing or malformed XML tags.").strip()
+        invalid_clean = (invalid_output or "").strip()
+        if len(invalid_clean) > self._MAX_INVALID_OUTPUT_CHARS:
+            invalid_clean = (
+                invalid_clean[: self._MAX_INVALID_OUTPUT_CHARS] + "\n... (truncated)"
+            )
+
+        correction_instruction = (
+            "[SYSTEM MESSAGE: ANGEL FORMAT CORRECTION REQUIRED]\n\n"
+            "Your previous Angel reply did not follow the required XML format.\n"
+            f"Detected issue: {reason}\n\n"
+            "Previous invalid reply:\n"
+            "<invalid_angel_reply>\n"
+            f"{invalid_clean or '(empty response)'}\n"
+            "</invalid_angel_reply>\n\n"
+            "Regenerate your audit now. Output must strictly follow one format:\n"
+            "1) <angels_decision>Pass</angels_decision>\n"
+            "2) <angels_decision>Steer</angels_decision> and "
+            "<angels_steering_message>...</angels_steering_message>\n"
+            "Do not include any extra wrappers or prose outside the required XML tags."
+        )
+
+        retry_messages = [
+            *verification_request.messages,
+            ChatMessage(role="assistant", content=invalid_clean or "(empty response)"),
+            ChatMessage(role="user", content=correction_instruction),
+        ]
+
+        return verification_request.model_copy(
+            update={"messages": retry_messages, "stream": False}
+        )
 
     def build_verification_request(
         self, request: ChatRequest, assistant_response: Any

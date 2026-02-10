@@ -51,9 +51,55 @@ def test_extract_prompt_text_mixed_formats():
     """
     messages = [
         {"role": "system", "content": "System message"},
-        ChatMessage(role="user", content=[{"type": "text", "text": "User part"}]),
+        ChatMessage(
+            role="user",
+            content=[MessageContentPartText(type="text", text="User part")],
+        ),
     ]
 
     text = extract_prompt_text(messages)
     assert "system: System message" in text
     assert "user: User part" in text
+
+
+def test_calculate_outbound_tokens_includes_tool_definitions() -> None:
+    """Regression: tool schemas must contribute to outbound prompt token count."""
+    base_messages = [ChatMessage(role="user", content="Run tests and report status")]
+    request_without_tools = CanonicalChatRequest(model="gpt-4o", messages=base_messages)
+
+    large_schema_text = "detailed_tool_schema_token " * 400
+    request_with_tools = CanonicalChatRequest(
+        model="gpt-4o",
+        messages=base_messages,
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": "run_full_validation_suite",
+                    "description": large_schema_text,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "command": {
+                                "type": "string",
+                                "description": large_schema_text,
+                            }
+                        },
+                        "required": ["command"],
+                    },
+                },
+            }
+        ],
+        tool_choice={
+            "type": "function",
+            "function": {"name": "run_full_validation_suite"},
+        },
+    )
+
+    tokens_without_tools = calculate_outbound_tokens(
+        request_without_tools, model="gpt-4o"
+    )
+    tokens_with_tools = calculate_outbound_tokens(request_with_tools, model="gpt-4o")
+
+    assert tokens_with_tools > tokens_without_tools
+    assert tokens_with_tools - tokens_without_tools > 300

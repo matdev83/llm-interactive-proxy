@@ -7,12 +7,110 @@ This module provides utilities for:
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
 from src.core.domain.openrouter_usage import OpenRouterUsage
 
 logger = logging.getLogger(__name__)
+
+
+def _serialize_for_token_count(value: Any) -> str:
+    """Serialize arbitrary request fields into stable token-countable text."""
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        return value
+
+    if isinstance(value, bytes | bytearray):
+        return value.decode("utf-8", errors="ignore")
+
+    candidate = value
+    if hasattr(candidate, "model_dump"):
+        try:
+            dumped = candidate.model_dump()  # type: ignore[attr-defined]
+            if dumped is not None:
+                candidate = dumped
+        except Exception:
+            pass
+
+    try:
+        return json.dumps(
+            candidate,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+    except Exception:
+        return str(candidate)
+
+
+def _coerce_request_payload(request_data: Any) -> dict[str, Any] | None:
+    """Coerce request_data into a plain dictionary when possible."""
+    if isinstance(request_data, dict):
+        return request_data
+
+    if hasattr(request_data, "model_dump"):
+        try:
+            dumped = request_data.model_dump()  # type: ignore[attr-defined]
+            if isinstance(dumped, dict):
+                return dumped
+        except Exception:
+            pass
+
+    if hasattr(request_data, "dict"):
+        try:
+            dumped = request_data.dict()  # type: ignore[attr-defined]
+            if isinstance(dumped, dict):
+                return dumped
+        except Exception:
+            pass
+
+    payload: dict[str, Any] = {}
+    for field_name in (
+        "messages",
+        "input",
+        "tools",
+        "functions",
+        "tool_choice",
+        "response_format",
+    ):
+        if hasattr(request_data, field_name):
+            payload[field_name] = getattr(request_data, field_name)
+
+    return payload or None
+
+
+def _build_token_count_text(payload: dict[str, Any]) -> str:
+    """Build a token-countable text representation of prompt-bearing fields."""
+    from src.core.utils.token_count import extract_prompt_text
+
+    text_parts: list[str] = []
+
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        prompt_text = extract_prompt_text(messages)
+        if prompt_text:
+            text_parts.append(prompt_text)
+
+    # Responses API style input payloads can carry prompt-bearing content even when
+    # messages are absent.
+    if not text_parts and payload.get("input") is not None:
+        text_parts.append(_serialize_for_token_count(payload.get("input")))
+
+    # Tool schema and selection metadata are part of the model prompt budget.
+    for key in ("tools", "functions", "tool_choice", "response_format"):
+        value = payload.get(key)
+        if value is None:
+            continue
+        serialized = _serialize_for_token_count(value)
+        if serialized:
+            text_parts.append(f"{key}:{serialized}")
+
+    return "\n".join(part for part in text_parts if part)
 
 
 def recalculate_usage_after_transformation(
@@ -182,28 +280,20 @@ def calculate_outbound_tokens(
     Returns:
         Number of tokens in the outbound request
     """
-    from src.core.utils.token_count import count_tokens, extract_prompt_text
+    from src.core.utils.token_count import count_tokens
 
     try:
-        # Handle different request formats
-        if hasattr(request_data, "messages"):
-            # Pydantic model or object with messages attribute
-            messages = request_data.messages
-        elif isinstance(request_data, dict):
-            # Dict format
-            messages = request_data.get("messages", [])
-        elif hasattr(request_data, "model_dump"):
-            messages = request_data.model_dump().get("messages", [])
-        elif hasattr(request_data, "dict"):
-            messages = request_data.dict().get("messages", [])
-        else:
+        payload = _coerce_request_payload(request_data)
+        if payload is None:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("Unknown request format: %s", type(request_data))
             return 0
 
-        # Extract and count tokens from messages
-        prompt_text = extract_prompt_text(messages)
-        token_count = count_tokens(prompt_text, model=model)
+        token_text = _build_token_count_text(payload)
+        if not token_text:
+            return 0
+
+        token_count = count_tokens(token_text, model=model)
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(

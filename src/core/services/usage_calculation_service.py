@@ -247,7 +247,7 @@ class UsageCalculationService:
                 and backend_usage.completion_tokens == 0
             ):
                 return True
-        elif isinstance(backend_usage, dict):
+        else:
             prompt = backend_usage.get("prompt_tokens", 0) or 0
             completion = backend_usage.get("completion_tokens", 0) or 0
             if prompt == 0 and completion == 0:
@@ -258,6 +258,24 @@ class UsageCalculationService:
             return modification_tracker.requires_usage_recalculation()
 
         return False
+
+    def _adjust_tokens_with_delta(
+        self,
+        *,
+        base_tokens: int | None,
+        original_tokens: int | None,
+        modified_tokens: int,
+    ) -> int:
+        """Adjust backend-reported tokens using proxy-observed deltas.
+
+        When we have both original and modified token counts from proxy-side
+        transformations, apply only the delta to backend usage so backend remains
+        the source of truth.
+        """
+        if base_tokens is not None and original_tokens is not None:
+            delta = modified_tokens - original_tokens
+            return max(base_tokens + delta, 0)
+        return max(modified_tokens, 0)
 
     def recalculate_usage(
         self,
@@ -299,9 +317,20 @@ class UsageCalculationService:
         # Recalculate prompt tokens if inbound was modified
         if modification_tracker is not None and modification_tracker.inbound_modified:
             if modification_tracker.inbound_modified_tokens is not None:
-                new_prompt_tokens = modification_tracker.inbound_modified_tokens
+                new_prompt_tokens = self._adjust_tokens_with_delta(
+                    base_tokens=base_usage.prompt_tokens if base_usage else None,
+                    original_tokens=modification_tracker.inbound_original_tokens,
+                    modified_tokens=modification_tracker.inbound_modified_tokens,
+                )
             elif messages:
-                new_prompt_tokens = self.calculate_prompt_tokens(messages, model)
+                recalculated_prompt_tokens = self.calculate_prompt_tokens(
+                    messages, model
+                )
+                new_prompt_tokens = self._adjust_tokens_with_delta(
+                    base_tokens=base_usage.prompt_tokens if base_usage else None,
+                    original_tokens=modification_tracker.inbound_original_tokens,
+                    modified_tokens=recalculated_prompt_tokens,
+                )
 
             if logger.isEnabledFor(logging.DEBUG):
                 original = (
@@ -327,10 +356,23 @@ class UsageCalculationService:
                 modification_tracker is not None
                 and modification_tracker.outbound_modified_tokens is not None
             ):
-                new_completion_tokens = modification_tracker.outbound_modified_tokens
+                new_completion_tokens = self._adjust_tokens_with_delta(
+                    base_tokens=base_usage.completion_tokens if base_usage else None,
+                    original_tokens=modification_tracker.outbound_original_tokens,
+                    modified_tokens=modification_tracker.outbound_modified_tokens,
+                )
             elif response_content:
-                new_completion_tokens = self.calculate_completion_tokens(
+                recalculated_completion_tokens = self.calculate_completion_tokens(
                     response_content, model
+                )
+                new_completion_tokens = self._adjust_tokens_with_delta(
+                    base_tokens=base_usage.completion_tokens if base_usage else None,
+                    original_tokens=(
+                        modification_tracker.outbound_original_tokens
+                        if modification_tracker is not None
+                        else None
+                    ),
+                    modified_tokens=recalculated_completion_tokens,
                 )
 
             if logger.isEnabledFor(logging.DEBUG):

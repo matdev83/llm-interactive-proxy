@@ -318,6 +318,28 @@ class StreamingContentConverter:
                     continue
         return 0
 
+    def _has_token_usage(self, usage: dict[str, Any] | None) -> bool:
+        """Return True when usage payload includes token counts from backend."""
+        if not isinstance(usage, dict):
+            return False
+
+        token_keys = (
+            "prompt_tokens",
+            "completion_tokens",
+            "total_tokens",
+            "input_tokens",
+            "output_tokens",
+            "promptTokenCount",
+            "candidatesTokenCount",
+            "totalTokenCount",
+        )
+        for key in token_keys:
+            value = usage.get(key)
+            if isinstance(value, int | float) and value > 0:
+                return True
+
+        return False
+
     def _resolve_stream_key(self, metadata: dict[str, JsonValue]) -> str:
         """Resolve stream identifier from metadata.
 
@@ -436,7 +458,7 @@ class StreamingContentConverter:
         else:
             delta["content"] = f"{existing}{flushed}"
 
-    async def _convert_to_streaming_content(
+    async def _convert_to_streaming_content(  # noqa: C901
         self,
         source: AsyncIterator[ProcessedResponse],
         envelope_metadata: dict[str, JsonValue],
@@ -603,10 +625,14 @@ class StreamingContentConverter:
                         )
 
                         service = get_usage_calculation_service()
+                        final_chunk_usage = computed_usage
+                        if final_chunk_usage is None and isinstance(best_usage, dict):
+                            final_chunk_usage = best_usage
+
                         computed_usage_raw: Any = await asyncio.to_thread(
                             service.merge_streaming_usage,
                             accumulated_content=accumulated_content or "",
-                            final_chunk_usage=computed_usage,
+                            final_chunk_usage=final_chunk_usage,
                             context=request_context,
                             model=model_name,
                             force_recalculation=force_usage_recalc,
@@ -616,33 +642,43 @@ class StreamingContentConverter:
                         normalizer = self._get_usage_normalizer()
                         normalized_usage = normalizer.normalize(computed_usage) or {}
 
-                        # Preserve prompt tokens from earlier hints/usages
-                        if isinstance(best_usage, dict):
-                            prompt_from_best = best_usage.get("prompt_tokens", 0) or 0
-                            if prompt_from_best > normalized_usage.get(
-                                "prompt_tokens", 0
-                            ):
-                                normalized_usage["prompt_tokens"] = prompt_from_best
+                        backend_usage_is_authoritative = (
+                            not force_usage_recalc
+                            and self._has_token_usage(final_chunk_usage)
+                        )
 
-                        # Use prompt_hint (outbound_tokens) when larger
-                        if prompt_hint > 0:
-                            current_prompt = (
-                                normalized_usage.get("prompt_tokens", 0) or 0
-                            )
-                            if prompt_hint > current_prompt:
-                                normalized_usage["prompt_tokens"] = prompt_hint
+                        if not backend_usage_is_authoritative:
+                            # Preserve prompt tokens from earlier hints/usages.
+                            if isinstance(best_usage, dict):
+                                prompt_from_best = (
+                                    best_usage.get("prompt_tokens", 0) or 0
+                                )
+                                if prompt_from_best > normalized_usage.get(
+                                    "prompt_tokens", 0
+                                ):
+                                    normalized_usage["prompt_tokens"] = prompt_from_best
 
-                        # For completion tokens, honor recalculation when requested,
-                        # otherwise keep the higher value
-                        if isinstance(best_usage, dict):
-                            best_completion = (
-                                best_usage.get("completion_tokens", 0) or 0
-                            )
-                            if not force_usage_recalc and (
-                                best_completion
-                                > normalized_usage.get("completion_tokens", 0)
-                            ):
-                                normalized_usage["completion_tokens"] = best_completion
+                            # Use prompt_hint (outbound_tokens) when larger.
+                            if prompt_hint > 0:
+                                current_prompt = (
+                                    normalized_usage.get("prompt_tokens", 0) or 0
+                                )
+                                if prompt_hint > current_prompt:
+                                    normalized_usage["prompt_tokens"] = prompt_hint
+
+                            # For completion tokens, honor recalculation when requested,
+                            # otherwise keep the higher value.
+                            if isinstance(best_usage, dict):
+                                best_completion = (
+                                    best_usage.get("completion_tokens", 0) or 0
+                                )
+                                if not force_usage_recalc and (
+                                    best_completion
+                                    > normalized_usage.get("completion_tokens", 0)
+                                ):
+                                    normalized_usage["completion_tokens"] = (
+                                        best_completion
+                                    )
 
                         # Recompute totals
                         prompt_val = normalized_usage.get("prompt_tokens", 0) or 0
@@ -651,8 +687,10 @@ class StreamingContentConverter:
                         )
                         normalized_usage["total_tokens"] = prompt_val + completion_val
 
-                        # Preserve higher cost
-                        if isinstance(best_usage, dict):
+                        # Preserve higher cost only when backend usage is not authoritative.
+                        if not backend_usage_is_authoritative and isinstance(
+                            best_usage, dict
+                        ):
                             for cost_key in ("cost", "total_cost"):
                                 prev_cost = best_usage.get(cost_key)
                                 curr_cost = normalized_usage.get(cost_key)
@@ -726,7 +764,7 @@ class StreamingContentConverter:
                 )
 
                 yield streaming_content
-                
+
                 # Yield to event loop periodically to maintain responsiveness without excessive overhead
                 if chunk_count % self._yield_interval == 0:
                     await asyncio.sleep(0)

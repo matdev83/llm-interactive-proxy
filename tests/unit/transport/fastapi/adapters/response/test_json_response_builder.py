@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 from fastapi.responses import JSONResponse
 from src.core.domain.responses import ResponseEnvelope
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
 from src.core.domain.usage_payload import UsagePayload
+from src.core.domain.usage_summary import UsageSummary
 from src.core.transport.fastapi.adapters.metadata.reasoning_injector import (
     ReasoningInjector,
 )
@@ -23,6 +26,14 @@ from src.core.transport.fastapi.adapters.sanitization.json_sanitizer import (
 from src.core.transport.fastapi.adapters.usage.header_injector import (
     UsageHeaderInjector,
 )
+
+
+def _parse_json_response_body(response: JSONResponse) -> dict[str, Any]:
+    raw_body = response.body
+    if isinstance(raw_body, memoryview):
+        raw_body = raw_body.tobytes()
+    parsed = json.loads(raw_body.decode("utf-8"))
+    return cast(dict[str, Any], parsed)
 
 
 class TestJSONResponseBuilder:
@@ -41,9 +52,8 @@ class TestJSONResponseBuilder:
 
         assert isinstance(response, JSONResponse)
         assert response.body is not None
-        import json
 
-        body_dict = json.loads(response.body.decode())
+        body_dict = _parse_json_response_body(response)
         assert body_dict["message"] == "Hello"
         # Usage may be added by _ensure_usage
         assert "usage" in body_dict or "message" in body_dict
@@ -74,7 +84,13 @@ class TestJSONResponseBuilder:
             content={"message": "Hello"},
             headers={},
             status_code=200,
-            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            usage=UsageSummary.from_dict(
+                {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                    "total_tokens": 30,
+                }
+            ),
         )
 
         response = builder.build(envelope)
@@ -153,9 +169,7 @@ class TestJSONResponseBuilder:
 
         response = builder.build(envelope)
 
-        import json
-
-        body_dict = json.loads(response.body.decode())
+        body_dict = _parse_json_response_body(response)
         # Reasoning should be injected into the content
         assert "choices" in body_dict
         # The reasoning injector should have processed it
@@ -172,9 +186,7 @@ class TestJSONResponseBuilder:
 
         response = builder.build(envelope)
 
-        import json
-
-        body_dict = json.loads(response.body.decode())
+        body_dict = _parse_json_response_body(response)
         assert body_dict.get("metadata", {}).get("steering_retry_occurred") is True
 
     def test_build_json_sanitization_applied(self) -> None:
@@ -291,7 +303,7 @@ class TestJSONResponseBuilder:
 
         # Payload already has some usage
         payload = {"message": "Hello", "usage": {"prompt_tokens": 50}}
-        result_payload, usage_data = builder._ensure_usage(envelope, payload)
+        builder._ensure_usage(envelope, payload)
 
         # Verify existing usage was passed for merging
         call_args = mock_normalization_service.project_protocol_usage.call_args
@@ -304,16 +316,62 @@ class TestJSONResponseBuilder:
 
         envelope = ResponseEnvelope(
             content={"message": "Hello"},
-            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            usage=UsageSummary.from_dict(
+                {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                    "total_tokens": 30,
+                }
+            ),
         )
 
         payload = {"message": "Hello"}
-        result_payload, usage_data = builder._ensure_usage(envelope, payload)
+        _, usage_data = builder._ensure_usage(envelope, payload)
 
         # Should use existing usage logic
         assert usage_data is not None
         assert usage_data["prompt_tokens"] == 10
         assert usage_data["completion_tokens"] == 20
+
+    def test_ensure_usage_preserves_backend_usage_without_recalc(self) -> None:
+        """Existing backend usage remains authoritative when recalculation is disabled."""
+        builder = JSONResponseBuilder()
+        envelope = ResponseEnvelope(
+            content={
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "tiny",
+                        }
+                    }
+                ]
+            },
+            usage=UsageSummary.from_dict(
+                {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 500,
+                    "total_tokens": 600,
+                }
+            ),
+        )
+
+        payload = {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "tiny",
+                    }
+                }
+            ]
+        }
+        _, usage_data = builder._ensure_usage(envelope, payload)
+
+        assert usage_data is not None
+        assert usage_data["prompt_tokens"] == 100
+        assert usage_data["completion_tokens"] == 500
+        assert usage_data["total_tokens"] == 600
 
     def test_build_passes_canonical_usage_to_header_injector(self) -> None:
         """Test that build() passes canonical_usage to header injector (Requirement 5.5)."""

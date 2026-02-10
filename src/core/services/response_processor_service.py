@@ -169,7 +169,7 @@ class ResponseProcessor(IResponseProcessor):
         # Create unified pipeline for both streaming and non-streaming
         self._unified_pipeline = UnifiedResponsePipeline(self._stream_normalizer)
 
-    async def _apply_angel_verification(
+    async def _apply_angel_verification(  # noqa: C901
         self, original_request: Any, content: Any, context: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
         """Apply Angel verification and optionally correction.
@@ -202,7 +202,9 @@ class ResponseProcessor(IResponseProcessor):
                     max_consecutive_failures = getattr(
                         session_cfg, "angel_max_consecutive_failures", 5
                     )
-                    cooldown_seconds = getattr(session_cfg, "angel_cooldown_seconds", 300)
+                    cooldown_seconds = getattr(
+                        session_cfg, "angel_cooldown_seconds", 300
+                    )
                 except (AttributeError, TypeError, KeyError):
                     model_spec = None
                     frequency_value = 10
@@ -226,7 +228,6 @@ class ResponseProcessor(IResponseProcessor):
                     cooldown_seconds=cooldown_seconds,
                     notification_service=notification_service,
                 )
-
 
                 if not angel_svc.is_enabled() or not angel_svc.is_healthy():
                     if not angel_svc.is_enabled():
@@ -306,17 +307,10 @@ class ResponseProcessor(IResponseProcessor):
 
             # request_context already resolved above
 
-            # Cancellation gate: ensure session is not cancelled before Angel verification backend call
-            if self._cancellation_coordinator and request_context:
-                session_key = resolve_session_key_from_request_context(request_context)
-                if session_key:
-                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
-
             provider = get_service_provider()
             backend_service: IBackendService = provider.get_required_service(  # type: ignore[reportUnknownVariableType]
                 cast(Any, IBackendService)
             )
-
 
             def _extract_text(payload: Any) -> str:
                 if payload is None:
@@ -331,28 +325,64 @@ class ResponseProcessor(IResponseProcessor):
                         return value.decode("utf-8", errors="ignore")
                 return str(value)
 
-
-            # Call Angel model with fail-open
-            try:
-                angel_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
-                    verification_request,
-                    stream=False,
-                    allow_failover=True,
-                    context=request_context,
-                )
-                angel_text = _extract_text(angel_response)
-                await svc.report_success()
-
-            except Exception as e:
-                await svc.report_failure()
-
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Angel model call failed (%s); failing-open",
-                        type(e).__name__,
-                        exc_info=True,
+            def _ensure_angel_not_cancelled() -> None:
+                if self._cancellation_coordinator and request_context:
+                    session_key = resolve_session_key_from_request_context(
+                        request_context
                     )
+                    if session_key:
+                        self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
+            async def _call_angel_once(angel_request: ChatRequest) -> str | None:
+                try:
+                    _ensure_angel_not_cancelled()
+                    angel_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
+                        angel_request,
+                        stream=False,
+                        allow_failover=True,
+                        context=request_context,
+                    )
+                    await svc.report_success()
+                    return _extract_text(angel_response)
+                except Exception as e:
+                    await svc.report_failure()
+
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Angel model call failed (%s); failing-open",
+                            type(e).__name__,
+                            exc_info=True,
+                        )
+                    return None
+
+            angel_text = await _call_angel_once(verification_request)
+            if angel_text is None:
                 return {"action": "pass"}
+
+            is_valid_format, invalid_reason = svc.validate_angel_output_format(
+                angel_text
+            )
+            if not is_valid_format:
+                retry_request = svc.build_invalid_format_retry_request(
+                    verification_request,
+                    angel_text,
+                    invalid_reason,
+                )
+                retry_text = await _call_angel_once(retry_request)
+                if retry_text is None:
+                    return {"action": "pass"}
+                angel_text = retry_text
+
+                is_valid_format, invalid_reason = svc.validate_angel_output_format(
+                    angel_text
+                )
+                if not is_valid_format:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Angel response still invalid after single retry; failing-open (%s)",
+                            invalid_reason or "invalid format",
+                        )
+                    return {"action": "pass"}
 
             decision = svc.parse_angel_output(angel_text)
             if decision.decision == "pass":
@@ -380,7 +410,7 @@ class ResponseProcessor(IResponseProcessor):
                 # Get registry and identity service from provider
                 non_forwardable_registry = None
                 non_forwardable_identity_service = None
-                
+
                 if provider:
                     non_forwardable_registry = provider.get_service(
                         cast(type, INonForwardableMessageRegistry)

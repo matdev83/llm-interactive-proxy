@@ -205,6 +205,37 @@ class TestUsageCalculationWithModifications:
         # Should use the modified_tokens from tracker
         assert result.prompt_tokens == 150  # From tracker.inbound_modified_tokens
 
+    def test_recalculate_applies_modification_delta_to_backend_usage(
+        self,
+        service: UsageCalculationService,
+    ) -> None:
+        """Recalculation applies proxy delta on top of backend-reported usage."""
+        backend_usage: dict[str, Any] = {
+            "prompt_tokens": 500,
+            "completion_tokens": 300,
+            "total_tokens": 800,
+        }
+        tracker = ContentModificationTracker()
+        tracker.mark_inbound_modified(
+            reason="system_prompt_injection",
+            original_tokens=100,
+            modified_tokens=140,
+        )
+        tracker.mark_outbound_modified(
+            reason="response_redaction",
+            original_tokens=200,
+            modified_tokens=180,
+        )
+
+        result = service.recalculate_usage(
+            backend_usage=backend_usage,
+            modification_tracker=tracker,
+        )
+
+        assert result.prompt_tokens == 540
+        assert result.completion_tokens == 280
+        assert result.total_tokens == 820
+
 
 class TestUsageCalculationPreservesExtended:
     """Test that extended usage fields are preserved."""

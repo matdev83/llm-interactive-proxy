@@ -189,9 +189,109 @@ def test_build_verification_messages_stringifies_tools() -> None:
     assert messages[2].role == "assistant"
     assert messages[2].tool_calls is None
     assert "I will search" in str(messages[2].content)
-    assert "[Tool Call: search({\"q\": \"test\"})]" in str(messages[2].content)
+    assert '[Tool Call: search({"q": "test"})]' in str(messages[2].content)
 
     # Tool message should be stringified to a user message
     assert messages[3].role == "user"
-    assert "Tool result (tool_call_id=call_1): found results" in str(messages[3].content)
+    assert "Tool result (tool_call_id=call_1): found results" in str(
+        messages[3].content
+    )
 
+
+def test_build_verification_messages_strips_main_system_messages() -> None:
+    svc = AngelService("openai:gpt-4o-mini")
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[
+            ChatMessage(role="system", content="MAIN SYSTEM PROMPT"),
+            ChatMessage(role="user", content="User task"),
+            ChatMessage(role="assistant", content="Draft answer"),
+        ],
+    )
+
+    messages = svc.build_verification_messages(request, "Latest draft")
+
+    assert messages[0].role == "system"
+    assert messages[0].content == get_prompt_loader().angel_prompt
+    assert all(
+        not (m.role == "system" and str(m.content) == "MAIN SYSTEM PROMPT")
+        for m in messages[1:]
+    )
+    assert messages[-1].role == "assistant"
+    assert messages[-1].content == "Latest draft"
+
+
+def test_build_verification_messages_strips_serialized_tool_definitions() -> None:
+    svc = AngelService("openai:gpt-4o-mini")
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[
+            ChatMessage(
+                role="user",
+                content='{"tools":[{"type":"function","function":{"name":"search","parameters":{"type":"object"}}}]}',
+            ),
+        ],
+    )
+
+    messages = svc.build_verification_messages(request, "draft")
+
+    assert messages[1].role == "user"
+    assert messages[1].content == "[Tool definitions omitted for Angel audit.]"
+
+
+@pytest.mark.parametrize(
+    "angel_output, is_valid, reason_fragment",
+    [
+        ("<angels_decision>Pass</angels_decision>", True, None),
+        (
+            "<angels_decision>Steer</angels_decision><angels_steering_message>Fix it</angels_steering_message>",
+            True,
+            None,
+        ),
+        ("I think this looks okay.", False, "Missing required XML decision tags"),
+        (
+            "<angels_decision>Steer</angels_decision>",
+            False,
+            "missing <angels_steering_message>",
+        ),
+    ],
+)
+def test_validate_angel_output_format(
+    angel_output: str, is_valid: bool, reason_fragment: str | None
+) -> None:
+    svc = AngelService("openai:gpt-4o-mini")
+
+    valid, reason = svc.validate_angel_output_format(angel_output)
+
+    assert valid is is_valid
+    if reason_fragment is None:
+        assert reason is None
+    else:
+        assert reason is not None
+        assert reason_fragment.lower() in reason.lower()
+
+
+def test_build_invalid_format_retry_request_appends_feedback_messages() -> None:
+    svc = AngelService("openai:gpt-4o-mini")
+    verification_request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[
+            ChatMessage(role="system", content="Angel system"),
+            ChatMessage(role="user", content="Task"),
+            ChatMessage(role="assistant", content="Draft"),
+        ],
+        stream=False,
+    )
+
+    retry_request = svc.build_invalid_format_retry_request(
+        verification_request,
+        "Free-form answer without tags",
+        "Missing decision tags",
+    )
+
+    assert retry_request.stream is False
+    assert retry_request.messages[-2].role == "assistant"
+    assert retry_request.messages[-2].content == "Free-form answer without tags"
+    assert retry_request.messages[-1].role == "user"
+    assert "FORMAT CORRECTION" in str(retry_request.messages[-1].content)
+    assert "Missing decision tags" in str(retry_request.messages[-1].content)
