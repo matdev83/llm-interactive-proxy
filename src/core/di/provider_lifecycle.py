@@ -61,9 +61,13 @@ def get_or_build_service_provider() -> IServiceProvider:
             )
     if _service_provider is None:
         # Import here to avoid circular import
-        from src.core.di.services import get_service_collection
+        from src.core.di.services import get_service_collection, register_core_services
 
         services = get_service_collection()
+        # Ensure baseline registrations exist when building a global provider directly.
+        # This keeps lazy provider construction backward-compatible while allowing
+        # staged app startup to start from an empty collection and register once.
+        register_core_services(services, None)
         if _get_di_diagnostics():
             di_logger = logging.getLogger("llm.di")
             if di_logger.isEnabledFor(logging.INFO):

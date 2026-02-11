@@ -192,13 +192,26 @@ def register_interface_and_implementation(
     Returns:
         True if at least one registration occurred, False if both were already registered
     """
-    registered_impl = register_if_absent(
-        services,
-        implementation_type,
-        lifetime,
-        implementation_type=implementation_type,
-        implementation_factory=implementation_factory,
-    )
+    if interface_type is implementation_type:
+        return register_if_absent(
+            services,
+            implementation_type,
+            lifetime,
+            implementation_type=implementation_type,
+            implementation_factory=implementation_factory,
+        )
+
+    descriptors = services._descriptors  # pyright: ignore[reportPrivateUsage]
+    if implementation_type in descriptors:
+        registered_impl = False
+    else:
+        registered_impl = register_if_absent(
+            services,
+            implementation_type,
+            lifetime,
+            implementation_type=implementation_type,
+            implementation_factory=implementation_factory,
+        )
 
     def _interface_factory(provider: IServiceProvider) -> Any:
         return provider.get_required_service(implementation_type)

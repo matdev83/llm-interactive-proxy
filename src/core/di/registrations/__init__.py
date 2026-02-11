@@ -1,10 +1,16 @@
-"""
-Feature-scoped DI registration modules.
+"""Feature-scoped DI registration modules."""
 
-This package contains registrars for different feature areas, organized to eliminate
-the God-Object anti-pattern in the DI registration layer.
-"""
+from __future__ import annotations
 
-from src.core.di.registrations._orchestrator import register_all
+from src.core.config.app_config import AppConfig
+from src.core.di.container import ServiceCollection
+
+
+def register_all(services: ServiceCollection, app_config: AppConfig | None) -> None:
+    """Register all feature registrars in deterministic order."""
+    from src.core.di.registrations._orchestrator import register_all as _register_all
+
+    _register_all(services, app_config)
+
 
 __all__ = ["register_all"]
