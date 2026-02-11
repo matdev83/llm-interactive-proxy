@@ -104,10 +104,7 @@ async def test_chat_completions_rotates_on_project_not_found_backend_error() -> 
     response = ResponseEnvelope(content={"ok": True})
 
     chat_mock = AsyncMock(side_effect=[error, response])
-    with patch(
-        "src.connectors.gemini_oauth_base.GeminiOAuthBaseConnector.chat_completions",
-        new=chat_mock,
-    ):
+    with patch.object(type(connector).__mro__[1], "chat_completions", new=chat_mock):
         result = await connector.chat_completions(request)
 
     assert chat_mock.await_count == 2
@@ -213,10 +210,7 @@ async def test_chat_completions_rotates_on_project_permission_denied_backend_err
     response = ResponseEnvelope(content={"ok": True})
 
     chat_mock = AsyncMock(side_effect=[error, response])
-    with patch(
-        "src.connectors.gemini_oauth_base.GeminiOAuthBaseConnector.chat_completions",
-        new=chat_mock,
-    ):
+    with patch.object(type(connector).__mro__[1], "chat_completions", new=chat_mock):
         result = await connector.chat_completions(request)
 
     assert chat_mock.await_count == 2
@@ -315,10 +309,7 @@ async def test_chat_completions_rotates_on_missing_project_id_backend_error() ->
     response = ResponseEnvelope(content={"ok": True})
 
     chat_mock = AsyncMock(side_effect=[error, response])
-    with patch(
-        "src.connectors.gemini_oauth_base.GeminiOAuthBaseConnector.chat_completions",
-        new=chat_mock,
-    ):
+    with patch.object(type(connector).__mro__[1], "chat_completions", new=chat_mock):
         result = await connector.chat_completions(request)
 
     assert chat_mock.await_count == 2
@@ -406,10 +397,7 @@ async def test_chat_completions_rotates_on_missing_project_id_without_current_ac
     response = ResponseEnvelope(content={"ok": True})
 
     chat_mock = AsyncMock(side_effect=[error, response])
-    with patch(
-        "src.connectors.gemini_oauth_base.GeminiOAuthBaseConnector.chat_completions",
-        new=chat_mock,
-    ):
+    with patch.object(type(connector).__mro__[1], "chat_completions", new=chat_mock):
         result = await connector.chat_completions(request)
 
     assert chat_mock.await_count == 2
@@ -518,10 +506,7 @@ async def test_chat_completions_rotates_on_project_not_found_streaming_error() -
             response,
         ]
     )
-    with patch(
-        "src.connectors.gemini_oauth_base.GeminiOAuthBaseConnector.chat_completions",
-        new=chat_mock,
-    ):
+    with patch.object(type(connector).__mro__[1], "chat_completions", new=chat_mock):
         result = await connector.chat_completions(request)
 
     assert chat_mock.await_count == 2
@@ -631,10 +616,7 @@ async def test_chat_completions_rotates_on_missing_project_id_streaming_error() 
             response,
         ]
     )
-    with patch(
-        "src.connectors.gemini_oauth_base.GeminiOAuthBaseConnector.chat_completions",
-        new=chat_mock,
-    ):
+    with patch.object(type(connector).__mro__[1], "chat_completions", new=chat_mock):
         result = await connector.chat_completions(request)
 
     assert chat_mock.await_count == 2
@@ -751,10 +733,7 @@ async def test_chat_completions_rotates_on_project_permission_denied_streaming_e
             response,
         ]
     )
-    with patch(
-        "src.connectors.gemini_oauth_base.GeminiOAuthBaseConnector.chat_completions",
-        new=chat_mock,
-    ):
+    with patch.object(type(connector).__mro__[1], "chat_completions", new=chat_mock):
         result = await connector.chat_completions(request)
 
     assert chat_mock.await_count == 2

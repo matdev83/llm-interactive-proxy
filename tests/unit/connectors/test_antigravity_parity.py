@@ -56,8 +56,9 @@ class TestAntigravityParity:
         error = BackendError(message=block_msg, status_code=403)
 
         # Mock super().chat_completions to raise the error
-        with patch(
-            "src.connectors.antigravity_oauth.GeminiOAuthBaseConnector.chat_completions",
+        with patch.object(
+            type(connector).__mro__[1],
+            "chat_completions",
             side_effect=error,
         ):
             # Mock _ensure_models_loaded to skip initialization
@@ -105,8 +106,9 @@ class TestAntigravityParity:
         """Should prevent redundant rate limit recording via flag."""
         error = BackendError("Rate limit", status_code=429, details={"retry_after": 10})
 
-        with patch(
-            "src.connectors.antigravity_oauth.GeminiOAuthBaseConnector.chat_completions",
+        with patch.object(
+            type(connector).__mro__[1],
+            "chat_completions",
             side_effect=error,
         ):
             connector._ensure_models_loaded = AsyncMock()
@@ -138,8 +140,9 @@ class TestAntigravityParity:
 
             # Second call with SAME error object (re-raised) should NOT call record_rate_limit again
             connector.record_rate_limit.reset_mock()
-            with patch(
-                "src.connectors.antigravity_oauth.GeminiOAuthBaseConnector.chat_completions",
+            with patch.object(
+                type(connector).__mro__[1],
+                "chat_completions",
                 side_effect=exc_info.value,
             ):
                 with pytest.raises(BackendError):

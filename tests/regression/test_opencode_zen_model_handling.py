@@ -28,7 +28,11 @@ def connector(http_client, config):
     conn = OpencodeZenConnector(http_client, config)
     conn._enable_opencode_zen_backend_debugging_override = True
     conn.is_functional = True
-    conn._oauth_credentials = {"access": "valid_token", "type": "oauth", "expires": 9999999999}
+    conn._oauth_credentials = {
+        "access": "valid_token",
+        "type": "oauth",
+        "expires": 9999999999,
+    }
     return conn
 
 
@@ -54,10 +58,12 @@ async def test_chat_completions_retries_on_401(connector):
     """Regression test for retry logic on 401 Unauthorized in chat_completions."""
     # Mock chat_completions of parent OpenAIConnector
     # First call fails with 401, second succeeds
-    with patch("src.connectors.openai.OpenAIConnector.chat_completions") as mock_parent_chat:
+    with patch.object(
+        type(connector).__mro__[1], "chat_completions"
+    ) as mock_parent_chat:
         mock_parent_chat.side_effect = [
             HTTPException(status_code=401, detail="Unauthorized"),
-            MagicMock(spec=object)  # Mocked successful response
+            MagicMock(spec=object),  # Mocked successful response
         ]
 
         # Mock credential reloading
@@ -66,7 +72,7 @@ async def test_chat_completions_retries_on_401(connector):
         await connector.chat_completions(
             request_data={"model": "kimi/kimi-k2.5-free"},
             processed_messages=[],
-            effective_model="opencode-zen/kimi/kimi-k2.5-free"
+            effective_model="opencode-zen/kimi/kimi-k2.5-free",
         )
 
         # Verify parent was called twice
@@ -80,7 +86,7 @@ async def test_chat_completions_retries_on_401(connector):
 @pytest.mark.asyncio
 async def test_stream_completion_retries_on_401(connector):
     """Regression test for retry logic on 401 Unauthorized in stream_completion."""
-    
+
     # Mock stream_completion of parent OpenAIConnector
     # We need a generator that fails
     async def failing_stream(*args, **kwargs):
@@ -91,7 +97,9 @@ async def test_stream_completion_retries_on_401(connector):
         yield "chunk1"
         yield "chunk2"
 
-    with patch("src.connectors.openai.OpenAIConnector.stream_completion") as mock_parent_stream:
+    with patch.object(
+        type(connector).__mro__[1], "stream_completion"
+    ) as mock_parent_stream:
         mock_parent_stream.side_effect = [failing_stream(), successful_stream()]
 
         # Mock credential reloading
@@ -99,6 +107,7 @@ async def test_stream_completion_retries_on_401(connector):
 
         request = MagicMock(spec=CanonicalChatRequest)
         request.model = "kimi/kimi-k2.5-free"
+        request.messages = []
 
         chunks = []
         async for chunk in connector.stream_completion(request):
@@ -112,7 +121,9 @@ async def test_stream_completion_retries_on_401(connector):
 @pytest.mark.asyncio
 async def test_regression_no_recursive_exception_on_retry_failure(connector):
     """Ensure that if retry also fails, we get the second failure without recursive mess."""
-    with patch("src.connectors.openai.OpenAIConnector.chat_completions") as mock_parent_chat:
+    with patch.object(
+        type(connector).__mro__[1], "chat_completions"
+    ) as mock_parent_chat:
         # Both attempts fail with 401
         mock_parent_chat.side_effect = [
             HTTPException(status_code=401, detail="First Fail"),
@@ -125,9 +136,9 @@ async def test_regression_no_recursive_exception_on_retry_failure(connector):
             await connector.chat_completions(
                 request_data={"model": "model"},
                 processed_messages=[],
-                effective_model="model"
+                effective_model="model",
             )
-        
+
         assert excinfo.value.status_code == 401
         assert excinfo.value.detail == "Second Fail"
         assert mock_parent_chat.call_count == 2

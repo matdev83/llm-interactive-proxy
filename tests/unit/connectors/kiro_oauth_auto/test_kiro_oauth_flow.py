@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from freezegun import freeze_time
 from src.connectors.kiro_oauth_auto.errors import OAuthError
 from src.connectors.kiro_oauth_auto.oauth_flow import OAuthFlowService
 
@@ -23,7 +22,6 @@ def flow(mock_http_client: MagicMock) -> OAuthFlowService:
     return OAuthFlowService(http_client=mock_http_client)
 
 
-@freeze_time("2026-01-19")
 class TestOAuthFlowService:
     @pytest.mark.asyncio
     async def test_register_oidc_client_success(
