@@ -8,9 +8,11 @@ by correctly resolving the backend from the request model or app defaults.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
@@ -181,3 +183,193 @@ async def test_replacement_resolves_backend_from_model_prefix():
     # In the fix, original_backend should have been resolved to "anthropic"
     assert mock_replacement.should_replace.called
     # If the bug was present, it wouldn't have been called at all.
+
+
+@pytest.mark.asyncio
+async def test_replacement_uses_stable_b2bua_scope_key_without_client_session_id() -> (
+    None
+):
+    """Replacement uses a continuity key in B2BUA mode without client session id."""
+    mock_replacement = MagicMock(spec=IModelReplacementService)
+    mock_replacement.should_replace.return_value = True
+    mock_replacement.get_state.return_value = MagicMock(active=False)
+    mock_replacement.activate_replacement = AsyncMock()
+    mock_replacement.get_effective_backend_model.return_value = (
+        "openrouter",
+        "openrouter/pony-alpha",
+    )
+
+    request_data = ChatRequest(
+        model="kimi-code:kimi/kimi-for-coding",
+        messages=[ChatMessage(role="user", content="hello replacement")],
+    )
+
+    mock_dependencies = {
+        "command_processor": MagicMock(),
+        "session_manager": MagicMock(),
+        "backend_request_manager": MagicMock(),
+        "response_manager": MagicMock(),
+        "session_enricher": MagicMock(),
+        "request_side_effects": MagicMock(),
+        "command_handler": MagicMock(),
+        "backend_preparer": MagicMock(),
+        "transform_pipeline": MagicMock(),
+        "backend_executor": MagicMock(),
+        "app_state": MagicMock(),
+        "replacement_service": mock_replacement,
+    }
+
+    mock_dependencies["session_enricher"].enrich = AsyncMock(
+        return_value=(MagicMock(), request_data)
+    )
+    mock_dependencies["session_manager"].resolve_session_id = AsyncMock(
+        return_value="llm-b2bua-ephemeral-1"
+    )
+    mock_dependencies["request_side_effects"].apply = AsyncMock(
+        return_value=request_data
+    )
+    mock_dependencies["command_handler"].handle = AsyncMock(
+        return_value=ProcessedResult(
+            modified_messages=list(request_data.messages),
+            command_executed=False,
+            command_results=[],
+        )
+    )
+    mock_dependencies["backend_preparer"].prepare = AsyncMock(return_value=request_data)
+    mock_dependencies["transform_pipeline"].transform = AsyncMock(
+        return_value=request_data
+    )
+    mock_dependencies["backend_executor"].execute = AsyncMock()
+
+    processor = RequestProcessor(**mock_dependencies)
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state={},
+        app_state=None,
+        backend=None,
+        b2bua_identity=B2buaIdentity(
+            a_session_id="llm-b2bua-ephemeral-1",
+            auth_scope_id="user-123",
+            client_session_id=None,
+        ),
+    )
+
+    await processor.process_request(context, request_data)
+
+    called_session_id = mock_replacement.should_replace.call_args.args[0]
+    assert called_session_id.startswith("b2bua-scope:user-123:")
+    assert called_session_id != "llm-b2bua-ephemeral-1"
+    assert (
+        context.extensions.get("replacement_effective_session_id") == called_session_id
+    )
+
+
+@pytest.mark.asyncio
+async def test_quality_verifier_eligible_turn_count_continues_across_b2bua_session_rotation() -> (
+    None
+):
+    """Quality Verifier scheduling uses continuity key when A-leg session ids rotate."""
+    request_data = ChatRequest(
+        model="kimi-code:kimi/kimi-for-coding",
+        messages=[ChatMessage(role="user", content="same conversation")],
+    )
+
+    app_state = MagicMock()
+    app_state.get_backend_type.return_value = "kimi-code"
+    app_state.get_setting.return_value = SimpleNamespace(
+        session=SimpleNamespace(
+            quality_verifier_model="gemini-oauth-auto:google/gemini-3-pro-preview",
+            quality_verifier_frequency=5,
+            quality_verifier_max_history=None,
+            quality_verifier_max_consecutive_failures=5,
+            quality_verifier_cooldown_seconds=300,
+        ),
+        auxiliary_routing=SimpleNamespace(enabled=False),
+    )
+
+    def _new_session() -> MagicMock:
+        # Simulate rotated/ephemeral canonical sessions that always start from zero.
+        state = MagicMock()
+        state.to_dict.return_value = {"quality_verifier_eligible_turn_count": 0}
+        state.with_multiple_updates.side_effect = lambda **kwargs: state
+
+        session = MagicMock()
+        session.state = state
+        session.update_state = MagicMock()
+        return session
+
+    session_manager = MagicMock()
+    session_enricher = MagicMock()
+    request_side_effects = MagicMock()
+    command_handler = MagicMock()
+    backend_preparer = MagicMock()
+    transform_pipeline = MagicMock()
+    backend_executor = MagicMock()
+
+    session_enricher.enrich = AsyncMock(
+        side_effect=[(_new_session(), request_data), (_new_session(), request_data)]
+    )
+    session_manager.resolve_session_id = AsyncMock(
+        side_effect=["llm-b2bua-ephemeral-1", "llm-b2bua-ephemeral-2"]
+    )
+    request_side_effects.apply = AsyncMock(return_value=request_data)
+    command_handler.handle = AsyncMock(
+        return_value=ProcessedResult(
+            modified_messages=list(request_data.messages),
+            command_executed=False,
+            command_results=[],
+        )
+    )
+    backend_preparer.prepare = AsyncMock(return_value=request_data)
+    transform_pipeline.transform = AsyncMock(return_value=request_data)
+    backend_executor.execute = AsyncMock(return_value=MagicMock())
+
+    processor = RequestProcessor(
+        command_processor=MagicMock(),
+        session_manager=session_manager,
+        backend_request_manager=MagicMock(),
+        response_manager=MagicMock(),
+        session_enricher=session_enricher,
+        request_side_effects=request_side_effects,
+        command_handler=command_handler,
+        backend_preparer=backend_preparer,
+        transform_pipeline=transform_pipeline,
+        backend_executor=backend_executor,
+        app_state=app_state,
+        replacement_service=None,
+    )
+
+    context_1 = RequestContext(
+        headers={},
+        cookies={},
+        state={},
+        app_state=None,
+        backend=None,
+        b2bua_identity=B2buaIdentity(
+            a_session_id="llm-b2bua-ephemeral-1",
+            auth_scope_id="user-123",
+            client_session_id=None,
+        ),
+    )
+    context_2 = RequestContext(
+        headers={},
+        cookies={},
+        state={},
+        app_state=None,
+        backend=None,
+        b2bua_identity=B2buaIdentity(
+            a_session_id="llm-b2bua-ephemeral-2",
+            auth_scope_id="user-123",
+            client_session_id=None,
+        ),
+    )
+
+    await processor.process_request(context_1, request_data)
+    await processor.process_request(context_2, request_data)
+
+    assert context_1.extensions.get("quality_verifier_eligible_turn_count") == 1
+    assert context_2.extensions.get("quality_verifier_eligible_turn_count") == 2
+    assert context_1.extensions.get(
+        "quality_verifier_effective_session_id"
+    ) == context_2.extensions.get("quality_verifier_effective_session_id")

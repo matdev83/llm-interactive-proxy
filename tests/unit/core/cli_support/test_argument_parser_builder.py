@@ -525,6 +525,7 @@ class TestQualityVerifierFlags:
             "--quality-verifier-max-history",
             "--quality-verifier-max-consecutive-failures",
             "--quality-verifier-cooldown-seconds",
+            "--quality-verifier-ttft-timeout-seconds",
         ],
     )
     def test_quality_verifier_flags_present(

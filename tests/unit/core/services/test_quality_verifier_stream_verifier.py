@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
 import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_request_manager.quality_verifier_stream_verifier import (
     QualityVerifierStreamVerifier,
@@ -140,3 +142,95 @@ async def test_stream_verifier_fails_open_after_second_invalid_format() -> None:
     assert len(result_chunks) == 1
     assert result_chunks[0].content == "draft output"
     assert len(backend_service.requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_stream_verifier_treats_backend_error_response_as_failure() -> None:
+    quality_verifier_service = QualityVerifierService("openai:gpt-4o-mini")
+
+    class DummyBackendService:
+        def __init__(self) -> None:
+            self.requests: list[Any] = []
+
+        async def chat_completions(self, request, *args, **kwargs):
+            self.requests.append(request)
+            return ResponseEnvelope(
+                content={
+                    "error": {
+                        "message": "No capacity available",
+                        "type": "backend_error",
+                    }
+                },
+                status_code=503,
+            )
+
+    backend_service = DummyBackendService()
+    verifier = QualityVerifierStreamVerifier(
+        quality_verifier_service_factory=DummyQualityVerifierFactory(quality_verifier_service),
+        provider=cast(Any, DummyProvider(backend_service)),
+    )
+
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="question")],
+    )
+    context: dict[str, Any] = {
+        "quality_verifier_model_spec": "openai:gpt-4o-mini",
+        "quality_verifier_frequency": 1,
+    }
+
+    result_chunks = [
+        chunk
+        async for chunk in verifier.verify_or_passthrough(
+            request,
+            _single_chunk_stream("draft output"),
+            context,
+            request_context=None,
+        )
+    ]
+
+    assert len(result_chunks) == 1
+    assert result_chunks[0].content == "draft output"
+    assert len(backend_service.requests) == 1
+
+
+@pytest.mark.asyncio
+async def test_stream_verifier_ttft_timeout_fails_open() -> None:
+    quality_verifier_service = QualityVerifierService("openai:gpt-4o-mini")
+
+    class DummyBackendService:
+        async def chat_completions(self, request, *args, **kwargs):
+            async def _stream() -> AsyncIterator[ProcessedResponse]:
+                yield ProcessedResponse(content="", metadata={"_keepalive": True})
+                await asyncio.sleep(0.05)
+                yield ProcessedResponse(content="late token", metadata={})
+
+            return StreamingResponseEnvelope(content=_stream())
+
+    verifier = QualityVerifierStreamVerifier(
+        quality_verifier_service_factory=DummyQualityVerifierFactory(quality_verifier_service),
+        provider=cast(Any, DummyProvider(DummyBackendService())),
+    )
+
+    request = ChatRequest(
+        model="openai:gpt-4o-mini",
+        messages=[ChatMessage(role="user", content="question")],
+    )
+    context: dict[str, Any] = {
+        "quality_verifier_model_spec": "openai:gpt-4o-mini",
+        "quality_verifier_frequency": 1,
+        "quality_verifier_ttft_timeout_seconds": 0.01,
+    }
+
+    result_chunks = [
+        chunk
+        async for chunk in verifier.verify_or_passthrough(
+            request,
+            _single_chunk_stream("draft output"),
+            context,
+            request_context=None,
+        )
+    ]
+
+    assert len(result_chunks) == 1
+    assert result_chunks[0].content == "draft output"

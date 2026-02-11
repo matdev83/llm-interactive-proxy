@@ -254,6 +254,10 @@ class SessionConfig(DomainModel):
     # Cooldown period in seconds when the Quality Verifier circuit breaker is tripped.
     quality_verifier_cooldown_seconds: int = 300
 
+    # Time-to-first-token timeout in seconds for Quality Verifier backend calls.
+    # If no non-keepalive token is received within this window, verifier fails-open.
+    quality_verifier_ttft_timeout_seconds: float = 30.0
+
     @field_validator("quality_verifier_frequency")
     @classmethod
     def _validate_quality_verifier_frequency(cls, value: int) -> int:
@@ -262,6 +266,15 @@ class SessionConfig(DomainModel):
         except (TypeError, ValueError):
             return 10
         return freq if freq > 0 else 1
+
+    @field_validator("quality_verifier_ttft_timeout_seconds")
+    @classmethod
+    def _validate_quality_verifier_ttft_timeout_seconds(cls, value: float) -> float:
+        try:
+            timeout = float(value)
+        except (TypeError, ValueError):
+            return 30.0
+        return timeout if timeout > 0 else 30.0
 
     @model_validator(mode="before")
     @classmethod
@@ -359,5 +372,14 @@ class SessionConfig(DomainModel):
         except (TypeError, ValueError):
             freq_int = 10
         values["quality_verifier_frequency"] = freq_int if freq_int > 0 else 1
+
+        ttft_value = values.get("quality_verifier_ttft_timeout_seconds", 30.0)
+        try:
+            ttft_float = float(ttft_value)
+        except (TypeError, ValueError):
+            ttft_float = 30.0
+        values["quality_verifier_ttft_timeout_seconds"] = (
+            ttft_float if ttft_float > 0 else 30.0
+        )
 
         return values

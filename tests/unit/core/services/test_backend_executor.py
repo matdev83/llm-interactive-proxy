@@ -10,7 +10,6 @@ import pytest
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope
-from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.services.backend_executor import BackendExecutor
 
 
@@ -83,10 +82,7 @@ def sample_session():
 def sample_response():
     """Create a sample backend response."""
     return ResponseEnvelope(
-        content=ProcessedResponse(
-            content="Hello there!",
-            usage={"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
-        ),
+        content={"content": "Hello there!"},
         headers={},
         usage=None,
     )
@@ -398,6 +394,37 @@ async def test_turn_completion_on_error(
 
     # Turn completion should still run
     mock_replacement_service.complete_turn.assert_called_once_with(session_id)
+
+
+@pytest.mark.asyncio
+async def test_turn_completion_uses_effective_replacement_session_id_from_context(
+    backend_executor,
+    mock_backend_request_manager,
+    mock_replacement_service,
+    sample_context,
+    sample_session,
+    sample_request,
+    sample_response,
+):
+    """Turn completion should honor replacement continuity key when provided."""
+    session_id = "llm-b2bua-ephemeral"
+    replacement_session_id = "b2bua-scope:user-123:abcdef1234567890"
+    sample_context.extensions["replacement_effective_session_id"] = (
+        replacement_session_id
+    )
+    mock_backend_request_manager.process_backend_request.return_value = sample_response
+
+    await backend_executor.execute(
+        context=sample_context,
+        session=sample_session,
+        session_id=session_id,
+        request=sample_request,
+        original_request=sample_request,
+    )
+
+    mock_replacement_service.complete_turn.assert_called_once_with(
+        replacement_session_id
+    )
 
 
 @pytest.mark.asyncio

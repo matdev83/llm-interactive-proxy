@@ -42,6 +42,7 @@ class TestSessionApplicator:
             disable_interactive_commands=None,
             quality_verifier_model=None,
             quality_verifier_frequency=None,
+            quality_verifier_ttft_timeout_seconds=None,
             enable_planning_phase=None,
             planning_phase_strong_model=None,
             planning_phase_max_turns=None,
@@ -121,6 +122,24 @@ class TestSessionApplicator:
         assert "session" in overrides
         assert "planning_phase" in overrides["session"]
         assert overrides["session"]["planning_phase"].get("enabled") is True
+
+    def test_apply_quality_verifier_ttft_timeout_seconds(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Test that quality_verifier_ttft_timeout_seconds is applied correctly."""
+        empty_args.quality_verifier_ttft_timeout_seconds = 11.5
+        with mock.patch.dict(os.environ, {}, clear=True):
+            applicator.apply(empty_args, overrides, resolution)
+
+            assert "session" in overrides
+            assert (
+                overrides["session"].get("quality_verifier_ttft_timeout_seconds") == 11.5
+            )
+            assert os.environ.get("QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS") == "11.5"
 
     def test_apply_pytest_compression_enabled(
         self,

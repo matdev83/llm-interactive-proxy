@@ -72,3 +72,28 @@ def test_cli_sets_quality_verifier_max_history() -> None:
     args = parser.parse_args(["--command-prefix", "!/", "--quality-verifier-max-history", "9"])
     cfg, _ = apply_cli_args(args, return_resolution=True)
     assert cfg.session.quality_verifier_max_history == 9
+
+
+def test_env_parses_quality_verifier_ttft_timeout_seconds(monkeypatch) -> None:
+    monkeypatch.setenv("QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS", "12.5")
+    cfg = AppConfig.from_env()
+    assert cfg.session.quality_verifier_ttft_timeout_seconds == 12.5
+
+
+def test_cli_sets_quality_verifier_ttft_timeout_seconds() -> None:
+    parser = build_cli_parser()
+    args = parser.parse_args(
+        [
+            "--command-prefix",
+            "!/",
+            "--quality-verifier-ttft-timeout-seconds",
+            "18.75",
+        ]
+    )
+    cfg, _ = apply_cli_args(args, return_resolution=True)
+    assert cfg.session.quality_verifier_ttft_timeout_seconds == 18.75
+
+
+def test_quality_verifier_ttft_timeout_defaults_to_thirty_seconds() -> None:
+    cfg = AppConfig()
+    assert cfg.session.quality_verifier_ttft_timeout_seconds == 30.0

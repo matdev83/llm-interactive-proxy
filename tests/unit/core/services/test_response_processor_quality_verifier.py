@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any, cast
 
 import pytest
 from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
@@ -422,3 +424,58 @@ async def test_apply_quality_verifier_verification_fails_open_after_invalid_retr
 
     assert decision == {"action": "pass"}
     assert len(backend_service.requests) == 2
+
+
+@pytest.mark.asyncio
+async def test_apply_quality_verifier_verification_ttft_timeout_fails_open(
+    monkeypatch,
+) -> None:
+    proc = ResponseProcessor(
+        response_parser=cast(IResponseParser, DummyParser()),
+        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
+    )
+    proc._quality_verifier_service = QualityVerifierService("openai:gpt-4o-mini")
+    proc._quality_verifier_frequency = 1
+    proc._quality_verifier_ttft_timeout_seconds = 0.01
+
+    class DummyBackendService:
+        async def chat_completions(self, request, *args, **kwargs):
+            async def _stream() -> AsyncGenerator[ProcessedResponse, None]:
+                yield ProcessedResponse(content="", metadata={"_keepalive": True})
+                await asyncio.sleep(0.05)
+                yield ProcessedResponse(content="late verifier token", metadata={})
+
+            return StreamingResponseEnvelope(content=_stream())
+
+    class DummyProvider:
+        def get_required_service(self, t):
+            return DummyBackendService()
+
+        def get_service(self, t):
+            return None
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider", lambda: DummyProvider()
+    )
+
+    from src.core.domain.chat import ChatMessage, ChatRequest
+
+    original_req = ChatRequest(
+        model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
+    )
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=None,
+        original_request=original_req,
+    )
+    context.extensions["quality_verifier_ttft_timeout_seconds"] = 0.01
+
+    decision = await proc._apply_quality_verifier_verification(
+        original_req,
+        "initial",
+        context={"request_context": context},
+    )
+
+    assert decision == {"action": "pass"}

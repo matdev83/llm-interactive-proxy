@@ -214,6 +214,20 @@ class SessionApplicator:
                 origin="--quality-verifier-cooldown-seconds",
             )
 
+        if getattr(args, "quality_verifier_ttft_timeout_seconds", None) is not None:
+            timeout = float(args.quality_verifier_ttft_timeout_seconds)
+            if timeout <= 0:
+                timeout = 30.0
+            session = overrides.setdefault("session", {})
+            session["quality_verifier_ttft_timeout_seconds"] = timeout
+            os.environ["QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS"] = str(timeout)
+            resolution.record(
+                "session.quality_verifier_ttft_timeout_seconds",
+                timeout,
+                ParameterSource.CLI,
+                origin="--quality-verifier-ttft-timeout-seconds",
+            )
+
     def _apply_planning_phase(
         self,
         args: CliArgs,

@@ -292,6 +292,13 @@ class ArgumentParserBuilder:
             metavar="SECONDS",
             help="Cooldown period in seconds for Quality Verifier circuit breaker (default: 300)",
         )
+        parser.add_argument(
+            "--quality-verifier-ttft-timeout-seconds",
+            dest="quality_verifier_ttft_timeout_seconds",
+            type=float,
+            metavar="SECONDS",
+            help="Time-to-first-token timeout for Quality Verifier calls (default: 30)",
+        )
 
     def _validate_model_alias(self, value: str) -> tuple[str, str]:
         """Validate model alias format: pattern=replacement."""

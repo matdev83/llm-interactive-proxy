@@ -245,6 +245,12 @@ class ApplicationBuilder:
             RuntimeError: If any stage validation fails
         """
         from src.core.di.provider_lifecycle import temporary_service_provider
+        from src.core.di.services import register_core_services
+
+        descriptor_snapshot = dict(
+            getattr(self._services, "_descriptors", {})  # type: ignore[attr-defined]
+        )
+        register_core_services(self._services, config)
 
         # Build validation-only provider without post-build hooks
         # This prevents registration-time side effects unrelated to validation
@@ -277,6 +283,11 @@ class ApplicationBuilder:
                         await self._services.dispose()
                     raise
         finally:
+            current_descriptors = getattr(self._services, "_descriptors", None)
+            if isinstance(current_descriptors, dict):
+                current_descriptors.clear()
+                current_descriptors.update(descriptor_snapshot)
+
             # Always dispose validation provider (success or failure) to prevent resource leaks
             # This happens after the context manager restores the previous provider
             if hasattr(validation_provider, "dispose"):

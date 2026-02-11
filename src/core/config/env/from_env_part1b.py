@@ -327,6 +327,13 @@ def apply_config_part1b(
             resolution=resolution,
             transform=_optional_int,
         ),
+        "quality_verifier_ttft_timeout_seconds": _env_to_float(
+            "QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS",
+            30.0,
+            env,
+            path="session.quality_verifier_ttft_timeout_seconds",
+            resolution=resolution,
+        ),
         "streaming_sampler": {
             "enabled": _env_to_bool(
                 "STREAMING_SAMPLER_ENABLED",

@@ -81,6 +81,7 @@ class QualityVerifierConfig:
     max_history: int | None
     max_consecutive_failures: int
     cooldown_seconds: int
+    ttft_timeout_seconds: float
     eligible_turn_count: int | None
     skip_verification: bool
 
@@ -323,6 +324,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         quality_verifier_max_history: int | None = None
         quality_verifier_max_consecutive_failures: int = 5
         quality_verifier_cooldown_seconds: int = 300
+        quality_verifier_ttft_timeout_seconds: float = 30.0
         eligible_turn_count: int | None = None
         skip_verification = False
 
@@ -373,6 +375,15 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 with contextlib.suppress(ValueError, TypeError):
                     quality_verifier_cooldown_seconds = int(cooldown_value)
 
+            ttft_timeout_value = context.extensions.get(
+                "quality_verifier_ttft_timeout_seconds", 30.0
+            )
+            if isinstance(ttft_timeout_value, int | float | str):
+                with contextlib.suppress(ValueError, TypeError):
+                    quality_verifier_ttft_timeout_seconds = float(ttft_timeout_value)
+            if quality_verifier_ttft_timeout_seconds <= 0:
+                quality_verifier_ttft_timeout_seconds = 30.0
+
             # Optional per-request eligible turn counter and skip flag
 
             eligible_turn_value = context.extensions.get(
@@ -402,6 +413,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             max_history=quality_verifier_max_history,
             max_consecutive_failures=quality_verifier_max_consecutive_failures,
             cooldown_seconds=quality_verifier_cooldown_seconds,
+            ttft_timeout_seconds=quality_verifier_ttft_timeout_seconds,
             eligible_turn_count=eligible_turn_count,
             skip_verification=skip_verification,
         )
@@ -505,6 +517,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         quality_verifier_model_spec: str | None,
         quality_verifier_frequency: int,
         quality_verifier_max_history: int | None,
+        quality_verifier_max_consecutive_failures: int,
+        quality_verifier_cooldown_seconds: int,
+        quality_verifier_ttft_timeout_seconds: float,
         quality_verifier_eligible_turn_count: int | None,
         quality_verifier_skip_verification: bool,
     ) -> AsyncIterator[ProcessedResponse]:
@@ -527,6 +542,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             "quality_verifier_model_spec": quality_verifier_model_spec,
             "quality_verifier_frequency": quality_verifier_frequency,
             "quality_verifier_max_history": quality_verifier_max_history,
+            "quality_verifier_max_consecutive_failures": quality_verifier_max_consecutive_failures,
+            "quality_verifier_cooldown_seconds": quality_verifier_cooldown_seconds,
+            "quality_verifier_ttft_timeout_seconds": quality_verifier_ttft_timeout_seconds,
             "quality_verifier_eligible_turn_count": quality_verifier_eligible_turn_count,
             "quality_verifier_skip_verification": quality_verifier_skip_verification,
         }
@@ -711,6 +729,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             quality_verifier_model_spec,
             quality_verifier_frequency,
             quality_verifier_max_history,
+            quality_verifier_config.max_consecutive_failures,
+            quality_verifier_config.cooldown_seconds,
+            quality_verifier_config.ttft_timeout_seconds,
             quality_verifier_config.eligible_turn_count,
             quality_verifier_config.skip_verification,
         )

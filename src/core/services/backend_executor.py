@@ -169,4 +169,15 @@ class BackendExecutor(IBackendExecutor):
         finally:
             # Complete turn after response (or error) to update replacement state (Req 1.7)
             if (not is_auxiliary_request) and self._replacement_service is not None:
-                self._replacement_service.complete_turn(session_id)
+                replacement_session_id = context.extensions.get(
+                    "replacement_effective_session_id"
+                )
+                effective_replacement_session_id = (
+                    replacement_session_id
+                    if isinstance(replacement_session_id, str)
+                    and replacement_session_id.strip()
+                    else session_id
+                )
+                self._replacement_service.complete_turn(
+                    effective_replacement_session_id
+                )
