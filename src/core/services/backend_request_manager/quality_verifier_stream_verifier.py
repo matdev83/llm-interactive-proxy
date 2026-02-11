@@ -9,14 +9,20 @@ Requirements: 4.5, 5.5
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import json
 import logging
 import re
+import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
+from src.core.common.exceptions import BackendError
 from src.core.domain.backend_request_manager.context_models import StreamingContext
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
+from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.backend_request_manager_components import (
     IQualityVerifierStreamVerifier,
 )
@@ -36,6 +42,7 @@ logger = logging.getLogger(__name__)
 # Maximum buffer size for Quality Verifier (1MB)
 # Responses exceeding this limit will fail-open to avoid OOM
 MAX_QUALITY_VERIFIER_BUFFER_BYTES = 1024 * 1024
+DEFAULT_QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS = 30.0
 
 
 class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
@@ -60,29 +67,294 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
 
     def _extract_text_from_chunk(self, chunk: ProcessedResponse) -> str:
         """Extract textual content from a streaming chunk."""
-        content = chunk.content
+        content = getattr(chunk, "content", chunk)
+        if isinstance(content, dict):
+            return self._extract_text_from_openai_payload(content)
         if isinstance(content, str):
-            return content
+            return self._extract_text_from_sse_payload(content)
         if isinstance(content, bytes):
             try:
-                return content.decode("utf-8")
+                decoded = content.decode("utf-8")
             except UnicodeDecodeError:
                 # Expected for non-UTF-8 content, fallback to ignore errors
-                return content.decode("utf-8", errors="ignore")
+                decoded = content.decode("utf-8", errors="ignore")
             except Exception as e:
                 # Unexpected exception during decoding
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
                         "Unexpected error decoding chunk content: %s", e, exc_info=True
                     )
-                return content.decode("utf-8", errors="ignore")
+                decoded = content.decode("utf-8", errors="ignore")
+            return self._extract_text_from_sse_payload(decoded)
         return str(content) if content is not None else ""
+
+    @staticmethod
+    def _extract_text_from_openai_payload(payload: dict[str, Any]) -> str:
+        """Extract assistant text from an OpenAI-style payload dict."""
+        parts: list[str] = []
+
+        choices = payload.get("choices")
+        if isinstance(choices, list):
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+
+                delta = choice.get("delta")
+                if isinstance(delta, dict):
+                    delta_content = delta.get("content")
+                    if isinstance(delta_content, str):
+                        parts.append(delta_content)
+
+                message = choice.get("message")
+                if isinstance(message, dict):
+                    message_content = message.get("content")
+                    if isinstance(message_content, str):
+                        parts.append(message_content)
+
+        top_level_content = payload.get("content")
+        if isinstance(top_level_content, str):
+            parts.append(top_level_content)
+
+        top_level_text = payload.get("text")
+        if isinstance(top_level_text, str):
+            parts.append(top_level_text)
+
+        return "".join(parts)
+
+    def _extract_text_from_sse_payload(self, payload: str) -> str:
+        """Extract textual content from SSE-like payload strings."""
+        stripped = payload.strip()
+        if not stripped:
+            return ""
+
+        if not any(line.lstrip().startswith("data:") for line in stripped.splitlines()):
+            # Non-SSE raw payload
+            return payload
+
+        parts: list[str] = []
+        for raw_line in stripped.splitlines():
+            line = raw_line.strip()
+            if not line.startswith("data:"):
+                continue
+
+            data_part = line[5:].strip()
+            if not data_part or data_part in {"[DONE]", '["DONE"]'}:
+                continue
+
+            try:
+                decoded = json.loads(data_part)
+            except json.JSONDecodeError:
+                parts.append(data_part)
+                continue
+
+            if isinstance(decoded, dict):
+                piece = self._extract_text_from_openai_payload(decoded)
+                if piece:
+                    parts.append(piece)
+            elif isinstance(decoded, str):
+                parts.append(decoded)
+
+        return "".join(parts)
+
+    @staticmethod
+    def _coerce_ttft_timeout_seconds(raw_value: Any) -> float:
+        """Normalize TTFT timeout to a safe positive float in seconds."""
+        try:
+            timeout_value = float(raw_value)
+        except (TypeError, ValueError):
+            timeout_value = DEFAULT_QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS
+
+        if timeout_value <= 0:
+            return DEFAULT_QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS
+
+        return timeout_value
+
+    def _chunk_contains_backend_error(self, chunk: Any) -> bool:
+        """Return True when a streamed chunk carries an upstream error marker."""
+        metadata = getattr(chunk, "metadata", {}) or {}
+        if isinstance(metadata, dict) and metadata.get("error"):
+            return True
+
+        content = getattr(chunk, "content", chunk)
+        if isinstance(content, dict):
+            if content.get("error"):
+                return True
+
+            choices = content.get("choices")
+            if isinstance(choices, list):
+                for choice in choices:
+                    if (
+                        isinstance(choice, dict)
+                        and choice.get("finish_reason") == "error"
+                    ):
+                        return True
+            return False
+
+        if isinstance(content, bytes | bytearray):
+            text = bytes(content).decode("utf-8", errors="ignore")
+            return '"error"' in text
+
+        if isinstance(content, str):
+            return '"error"' in content
+
+        return False
+
+    @staticmethod
+    def _payload_has_non_dummy_token(payload: dict[str, Any]) -> bool:
+        """Return True when payload contains non-keepalive model output."""
+        if payload.get("error"):
+            return False
+
+        choices = payload.get("choices")
+        if isinstance(choices, list):
+            for choice in choices:
+                if not isinstance(choice, dict):
+                    continue
+
+                for container_key in ("delta", "message"):
+                    container = choice.get(container_key)
+                    if not isinstance(container, dict):
+                        continue
+
+                    for token_key in (
+                        "content",
+                        "tool_calls",
+                        "function_call",
+                        "reasoning_content",
+                        "reasoning",
+                        "thinking",
+                        "thought",
+                    ):
+                        token_value = container.get(token_key)
+                        if token_value:
+                            return True
+
+        for token_key in ("content", "text"):
+            token_value = payload.get(token_key)
+            if isinstance(token_value, str) and token_value.strip():
+                return True
+
+        return False
+
+    def _is_non_dummy_stream_chunk(self, chunk: Any) -> bool:
+        """Detect the first real token while ignoring keepalives and done markers."""
+        metadata = getattr(chunk, "metadata", {}) or {}
+        if isinstance(metadata, dict) and metadata.get("_keepalive"):
+            return False
+
+        content = getattr(chunk, "content", chunk)
+        if isinstance(content, dict):
+            return self._payload_has_non_dummy_token(content)
+
+        if isinstance(content, bytes | bytearray):
+            text = bytes(content).decode("utf-8", errors="ignore").strip()
+        elif isinstance(content, str):
+            text = content.strip()
+        else:
+            return bool(content)
+
+        if not text or text.startswith(":"):
+            return False
+
+        if text in {"[DONE]", '["DONE"]', "data: [DONE]", 'data: ["DONE"]'}:
+            return False
+
+        if text.startswith("data:"):
+            data_part = text[5:].strip()
+            if not data_part or data_part in {"[DONE]", '["DONE"]'}:
+                return False
+            try:
+                decoded = json.loads(data_part)
+            except json.JSONDecodeError:
+                return bool(data_part)
+
+            if isinstance(decoded, dict):
+                return self._payload_has_non_dummy_token(decoded)
+            if isinstance(decoded, str):
+                return bool(decoded.strip())
+            return bool(decoded)
+
+        return True
+
+    @staticmethod
+    def _response_indicates_backend_error(payload: Any) -> bool:
+        """Detect backend failure encoded as a non-exception response object."""
+        status_code = getattr(payload, "status_code", None)
+        if isinstance(status_code, int) and status_code >= 400:
+            return True
+
+        if isinstance(payload, ResponseEnvelope):
+            if payload.status_code >= 400:
+                return True
+            if isinstance(payload.content, dict) and payload.content.get("error"):
+                return True
+
+        content = getattr(payload, "content", payload)
+        return isinstance(content, dict) and bool(content.get("error"))
+
+    async def _collect_streaming_quality_verifier_text(
+        self,
+        response: StreamingResponseEnvelope,
+        *,
+        ttft_timeout_seconds: float,
+    ) -> str | None:
+        """Collect streamed verifier output with TTFT enforcement."""
+        stream = response.content
+        if stream is None:
+            return ""
+
+        deadline = time.monotonic() + ttft_timeout_seconds
+        first_non_dummy_seen = False
+        saw_error_chunk = False
+        text_parts: list[str] = []
+
+        iterator = stream.__aiter__()
+
+        try:
+            while True:
+                try:
+                    if first_non_dummy_seen:
+                        chunk = await anext(iterator)
+                    else:
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise asyncio.TimeoutError(
+                                "Quality Verifier TTFT timeout exceeded"
+                            )
+                        chunk = await asyncio.wait_for(
+                            anext(iterator), timeout=remaining
+                        )
+                except StopAsyncIteration:
+                    break
+
+                if self._chunk_contains_backend_error(chunk):
+                    saw_error_chunk = True
+
+                if not first_non_dummy_seen and self._is_non_dummy_stream_chunk(chunk):
+                    first_non_dummy_seen = True
+
+                text_piece = self._extract_text_from_chunk(chunk)
+                if text_piece:
+                    text_parts.append(text_piece)
+        except asyncio.TimeoutError:
+            cancel_callback = response.cancel_callback
+            if cancel_callback is not None:
+                with contextlib.suppress(Exception):
+                    await cancel_callback()
+            raise
+
+        if saw_error_chunk:
+            return None
+
+        return "".join(text_parts)
 
     def _extract_text_from_response(self, payload: Any) -> str:
         """Extract text from backend response payload."""
         if payload is None:
             return ""
         value = getattr(payload, "content", payload)
+        if isinstance(value, dict):
+            return self._extract_text_from_openai_payload(value)
         if isinstance(value, str):
             return value
         if isinstance(value, bytes):
@@ -120,15 +392,33 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
             ProcessedResponse chunks (verified or original)
         """
         # Check if Quality Verifier should run
-        quality_verifier_model_spec: str | None = context.get("quality_verifier_model_spec")
+        quality_verifier_model_spec: str | None = context.get(
+            "quality_verifier_model_spec"
+        )
         quality_verifier_frequency: int = context.get("quality_verifier_frequency", 10)
-        quality_verifier_max_history: int | None = context.get("quality_verifier_max_history")
+        quality_verifier_max_history: int | None = context.get(
+            "quality_verifier_max_history"
+        )
         quality_verifier_max_consecutive_failures: int = context.get(
             "quality_verifier_max_consecutive_failures", 5
         )
-        quality_verifier_cooldown_seconds: int = context.get("quality_verifier_cooldown_seconds", 300)
-        eligible_turn_count: int | None = context.get("quality_verifier_eligible_turn_count")
-        skip_verification: bool = bool(context.get("quality_verifier_skip_verification"))
+        quality_verifier_cooldown_seconds: int = context.get(
+            "quality_verifier_cooldown_seconds", 300
+        )
+        quality_verifier_ttft_timeout_seconds: float = (
+            self._coerce_ttft_timeout_seconds(
+                context.get(
+                    "quality_verifier_ttft_timeout_seconds",
+                    DEFAULT_QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS,
+                )
+            )
+        )
+        eligible_turn_count: int | None = context.get(
+            "quality_verifier_eligible_turn_count"
+        )
+        skip_verification: bool = bool(
+            context.get("quality_verifier_skip_verification")
+        )
 
         should_buffer = False
         quality_verifier_service_instance: QualityVerifierService | None = None
@@ -150,7 +440,11 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
         should_run = False
         if not skip_verification and quality_verifier_model_spec:
             try:
-                freq_int = int(quality_verifier_frequency) if int(quality_verifier_frequency) > 0 else 1
+                freq_int = (
+                    int(quality_verifier_frequency)
+                    if int(quality_verifier_frequency) > 0
+                    else 1
+                )
             except Exception:
                 freq_int = 10
             if eligible_turn_count is not None:
@@ -160,7 +454,9 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     eligible_int = 0
                 should_run = eligible_int > 0 and (eligible_int % max(1, freq_int) == 0)
             else:
-                should_run = QualityVerifierService.should_run_for_request(request, freq_int)
+                should_run = QualityVerifierService.should_run_for_request(
+                    request, freq_int
+                )
 
         if should_run:
             try:
@@ -293,8 +589,10 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     yield buffered
                 return
 
-            verification_request = quality_verifier_service_instance.build_verification_request(
-                request, combined_text
+            verification_request = (
+                quality_verifier_service_instance.build_verification_request(
+                    request, combined_text
+                )
             )
 
             def _ensure_quality_verifier_not_cancelled() -> None:
@@ -305,17 +603,67 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     if session_key:
                         self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            async def _call_quality_verifier_once(quality_verifier_request: ChatRequest) -> str | None:
+            async def _call_quality_verifier_once(
+                quality_verifier_request: ChatRequest,
+            ) -> str | None:
                 try:
                     _ensure_quality_verifier_not_cancelled()
                     quality_verifier_response = await backend_service.chat_completions(
                         quality_verifier_request,
-                        stream=False,
+                        stream=True,
                         allow_failover=True,
                         context=request_context,
                     )
+
+                    if self._response_indicates_backend_error(
+                        quality_verifier_response
+                    ):
+                        await quality_verifier_service_instance.report_failure()
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Quality Verifier model returned error response; "
+                                "failing-open and forwarding original chunks"
+                            )
+                        return None
+
+                    if isinstance(quality_verifier_response, StreamingResponseEnvelope):
+                        quality_verifier_text = await self._collect_streaming_quality_verifier_text(
+                            quality_verifier_response,
+                            ttft_timeout_seconds=quality_verifier_ttft_timeout_seconds,
+                        )
+                        if quality_verifier_text is None:
+                            await quality_verifier_service_instance.report_failure()
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Quality Verifier stream ended with backend error; "
+                                    "failing-open and forwarding original chunks"
+                                )
+                            return None
+                    else:
+                        quality_verifier_text = self._extract_text_from_response(
+                            quality_verifier_response
+                        )
+
                     await quality_verifier_service_instance.report_success()
-                    return self._extract_text_from_response(quality_verifier_response)
+                    return quality_verifier_text
+                except asyncio.TimeoutError:
+                    await quality_verifier_service_instance.report_failure()
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Quality Verifier TTFT timeout after %.1fs; "
+                            "failing-open and forwarding original chunks",
+                            quality_verifier_ttft_timeout_seconds,
+                        )
+                    return None
+                except BackendError as e:
+                    await quality_verifier_service_instance.report_failure()
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Quality Verifier model call failed (%s); "
+                            "failing-open and forwarding original chunks",
+                            e.message,
+                        )
+                    return None
                 except Exception as e:
                     await quality_verifier_service_instance.report_failure()
                     if logger.isEnabledFor(logging.WARNING):
@@ -326,7 +674,9 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                         )
                     return None
 
-            quality_verifier_text = await _call_quality_verifier_once(verification_request)
+            quality_verifier_text = await _call_quality_verifier_once(
+                verification_request
+            )
             if quality_verifier_text is None:
                 for buffered in buffered_chunks:
                     yield buffered
@@ -338,12 +688,10 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 )
             )
             if not is_valid_format:
-                retry_request = (
-                    quality_verifier_service_instance.build_invalid_format_retry_request(
-                        verification_request,
-                        quality_verifier_text,
-                        invalid_reason,
-                    )
+                retry_request = quality_verifier_service_instance.build_invalid_format_retry_request(
+                    verification_request,
+                    quality_verifier_text,
+                    invalid_reason,
                 )
                 retry_text = await _call_quality_verifier_once(retry_request)
                 if retry_text is None:
@@ -379,8 +727,10 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 return
 
             # Build correction request and get corrected response
-            correction_request = quality_verifier_service_instance.build_correction_request(
-                request, combined_text, steering_msg
+            correction_request = (
+                quality_verifier_service_instance.build_correction_request(
+                    request, combined_text, steering_msg
+                )
             )
 
             # Tag the quality verifier steering message as non-forwardable and set injection boundary

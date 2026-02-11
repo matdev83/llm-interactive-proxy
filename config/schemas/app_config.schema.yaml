@@ -311,6 +311,7 @@ properties:
       quality_verifier_max_history: { type: ["integer", "null"], minimum: 1 }
       quality_verifier_max_consecutive_failures: { type: integer, minimum: 1 }
       quality_verifier_cooldown_seconds: { type: integer, minimum: 0 }
+      quality_verifier_ttft_timeout_seconds: { type: number }
   backends:
     type: object
     additionalProperties: true

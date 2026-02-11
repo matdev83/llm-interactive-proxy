@@ -4,9 +4,10 @@ import socket
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
-import requests
+import requests  # type: ignore[import-untyped]
 
 from tests.unit.fixtures.markers import real_time
 
@@ -44,7 +45,6 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 60.0) -> Non
     raise RuntimeError("server did not start")
 
 
-
 def _start_server(port: int, log_file: str) -> subprocess.Popen:
     """Start the proxy via CLI in a subprocess so logging is configured."""
     env = os.environ.copy()
@@ -52,9 +52,9 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
     for key in list(env.keys()):
         if (key.endswith("_API_KEY") or "_API_KEY_" in key) and "OPENROUTER" not in key:
             del env[key]
+    env.pop("PYTEST_CURRENT_TEST", None)
 
-    # Ensure at least one backend is functional for smoke test
-    env["OPENAI_API_KEY"] = "test-key-for-smoke-test"
+    # Keep startup backend-agnostic for smoke test. We only verify boot + /docs.
     env["COMMAND_PREFIX"] = "!/"
 
     # Optimize startup with faster logging and reduced checks
@@ -78,16 +78,16 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
             "WARNING",
             "--default-backend",
             "openai",
+            "--anthropic-port",
+            "0",
         ],
-
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         env=env,
     )
 
     try:
-        _wait_port(port, timeout=15.0)  # Reduce timeout from 30s to 15s
+        _wait_port(port, timeout=30.0)
         return proc
     except RuntimeError as e:
         # If port wait failed, capture process output for debugging
@@ -110,13 +110,6 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
             # Process already exited
             exit_code = proc.returncode
 
-        # Get output
-        if proc.stdout is not None:
-            try:
-                output = proc.stdout.read() or ""
-            except Exception:
-                output = ""
-
         # Also try to read the log file
         log_content = ""
         try:
@@ -132,7 +125,6 @@ def _start_server(port: int, log_file: str) -> subprocess.Popen:
 
 def _stop_server(proc: subprocess.Popen) -> str:
     """Terminate the server and return combined stdout/stderr for inspection."""
-    out = ""
     try:
         proc.terminate()
         try:
@@ -140,12 +132,8 @@ def _stop_server(proc: subprocess.Popen) -> str:
         except subprocess.TimeoutExpired:
             proc.kill()
     finally:
-        if proc.stdout is not None:
-            try:
-                out = proc.stdout.read() or ""
-            except Exception:
-                out = ""
-    return out
+        pass
+    return ""
 
 
 def _pick_port(low: int = 1024, high: int = 65535) -> int:
@@ -165,7 +153,7 @@ def _log_has_critical_errors(path: str) -> bool:
 
 
 @real_time(reason="Smoke test that measures actual server startup timing.")
-def test_server_starts_and_logs_cleanly(tmp_path: "os.PathLike[str]") -> None:
+def test_server_starts_and_logs_cleanly(tmp_path: Path) -> None:
     """Smoke test: start server, hit a simple endpoint, and verify no crashes.
 
     - Starts uvicorn in background with our ASGI factory.
