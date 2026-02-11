@@ -22,7 +22,6 @@ from src.core.domain.chat import ChatRequest
 from src.core.domain.processed_result import ProcessedResult
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
-from src.core.interfaces.angel_service_interface import IAngelServiceFactory
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
     IBackendRequestPreparation,
@@ -31,6 +30,9 @@ from src.core.interfaces.backend_request_manager_components import (
 )
 from src.core.interfaces.backend_request_manager_interface import IBackendRequestManager
 from src.core.interfaces.configuration_interface import IConfig
+from src.core.interfaces.quality_verifier_service_interface import (
+    IQualityVerifierServiceFactory,
+)
 from src.core.interfaces.request_deduplication_interface import (
     IRequestDeduplicationService,
 )
@@ -49,7 +51,7 @@ class BackendRequestManager(IBackendRequestManager):
         self,
         backend_processor: IBackendProcessor,
         response_processor: IResponseProcessor,
-        angel_service_factory: IAngelServiceFactory | None,
+        quality_verifier_service_factory: IQualityVerifierServiceFactory | None,
         request_preparation: IBackendRequestPreparation,
         non_streaming_handler: INonStreamingBackendResponseHandler,
         streaming_handler: IStreamingBackendResponseHandler,
@@ -63,7 +65,7 @@ class BackendRequestManager(IBackendRequestManager):
         Args:
             backend_processor: The backend processor
             response_processor: The response processor
-            angel_service_factory: Factory for modifying schemas
+            quality_verifier_service_factory: Factory for modifying schemas
             request_preparation: Service for preparing backend requests
             non_streaming_handler: Handler for non-streaming responses
             streaming_handler: Handler for streaming responses
@@ -73,10 +75,10 @@ class BackendRequestManager(IBackendRequestManager):
             dedup_service: Optional request deduplication service
         """
         self._backend_processor = backend_processor
-        if angel_service_factory is None:
-            raise ValueError("angel_service_factory is required")
+        if quality_verifier_service_factory is None:
+            raise ValueError("quality_verifier_service_factory is required")
         self._response_processor = response_processor
-        self._angel_service_factory = angel_service_factory
+        self._quality_verifier_service_factory = quality_verifier_service_factory
         self._request_preparation = request_preparation
         self._non_streaming_handler = non_streaming_handler
         self._streaming_handler = streaming_handler

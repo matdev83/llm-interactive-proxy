@@ -91,9 +91,9 @@ class ResponseProcessor(IResponseProcessor):
         self._memory_capture = memory_capture
         self._cancellation_coordinator = cancellation_coordinator
 
-        # Angel feature wiring
-        self._angel_service: Any | None = None
-        self._angel_frequency: int = 10
+        # Quality Verifier feature wiring
+        self._quality_verifier_service: Any | None = None
+        self._quality_verifier_frequency: int = 10
 
         # Stream normalizer is typically provided via DI.
         # For testability and graceful degradation, if it is not provided but
@@ -169,10 +169,10 @@ class ResponseProcessor(IResponseProcessor):
         # Create unified pipeline for both streaming and non-streaming
         self._unified_pipeline = UnifiedResponsePipeline(self._stream_normalizer)
 
-    async def _apply_angel_verification(  # noqa: C901
+    async def _apply_quality_verifier_verification(  # noqa: C901
         self, original_request: Any, content: Any, context: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
-        """Apply Angel verification and optionally correction.
+        """Apply Quality Verifier and optionally correction.
 
         Returns a dict with keys:
         - action: "pass" | "steer"
@@ -182,10 +182,12 @@ class ResponseProcessor(IResponseProcessor):
             from src.core.di.services import get_service_provider
             from src.core.domain.chat import ChatRequest
             from src.core.interfaces.backend_service_interface import IBackendService
-            from src.core.services.angel_service import AngelService
+            from src.core.services.quality_verifier_service import (
+                QualityVerifierService,
+            )
 
-            if not self._angel_service:
-                # Resolve angel model spec from app_state config
+            if not self._quality_verifier_service:
+                # Resolve quality verifier model spec from app_state config
                 model_spec = None
                 frequency_value: int | None = 10
                 max_history_value: int | None = None
@@ -196,14 +198,14 @@ class ResponseProcessor(IResponseProcessor):
                         else None
                     )
                     session_cfg = getattr(cfg, "session", None)
-                    model_spec = getattr(session_cfg, "angel_model", None)
-                    frequency_value = getattr(session_cfg, "angel_frequency", 10)
-                    max_history_value = getattr(session_cfg, "angel_max_history", None)
+                    model_spec = getattr(session_cfg, "quality_verifier_model", None)
+                    frequency_value = getattr(session_cfg, "quality_verifier_frequency", 10)
+                    max_history_value = getattr(session_cfg, "quality_verifier_max_history", None)
                     max_consecutive_failures = getattr(
-                        session_cfg, "angel_max_consecutive_failures", 5
+                        session_cfg, "quality_verifier_max_consecutive_failures", 5
                     )
                     cooldown_seconds = getattr(
-                        session_cfg, "angel_cooldown_seconds", 300
+                        session_cfg, "quality_verifier_cooldown_seconds", 300
                     )
                 except (AttributeError, TypeError, KeyError):
                     model_spec = None
@@ -221,7 +223,7 @@ class ResponseProcessor(IResponseProcessor):
                     cast(Any, INotificationService)
                 )  # type: ignore[type-abstract]
 
-                angel_svc = AngelService(
+                quality_verifier_svc = QualityVerifierService(
                     model_spec or "",
                     max_history=max_history_value,
                     max_consecutive_failures=max_consecutive_failures,
@@ -229,18 +231,18 @@ class ResponseProcessor(IResponseProcessor):
                     notification_service=notification_service,
                 )
 
-                if not angel_svc.is_enabled() or not angel_svc.is_healthy():
-                    if not angel_svc.is_enabled():
+                if not quality_verifier_svc.is_enabled() or not quality_verifier_svc.is_healthy():
+                    if not quality_verifier_svc.is_enabled():
                         return {"action": "pass"}
                     else:
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
-                                "Angel verification skipped due to circuit breaker for model %s",
+                                "Quality Verifier skipped due to circuit breaker for model %s",
                                 model_spec,
                             )
                         return {"action": "pass"}
 
-                self._angel_service = angel_svc
+                self._quality_verifier_service = quality_verifier_svc
 
                 try:
                     freq_int = (
@@ -248,29 +250,29 @@ class ResponseProcessor(IResponseProcessor):
                     )
                 except (TypeError, ValueError):
                     freq_int = 10
-                self._angel_frequency = freq_int if freq_int > 0 else 1
+                self._quality_verifier_frequency = freq_int if freq_int > 0 else 1
 
-            svc: AngelService = self._angel_service
+            svc: QualityVerifierService = self._quality_verifier_service
 
             if not isinstance(original_request, ChatRequest):
                 return {"action": "pass"}
 
-            # Resolve RequestContext from context dict (used for cancellation and Angel gating)
+            # Resolve RequestContext from context dict (used for cancellation and Quality Verifier gating)
             request_context: RequestContext | None = None
             if context:
                 candidate = context.get("request_context")
                 if isinstance(candidate, RequestContext):
                     request_context = candidate
 
-            # Never run Angel for tool-result continuation requests.
+            # Never run Quality Verifier for tool-result continuation requests.
             try:
-                if AngelService.is_tool_result_followup_request(original_request):
+                if QualityVerifierService.is_tool_result_followup_request(original_request):
                     return {"action": "pass"}
             except Exception:
                 # Fail-open: if detection fails, continue.
                 pass
 
-            # Never run Angel when a random replacement model is active.
+            # Never run Quality Verifier when a random replacement model is active.
             try:
                 if request_context and request_context.extensions.get(
                     "model_replacement_active"
@@ -279,12 +281,12 @@ class ResponseProcessor(IResponseProcessor):
             except Exception:
                 pass
 
-            frequency = getattr(self, "_angel_frequency", 10)
+            frequency = getattr(self, "_quality_verifier_frequency", 10)
 
             # Prefer explicit per-request eligible turn counter (computed upstream).
             eligible_turn_count: int | None = None
             if request_context is not None:
-                raw_count = request_context.extensions.get("angel_eligible_turn_count")
+                raw_count = request_context.extensions.get("quality_verifier_eligible_turn_count")
                 try:
                     if isinstance(raw_count, int):
                         eligible_turn_count = raw_count
@@ -298,7 +300,7 @@ class ResponseProcessor(IResponseProcessor):
                 if eligible_turn_count <= 0 or (eligible_turn_count % freq_int) != 0:
                     return {"action": "pass"}
             else:
-                if not AngelService.should_run_for_request(original_request, frequency):
+                if not QualityVerifierService.should_run_for_request(original_request, frequency):
                     return {"action": "pass"}
 
             verification_request = svc.build_verification_request(
@@ -325,7 +327,7 @@ class ResponseProcessor(IResponseProcessor):
                         return value.decode("utf-8", errors="ignore")
                 return str(value)
 
-            def _ensure_angel_not_cancelled() -> None:
+            def _ensure_quality_verifier_not_cancelled() -> None:
                 if self._cancellation_coordinator and request_context:
                     session_key = resolve_session_key_from_request_context(
                         request_context
@@ -333,58 +335,58 @@ class ResponseProcessor(IResponseProcessor):
                     if session_key:
                         self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            async def _call_angel_once(angel_request: ChatRequest) -> str | None:
+            async def _call_quality_verifier_once(quality_verifier_request: ChatRequest) -> str | None:
                 try:
-                    _ensure_angel_not_cancelled()
-                    angel_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
-                        angel_request,
+                    _ensure_quality_verifier_not_cancelled()
+                    quality_verifier_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
+                        quality_verifier_request,
                         stream=False,
                         allow_failover=True,
                         context=request_context,
                     )
                     await svc.report_success()
-                    return _extract_text(angel_response)
+                    return _extract_text(quality_verifier_response)
                 except Exception as e:
                     await svc.report_failure()
 
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Angel model call failed (%s); failing-open",
+                            "Quality Verifier model call failed (%s); failing-open",
                             type(e).__name__,
                             exc_info=True,
                         )
                     return None
 
-            angel_text = await _call_angel_once(verification_request)
-            if angel_text is None:
+            quality_verifier_text = await _call_quality_verifier_once(verification_request)
+            if quality_verifier_text is None:
                 return {"action": "pass"}
 
-            is_valid_format, invalid_reason = svc.validate_angel_output_format(
-                angel_text
+            is_valid_format, invalid_reason = svc.validate_quality_verifier_output_format(
+                quality_verifier_text
             )
             if not is_valid_format:
                 retry_request = svc.build_invalid_format_retry_request(
                     verification_request,
-                    angel_text,
+                    quality_verifier_text,
                     invalid_reason,
                 )
-                retry_text = await _call_angel_once(retry_request)
+                retry_text = await _call_quality_verifier_once(retry_request)
                 if retry_text is None:
                     return {"action": "pass"}
-                angel_text = retry_text
+                quality_verifier_text = retry_text
 
-                is_valid_format, invalid_reason = svc.validate_angel_output_format(
-                    angel_text
+                is_valid_format, invalid_reason = svc.validate_quality_verifier_output_format(
+                    quality_verifier_text
                 )
                 if not is_valid_format:
                     if logger.isEnabledFor(logging.WARNING):
                         logger.warning(
-                            "Angel response still invalid after single retry; failing-open (%s)",
+                            "Quality Verifier response still invalid after single retry; failing-open (%s)",
                             invalid_reason or "invalid format",
                         )
                     return {"action": "pass"}
 
-            decision = svc.parse_angel_output(angel_text)
+            decision = svc.parse_quality_verifier_output(quality_verifier_text)
             if decision.decision == "pass":
                 return {"action": "pass"}
 
@@ -396,7 +398,7 @@ class ResponseProcessor(IResponseProcessor):
                 original_request, content, steering_msg
             )
 
-            # Tag the angel steering message as non-forwardable and set injection boundary
+            # Tag the quality verifier steering message as non-forwardable and set injection boundary
             if correction_request.messages and request_context:
                 from src.core.domain.non_forwardable import NonForwardableTagScope
                 from src.core.interfaces.non_forwardable_interface import (
@@ -422,7 +424,7 @@ class ResponseProcessor(IResponseProcessor):
                 # Find the steering message (last user message with steering marker)
                 steering_message = None
                 for msg in reversed(correction_request.messages):
-                    if msg.role == "user" and "ANGEL STEERING" in (
+                    if msg.role == "user" and "QUALITY VERIFIER STEERING" in (
                         str(msg.content) or ""
                     ):
                         steering_message = msg
@@ -442,7 +444,7 @@ class ResponseProcessor(IResponseProcessor):
                             session_id=session_id,
                             identities=[identity],
                             scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
-                            reason="angel_steering",
+                            reason="quality_verifier_steering",
                         )
                         # Set injection boundary
                         injection_start_index = len(original_request.messages)
@@ -453,12 +455,12 @@ class ResponseProcessor(IResponseProcessor):
                     except Exception as e:
                         if logger.isEnabledFor(logging.WARNING):
                             logger.warning(
-                                "Failed to tag angel steering message as non-forwardable: %s",
+                                "Failed to tag quality verifier steering message as non-forwardable: %s",
                                 e,
                                 exc_info=True,
                             )
 
-            # Cancellation gate: ensure session is not cancelled before Angel correction backend call
+            # Cancellation gate: ensure session is not cancelled before Quality Verifier correction backend call
             if self._cancellation_coordinator and request_context:
                 session_key = resolve_session_key_from_request_context(request_context)
                 if session_key:
@@ -478,13 +480,13 @@ class ResponseProcessor(IResponseProcessor):
                 # If the correction is *only* an override marker (or becomes empty after stripping),
                 # fail-open to the original response content.
                 cleaned = re.sub(
-                    r"<override_angel>[\s\S]*?</override_angel>",
+                    r"<override_quality_verifier>[\s\S]*?</override_quality_verifier>",
                     "",
                     str(corrected_text or ""),
                     flags=re.IGNORECASE,
                 )
                 cleaned = re.sub(
-                    r"<override_angel\s*/\s*>",
+                    r"<override_quality_verifier\s*/\s*>",
                     "",
                     cleaned,
                     flags=re.IGNORECASE,
@@ -497,7 +499,7 @@ class ResponseProcessor(IResponseProcessor):
             except Exception as e:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Angel correction call failed (%s); failing-open",
+                        "Quality Verifier correction call failed (%s); failing-open",
                         type(e).__name__,
                         exc_info=True,
                     )
@@ -506,7 +508,7 @@ class ResponseProcessor(IResponseProcessor):
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Angel verification encountered unexpected error (%s); failing-open",
+                    "Quality Verifier encountered unexpected error (%s); failing-open",
                     type(e).__name__,
                     exc_info=True,
                 )
@@ -662,30 +664,30 @@ class ResponseProcessor(IResponseProcessor):
                     },
                 )
 
-            # Angel verification for non-streaming responses (post-pipeline)
+            # Quality Verifier for non-streaming responses (post-pipeline)
             try:
                 original_request = None
                 if context is not None:
                     original_request = (
                         context.original_request or context.domain_request
                     )
-                # Only run when angel is configured in session
+                # Only run when quality verifier is configured in session
 
                 if original_request is not None:
-                    # Build context dict for angel verification (internal method expects dict)
-                    angel_context: dict[str, Any] | None = None
+                    # Build context dict for quality verifier (internal method expects dict)
+                    quality_verifier_context: dict[str, Any] | None = None
                     if context is not None:
-                        angel_context = {}
+                        quality_verifier_context = {}
                         if context.processing_context is not None:
                             processing_values = context.processing_context.values
                             # ProcessingContext.values is dict[str, Any], no isinstance check needed
-                            angel_context.update(processing_values)
-                        # Provide RequestContext for cancellation and Angel gating.
-                        angel_context["request_context"] = context
-                    decision = await self._apply_angel_verification(
+                            quality_verifier_context.update(processing_values)
+                        # Provide RequestContext for cancellation and Quality Verifier gating.
+                        quality_verifier_context["request_context"] = context
+                    decision = await self._apply_quality_verifier_verification(
                         original_request,
                         processed_response.content or "",
-                        angel_context,
+                        quality_verifier_context,
                     )
                     if decision and decision.get("action") == "steer":
                         corrected = decision.get("corrected_content", "")
@@ -702,10 +704,10 @@ class ResponseProcessor(IResponseProcessor):
                             metadata=normalized_metadata,
                         )
             except (KeyError, TypeError, ValueError, AttributeError):
-                # Be conservative: do not break normal flow on Angel errors
+                # Be conservative: do not break normal flow on Quality Verifier errors
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Angel verification failed; continuing", exc_info=True
+                        "Quality Verifier failed; continuing", exc_info=True
                     )
 
             return processed_response

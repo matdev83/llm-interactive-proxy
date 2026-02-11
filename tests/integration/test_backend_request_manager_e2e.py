@@ -9,7 +9,7 @@ with all refactored components, verifying:
 - Empty-stream error behavior
 - Tool-call retry limits
 - Streaming loop detection
-- Angel verification pass-through/replacement
+- Quality Verifier pass-through/replacement
 - Streaming metadata contracts
 - Termination metadata
 
@@ -47,7 +47,7 @@ from src.core.services.request_deduplication_service import (
     RequestDeduplicationService,
 )
 
-from tests.helpers.angel_factory_stub import AngelFactoryStub
+from tests.helpers.quality_verifier_factory_stub import QualityVerifierFactoryStub
 
 
 class MockBackendProcessor(IBackendProcessor):
@@ -219,11 +219,11 @@ def streaming_handler(
     app_config: AppConfig,
 ) -> BackendStreamingResponseHandler:
     """Create streaming response handler."""
-    from src.core.services.backend_request_manager.angel_stream_verifier import (
-        AngelStreamVerifier,
-    )
     from src.core.services.backend_request_manager.loop_detector_factory import (
         LoopDetectorFactory,
+    )
+    from src.core.services.backend_request_manager.quality_verifier_stream_verifier import (
+        QualityVerifierStreamVerifier,
     )
     from src.core.services.tool_call_retry_coordinator import ToolCallRetryCoordinator
 
@@ -234,15 +234,15 @@ def streaming_handler(
     mock_provider = MagicMock()
     mock_provider.get_service = MagicMock(return_value=None)
     loop_detector_factory = LoopDetectorFactory(provider=mock_provider)
-    angel_verifier = AngelStreamVerifier(
-        angel_service_factory=AngelFactoryStub(),
+    angel_verifier = QualityVerifierStreamVerifier(
+        quality_verifier_service_factory=QualityVerifierFactoryStub(),
         provider=mock_provider,
     )
 
     return BackendStreamingResponseHandler(
         response_processor=mock_response_processor,
         loop_detector_factory=loop_detector_factory,
-        angel_stream_verifier=angel_verifier,
+        quality_verifier_stream_verifier=angel_verifier,
         tool_call_retry_coordinator=retry_coordinator,
         backend_processor=mock_backend_processor,
     )
@@ -260,7 +260,7 @@ def backend_request_manager(
     return BackendRequestManager(
         backend_processor=mock_backend_processor,
         response_processor=mock_response_processor,
-        angel_service_factory=AngelFactoryStub(),
+        quality_verifier_service_factory=QualityVerifierFactoryStub(),
         request_preparation=request_preparation,
         non_streaming_handler=non_streaming_handler,
         streaming_handler=streaming_handler,
@@ -868,15 +868,15 @@ class TestStreamingLoopDetection:
 
 
 class TestAngelVerification:
-    """Test Angel verification pass-through and replacement (Req 4.5)."""
+    """Test Quality Verifier pass-through and replacement (Req 4.5)."""
 
     @pytest.mark.asyncio
-    async def test_angel_verification_passthrough_when_disabled(
+    async def test_quality_verifier_verification_passthrough_when_disabled(
         self,
         backend_request_manager: BackendRequestManager,
         mock_backend_processor: MockBackendProcessor,
     ):
-        """Test that Angel verification passes through original chunks when disabled (Req 4.5)."""
+        """Test that Quality Verifier passes through original chunks when disabled (Req 4.5)."""
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
             model="test-model",
@@ -896,7 +896,7 @@ class TestAngelVerification:
 
         mock_backend_processor.set_responses([stream_envelope])
 
-        # Create context without Angel model spec (disabled)
+        # Create context without Quality Verifier model spec (disabled)
         context = RequestContext(
             headers={},
             cookies={},
@@ -923,12 +923,12 @@ class TestAngelVerification:
         assert "Original chunk" in str(chunks[0].content)
 
     @pytest.mark.asyncio
-    async def test_angel_verification_fail_open_on_error(
+    async def test_quality_verifier_verification_fail_open_on_error(
         self,
         backend_request_manager: BackendRequestManager,
         mock_backend_processor: MockBackendProcessor,
     ):
-        """Test that Angel verification fails open and passes through on error (Req 4.5, NFR 8.1)."""
+        """Test that Quality Verifier fails open and passes through on error (Req 4.5, NFR 8.1)."""
         request = ChatRequest(
             messages=[ChatMessage(role="user", content="Hello")],
             model="test-model",
@@ -957,9 +957,9 @@ class TestAngelVerification:
             app_state=None,
             session_id="test-session",
         )
-        # Set processing context with Angel model (but verifier will fail)
+        # Set processing context with Quality Verifier model (but verifier will fail)
         processing_context = ProcessingContext()
-        processing_context.values = {"angel_model": "test-model"}
+        processing_context.values = {"quality_verifier_model": "test-model"}
         context.processing_context = processing_context
 
         response = await backend_request_manager.process_backend_request(

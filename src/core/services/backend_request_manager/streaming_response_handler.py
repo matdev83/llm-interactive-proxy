@@ -6,7 +6,7 @@ This service processes streaming backend responses including:
 - Empty-stream recovery with retry prompts
 - Loop detection and cancellation
 - Tool-call retry coordination
-- Angel verification
+- Quality Verifier
 - Metadata attachment
 
 Requirements: 1.3, 1.4, 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 6.1, 6.2, 6.3, 7.1, 7.2, 8.1, 8.2, 9.1, 9.2, 10.1
@@ -39,8 +39,8 @@ from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
-    IAngelStreamVerifier,
     ILoopDetectorFactory,
+    IQualityVerifierStreamVerifier,
     IStreamingBackendResponseHandler,
     IToolCallRetryCoordinator,
 )
@@ -73,8 +73,8 @@ class RetryState:
 
 
 @dataclass
-class AngelConfig:
-    """Angel verification configuration extracted from request context."""
+class QualityVerifierConfig:
+    """Quality Verifier configuration extracted from request context."""
 
     model_spec: str | None
     frequency: int
@@ -92,7 +92,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         self,
         response_processor: IResponseProcessor,
         loop_detector_factory: ILoopDetectorFactory,
-        angel_stream_verifier: IAngelStreamVerifier,
+        quality_verifier_stream_verifier: IQualityVerifierStreamVerifier,
         tool_call_retry_coordinator: IToolCallRetryCoordinator,
         backend_processor: IBackendProcessor,
         cancellation_coordinator: ISessionCancellationCoordinator | None = None,
@@ -102,14 +102,14 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         Args:
             response_processor: Response processor for middleware wrapping
             loop_detector_factory: Factory for creating loop detectors
-            angel_stream_verifier: Service for Angel verification
+            quality_verifier_stream_verifier: Service for Quality Verifier
             tool_call_retry_coordinator: Coordinator for tool-call retries
             backend_processor: Backend processor for empty-stream retries
             cancellation_coordinator: Coordinator for session cancellation checks
         """
         self._response_processor = response_processor
         self._loop_detector_factory = loop_detector_factory
-        self._angel_stream_verifier = angel_stream_verifier
+        self._quality_verifier_stream_verifier = quality_verifier_stream_verifier
         self._tool_call_retry_coordinator = tool_call_retry_coordinator
         self._backend_processor = backend_processor
         self._cancellation_coordinator = cancellation_coordinator
@@ -308,73 +308,75 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             reactor_retry_active=reactor_retry_active,
         )
 
-    def _extract_angel_config(self, context: RequestContext) -> AngelConfig:
-        """Extract Angel configuration from context.
+    def _extract_quality_verifier_config(
+        self, context: RequestContext
+    ) -> QualityVerifierConfig:
+        """Extract Quality Verifier configuration from context.
 
         Returns:
-            AngelConfig containing model_spec and frequency
+            QualityVerifierConfig containing model_spec and frequency
         """
         # Extract from RequestContext extensions if available
         # This follows the architectural pattern of using typed fields instead of direct app_state access
-        angel_model_spec: str | None = None
-        angel_frequency: int = 10
-        angel_max_history: int | None = None
-        angel_max_consecutive_failures: int = 5
-        angel_cooldown_seconds: int = 300
+        quality_verifier_model_spec: str | None = None
+        quality_verifier_frequency: int = 10
+        quality_verifier_max_history: int | None = None
+        quality_verifier_max_consecutive_failures: int = 5
+        quality_verifier_cooldown_seconds: int = 300
         eligible_turn_count: int | None = None
         skip_verification = False
 
         if hasattr(context, "extensions") and context.extensions:
-            angel_model_spec_value = context.extensions.get("angel_model", None)
-            angel_model_spec = (
-                str(angel_model_spec_value)
-                if angel_model_spec_value is not None
+            quality_verifier_model_spec_value = context.extensions.get("quality_verifier_model", None)
+            quality_verifier_model_spec = (
+                str(quality_verifier_model_spec_value)
+                if quality_verifier_model_spec_value is not None
                 else None
             )
-            angel_frequency_value = context.extensions.get("angel_frequency", 10)
+            quality_verifier_frequency_value = context.extensions.get("quality_verifier_frequency", 10)
             # Convert JsonValue to int safely
-            if angel_frequency_value is not None:
-                if isinstance(angel_frequency_value, int | float):
-                    angel_frequency = int(angel_frequency_value)
-                elif isinstance(angel_frequency_value, str):
+            if quality_verifier_frequency_value is not None:
+                if isinstance(quality_verifier_frequency_value, int | float):
+                    quality_verifier_frequency = int(quality_verifier_frequency_value)
+                elif isinstance(quality_verifier_frequency_value, str):
                     try:
-                        angel_frequency = int(angel_frequency_value)
+                        quality_verifier_frequency = int(quality_verifier_frequency_value)
                     except (ValueError, TypeError):
-                        angel_frequency = 10  # default value
+                        quality_verifier_frequency = 10  # default value
                 else:
-                    angel_frequency = 10  # default value
+                    quality_verifier_frequency = 10  # default value
             else:
-                angel_frequency = 10  # default value
+                quality_verifier_frequency = 10  # default value
 
-            angel_max_history_value = context.extensions.get("angel_max_history", None)
-            if angel_max_history_value is not None:
-                if isinstance(angel_max_history_value, int | float):
-                    angel_max_history = int(angel_max_history_value)
-                elif isinstance(angel_max_history_value, str):
+            quality_verifier_max_history_value = context.extensions.get("quality_verifier_max_history", None)
+            if quality_verifier_max_history_value is not None:
+                if isinstance(quality_verifier_max_history_value, int | float):
+                    quality_verifier_max_history = int(quality_verifier_max_history_value)
+                elif isinstance(quality_verifier_max_history_value, str):
                     try:
-                        angel_max_history = int(angel_max_history_value)
+                        quality_verifier_max_history = int(quality_verifier_max_history_value)
                     except (ValueError, TypeError):
-                        angel_max_history = None
+                        quality_verifier_max_history = None
                 else:
-                    angel_max_history = None
+                    quality_verifier_max_history = None
             else:
-                angel_max_history = None
+                quality_verifier_max_history = None
 
             # Extract circuit breaker settings
-            failures_value = context.extensions.get("angel_max_consecutive_failures", 5)
+            failures_value = context.extensions.get("quality_verifier_max_consecutive_failures", 5)
             if isinstance(failures_value, int | float | str):
                 with contextlib.suppress(ValueError, TypeError):
-                    angel_max_consecutive_failures = int(failures_value)
+                    quality_verifier_max_consecutive_failures = int(failures_value)
 
-            cooldown_value = context.extensions.get("angel_cooldown_seconds", 300)
+            cooldown_value = context.extensions.get("quality_verifier_cooldown_seconds", 300)
             if isinstance(cooldown_value, int | float | str):
                 with contextlib.suppress(ValueError, TypeError):
-                    angel_cooldown_seconds = int(cooldown_value)
+                    quality_verifier_cooldown_seconds = int(cooldown_value)
 
             # Optional per-request eligible turn counter and skip flag
 
             eligible_turn_value = context.extensions.get(
-                "angel_eligible_turn_count", None
+                "quality_verifier_eligible_turn_count", None
             )
             if eligible_turn_value is not None:
                 try:
@@ -383,7 +385,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 except (TypeError, ValueError):
                     eligible_turn_count = None
 
-            skip_value = context.extensions.get("angel_skip_verification", None)
+            skip_value = context.extensions.get("quality_verifier_skip_verification", None)
             if isinstance(skip_value, bool):
                 skip_verification = skip_value
             elif isinstance(skip_value, str):
@@ -394,12 +396,12 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     "on",
                 }
 
-        return AngelConfig(
-            model_spec=angel_model_spec,
-            frequency=angel_frequency,
-            max_history=angel_max_history,
-            max_consecutive_failures=angel_max_consecutive_failures,
-            cooldown_seconds=angel_cooldown_seconds,
+        return QualityVerifierConfig(
+            model_spec=quality_verifier_model_spec,
+            frequency=quality_verifier_frequency,
+            max_history=quality_verifier_max_history,
+            max_consecutive_failures=quality_verifier_max_consecutive_failures,
+            cooldown_seconds=quality_verifier_cooldown_seconds,
             eligible_turn_count=eligible_turn_count,
             skip_verification=skip_verification,
         )
@@ -494,19 +496,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 )
             return None
 
-    async def _apply_angel_verification(
+    async def _apply_quality_verifier_verification(
         self,
         request: ChatRequest,
         processed_stream: AsyncIterator[ProcessedResponse],
         processing_context: ResponseProcessingContext,
         request_context: RequestContext,
-        angel_model_spec: str | None,
-        angel_frequency: int,
-        angel_max_history: int | None,
-        angel_eligible_turn_count: int | None,
-        angel_skip_verification: bool,
+        quality_verifier_model_spec: str | None,
+        quality_verifier_frequency: int,
+        quality_verifier_max_history: int | None,
+        quality_verifier_eligible_turn_count: int | None,
+        quality_verifier_skip_verification: bool,
     ) -> AsyncIterator[ProcessedResponse]:
-        """Apply Angel verification with fail-open behavior."""
+        """Apply Quality Verifier with fail-open behavior."""
         # Extract stream_id from request_context
         stream_id = processing_context.session_id
         if request_context.request_id is not None:
@@ -522,18 +524,18 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         streaming_context: StreamingContext = {
             "session_id": processing_context.session_id,
             "stream_id": stream_id,
-            "angel_model_spec": angel_model_spec,
-            "angel_frequency": angel_frequency,
-            "angel_max_history": angel_max_history,
-            "angel_eligible_turn_count": angel_eligible_turn_count,
-            "angel_skip_verification": angel_skip_verification,
+            "quality_verifier_model_spec": quality_verifier_model_spec,
+            "quality_verifier_frequency": quality_verifier_frequency,
+            "quality_verifier_max_history": quality_verifier_max_history,
+            "quality_verifier_eligible_turn_count": quality_verifier_eligible_turn_count,
+            "quality_verifier_skip_verification": quality_verifier_skip_verification,
         }
 
         try:
             # Use RequestContext directly for cancellation gate
 
             # verify_or_passthrough is an async generator, returns AsyncIterator directly
-            verified_stream = self._angel_stream_verifier.verify_or_passthrough(
+            verified_stream = self._quality_verifier_stream_verifier.verify_or_passthrough(
                 request=request,
                 stream=processed_stream,
                 context=streaming_context,
@@ -543,7 +545,7 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         except Exception as err:
             if logger.isEnabledFor(logging.WARNING):
                 logger.warning(
-                    "Angel verification failed for session %s, using original stream: %s",
+                    "Quality Verifier failed for session %s, using original stream: %s",
                     processing_context.session_id,
                     err,
                     exc_info=True,
@@ -686,11 +688,11 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             return stream
 
         # Use original context to avoid direct access to app_state in service layer
-        # Extract Angel config from context if available
-        angel_config = self._extract_angel_config(context)
-        angel_model_spec = angel_config.model_spec
-        angel_frequency = angel_config.frequency
-        angel_max_history = angel_config.max_history
+        # Extract Quality Verifier config from context if available
+        quality_verifier_config = self._extract_quality_verifier_config(context)
+        quality_verifier_model_spec = quality_verifier_config.model_spec
+        quality_verifier_frequency = quality_verifier_config.frequency
+        quality_verifier_max_history = quality_verifier_config.max_history
 
         # Wrap stream with response processor middleware
         processed_stream = self._wrap_with_middleware(
@@ -700,17 +702,17 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         # Create loop detector
         loop_detector = self._create_loop_detector(processing_context.session_id)
 
-        # Wrap with Angel verification if enabled
-        verified_stream = await self._apply_angel_verification(
+        # Wrap with Quality Verifier if enabled
+        verified_stream = await self._apply_quality_verifier_verification(
             request,
             processed_stream,
             processing_context,
             context,
-            angel_model_spec,
-            angel_frequency,
-            angel_max_history,
-            angel_config.eligible_turn_count,
-            angel_config.skip_verification,
+            quality_verifier_model_spec,
+            quality_verifier_frequency,
+            quality_verifier_max_history,
+            quality_verifier_config.eligible_turn_count,
+            quality_verifier_config.skip_verification,
         )
 
         # Process stream with loop detection, tool-call retry, and empty-stream recovery

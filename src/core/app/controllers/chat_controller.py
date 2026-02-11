@@ -16,6 +16,7 @@ from src.core.app.constants.logging_constants import TRACE_LEVEL
 from src.core.app.controllers.request_processor_resolver import (
     resolve_request_processor,
 )
+from src.core.app.controllers.session_resolution import resolve_session_before_capture
 from src.core.common.exceptions import (
     InitializationError,
     LLMProxyError,
@@ -495,6 +496,15 @@ class ChatController:
             # Ensure session_id is available in context if provided in request
             if domain_request.session_id:
                 ctx.session_id = domain_request.session_id
+
+            provider = cast(
+                IServiceProvider | None,
+                getattr(getattr(request.app, "state", None), "service_provider", None),
+            )
+            await resolve_session_before_capture(
+                service_provider=provider,
+                context=ctx,
+            )
 
             # Requirement 5.5: Proactive session metrics initialization
             # Initialize session metrics early in lifecycle before backend work begins

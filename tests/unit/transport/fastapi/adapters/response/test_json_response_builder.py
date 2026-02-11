@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from fastapi.responses import JSONResponse
 from src.core.domain.responses import ResponseEnvelope
@@ -220,6 +220,30 @@ class TestJSONResponseBuilder:
         response = builder.build(envelope)
 
         assert response.media_type == "application/json"
+
+    def test_build_logs_ascii_safe_content_when_debug_enabled(self) -> None:
+        builder = JSONResponseBuilder()
+        envelope = ResponseEnvelope(
+            content={"message": "Hello 😊"},
+            headers={},
+            status_code=200,
+        )
+
+        with patch(
+            "src.core.transport.fastapi.adapters.response.json_response_builder.logger"
+        ) as mock_logger:
+            mock_logger.isEnabledFor.return_value = True
+            builder.build(envelope)
+            debug_calls = [
+                call
+                for call in mock_logger.debug.call_args_list
+                if call.args and call.args[0] == "JSONResponse safe_content: %s"
+            ]
+            assert debug_calls, "Expected JSONResponse safe_content debug log call"
+
+            logged_payload = debug_calls[-1].args[1]
+            assert "\\ud83d\\ude0a" in logged_payload
+            assert "😊" not in logged_payload
 
     def test_ensure_usage_uses_canonical_usage_when_available(self) -> None:
         """Test that _ensure_usage uses canonical usage when available (Requirement 5.2)."""

@@ -25,6 +25,7 @@ from src.core.config.models.rewriting import (
 )
 from src.core.config.models.routing import RoutingConfig
 from src.core.config.models.session import (
+    B2BUAConfig,
     PlanningPhaseConfig,
     SessionConfig,
     SessionContinuityConfig,
@@ -39,6 +40,7 @@ __all__ = [
     "AuthConfig",
     "BackendConfig",
     "BackendSettings",
+    "B2BUAConfig",
     "BruteForceProtectionConfig",
     "CodebuffConfig",
     "EditPrecisionConfig",

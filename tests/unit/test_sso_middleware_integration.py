@@ -190,3 +190,47 @@ async def test_sso_middleware_adapter_handles_errors_gracefully(mock_sso_middlew
     assert send.call_count >= 2  # response.start and response.body
     # Should not call app
     app.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_sso_middleware_adapter_propagates_request_state_to_scope(
+    mock_sso_middleware,
+):
+    """Test that middleware request_state is injected into ASGI scope state."""
+    app = AsyncMock()
+    adapter = SSOMiddlewareAdapter(app, mock_sso_middleware)
+
+    async def _authenticated_with_identity(request_dict):
+        request_dict["request_state"] = {
+            "auth_scope_id": "token-id-1",
+            "authenticated_user_id": "user-1",
+        }
+        return None
+
+    mock_sso_middleware.side_effect = _authenticated_with_identity
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/v1/chat/completions",
+        "headers": [(b"authorization", b"Bearer test-token")],
+        "state": {"request_state": {"existing_key": "existing-value"}},
+    }
+    receive = AsyncMock(
+        return_value={
+            "type": "http.request",
+            "body": b'{"messages": []}',
+            "more_body": False,
+        }
+    )
+    send = AsyncMock()
+
+    await adapter(scope, receive, send)
+
+    app.assert_called_once()
+    app_scope = app.call_args.args[0]
+    assert app_scope["state"]["request_state"] == {
+        "existing_key": "existing-value",
+        "auth_scope_id": "token-id-1",
+        "authenticated_user_id": "user-1",
+    }

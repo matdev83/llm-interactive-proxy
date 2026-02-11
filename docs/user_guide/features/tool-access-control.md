@@ -291,7 +291,6 @@ Metadata is also included in `request.extra_body["tool_access"]` and response me
 3. **Test Policies**: Test new policies in a development environment before production
 4. **Monitor Logs**: Review filtered tools and blocked calls regularly to refine policies
 5. **Document Policies**: Add comments in your configuration explaining each policy's purpose
-6. **Layer Security**: Combine tool access control with other safety features ([dangerous-command prevention](dangerous-command-protection.md), [loop detection](llm-assessment.md))
 
 ## Virtual Tool Calling (VTC) Support
 
@@ -303,4 +302,4 @@ For details on VTC architecture, see the [VTC Architecture Guide](../../developm
 
 - [Dangerous Command Protection](dangerous-command-protection.md) - Block destructive git commands
 - [File Access Sandboxing](file-access-sandboxing.md) - Restrict file operations to project directory
-- [Angel Verification System](angel-verification.md) - Real-time response verification
+- [Quality Verifier System](quality-verifier.md) - Real-time response verification

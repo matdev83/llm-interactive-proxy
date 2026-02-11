@@ -11,13 +11,15 @@ import asyncio
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Callable
-from typing import Any, TypeVar
+from collections.abc import AsyncIterator, Awaitable, Callable, Coroutine
+from datetime import datetime, timezone
+from typing import Any, TypeVar, cast
 
 from fastapi.responses import Response
 from pydantic.types import JsonValue
 from starlette.responses import StreamingResponse
 
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import ChatResponse, StreamingChatResponse
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -110,6 +112,128 @@ def _schedule_stream_close(
             )
 
 
+def _schedule_disconnect_cleanup(
+    cleanup: Callable[[], Coroutine[Any, Any, None]],
+    *,
+    request_id: str | None,
+) -> None:
+    """Schedule disconnect cleanup without blocking stream shutdown."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Skipping disconnect cleanup scheduling; no running event loop",
+                exc_info=True,
+            )
+        return
+
+    def _consume_task_exception(task: asyncio.Task[None]) -> None:
+        try:
+            task.exception()
+        except asyncio.CancelledError:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Disconnect cleanup task cancelled",
+                    extra={"request_id": request_id},
+                )
+        except Exception:
+            # Exception is already consumed from task.exception();
+            # this guard prevents callback-level crashes.
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to consume disconnect cleanup task exception",
+                    extra={"request_id": request_id},
+                    exc_info=True,
+                )
+
+    try:
+        task: asyncio.Task[None] = loop.create_task(cleanup())
+        task.add_done_callback(_consume_task_exception)
+    except RuntimeError:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Failed to schedule disconnect cleanup task",
+                exc_info=True,
+            )
+
+
+async def _handle_client_stream_disconnect(
+    *,
+    domain_response: StreamingResponseEnvelope,
+    context: RequestContext | None,
+    request_id: str | None,
+    cancel_reason: str,
+    details: str,
+    termination_reason: Any,
+) -> None:
+    """Run explicit stream cancel + session-scoped cancellation report."""
+    if context is not None:
+        context.ensure_processing_context().update({"cancel_reason": cancel_reason})
+
+    cancel_callback = getattr(domain_response, "cancel_callback", None)
+    if callable(cancel_callback):
+        try:
+            cancellation_result = cancel_callback()
+            if isinstance(cancellation_result, Awaitable):
+                await cancellation_result
+            elif cancellation_result is not None:
+                logger.warning(
+                    "Streaming cancel callback returned non-awaitable result",
+                    extra={"request_id": request_id},
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to run streaming cancel callback on disconnect: %s",
+                exc,
+                exc_info=True,
+                extra={"request_id": request_id},
+            )
+
+    if context is None:
+        return
+
+    from src.core.domain.client_termination import ClientEndOfSessionSignal
+    from src.core.interfaces.client_end_of_session_service_interface import (
+        IClientEndOfSessionService,
+    )
+    from src.core.transport.session_key_resolver import (
+        resolve_session_key_from_request_context,
+    )
+
+    session_key = resolve_session_key_from_request_context(context)
+    if session_key is None:
+        return
+
+    client_eos_service = _resolve_service(
+        cast(type[IClientEndOfSessionService], IClientEndOfSessionService)
+    )
+    if client_eos_service is None:
+        return
+
+    signal = ClientEndOfSessionSignal(
+        session_key=session_key,
+        observed_at=datetime.now(timezone.utc),
+        reason=termination_reason,
+        details=details,
+    )
+
+    try:
+        await asyncio.shield(client_eos_service.report_client_termination(signal))
+    except Exception as exc:
+        logger.warning(
+            "Failed to report client stream termination: %s",
+            exc,
+            exc_info=True,
+            extra={"request_id": request_id},
+        )
+
+
+def _is_mock_object(value: Any) -> bool:
+    module_name = getattr(type(value), "__module__", "")
+    return isinstance(module_name, str) and module_name.startswith("unittest.mock")
+
+
 # Lazy singleton instances
 _json_builder: JSONResponseBuilder | None = None
 _streaming_builder: StreamingResponseBuilder | None = None
@@ -195,6 +319,67 @@ def _apply_usage_headers(
     if usage is None:
         return dict(headers)
     return _get_usage_header_injector().inject_headers(dict(headers), usage)
+
+
+def _resolve_b2bua_echo_header(
+    context: RequestContext | None,
+) -> tuple[str, str] | None:
+    if context is None:
+        return None
+    identity = getattr(context, "b2bua_identity", None)
+    if not isinstance(identity, B2buaIdentity):
+        return None
+    a_session_id = identity.a_session_id.strip()
+    if not a_session_id:
+        return None
+
+    header_name = "x-b2bua-session-id"
+    echo_enabled = False
+
+    config_candidates: list[Any] = []
+    app_state = getattr(context, "app_state", None)
+    if app_state is not None:
+        for attribute_name in ("app_config", "config"):
+            try:
+                config_candidate = getattr(app_state, attribute_name, None)
+            except Exception:
+                # Some secure state proxies intentionally block direct config access.
+                continue
+            if config_candidate is not None and not _is_mock_object(config_candidate):
+                config_candidates.append(config_candidate)
+
+    from src.core.interfaces.configuration_interface import IConfig
+
+    config_candidates.append(_resolve_service(IConfig))
+
+    for config in config_candidates:
+        if config is None or _is_mock_object(config):
+            continue
+        b2bua_cfg = getattr(getattr(config, "session", None), "b2bua", None)
+        if b2bua_cfg is None:
+            continue
+        echo_enabled = bool(getattr(b2bua_cfg, "echo_enabled", False))
+        configured_name = getattr(b2bua_cfg, "echo_header_name", None)
+        if isinstance(configured_name, str) and configured_name.strip():
+            header_name = configured_name.strip().lower()
+        break
+
+    if not echo_enabled:
+        return None
+    return header_name, a_session_id
+
+
+def _apply_b2bua_echo_header(
+    headers: dict[str, str] | None,
+    context: RequestContext | None,
+) -> dict[str, str]:
+    result_headers = dict(headers or {})
+    resolved = _resolve_b2bua_echo_header(context)
+    if resolved is None:
+        return result_headers
+    header_name, a_session_id = resolved
+    result_headers[header_name] = a_session_id
+    return result_headers
 
 
 def _get_json_builder() -> JSONResponseBuilder:
@@ -587,6 +772,11 @@ def to_fastapi_response(
         coordinator = _get_wire_capture_coordinator(wire_capture)
         coordinator.schedule_capture(envelope, response_content, context=context)
 
+    echo_header = _resolve_b2bua_echo_header(context)
+    if echo_header is not None:
+        header_name, a_session_id = echo_header
+        response.headers[header_name] = a_session_id
+
     return response
 
 
@@ -621,6 +811,8 @@ def to_fastapi_streaming_response(
     Returns:
         A FastAPI streaming response
     """
+    from src.core.domain.client_termination import ClientTerminationReason
+
     # Resolve yield interval from config if using default
     if yield_interval == 100:
         config_to_use: Any | None = None
@@ -658,6 +850,7 @@ def to_fastapi_streaming_response(
         rid = getattr(context, "request_id", None)
         if rid is not None:
             request_id = str(rid)
+    disconnect_cleanup_scheduled = False
 
     content_iter = domain_response.content
     if content_iter is None:
@@ -676,6 +869,7 @@ def to_fastapi_streaming_response(
         empty_headers = header_injector.inject_headers(
             empty_headers, {}, canonical_usage=domain_response.canonical_usage
         )
+        empty_headers = _apply_b2bua_echo_header(empty_headers, context)
 
         return StreamingResponse(
             content=_empty_streamer(),
@@ -695,6 +889,28 @@ def to_fastapi_streaming_response(
 
     async def _convert_and_assemble() -> AsyncIterator[bytes]:
         """Convert raw stream to SSE bytes."""
+
+        def _schedule_client_disconnect_cleanup(
+            reason: ClientTerminationReason,
+            *,
+            cancel_reason: str,
+            details: str,
+        ) -> None:
+            nonlocal disconnect_cleanup_scheduled
+            if disconnect_cleanup_scheduled:
+                return
+            disconnect_cleanup_scheduled = True
+            _schedule_disconnect_cleanup(
+                lambda: _handle_client_stream_disconnect(
+                    domain_response=domain_response,
+                    context=context,
+                    request_id=request_id,
+                    cancel_reason=cancel_reason,
+                    details=details,
+                    termination_reason=reason,
+                ),
+                request_id=request_id,
+            )
 
         # Ensure async iterator of ProcessedResponse
         async def _ensure_async_iterator(
@@ -717,6 +933,13 @@ def to_fastapi_streaming_response(
                     )
             except GeneratorExit:
                 # Close the source iterator if it supports aclose
+                _schedule_stream_close(
+                    source,
+                    name="source_iter",
+                    request_id=request_id,
+                )
+                raise
+            except asyncio.CancelledError:
                 _schedule_stream_close(
                     source,
                     name="source_iter",
@@ -751,7 +974,25 @@ def to_fastapi_streaming_response(
                 if chunk_count % yield_interval == 0:
                     await asyncio.sleep(0)
         except GeneratorExit:
-            # Client disconnected - clean up the SSE iterator
+            # Client disconnected - cancel backend work and clean up iterators.
+            _schedule_client_disconnect_cleanup(
+                ClientTerminationReason.CLIENT_DISCONNECTED,
+                cancel_reason="client_disconnect",
+                details="fastapi_stream_generator_exit",
+            )
+            _schedule_stream_close(
+                sse_bytes_iter,
+                name="sse_bytes_iter",
+                request_id=request_id,
+            )
+            raise
+        except asyncio.CancelledError:
+            # Request cancelled by transport/runtime - trigger same cleanup path.
+            _schedule_client_disconnect_cleanup(
+                ClientTerminationReason.CLIENT_CANCELLED,
+                cancel_reason="stream_cancelled",
+                details="fastapi_stream_cancelled_error",
+            )
             _schedule_stream_close(
                 sse_bytes_iter,
                 name="sse_bytes_iter",
@@ -766,6 +1007,7 @@ def to_fastapi_streaming_response(
     headers = header_injector.inject_headers(
         headers, {}, canonical_usage=domain_response.canonical_usage
     )
+    headers = _apply_b2bua_echo_header(headers, context)
 
     # Build streaming response
     return StreamingResponse(

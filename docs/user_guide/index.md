@@ -16,9 +16,8 @@ Advanced features that enhance the proxy's capabilities:
 
 ### Security Features
 
-- **[LLM Assessment System](features/llm-assessment.md)** - Intelligent conversation monitoring that detects unproductive patterns
 - **[SSO Identity Provider Overview](sso-idp-overview.md)** - Overview of supported Identity Providers and configuration
-- **[Angel Verification System](features/angel-verification.md)** - Real-time response verification using a secondary model
+- **[Quality Verifier System](features/quality-verifier.md)** - Real-time response verification using a secondary model
 - **[Tool Access Control](features/tool-access-control.md)** - Fine-grained control over which tools models can access
 - **[Dangerous Command Protection](features/dangerous-command-protection.md)** - Prevent execution of potentially harmful commands
 - **[Dangerous Command Protection (Dev Tools)](features/dangerous-command-protection-dev-tools.md)** - Explain safe developer tool exemptions

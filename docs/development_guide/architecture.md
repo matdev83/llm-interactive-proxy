@@ -102,7 +102,7 @@ The core proxy orchestrates all request processing through a pipeline of middlew
 4. **Tool Call Validation**: Validates and repairs tool calls
 5. **Loop Detection**: Monitors for repetitive patterns
 6. **Assessment**: Optionally evaluates [conversation quality](../user_guide/features/llm-assessment.md)
-7. **Angel Verification**: Optionally [verifies response quality](../user_guide/features/angel-verification.md)
+7. **Quality Verifier**: Optionally [verifies response quality](../user_guide/features/quality-verifier.md)
 8. **VTC Post-Processing**: For [VTC clients](./vtc-architecture.md), converts tool calls back to XML format
 9. **Response Formatting**: Formats response for client protocol
 10. **Wire Capture**: Optionally [records request/response](../user_guide/debugging/wire-capture.md) for debugging
@@ -129,7 +129,7 @@ Each connector handles:
 The service layer provides cross-cutting functionality:
 
 - **LLM Assessment Service**: Monitors [conversation quality and detects unproductive patterns](../user_guide/features/llm-assessment.md)
-- **Angel Verification Service**: Verifies [individual responses for errors and issues](../user_guide/features/angel-verification.md)
+- **Quality Verifier Service**: Verifies [individual responses for errors and issues](../user_guide/features/quality-verifier.md)
 - **Loop Detection Service**: Identifies repetitive tool calls and cognitive loops
 - **Tool Call Reactor**: Manages [tool call lifecycle, validation, and access control](../user_guide/features/tool-access-control.md)
 - **VTC Processing**: Handles [Virtual Tool Calling](./vtc-architecture.md) for Cline-like clients using XML-based tool calls

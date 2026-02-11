@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 from pydantic.types import JsonValue
 
 from src.core.config.app_config import AppConfig
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -169,8 +170,13 @@ class BackendRequestPreparer(IBackendRequestPreparer):
 
         backend_call_kwargs: dict[str, JsonValue] = {}
 
-        if session_id_for_backend:
-            backend_call_kwargs["session_id"] = session_id_for_backend
+        backend_session_id = session_id_for_backend
+        identity = getattr(context, "b2bua_identity", None) if context else None
+        if isinstance(identity, B2buaIdentity):
+            # In B2BUA mode connector/provider correlation must use B-leg identity.
+            backend_session_id = identity.b_session_id
+        if backend_session_id:
+            backend_call_kwargs["session_id"] = backend_session_id
 
         if session is not None and hasattr(session, "state"):
             try:

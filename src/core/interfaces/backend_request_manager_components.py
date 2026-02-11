@@ -222,8 +222,8 @@ class ILoopDetectorFactory(ABC):
         ...
 
 
-class IAngelStreamVerifier(ABC):
-    """Interface for buffering and verifying streaming output when Angel is enabled."""
+class IQualityVerifierStreamVerifier(ABC):
+    """Interface for buffering and verifying streaming output when Quality Verifier is enabled."""
 
     @abstractmethod
     def verify_or_passthrough(

@@ -5,14 +5,14 @@ This package contains service implementations for the refactored BackendRequestM
 components.
 """
 
-from src.core.services.backend_request_manager.angel_stream_verifier import (
-    AngelStreamVerifier,
-)
 from src.core.services.backend_request_manager.context_translation import (
     build_middleware_context,
 )
 from src.core.services.backend_request_manager.loop_detector_factory import (
     LoopDetectorFactory,
+)
+from src.core.services.backend_request_manager.quality_verifier_stream_verifier import (
+    QualityVerifierStreamVerifier,
 )
 from src.core.services.backend_request_manager.streaming_response_handler import (
     BackendStreamingResponseHandler,
@@ -21,6 +21,6 @@ from src.core.services.backend_request_manager.streaming_response_handler import
 __all__ = [
     "build_middleware_context",
     "LoopDetectorFactory",
-    "AngelStreamVerifier",
+    "QualityVerifierStreamVerifier",
     "BackendStreamingResponseHandler",
 ]

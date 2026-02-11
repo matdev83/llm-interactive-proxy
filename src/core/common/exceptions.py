@@ -200,12 +200,12 @@ class ParsingError(LLMProxyError):
         super().__init__(message, details, status_code=422, **kwargs)
 
 
-class AngelVerificationError(LLMProxyError):
-    """Raised when Angel verification cannot complete."""
+class QualityVerifierError(LLMProxyError):
+    """Raised when Quality Verifier cannot complete."""
 
     def __init__(
         self,
-        message: str = "Angel verification failed",
+        message: str = "Quality Verifier failed",
         details: dict | None = None,
         **kwargs,
     ):

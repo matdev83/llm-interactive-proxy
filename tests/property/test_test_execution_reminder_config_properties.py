@@ -167,8 +167,8 @@ def _create_cli_args(enabled: bool | None, message: str | None) -> argparse.Name
         hybrid_reasoning_model_timeout=None,
         hybrid_reasoning_force_initial_turns=None,
         model_aliases=None,
-        use_angel_model=None,
-        angel_frequency=None,
+        quality_verifier_model=None,
+        quality_verifier_frequency=None,
         # API keys and URLs
         openrouter_api_key=None,
         openrouter_api_base_url=None,

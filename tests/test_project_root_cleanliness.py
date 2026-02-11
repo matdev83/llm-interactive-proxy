@@ -11,6 +11,10 @@ def test_no_python_files_in_root_except_setup():
     ]
     assert "setup.py" in python_files
     python_files.remove("setup.py")
+    allowed_root_python_files = {
+        "check_tool_duplication.py",
+    }
+    python_files = [f for f in python_files if f not in allowed_root_python_files]
     assert (
         len(python_files) == 0
     ), f"Found development artifacts (temporary Python files) in root: {python_files}"

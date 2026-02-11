@@ -222,58 +222,6 @@ def configure_middleware(app: FastAPI, config: Any) -> None:
         if logger.isEnabledFor(logging.INFO):
             logger.info("Content rewriting middleware is enabled.")
 
-    # LLM Assessment middleware (if enabled)
-    if hasattr(config, "assessment") and getattr(config.assessment, "enabled", False):
-        try:
-            from typing import cast
-
-            from src.core.interfaces.non_forwardable_interface import (
-                INonForwardableMessageIdentityService,
-                INonForwardableMessageRegistry,
-            )
-            from src.core.services.assessment_service import AssessmentService
-
-            assessment_service = app.state.service_provider.get_required_service(
-                AssessmentService
-            )
-            from src.core.domain.configuration.assessment_config import AssessmentConfig
-            from src.core.services.turn_counter_service import TurnCounterService
-
-            turn_counter_service = app.state.service_provider.get_required_service(
-                TurnCounterService
-            )
-            assessment_config = app.state.service_provider.get_required_service(
-                AssessmentConfig
-            )
-            # Get non-forwardable services (optional - may not be registered)
-            non_forwardable_registry = app.state.service_provider.get_service(
-                cast(type, INonForwardableMessageRegistry)
-            )
-            non_forwardable_identity_service = app.state.service_provider.get_service(
-                cast(type, INonForwardableMessageIdentityService)
-            )
-
-            # Add assessment middleware using ASGI wrapper
-            from src.core.app.middleware.assessment_middleware_asgi_wrapper import (
-                add_assessment_middleware,
-            )
-
-            add_assessment_middleware(
-                app,
-                assessment_service=assessment_service,
-                turn_counter_service=turn_counter_service,
-                config=assessment_config,
-                non_forwardable_registry=non_forwardable_registry,
-                non_forwardable_identity_service=non_forwardable_identity_service,
-            )
-            if logger.isEnabledFor(logging.INFO):
-                logger.info("LLM Assessment middleware is enabled")
-        except Exception as e:
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Failed to register AssessmentMiddleware: %s", e, exc_info=True
-                )
-
     # Request/response logging middleware (if enabled)
     request_logging = (
         config.logging.request_logging if hasattr(config, "logging") else False

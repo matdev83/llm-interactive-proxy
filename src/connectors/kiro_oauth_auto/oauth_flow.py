@@ -138,10 +138,15 @@ class OAuthFlowService:
         timeout_seconds: int = 180,
     ) -> tuple[str, str, int]:
         oidc_base = f"https://oidc.{region}.amazonaws.com"
-        start = time.time()
-        interval = max(1, poll_interval_seconds)
+        timeout = max(1, int(timeout_seconds))
+        interval = max(1, int(poll_interval_seconds))
+        start = monotonic_time()
+        deadline = start + timeout
+        max_attempts = (timeout // interval) + 1
+        attempts = 0
 
-        while (time.time() - start) < timeout_seconds:
+        while attempts < max_attempts and monotonic_time() < deadline:
+            attempts += 1
             await asyncio_sleep(interval)
             res = await self._http.post(
                 f"{oidc_base}/token",
@@ -231,3 +236,8 @@ async def asyncio_sleep(seconds: int) -> None:
     import asyncio
 
     await asyncio.sleep(seconds)
+
+
+def monotonic_time() -> float:
+    # small indirection to simplify unit testing
+    return time.monotonic()

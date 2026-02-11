@@ -98,18 +98,18 @@ session:
     max_turns: 10  # Maximum turns before switching back to default model
     max_file_writes: 1  # Maximum file writes before switching back to default model
 
-  # Angel verification model (experimental)
-  # When set, the proxy will submit each assistant response to the Angel model for verification
+  # Quality Verifier model (experimental)
+  # When set, the proxy will submit each assistant response to the Quality Verifier model for verification
   # and may request a correction before delivering to the client.
   # Format: BACKEND:MODEL with optional URI params, e.g.:
   #   "openai:gpt-4o-mini?temperature=1&reasoning_effort=high"
-  angel_model: null
-  # Angel verification frequency (1 = every user turn, 5 = every 5th user turn, etc.)
+  quality_verifier_model: null
+  # Quality Verifier frequency (1 = every user turn, 5 = every 5th user turn, etc.)
   # Note: verification runs only on eligible turns (main-model turns). Tool-result
   # continuations and random replacement-model turns are excluded.
-  angel_frequency: 10
-  # Truncate history for Angel verification to N messages (optional, default: unlimited)
-  angel_max_history: null
+  quality_verifier_frequency: 10
+  # Truncate history for Quality Verifier to N messages (optional, default: unlimited)
+  quality_verifier_max_history: null
 
   # Tool call processing behavior
   # These settings control how tool calls are processed to prevent re-processing of historical messages
@@ -331,17 +331,6 @@ resilience:
 #   # Legacy format (automatically converted to wildcard rule if replacement_rules is empty):
 #   # backend_model: "qwen-oauth:qwen3-coder-plus"
 #   turn_count: 3  # Number of consecutive turns to use replacement model once activated
-
-# LLM Assessment Configuration
-# Enables an LLM-based conversation assessment system to detect cognitive loops
-# and provide steering interventions. See dev/features/llm-assessment/ for details.
-# assessment:
-#   enabled: false  # Set to true to enable LLM assessment
-#   turn_threshold: 30  # Number of turns before assessment begins
-#   confidence_threshold: 0.9  # Threshold for triggering interventions
-#   backend: "openai"  # Backend to use for assessment
-#   model: "gpt-4o-mini"  # Model to use for assessment
-#   history_window: 20  # Number of recent turns to include
 
 # Model Registry & Limit Enforcement
 # External registry for model metadata (context windows, pricing, capabilities)

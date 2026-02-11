@@ -308,7 +308,6 @@ The VTC flag (`vtc_enabled`) is stored in the session state and persists for the
 ## Related Features
 
 - [Context Window Enforcement](context-window-enforcement.md) - Enforce per-model context window limits
-- [LLM Assessment System](llm-assessment.md) - Monitor conversation quality over time
-- [Angel Verification System](angel-verification.md) - Verify individual responses
+- [Quality Verifier System](quality-verifier.md) - Verify individual responses
 - [Planning Phase Overrides](planning-phase.md) - Use different models during planning
 - [Tool Access Control](tool-access-control.md) - Control which tools LLMs can access

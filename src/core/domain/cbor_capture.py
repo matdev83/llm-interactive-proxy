@@ -31,6 +31,9 @@ class CaptureMetadata:
     """Optional metadata for a capture entry."""
 
     session_id: str | None = None
+    a_session_id: str | None = None
+    b_session_id: str | None = None
+    b_seq: int | None = None
     backend: str | None = None
     model: str | None = None
     key_name: str | None = None
@@ -68,6 +71,12 @@ class CaptureMetadata:
         result: dict[str, Any] = {}
         if self.session_id is not None:
             result["sid"] = self.session_id
+        if self.a_session_id is not None:
+            result["asid"] = self.a_session_id
+        if self.b_session_id is not None:
+            result["bsid"] = self.b_session_id
+        if self.b_seq is not None:
+            result["bseq"] = self.b_seq
         if self.backend is not None:
             result["be"] = self.backend
         if self.model is not None:
@@ -131,6 +140,9 @@ class CaptureMetadata:
         """Create from CBOR dictionary."""
         return cls(
             session_id=data.get("sid"),
+            a_session_id=data.get("asid"),
+            b_session_id=data.get("bsid"),
+            b_seq=data.get("bseq"),
             backend=data.get("be"),
             model=data.get("mod"),
             key_name=data.get("key"),

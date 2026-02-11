@@ -51,6 +51,17 @@ ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com/v1"
 
 # Vendor prefix for Anthropic models in unified model naming convention
 ANTHROPIC_VENDOR_PREFIX = "anthropic"
+_NON_FORWARDABLE_EXTRA_BODY_KEYS = frozenset(
+    {
+        "session_id",
+        "backend_type",
+        "a_session_id",
+        "b_session_id",
+        "b_seq",
+        "auth_scope_id",
+        "client_session_id",
+    }
+)
 
 
 class AnthropicBackend(LLMBackend):
@@ -231,7 +242,7 @@ class AnthropicBackend(LLMBackend):
 
         # request_data is expected to be a domain ChatRequest (or subclass like CanonicalChatRequest)
         # request_headers = ... (existing code)
-        
+
         # request_data is a domain ChatRequest; connectors can rely on adapter helpers
         anthropic_payload = self._prepare_anthropic_payload(
             request_data=domain_request,
@@ -694,7 +705,11 @@ class AnthropicBackend(LLMBackend):
 
         # Include extra params from domain extra_body directly (allows reasoning, etc.)
         # Filter out None values to prevent overriding defaults
-        filtered_extra_body = {k: v for k, v in extra_body.items() if v is not None}
+        filtered_extra_body = {
+            k: v
+            for k, v in extra_body.items()
+            if v is not None and k not in _NON_FORWARDABLE_EXTRA_BODY_KEYS
+        }
         payload.update(filtered_extra_body)
 
         # Ensure max_tokens is always a valid positive integer (never None)
@@ -1188,9 +1203,8 @@ class AnthropicBackend(LLMBackend):
 
         # Prepare payload
 
-
         # request is expected to be CanonicalChatRequest from StreamProducer protocol
-        
+
         # Get processed messages and effective model
         processed_messages = getattr(request, "messages", [])
         effective_model = getattr(request, "model", "claude-3-5-sonnet-20241022")

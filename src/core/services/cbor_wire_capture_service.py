@@ -26,6 +26,7 @@ from pydantic.types import JsonValue
 
 from src.core.common.contract_serialization import serialize_for_capture
 from src.core.config.app_config import AppConfig
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.cbor_capture import (
     CaptureDirection,
     CaptureEntry,
@@ -120,6 +121,13 @@ class CborWireCaptureService(IWireCapture):
         self._config = config
         self._capture_dir: Path | None = Path(capture_dir) if capture_dir else None
         self._session_id = session_id or self._generate_session_id_from_log_file(config)
+        self._b2bua_enabled = bool(
+            getattr(
+                getattr(getattr(config, "session", None), "b2bua", None),
+                "enabled",
+                False,
+            )
+        )
         self._enabled = False
 
         # Buffer for entries to write
@@ -293,6 +301,9 @@ class CborWireCaptureService(IWireCapture):
         client_host: str | None = None
         user_agent: str | None = None
         request_id: str | None = None
+        a_session_id: str | None = None
+        b_session_id: str | None = None
+        b_seq: int | None = None
 
         if context:
             ch = getattr(context, "client_host", None)
@@ -304,10 +315,27 @@ class CborWireCaptureService(IWireCapture):
             rid = getattr(context, "request_id", None)
             if rid and not _is_mock(rid):
                 request_id = str(rid)
+            identity = getattr(context, "b2bua_identity", None)
+            if isinstance(identity, B2buaIdentity):
+                normalized_a = identity.a_session_id.strip()
+                if normalized_a:
+                    a_session_id = normalized_a
+                if (
+                    isinstance(identity.b_session_id, str)
+                    and identity.b_session_id.strip()
+                ):
+                    b_session_id = identity.b_session_id.strip()
+                if isinstance(identity.b_seq, int):
+                    b_seq = identity.b_seq
 
         resolved_session = session_id
         if not resolved_session or not str(resolved_session).strip():
-            resolved_session = request_id or self._session_id
+            if a_session_id:
+                resolved_session = a_session_id
+            elif self._b2bua_enabled:
+                resolved_session = None
+            else:
+                resolved_session = request_id or self._session_id
 
         # Extract capture metadata if provided (already JSON-safe)
         capture_fields: dict[str, JsonValue] = {}
@@ -455,6 +483,9 @@ class CborWireCaptureService(IWireCapture):
 
         metadata = CaptureMetadata(
             session_id=resolved_session,
+            a_session_id=a_session_id,
+            b_session_id=b_session_id,
+            b_seq=b_seq,
             backend=backend,
             model=model,
             key_name=key_name,
@@ -697,7 +728,9 @@ class CborWireCaptureService(IWireCapture):
         async def _capture_stream() -> AsyncIterator[bytes]:
             chunk_count = 0
             total_bytes = 0
-            stream_session_id = base_metadata.session_id or self._session_id
+            stream_session_id = base_metadata.session_id
+            if stream_session_id is None and not self._b2bua_enabled:
+                stream_session_id = self._session_id
             request_id = base_metadata.request_id
             metadata_fields = capture_metadata.copy() if capture_metadata else {}
             stream_start_ts = _get_timestamp()
@@ -872,7 +905,9 @@ class CborWireCaptureService(IWireCapture):
 
         # Resolve session ID
         resolved_session = session_id
-        if not resolved_session or not str(resolved_session).strip():
+        if (
+            not resolved_session or not str(resolved_session).strip()
+        ) and not self._b2bua_enabled:
             if context:
                 rid = getattr(context, "request_id", None)
                 if rid and not _is_mock(rid):
@@ -933,7 +968,9 @@ class CborWireCaptureService(IWireCapture):
         async def _capture_stream() -> AsyncIterator[bytes]:
             chunk_count = 0
             total_bytes = 0
-            stream_session_id = base_metadata.session_id or self._session_id
+            stream_session_id = base_metadata.session_id
+            if stream_session_id is None and not self._b2bua_enabled:
+                stream_session_id = self._session_id
 
             # Stream start marker
             start_metadata = CaptureMetadata(

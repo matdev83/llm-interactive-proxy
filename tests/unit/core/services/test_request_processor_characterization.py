@@ -221,22 +221,23 @@ def request_processor(
     )
 
 
-# Test Requirement 1.1: Type checking behavior
+# Test Requirement 1.1: input normalization behavior
 @pytest.mark.asyncio
-async def test_rejects_non_chat_request_with_type_error(
+async def test_allows_non_chat_request_when_session_enricher_normalizes(
     request_processor: RequestProcessor,
     request_context: RequestContext,
+    mock_session_enricher,
 ) -> None:
     """
-    Requirement 1.1: When process_request is called with non-ChatRequest,
-    the Request Processor Service shall raise TypeError.
-
-    This is a fail-fast behavior that must be preserved.
+    RequestProcessor delegates request normalization to SessionEnricher.
+    Non-ChatRequest payloads should be accepted when the enricher returns ChatRequest.
     """
     invalid_request: Any = {"model": "gpt-4", "messages": []}
 
-    with pytest.raises(TypeError, match="request_data must be of type ChatRequest"):
-        await request_processor.process_request(request_context, invalid_request)
+    await request_processor.process_request(request_context, invalid_request)
+
+    mock_session_enricher.enrich.assert_called_once()
+    assert mock_session_enricher.enrich.call_args[0][1] == invalid_request
 
 
 # Test Requirement 1.2: Session enrichment delegation

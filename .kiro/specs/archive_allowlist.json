@@ -4,6 +4,10 @@
     {
       "spec": "codex-connector-refactoring-follow-up",
       "reason": "Follow-up refactoring spec kept active for reference"
+    },
+    {
+      "spec": "b2bua-like-session-handling",
+      "reason": "Spec is complete but intentionally kept active pending archive workflow"
     }
   ]
 }

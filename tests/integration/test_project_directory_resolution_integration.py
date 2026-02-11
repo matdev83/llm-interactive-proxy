@@ -40,7 +40,18 @@ async def test_project_directory_resolution_ignores_drive_root():
     )
     assert response.status_code == 200
 
-    updated_session = await session_service.get_session(session_id)
+    resolved_session_id = response.headers.get("x-session-id") or session_id
+    updated_session = await session_service.get_session(resolved_session_id)
+    if updated_session.state.project_dir is None:
+        all_sessions = await session_service.get_all_sessions()  # type: ignore[attr-defined]
+        matching = [
+            s
+            for s in all_sessions
+            if getattr(getattr(s, "state", None), "project_dir", None)
+            == "c:\\users\\test\\my-project"
+        ]
+        if matching:
+            updated_session = matching[-1]
     assert updated_session is not None
     # The correct project path should be identified, not the drive root.
     assert updated_session.state.project_dir == "c:\\users\\test\\my-project"

@@ -1,10 +1,10 @@
 """
 Loop Breaking Service with API Cancellation and Steering Message Generation.
 
-This service provides complete loop breaking functionality as originally intended:
+This service provides complete loop breaking functionality:
 1. Detects loops using text-based pattern detection
 2. Triggers API cancellation to stop token waste
-3. Generates steering messages using LLM assessment system
+3. Generates steering messages
 4. Retries the request with steering message attached
 """
 
@@ -13,17 +13,14 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Callable, Mapping
-from typing import Any, cast
+from typing import Any
 
 from src.core.common.logging_utils import get_logger
 from src.core.domain.chat import ChatMessage, ChatRequest
-from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.domain.request_context import RequestContext
-from src.core.interfaces.assessment_service_interface import IAssessmentService
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.loop_detector_interface import ILoopDetector
 from src.core.ports.streaming_contracts import StreamingContent
-from src.core.services.assessment_prompts import get_steering_template
 
 logger = get_logger(__name__)
 
@@ -39,23 +36,17 @@ class LoopBreakingService:
     def __init__(
         self,
         loop_detector: ILoopDetector,
-        assessment_service: IAssessmentService | None = None,
         backend_processor: IBackendProcessor | None = None,
-        assessment_config: AssessmentConfig | None = None,
     ) -> None:
         """
         Initialize loop breaking service.
 
         Args:
             loop_detector: Loop detector for text pattern detection
-            assessment_service: Optional LLM assessment service for generating steering messages
             backend_processor: Backend processor for handling retries
-            assessment_config: Assessment configuration
         """
         self.loop_detector = loop_detector
-        self.assessment_service = assessment_service
         self.backend_processor = backend_processor
-        self.assessment_config = assessment_config
 
     async def process_streaming_content(
         self,
@@ -129,73 +120,20 @@ class LoopBreakingService:
 
         Args:
             detection_event: The loop detection event containing pattern and repetition details
-            session_id: Session ID for assessment
+            session_id: Session ID for logging
 
         Returns:
             Steering message to guide the LLM
         """
-        if self.assessment_service is None:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Assessment service not available - using fallback steering - session_id={session_id}"
-                )
-            return (
-                "I notice you're repeating the same content multiple times. "
-                "Please stop and provide a different, more helpful response."
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Generating fallback loop steering message for session %s", session_id
             )
-
-        try:
-            history = [
-                ChatMessage(
-                    role="assistant",
-                    content=(
-                        f"Repeated pattern detected: '{detection_event.pattern}' "
-                        f"repeated {detection_event.repetition_count} times"
-                    ),
-                )
-            ]
-
-            assessment_service = cast(IAssessmentService, self.assessment_service)
-            assessment_result = await assessment_service.assess_conversation(
-                history,
-                session_id,
-            )
-
-            if (
-                self.assessment_config is not None
-                and assessment_result.confidence
-                >= self.assessment_config.confidence_threshold
-            ):
-                logger.info(
-                    f"Generated LLM steering message - session_id={session_id}, "
-                    f"confidence={assessment_result.confidence}"
-                )
-                # Generate steering message using assessment result
-                template = get_steering_template()
-                reasoning = (
-                    assessment_result.reasoning or "repetitive content pattern detected"
-                )
-                return template.format(reasoning=reasoning)
-            else:
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Assessment confidence below threshold - using fallback - session_id={session_id}, "
-                        f"confidence={assessment_result.confidence}"
-                    )
-                return (
-                    "I notice you're getting stuck in a repetitive pattern. "
-                    "Please take a step back and provide a different response."
-                )
-
-        except Exception as e:
-            logger.error(
-                f"Failed to generate steering message - session_id={session_id}, error={e}",
-                exc_info=True,
-            )
-            return (
-                "I notice you're repeating the same content. "
-                "Please provide a different response and break this pattern."
-            )
+        return (
+            "I noticed a repetitive response pattern "
+            f"({detection_event.repetition_count} repetitions). "
+            "Please stop repeating and provide a different, concrete next step."
+        )
 
     def _create_break_content(
         self, detection_event, steering_message: str
@@ -312,7 +250,7 @@ class LoopBreakingService:
             request_context = None
         elif isinstance(context, RequestContext):
             request_context = context
-        elif isinstance(context, Mapping):
+        else:
             request_context = RequestContext(
                 headers=context.get("headers", {}),
                 cookies=context.get("cookies", {}),

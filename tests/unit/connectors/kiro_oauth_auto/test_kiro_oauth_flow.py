@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from freezegun import freeze_time
 from src.connectors.kiro_oauth_auto.errors import OAuthError
 from src.connectors.kiro_oauth_auto.oauth_flow import OAuthFlowService
 
@@ -23,7 +22,6 @@ def flow(mock_http_client: MagicMock) -> OAuthFlowService:
     return OAuthFlowService(http_client=mock_http_client)
 
 
-@freeze_time("2026-01-19")
 class TestOAuthFlowService:
     @pytest.mark.asyncio
     async def test_register_oidc_client_success(
@@ -122,6 +120,35 @@ class TestOAuthFlowService:
                 new_callable=AsyncMock,
             ),
             pytest.raises(OAuthError),
+        ):
+            await flow.poll_for_token(
+                client_id="cid",
+                client_secret="csec",
+                device_code="dc",
+                region="us-east-1",
+                poll_interval_seconds=1,
+                timeout_seconds=2,
+            )
+
+    @pytest.mark.asyncio
+    async def test_poll_for_token_times_out_when_pending_forever(
+        self, flow: OAuthFlowService, mock_http_client: MagicMock
+    ) -> None:
+        pending = MagicMock()
+        pending.status_code = 400
+        pending.json.return_value = {"error": "authorization_pending"}
+        mock_http_client.post = AsyncMock(return_value=pending)
+
+        with (
+            patch(
+                "src.connectors.kiro_oauth_auto.oauth_flow.asyncio_sleep",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "src.connectors.kiro_oauth_auto.oauth_flow.monotonic_time",
+                side_effect=[0.0, 0.0, 10.0],
+            ),
+            pytest.raises(OAuthError, match="Authorization timed out"),
         ):
             await flow.poll_for_token(
                 client_id="cid",

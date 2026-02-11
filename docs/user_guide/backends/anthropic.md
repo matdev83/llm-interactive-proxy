@@ -448,8 +448,7 @@ See [URI Model Parameters](../features/uri-model-parameters.md) for more details
 
 - [Model Name Rewrites](../features/model-name-rewrites.md) - Route Claude models to other providers
 - [Hybrid Backend](../features/hybrid-backend.md) - Combine Claude with other models
-- [Angel Verification System](../features/angel-verification.md) - Use Claude for response verification
-- [LLM Assessment System](../features/llm-assessment.md) - Use Claude for conversation assessment
+- [Quality Verifier System](../features/quality-verifier.md) - Use Claude for response verification
 
 ## Related Documentation
 

@@ -15,7 +15,7 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.services.backend_processor import BackendProcessor
 from src.core.services.backend_request_manager_service import BackendRequestManager
 
-from tests.helpers.angel_factory_stub import AngelFactoryStub
+from tests.helpers.quality_verifier_factory_stub import QualityVerifierFactoryStub
 
 
 def _create_backend_request_manager(
@@ -37,7 +37,7 @@ def _create_backend_request_manager(
     return BackendRequestManager(
         backend_processor=backend_processor,
         response_processor=response_processor,
-        angel_service_factory=angel_factory,
+        quality_verifier_service_factory=angel_factory,
         request_preparation=request_preparation,
         non_streaming_handler=non_streaming_handler,
         streaming_handler=streaming_handler,
@@ -49,7 +49,7 @@ async def test_prepare_backend_request_preserves_tools_when_commands_run() -> No
     backend_processor = MagicMock()
     response_processor = MagicMock()
     manager = _create_backend_request_manager(
-        backend_processor, response_processor, AngelFactoryStub()
+        backend_processor, response_processor, QualityVerifierFactoryStub()
     )
 
     request = ChatRequest(
@@ -141,7 +141,7 @@ async def test_prepare_backend_request_appends_chatmessage_results() -> None:
     backend_processor = MagicMock()
     response_processor = MagicMock()
     manager = _create_backend_request_manager(
-        backend_processor, response_processor, AngelFactoryStub()
+        backend_processor, response_processor, QualityVerifierFactoryStub()
     )
 
     original_messages = [ChatMessage(role="user", content="original question")]
@@ -176,7 +176,7 @@ async def test_prepare_backend_request_supports_tool_message_wrappers() -> None:
     backend_processor = MagicMock()
     response_processor = MagicMock()
     manager = _create_backend_request_manager(
-        backend_processor, response_processor, AngelFactoryStub()
+        backend_processor, response_processor, QualityVerifierFactoryStub()
     )
 
     user_message = ChatMessage(role="user", content="Do something")
@@ -231,7 +231,7 @@ async def test_prepare_backend_request_appends_results_without_modified_messages
     backend_processor = MagicMock()
     response_processor = MagicMock()
     manager = _create_backend_request_manager(
-        backend_processor, response_processor, AngelFactoryStub()
+        backend_processor, response_processor, QualityVerifierFactoryStub()
     )
 
     original_messages = [

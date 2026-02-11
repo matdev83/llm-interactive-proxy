@@ -86,8 +86,35 @@ class SSOMiddlewareAdapter:
             return
 
         # User is authenticated - continue to next handler with cached receive
+        self._propagate_request_state_to_scope(scope, request_dict)
         # so downstream handlers can read the body
         await self.app(scope, cached_receive, send)
+
+    @staticmethod
+    def _propagate_request_state_to_scope(
+        scope: Scope, request_dict: dict[str, Any]
+    ) -> None:
+        """Propagate proxy-internal request state from auth middleware to scope."""
+        request_state = request_dict.get("request_state")
+        if not isinstance(request_state, dict) or not request_state:
+            return
+
+        scope_state = scope.setdefault("state", {})
+        if not isinstance(scope_state, dict):
+            logger.warning(
+                "Cannot propagate request_state because scope['state'] is not a dict: %s",
+                type(scope_state),
+            )
+            return
+
+        existing_request_state = scope_state.get("request_state")
+        if isinstance(existing_request_state, dict):
+            merged_request_state = dict(existing_request_state)
+            merged_request_state.update(request_state)
+            scope_state["request_state"] = merged_request_state
+            return
+
+        scope_state["request_state"] = dict(request_state)
 
     @overload
     async def _convert_request_to_dict(

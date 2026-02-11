@@ -6,7 +6,7 @@ Registers:
 - BackendProcessor / IBackendProcessor
 - AgentResponseFormatter / IAgentResponseFormatter
 - ResponseManager / IResponseManager
-- AngelServiceFactory / IAngelServiceFactory
+- QualityVerifierServiceFactory / IQualityVerifierServiceFactory
 - ResponseProcessor / IResponseProcessor
 - BackendRequestManager / IBackendRequestManager
 - RequestProcessor / IRequestProcessor
@@ -34,7 +34,7 @@ def register_orchestration_core_services(services: ServiceCollection) -> None:
     _register_response_handlers(services)
     _register_backend_processor(services)
     _register_response_manager(services)
-    _register_angel_service_factory(services)
+    _register_quality_verifier_service_factory(services)
     _register_response_processor(services)
     _register_backend_request_manager(services)
     _register_request_processor(services)
@@ -191,23 +191,27 @@ def _register_response_manager(services: ServiceCollection) -> None:
             )
 
 
-def _register_angel_service_factory(services: ServiceCollection) -> None:
-    """Register AngelServiceFactory (optional feature)."""
+def _register_quality_verifier_service_factory(services: ServiceCollection) -> None:
+    """Register QualityVerifierServiceFactory (optional feature)."""
     from src.core.di.registrations._shared import register_singleton_if_absent
-    from src.core.interfaces.angel_service_interface import IAngelServiceFactory
-    from src.core.services.angel_service_factory import DefaultAngelServiceFactory
+    from src.core.interfaces.quality_verifier_service_interface import (
+        IQualityVerifierServiceFactory,
+    )
+    from src.core.services.quality_verifier_service_factory import (
+        DefaultQualityVerifierServiceFactory,
+    )
 
-    register_singleton_if_absent(services, DefaultAngelServiceFactory)
+    register_singleton_if_absent(services, DefaultQualityVerifierServiceFactory)
     try:
         register_singleton_if_absent(
             services,
-            cast(type, IAngelServiceFactory),
-            implementation_type=DefaultAngelServiceFactory,  # type: ignore[type-abstract]
+            cast(type, IQualityVerifierServiceFactory),
+            implementation_type=DefaultQualityVerifierServiceFactory,  # type: ignore[type-abstract]
         )
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register IAngelServiceFactory interface: {e}", exc_info=True
+                f"Failed to register IQualityVerifierServiceFactory interface: {e}", exc_info=True
             )
 
 
@@ -306,7 +310,6 @@ def _create_deduplication_service(
 def _register_backend_request_manager(services: ServiceCollection) -> None:
     """Register BackendRequestManager and IBackendRequestManager."""
     from src.core.di.registrations._shared import register_singleton_if_absent
-    from src.core.interfaces.angel_service_interface import IAngelServiceFactory
     from src.core.interfaces.backend_processor_interface import IBackendProcessor
     from src.core.interfaces.backend_request_manager_components import (
         IBackendRequestPreparation,
@@ -315,6 +318,9 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
     )
     from src.core.interfaces.backend_request_manager_interface import (
         IBackendRequestManager,
+    )
+    from src.core.interfaces.quality_verifier_service_interface import (
+        IQualityVerifierServiceFactory,
     )
     from src.core.interfaces.response_processor_interface import IResponseProcessor
     from src.core.interfaces.wire_capture_interface import IWireCapture
@@ -334,12 +340,12 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
             cast(type, IResponseProcessor)  # type: ignore[type-abstract]
         )
 
-        # IAngelServiceFactory and IWireCapture are optional - create mocks if not available
-        angel_service_factory = provider.get_service(cast(type, IAngelServiceFactory))  # type: ignore[type-abstract]
-        if angel_service_factory is None:
+        # IQualityVerifierServiceFactory and IWireCapture are optional - create mocks if not available
+        quality_verifier_service_factory = provider.get_service(cast(type, IQualityVerifierServiceFactory))  # type: ignore[type-abstract]
+        if quality_verifier_service_factory is None:
             from unittest.mock import MagicMock
 
-            angel_service_factory = MagicMock(spec=IAngelServiceFactory)
+            quality_verifier_service_factory = MagicMock(spec=IQualityVerifierServiceFactory)
 
         wire_capture = provider.get_service(cast(type, IWireCapture))  # type: ignore[type-abstract]
 
@@ -368,7 +374,7 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
         return BackendRequestManager(
             backend_processor,
             response_processor,
-            angel_service_factory,
+            quality_verifier_service_factory,
             request_preparation,
             non_streaming_handler,
             streaming_handler,

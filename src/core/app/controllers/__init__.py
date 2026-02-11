@@ -32,6 +32,7 @@ from src.core.app.controllers.responses_controller import (
     ResponsesController,
     get_responses_controller,
 )
+from src.core.app.controllers.session_resolution import resolve_session_before_capture
 from src.core.app.controllers.usage_controller import router as usage_router
 from src.core.common.exceptions import ServiceResolutionError
 
@@ -779,6 +780,10 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                     e,
                     exc_info=True,
                 )
+            await resolve_session_before_capture(
+                service_provider=service_provider,
+                context=ctx,
+            )
             if wire_capture and wire_capture.enabled():
                 try:
                     await wire_capture.capture_inbound_request(
@@ -1030,6 +1035,10 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
                     e,
                     exc_info=True,
                 )
+            await resolve_session_before_capture(
+                service_provider=service_provider,
+                context=ctx,
+            )
             if wire_capture and wire_capture.enabled():
                 try:
                     await wire_capture.capture_inbound_request(

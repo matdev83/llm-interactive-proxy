@@ -111,6 +111,30 @@ DIRECTION_SYMBOLS = {
 }
 
 
+def _meta_a_session_id(meta: dict[str, Any]) -> str | None:
+    """Return A-leg session id with backward-compatible fallback to sid."""
+    a_session_id = meta.get("asid")
+    if isinstance(a_session_id, str) and a_session_id:
+        return a_session_id
+    legacy_session_id = meta.get("sid")
+    if isinstance(legacy_session_id, str) and legacy_session_id:
+        return legacy_session_id
+    return None
+
+
+def _meta_b_session_id(meta: dict[str, Any]) -> str | None:
+    """Return B-leg session id when present."""
+    b_session_id = meta.get("bsid")
+    if isinstance(b_session_id, str) and b_session_id:
+        return b_session_id
+    return None
+
+
+def _meta_backend_correlation_id(meta: dict[str, Any]) -> str | None:
+    """Return the best correlation id for backend-leg pairing."""
+    return _meta_b_session_id(meta) or _meta_a_session_id(meta)
+
+
 def safe_decode(data: bytes, max_length: int = 200) -> str:
     """Safely decode bytes to string, handling non-ASCII."""
     if not data:
@@ -419,7 +443,7 @@ def get_unique_sessions(entries: list[dict[str, Any]]) -> dict[str, dict[str, An
     sessions: dict[str, dict[str, Any]] = {}
     for e in entries:
         meta = e.get("meta", {})
-        sid = meta.get("sid")
+        sid = _meta_a_session_id(meta)
         if sid:
             if sid not in sessions:
                 sessions[sid] = {
@@ -452,7 +476,7 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if gap > 10:
             prev_meta = prev.get("meta", {})
             curr_meta = curr.get("meta", {})
-            if prev_meta.get("sid") == curr_meta.get("sid"):
+            if _meta_a_session_id(prev_meta) == _meta_a_session_id(curr_meta):
                 issues.append(
                     {
                         "type": "slow_response",
@@ -498,7 +522,7 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # Strategy:
     # 1) Correlate C->P to P->B using request id (rid)
     # 2) For each P->B, verify there is at least one B->P response chunk before the
-    #    next P->B on the same backend session (sid)
+    #    next P->B on the same backend correlation id (bsid/asid)
 
     # Index proxy->backend requests by rid
     pb_index_by_rid: dict[str, int] = {}
@@ -507,7 +531,7 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     for i, e in enumerate(entries):
         meta = e.get("meta", {})
-        sid = meta.get("sid")
+        sid = _meta_backend_correlation_id(meta)
         if e.get("dir") == 2:
             rid = meta.get("rid")
             if isinstance(rid, str) and rid:
@@ -566,7 +590,7 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
 
         pb_meta = entries[pb_idx].get("meta", {})
-        pb_sid = pb_meta.get("sid")
+        pb_sid = _meta_backend_correlation_id(pb_meta)
         if not isinstance(pb_sid, str) or not pb_sid:
             # Can't correlate without backend session id
             issues.append(
@@ -621,7 +645,8 @@ def print_timeline(
         ts = e.get("ts", 0)
         data_len = len(e.get("data", b""))
         backend = e.get("meta", {}).get("be", "")
-        session = e.get("meta", {}).get("sid", "")[:8]
+        a_session = _meta_a_session_id(e.get("meta", {}))
+        b_session = _meta_b_session_id(e.get("meta", {}))
 
         # Format timestamp
         dt = datetime.datetime.fromtimestamp(ts)
@@ -648,8 +673,10 @@ def print_timeline(
         line_parts = [f"[{seq}]", direction, ts_str, gap_str, size_str]
         if backend:
             line_parts.append(f"be={backend}")
-        if session:
-            line_parts.append(f"sid={session}")
+        if a_session:
+            line_parts.append(f"a={a_session[:8]}")
+        if b_session:
+            line_parts.append(f"b={b_session[:8]}")
 
         print("  ".join(part for part in line_parts if part))
 
@@ -707,7 +734,9 @@ def group_by_session(entries: list[dict[str, Any]]) -> None:
         print(f"  Entries: {info['count']}, Duration: {duration:.2f}s")
 
         # Show entries for this session
-        session_entries = [e for e in entries if e.get("meta", {}).get("sid") == sid]
+        session_entries = [
+            e for e in entries if _meta_a_session_id(e.get("meta", {})) == sid
+        ]
         print(
             f"  Entry range: [{session_entries[0].get('seq')}] to [{session_entries[-1].get('seq')}]"
         )
@@ -1044,8 +1073,15 @@ def print_entries(
         ts_str = format_timestamp(ts)
         backend = e.get("meta", {}).get("be", "")
         backend_str = f" | backend={backend}" if backend else ""
-        session = e.get("meta", {}).get("sid", "")
-        session_str = f" | session={session[:8]}" if session else ""
+        meta = e.get("meta", {})
+        a_session = _meta_a_session_id(meta)
+        b_session = _meta_b_session_id(meta)
+        session_parts: list[str] = []
+        if a_session:
+            session_parts.append(f"a={a_session[:8]}")
+        if b_session:
+            session_parts.append(f"b={b_session[:8]}")
+        session_str = " | session=" + ",".join(session_parts) if session_parts else ""
 
         print(
             f"\n[{seq}] {direction} | {len(data):,} bytes | ts={ts_str}{backend_str}{session_str}"
@@ -1053,9 +1089,9 @@ def print_entries(
 
         # Verbose metadata
         if verbose:
-            meta = e.get("meta", {}).copy()
+            meta = dict(meta)
             # Remove already shown fields
-            for key in ["be", "sid"]:
+            for key in ["be", "sid", "asid", "bsid"]:
                 meta.pop(key, None)
             if meta:
                 print("    Metadata:")
@@ -1560,7 +1596,9 @@ def main() -> int:
     # Apply session filter if specified
     if args.session_id:
         entries = [
-            e for e in entries if e.get("meta", {}).get("sid") == args.session_id
+            e
+            for e in entries
+            if _meta_a_session_id(e.get("meta", {})) == args.session_id
         ]
         if not entries:
             print(

@@ -15,7 +15,6 @@ Domain Applicators:
 - BackendApplicator: default_backend, API keys, static_route, hybrid settings
 - SessionApplicator: session flags, planning phase, tool access, pytest settings
 - AuthApplicator: auth flags, SSO settings, brute force protection
-- AssessmentApplicator: LLM assessment configuration
 - MemoryApplicator: ProxyMem configuration
 - FailureHandlingApplicator: failure handling configuration
 - ResilienceApplicator: resilience scoping overrides
@@ -36,7 +35,6 @@ Requirements satisfied:
 from src.core.cli_support.applicators.access_mode_applicator import (
     AccessModeApplicator,
 )
-from src.core.cli_support.applicators.assessment_applicator import AssessmentApplicator
 from src.core.cli_support.applicators.auth_applicator import AuthApplicator
 from src.core.cli_support.applicators.auxiliary_routing_applicator import (
     AuxiliaryRoutingApplicator,
@@ -72,7 +70,6 @@ from src.core.cli_support.applicators.session_applicator import SessionApplicato
 
 __all__ = [
     "AccessModeApplicator",
-    "AssessmentApplicator",
     "AuthApplicator",
     "AuxiliaryRoutingApplicator",
     "BackendApplicator",

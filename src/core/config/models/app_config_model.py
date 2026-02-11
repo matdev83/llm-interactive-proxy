@@ -31,7 +31,6 @@ from src.core.config.models.routing import RoutingConfig
 from src.core.config.models.session import SessionConfig
 from src.core.database.config import DatabaseConfig
 from src.core.domain.configuration.app_identity_config import AppIdentityConfig
-from src.core.domain.configuration.assessment_config import AssessmentConfig
 from src.core.domain.configuration.compaction_config import CompactionConfig
 from src.core.domain.configuration.failure_handling_config import FailureHandlingConfig
 from src.core.domain.configuration.health_check_config import HealthCheckConfig
@@ -86,8 +85,6 @@ class AppConfigModel(DomainModel, IConfig):
     empty_response: EmptyResponseConfig = Field(default_factory=EmptyResponseConfig)
     edit_precision: EditPrecisionConfig = Field(default_factory=EditPrecisionConfig)
     rewriting: RewritingConfig = Field(default_factory=RewritingConfig)
-    assessment: AssessmentConfig = Field(default_factory=AssessmentConfig)
-
     reasoning_aliases: ReasoningAliasesConfig = Field(
         default_factory=lambda: ReasoningAliasesConfig(reasoning_alias_settings=[])
     )

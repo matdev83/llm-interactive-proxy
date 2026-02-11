@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_config_provider_interface import IBackendConfigProvider
@@ -122,3 +123,42 @@ class TestBackendRequestPreparer:
         assert kwargs["session_id"] == "sess_1"
         assert kwargs["project"] == "proj_1"
         assert kwargs["project_dir"] == "/tmp"
+
+    def test_prepare_backend_kwargs_uses_b_leg_session_id_in_b2bua_mode(
+        self, preparer
+    ):
+        session = Mock()
+        session.state.project = "proj_1"
+        session.state.project_dir = "/tmp"
+        context = Mock(spec=RequestContext)
+        context.b2bua_identity = B2buaIdentity(
+            a_session_id="llm-b2bua-a-1234",
+            b_session_id="llm-b2bua-b-1234-2",
+            b_seq=2,
+        )
+
+        kwargs = preparer.prepare_backend_kwargs(
+            session_id_for_backend="llm-b2bua-a-1234",
+            session=session,
+            context=context,
+            backend_type="openai",
+        )
+
+        assert kwargs["session_id"] == "llm-b2bua-b-1234-2"
+        assert kwargs["project"] == "proj_1"
+        assert kwargs["project_dir"] == "/tmp"
+
+    def test_prepare_backend_kwargs_omits_session_id_without_b_leg_in_b2bua_mode(
+        self, preparer
+    ):
+        context = Mock(spec=RequestContext)
+        context.b2bua_identity = B2buaIdentity(a_session_id="llm-b2bua-a-1234")
+
+        kwargs = preparer.prepare_backend_kwargs(
+            session_id_for_backend="llm-b2bua-a-1234",
+            session=None,
+            context=context,
+            backend_type="openai",
+        )
+
+        assert "session_id" not in kwargs

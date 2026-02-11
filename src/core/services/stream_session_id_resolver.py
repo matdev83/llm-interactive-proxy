@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from uuid import uuid4
 
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.stream_session_id_resolver_interface import (
@@ -29,9 +30,19 @@ class StreamSessionIdResolver(IStreamSessionIdResolver):
     1. session_id parameter (explicit override)
     2. request.session_id (request-level identifier)
     3. request.extra_body.session_id (metadata fallback)
-    4. context.request_id (request context identifier)
+    4. context.request_id (request context identifier, legacy mode only)
     5. Generated UUID (ultimate fallback)
     """
+
+    def __init__(self, *, b2bua_enabled: bool = False) -> None:
+        self._b2bua_enabled = b2bua_enabled
+
+    def _is_b2bua_mode(self, context: RequestContext | None) -> bool:
+        if self._b2bua_enabled:
+            return True
+        if context is None:
+            return False
+        return isinstance(getattr(context, "b2bua_identity", None), B2buaIdentity)
 
     def resolve_stream_session_id(
         self,
@@ -74,8 +85,8 @@ class StreamSessionIdResolver(IStreamSessionIdResolver):
                         exc_info=True,
                     )
 
-        # Precedence 4: context.request_id
-        if context is not None:
+        # Precedence 4: context.request_id (legacy mode only)
+        if context is not None and not self._is_b2bua_mode(context):
             context_request_id = getattr(context, "request_id", None)
             if context_request_id:
                 return str(context_request_id)

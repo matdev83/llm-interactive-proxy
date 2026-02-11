@@ -7,7 +7,7 @@ Tests cover streaming response processing including:
 - Empty-stream exhaustion error handling
 - Tool-call retry coordination
 - Loop detection and cancellation
-- Angel verification pass-through and replacement
+- Quality Verifier pass-through and replacement
 - Steering replacement marker preservation
 - Metadata attachment (session_id, original_request, client_os)
 - Fail-open error handling
@@ -31,8 +31,8 @@ from src.core.domain.request_context import ProcessingContext, RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.backend_processor_interface import IBackendProcessor
 from src.core.interfaces.backend_request_manager_components import (
-    IAngelStreamVerifier,
     ILoopDetectorFactory,
+    IQualityVerifierStreamVerifier,
     IStreamingBackendResponseHandler,
     IToolCallRetryCoordinator,
 )
@@ -60,9 +60,9 @@ def mock_loop_detector_factory() -> ILoopDetectorFactory:
 
 
 @pytest.fixture
-def mock_angel_stream_verifier() -> IAngelStreamVerifier:
+def mock_quality_verifier_stream_verifier() -> IQualityVerifierStreamVerifier:
     """Create a mock Angel stream verifier."""
-    mock = AsyncMock(spec=IAngelStreamVerifier)
+    mock = AsyncMock(spec=IQualityVerifierStreamVerifier)
 
     async def passthrough(request, stream, context):
         async for chunk in stream:
@@ -90,7 +90,7 @@ def mock_backend_processor() -> IBackendProcessor:
 def handler(
     mock_response_processor: IResponseProcessor,
     mock_loop_detector_factory: ILoopDetectorFactory,
-    mock_angel_stream_verifier: IAngelStreamVerifier,
+    mock_quality_verifier_stream_verifier: IQualityVerifierStreamVerifier,
     mock_tool_call_retry_coordinator: IToolCallRetryCoordinator,
     mock_backend_processor: IBackendProcessor,
 ) -> IStreamingBackendResponseHandler:
@@ -102,7 +102,7 @@ def handler(
     return BackendStreamingResponseHandler(
         response_processor=mock_response_processor,
         loop_detector_factory=mock_loop_detector_factory,
-        angel_stream_verifier=mock_angel_stream_verifier,
+        quality_verifier_stream_verifier=mock_quality_verifier_stream_verifier,
         tool_call_retry_coordinator=mock_tool_call_retry_coordinator,
         backend_processor=mock_backend_processor,
     )
@@ -161,7 +161,7 @@ class TestMiddlewareWrapping:
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -189,7 +189,7 @@ class TestMiddlewareWrapping:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Mock loop detector factory to return a detector that never detects loops
         mock_loop_detector = MagicMock(spec=ILoopDetector)
@@ -290,7 +290,7 @@ class TestEmptyStreamRecovery:
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -329,7 +329,7 @@ class TestEmptyStreamRecovery:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -360,7 +360,7 @@ class TestEmptyStreamRecovery:
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -401,7 +401,7 @@ class TestEmptyStreamRecovery:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         result = await handler.handle(
             stream=stream_envelope,
@@ -428,7 +428,7 @@ class TestEmptyStreamRecovery:
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -462,7 +462,7 @@ class TestEmptyStreamRecovery:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         result = await handler.handle(
             stream=stream_envelope,
@@ -489,7 +489,7 @@ class TestEmptyStreamRecovery:
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -515,7 +515,7 @@ class TestEmptyStreamRecovery:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         result = await handler.handle(
             stream=stream_envelope,
@@ -545,7 +545,7 @@ class TestEmptyStreamRecovery:
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -588,7 +588,7 @@ class TestEmptyStreamRecovery:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -616,7 +616,7 @@ class TestEmptyStreamRecovery:
         mock_response_processor: AsyncMock,
         mock_backend_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -653,7 +653,7 @@ class TestEmptyStreamRecovery:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act & Assert
         result = await handler.handle(
@@ -683,7 +683,7 @@ class TestToolCallRetryHandling:
         mock_response_processor: AsyncMock,
         mock_tool_call_retry_coordinator: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -729,7 +729,7 @@ class TestToolCallRetryHandling:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -761,7 +761,7 @@ class TestToolCallRetryHandling:
         mock_response_processor: AsyncMock,
         mock_tool_call_retry_coordinator: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -814,7 +814,7 @@ class TestToolCallRetryHandling:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -844,7 +844,7 @@ class TestLoopDetectionCancellation:
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -884,7 +884,7 @@ class TestLoopDetectionCancellation:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -912,7 +912,7 @@ class TestLoopDetectionCancellation:
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -955,7 +955,7 @@ class TestLoopDetectionCancellation:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -975,20 +975,20 @@ class TestLoopDetectionCancellation:
 
 
 class TestAngelVerification:
-    """Tests for Angel verification."""
+    """Tests for Quality Verifier."""
 
     @pytest.mark.asyncio
     async def test_passes_through_original_stream_when_verification_disabled(
         self,
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
     ) -> None:
-        """Handler should pass through original stream when Angel verification disabled."""
+        """Handler should pass through original stream when Quality Verifier disabled."""
         # Arrange
         chunks = [ProcessedResponse(content="Hello", metadata={})]
         input_stream = async_chunk_iterator(chunks)
@@ -1005,7 +1005,7 @@ class TestAngelVerification:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Mock loop detector
         mock_loop_detector = MagicMock(spec=ILoopDetector)
@@ -1035,7 +1035,7 @@ class TestAngelVerification:
         self,
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         mock_loop_detector_factory: MagicMock,
         base_request: ChatRequest,
         request_context: RequestContext,
@@ -1065,7 +1065,7 @@ class TestAngelVerification:
             async for chunk in corrected_stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = corrected_stream_gen
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = corrected_stream_gen
 
         # Mock loop detector
         mock_loop_detector = MagicMock(spec=ILoopDetector)
@@ -1100,7 +1100,7 @@ class TestMetadataAttachment:
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -1126,7 +1126,7 @@ class TestMetadataAttachment:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -1151,7 +1151,7 @@ class TestMetadataAttachment:
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -1177,7 +1177,7 @@ class TestMetadataAttachment:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -1202,7 +1202,7 @@ class TestMetadataAttachment:
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
         mock_loop_detector_factory: MagicMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
@@ -1228,7 +1228,7 @@ class TestMetadataAttachment:
             async for chunk in stream:
                 yield chunk
 
-        mock_angel_stream_verifier.verify_or_passthrough = passthrough_stream
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
         # Act
         result = await handler.handle(
@@ -1338,12 +1338,12 @@ class TestFailOpenBehavior:
         self,
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
-        mock_angel_stream_verifier: AsyncMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
         base_request: ChatRequest,
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
     ) -> None:
-        """Handler should continue with original stream when Angel verification fails."""
+        """Handler should continue with original stream when Quality Verifier fails."""
         # Arrange
         chunks = [ProcessedResponse(content="Hello", metadata={})]
         input_stream = async_chunk_iterator(chunks)
@@ -1356,8 +1356,8 @@ class TestFailOpenBehavior:
         )
 
         # Angel verifier raises exception
-        mock_angel_stream_verifier.verify_or_passthrough.side_effect = Exception(
-            "Angel verification failed"
+        mock_quality_verifier_stream_verifier.verify_or_passthrough.side_effect = Exception(
+            "Quality Verifier failed"
         )
 
         # Act

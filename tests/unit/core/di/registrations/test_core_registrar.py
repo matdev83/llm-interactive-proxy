@@ -277,8 +277,10 @@ class TestCoreRegistrarRequestProcessing:
         config = AppConfig()
 
         # Register dependencies
-        from src.core.interfaces.angel_service_interface import IAngelServiceFactory
         from src.core.interfaces.backend_service_interface import IBackendService
+        from src.core.interfaces.quality_verifier_service_interface import (
+            IQualityVerifierServiceFactory,
+        )
         from src.core.interfaces.response_processor_interface import IResponseProcessor
         from src.core.interfaces.wire_capture_interface import IWireCapture
         from src.core.services.backend_service import BackendService
@@ -286,7 +288,7 @@ class TestCoreRegistrarRequestProcessing:
         services.add_instance(IBackendService, MagicMock(spec=BackendService))
         services.add_instance(IResponseProcessor, MagicMock())
         services.add_instance(IWireCapture, MagicMock())
-        services.add_instance(IAngelServiceFactory, MagicMock())
+        services.add_instance(IQualityVerifierServiceFactory, MagicMock())
 
         core.register(services, config)
         provider = services.build_service_provider()
@@ -311,10 +313,12 @@ class TestCoreRegistrarRequestProcessing:
         services.add_instance(IBackendService, MagicMock(spec=BackendService))
 
         # Register additional dependencies required by phase components
-        from src.core.interfaces.angel_service_interface import IAngelServiceFactory
+        from src.core.interfaces.quality_verifier_service_interface import (
+            IQualityVerifierServiceFactory,
+        )
         from src.core.interfaces.wire_capture_interface import IWireCapture
 
-        services.add_instance(IAngelServiceFactory, MagicMock())
+        services.add_instance(IQualityVerifierServiceFactory, MagicMock())
         services.add_instance(IWireCapture, MagicMock())
 
         # Register EventBus (required by EoS services)

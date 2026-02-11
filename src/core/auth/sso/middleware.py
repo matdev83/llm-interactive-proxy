@@ -173,6 +173,29 @@ class AuthMiddleware:
         """
         return self.sandbox_handler.detect_sandbox_history(messages)
 
+    @staticmethod
+    def _inject_identity_state(
+        request: dict[str, Any], validation_result: TokenValidationResult
+    ) -> None:
+        """Expose authenticated identity to downstream request processing.
+
+        Only stable internal identities are propagated. Raw bearer token values are
+        never stored in request-scoped metadata.
+        """
+        request_state = request.get("request_state")
+        if not isinstance(request_state, dict):
+            request_state = {}
+            request["request_state"] = request_state
+
+        if isinstance(validation_result.token_id, str) and validation_result.token_id:
+            request_state["auth_scope_id"] = validation_result.token_id
+            request_state["authenticated_token_id"] = validation_result.token_id
+            request_state["token_id"] = validation_result.token_id
+
+        if isinstance(validation_result.user_id, str) and validation_result.user_id:
+            request_state["authenticated_user_id"] = validation_result.user_id
+            request_state["user_id"] = validation_result.user_id
+
     async def __call__(self, request: dict[str, Any]) -> dict[str, Any] | None:
         """
         Process incoming request for authentication.
@@ -214,4 +237,5 @@ class AuthMiddleware:
             return await self.sandbox_handler.generate_login_banner()
 
         # Token is valid and authenticated - allow request to proceed
+        self._inject_identity_state(request, validation_result)
         return None

@@ -10,6 +10,7 @@ from pydantic import ConfigDict
 
 from src.core.config.models import (
     AuthConfig,
+    B2BUAConfig,
     BackendConfig,
     BackendSettings,
     BruteForceProtectionConfig,
@@ -110,7 +111,6 @@ class AppConfig(AppConfigModel):
             "routing",
             "memory",
             "database",
-            "assessment",
             "vtc_client_patterns",
         }
         data = {k: v for k, v in data.items() if k in allowed_top_keys}
@@ -209,6 +209,7 @@ __all__ = [
     "AuthConfig",
     "BackendConfig",
     "BackendSettings",
+    "B2BUAConfig",
     "BruteForceProtectionConfig",
     "CodebuffConfig",
     "EditPrecisionConfig",

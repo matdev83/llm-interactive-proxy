@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
@@ -151,6 +151,29 @@ class SessionContinuityConfig(DomainModel):
     """
 
 
+class B2BUAConfig(DomainModel):
+    """Configuration for B2BUA-like A-leg/B-leg session handling."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    continuity_max_age_seconds: int = Field(default=3600, ge=1)
+    continuity_sliding_expiration: bool = True
+    persistent_mapping_store_enabled: bool = False
+    echo_enabled: bool = True
+    echo_header_name: str = "x-b2bua-session-id"
+    enable_unsafe_heuristic_session_inference: bool = False
+    deployment_mode: Literal["single-process", "multi-worker"] = "single-process"
+
+    @field_validator("echo_header_name")
+    @classmethod
+    def _validate_echo_header_name(cls, value: str) -> str:
+        header_name = value.strip()
+        if not header_name:
+            raise ValueError("session.b2bua.echo_header_name cannot be empty")
+        return header_name
+
+
 class StreamingSamplerConfig(DomainModel):
     """Configuration for the streaming sampler (debugging/observability)."""
 
@@ -209,30 +232,31 @@ class SessionConfig(DomainModel):
     session_continuity: SessionContinuityConfig = Field(
         default_factory=SessionContinuityConfig
     )
+    b2bua: B2BUAConfig = Field(default_factory=B2BUAConfig)
     tool_access_global_overrides: dict[str, Any] | None = None
     force_reprocess_tool_calls: bool = False
     log_skipped_tool_calls: bool = False
-    angel_model: str | None = None
-    # Angel verification frequency (every N eligible turns)
+    quality_verifier_model: str | None = None
+    # Quality Verifier frequency (every N eligible turns)
     # Default intentionally conservative to limit latency/cost.
-    angel_frequency: int = 10
+    quality_verifier_frequency: int = 10
 
-    # Optional history truncation for Angel verification.
+    # Optional history truncation for Quality Verifier.
     # Note: This is separate from model context-window settings and is applied only
-    # for the Angel verification request payload.
-    angel_max_history: int | None = None
+    # for the Quality Verifier request payload.
+    quality_verifier_max_history: int | None = None
 
-    # Angel verification health check settings.
+    # Quality Verifier health check settings.
     # Consecutive failures to generate a valid XML response or backend errors before
     # tripping the circuit breaker for the cooldown period.
-    angel_max_consecutive_failures: int = 5
+    quality_verifier_max_consecutive_failures: int = 5
 
-    # Cooldown period in seconds when the Angel circuit breaker is tripped.
-    angel_cooldown_seconds: int = 300
+    # Cooldown period in seconds when the Quality Verifier circuit breaker is tripped.
+    quality_verifier_cooldown_seconds: int = 300
 
-    @field_validator("angel_frequency")
+    @field_validator("quality_verifier_frequency")
     @classmethod
-    def _validate_angel_frequency(cls, value: int) -> int:
+    def _validate_quality_verifier_frequency(cls, value: int) -> int:
         try:
             freq = int(value)
         except (TypeError, ValueError):
@@ -301,39 +325,39 @@ class SessionConfig(DomainModel):
 
         values["tool_call_reactor"] = reactor_config_dict
 
-        angel_model = values.get("angel_model")
-        if angel_model is not None and not isinstance(angel_model, str):
+        quality_verifier_model = values.get("quality_verifier_model")
+        if quality_verifier_model is not None and not isinstance(quality_verifier_model, str):
             try:
-                values["angel_model"] = str(angel_model)
+                values["quality_verifier_model"] = str(quality_verifier_model)
             except (MemoryError, RecursionError):
                 # System-level exceptions from str() conversion (memory issues, recursion errors)
                 # Log with context and set to None to allow model construction
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to convert angel_model to string due to system error, setting to None: value=%s, type=%s",
-                        angel_model,
-                        type(angel_model).__name__,
+                        "Failed to convert quality_verifier_model to string due to system error, setting to None: value=%s, type=%s",
+                        quality_verifier_model,
+                        type(quality_verifier_model).__name__,
                         exc_info=True,
                     )
-                values["angel_model"] = None
+                values["quality_verifier_model"] = None
             except (TypeError, ValueError, RuntimeError):
                 # Specific exceptions from str() conversion - TypeError for invalid __str__ return type,
                 # ValueError for conversions, RuntimeError for execution errors in custom __str__
                 # Log with full context and set to None to allow model construction
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Failed to convert angel_model to string, setting to None: value=%s, type=%s",
-                        angel_model,
-                        type(angel_model).__name__,
+                        "Failed to convert quality_verifier_model to string, setting to None: value=%s, type=%s",
+                        quality_verifier_model,
+                        type(quality_verifier_model).__name__,
                         exc_info=True,
                     )
-                values["angel_model"] = None
+                values["quality_verifier_model"] = None
 
-        freq_value = values.get("angel_frequency", 10)
+        freq_value = values.get("quality_verifier_frequency", 10)
         try:
             freq_int = int(freq_value)
         except (TypeError, ValueError):
             freq_int = 10
-        values["angel_frequency"] = freq_int if freq_int > 0 else 1
+        values["quality_verifier_frequency"] = freq_int if freq_int > 0 else 1
 
         return values
