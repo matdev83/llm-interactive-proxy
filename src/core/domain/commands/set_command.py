@@ -8,6 +8,10 @@ from src.core.commands.set_parameter_registry import build_set_parameter_handler
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatefulCommandBase
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 from src.core.domain.session import Session
 from src.core.interfaces.domain_entities_interface import ISessionState
 from src.core.interfaces.state_provider_interface import (
@@ -213,8 +217,20 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                     state,
                 )
 
-            if ":" in model_value:
-                backend, model = model_value.split(":", 1)
+            if has_explicit_backend_selector(model_value):
+                parsed = parse_model_backend(model_value, "")
+                backend = parsed.backend_type.strip()
+                model = parsed.model_name.strip()
+                if not backend or not model:
+                    return (
+                        CommandResult(
+                            success=False,
+                            message=(
+                                "Invalid model selector. Use backend:model with non-empty backend and model."
+                            ),
+                        ),
+                        state,
+                    )
                 new_backend_config = updated_state.backend_config.with_backend(
                     backend
                 ).with_model(model)
@@ -222,11 +238,20 @@ class SetCommand(StatefulCommandBase, BaseCommand):
                 messages.append(f"Model changed to {model}")
                 data.update({"backend": backend, "model": model})
             else:
+                normalized_model = model_value.strip()
+                if not normalized_model:
+                    return (
+                        CommandResult(
+                            success=False,
+                            message="Model name must be a non-empty string",
+                        ),
+                        state,
+                    )
                 new_backend_config = updated_state.backend_config.with_model(
-                    model_value
+                    normalized_model
                 )
-                messages.append(f"Model changed to {model_value}")
-                data.update({"model": model_value})
+                messages.append(f"Model changed to {normalized_model}")
+                data.update({"model": normalized_model})
             updated_state = updated_state.with_backend_config(new_backend_config)
 
         return (

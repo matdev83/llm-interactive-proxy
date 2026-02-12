@@ -296,3 +296,81 @@ async def test_observability_emits_a_and_b_ids_without_outbound_leakage(
     assert getattr(record, "a_session_id", None) == a_session_id
     assert getattr(record, "b_session_id", None) is not None
     assert getattr(record, "b_seq", None) is not None
+
+
+@pytest.mark.asyncio
+async def test_auxiliary_fail_open_preserves_isolated_identity_without_a_leg_leakage() -> (
+    None
+):
+    a_session_id = "llm-b2bua-a-aux-9001"
+    allocator = MagicMock()
+    allocator.allocate = AsyncMock(side_effect=RuntimeError("allocator unavailable"))
+
+    flow, deps = _build_flow(
+        a_session_id=a_session_id,
+        allocator=cast(B2buaBlegAllocator, allocator),
+    )
+    connector_facing_session_ids: list[str] = []
+
+    def _prepare_backend_kwargs(**kwargs: Any) -> dict[str, str]:
+        context = kwargs.get("context")
+        extensions = getattr(context, "extensions", None)
+        if isinstance(extensions, dict) and bool(extensions.get("auxiliary_request")):
+            auxiliary_session_id = extensions.get("auxiliary_effective_session_id")
+            if isinstance(auxiliary_session_id, str) and auxiliary_session_id:
+                connector_facing_session_ids.append(auxiliary_session_id)
+                return {"session_id": auxiliary_session_id}
+        session_id_for_backend = kwargs.get("session_id_for_backend")
+        if isinstance(session_id_for_backend, str) and session_id_for_backend:
+            connector_facing_session_ids.append(session_id_for_backend)
+            return {"session_id": session_id_for_backend}
+        return {}
+
+    deps["request_preparer"].prepare_backend_kwargs = MagicMock(
+        side_effect=_prepare_backend_kwargs
+    )
+
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state={},
+        app_state=MagicMock(),
+        request_id="req-aux-fail-open",
+        session_id=a_session_id,
+        b2bua_identity=B2buaIdentity(
+            a_session_id=a_session_id,
+            auth_scope_id="scope-aux",
+            client_session_id="client-aux",
+        ),
+    )
+    context.extensions.update(
+        {
+            "auxiliary_request": True,
+            "auxiliary_root_session_id": a_session_id,
+            "auxiliary_purpose": "openai:gpt-4o-mini",
+        }
+    )
+    request = CanonicalChatRequest(
+        model="gpt-4o",
+        messages=[ChatMessage(role="user", content="Generate a short title")],
+    )
+
+    result = await flow.call_completion(
+        request=request,
+        stream=False,
+        allow_failover=False,
+        context=context,
+    )
+    assert isinstance(result, ResponseEnvelope)
+
+    allocator.allocate.assert_not_awaited()
+    auxiliary_effective_session_id = context.extensions.get(
+        "auxiliary_effective_session_id"
+    )
+    assert isinstance(auxiliary_effective_session_id, str)
+    assert auxiliary_effective_session_id.startswith("aux-")
+    assert a_session_id not in auxiliary_effective_session_id
+
+    kwargs_call = deps["request_preparer"].prepare_backend_kwargs.call_args.kwargs
+    assert kwargs_call["session_id_for_backend"] == a_session_id
+    assert connector_facing_session_ids[-1] == auxiliary_effective_session_id

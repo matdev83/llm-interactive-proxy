@@ -655,7 +655,7 @@ class AnthropicController:
                     )
         except LLMProxyError as e:
             # Map domain exceptions to HTTP exceptions
-            raise map_domain_exception_to_http_exception(e)
+            raise map_domain_exception_to_http_exception(e, request=request)
         except HTTPException as e:
             # Re-raise HTTP exceptions
             raise e

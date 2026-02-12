@@ -302,6 +302,7 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | `--quality-verifier-max-history N` | `QUALITY_VERIFIER_MAX_HISTORY` | Truncate history for Quality Verifier to last N messages (optional). |
 | `--quality-verifier-max-consecutive-failures N` | `QUALITY_VERIFIER_MAX_CONSECUTIVE_FAILURES` | Trip the Angel circuit breaker after N consecutive failures (default: 5). |
 | `--quality-verifier-cooldown-seconds N` | `QUALITY_VERIFIER_COOLDOWN_SECONDS` | Cooldown period before Quality Verifier can retry (default: 300s). |
+| `--quality-verifier-ttft-timeout-seconds SECONDS` | `QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS` | Timeout for first token from Quality Verifier model before skipping (default: 30s). |
 
 ### Tool Access Control
 

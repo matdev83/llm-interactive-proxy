@@ -88,3 +88,26 @@ class ModelLimitEnforcementConfig(DomainModel):
 
     enabled: bool = True
     """Whether to enforce model limits (context window, etc.)."""
+
+
+def _default_reasoning_model_token_floors() -> dict[str, int]:
+    """Default min output tokens for reasoning-first models to prevent empty assistant messages."""
+    return {
+        "stepfun/step-3.5-flash:free": 512,
+        "kimi/kimi-for-coding": 512,
+        "kimi-for-coding": 512,
+    }
+
+
+class ReasoningModelTokenFloorConfig(DomainModel):
+    """Configuration for reasoning-model token floor (prevents empty assistant messages)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = True
+    """Whether to enforce minimum output tokens for reasoning-first models."""
+
+    models: dict[str, int] = Field(
+        default_factory=_default_reasoning_model_token_floors
+    )
+    """Model ID (normalized) -> minimum output tokens. Override or extend built-in defaults."""

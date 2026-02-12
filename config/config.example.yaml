@@ -378,6 +378,17 @@ model_registry:
 model_limit_enforcement:
   enabled: true  # Enforce context window and token limits based on registry data
 
+# Reasoning-model token floor
+# Raises low max_tokens/max_completion_tokens for reasoning-first models to prevent empty assistant messages.
+reasoning_model_token_floor:
+  enabled: true
+  # models: Model ID (normalized, e.g. stepfun/step-3.5-flash:free) -> minimum output tokens.
+  # Defaults include stepfun/step-3.5-flash:free, kimi/kimi-for-coding, kimi-for-coding at 512.
+  # Override or extend as needed:
+  # models:
+  #   stepfun/step-3.5-flash:free: 512
+  #   kimi/kimi-for-coding: 512
+
 # Codebuff WebSocket server settings
 
 # Enables WebSocket server implementing the Codebuff protocol for coding agents

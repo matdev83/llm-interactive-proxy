@@ -25,6 +25,10 @@ from src.core.interfaces.backend_request_manager_interface import IBackendReques
 from src.core.interfaces.command_processor_interface import ICommandProcessor
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.services.auxiliary_identity import (
+    build_auxiliary_effective_session_id,
+    derive_auxiliary_operation_key,
+)
 from src.core.services.request_processor_service import RequestProcessor
 
 
@@ -287,6 +291,26 @@ async def test_explicit_backend_prefix_overrides_context_backend(
 
 
 @pytest.mark.asyncio
+async def test_model_only_colon_suffix_does_not_override_context_backend(
+    request_processor: RequestProcessor,
+    request_context: RequestContext,
+    mock_session_enricher,
+) -> None:
+    """Regression: `vendor/model:free` is model-only, not explicit backend."""
+
+    request_context.backend = "gemini-oauth-auto"
+    request = ChatRequest(
+        model="openrouter/anthropic/claude-3-haiku:free",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+    mock_session_enricher.enrich.return_value = (MagicMock(), request)
+
+    await request_processor.process_request(request_context, request)
+
+    assert request_context.backend == "gemini-oauth-auto"
+
+
+@pytest.mark.asyncio
 async def test_auxiliary_routing_rewrites_model_and_isolates_session(
     request_processor: RequestProcessor,
     request_context: RequestContext,
@@ -326,8 +350,25 @@ async def test_auxiliary_routing_rewrites_model_and_isolates_session(
 
     # And the context should be marked as auxiliary (so BackendExecutor isolates it).
     assert request_context.extensions.get("auxiliary_request") is True
+    assert (
+        request_context.extensions.get("auxiliary_root_session_id")
+        == request_context.session_id
+    )
+    assert request_context.extensions.get("auxiliary_purpose") == "openai:gpt-4o-mini"
+    operation_key = request_context.extensions.get("auxiliary_operation_key")
+    assert isinstance(operation_key, str) and operation_key
+    expected_auxiliary_session_id = build_auxiliary_effective_session_id(
+        root_session_id=cast(str, request_context.session_id),
+        purpose="openai:gpt-4o-mini",
+        operation_key=derive_auxiliary_operation_key(
+            context=request_context,
+            request_data=request,
+            purpose="openai:gpt-4o-mini",
+        ),
+        attempt_ordinal=1,
+    )
     assert request_context.extensions.get("auxiliary_effective_session_id") == (
-        f"aux::{request_context.session_id}"
+        expected_auxiliary_session_id
     )
 
 

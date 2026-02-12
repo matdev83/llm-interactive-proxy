@@ -144,3 +144,51 @@ class TestBackendDiscovery:
         source = BackendInstanceFileSource(instances_dir=config_dir)
         with pytest.raises(ConfigurationError, match="Duplicate credentials path"):
             source.load(existing_instance_names=set(), resolution=ParameterResolution())
+
+    def test_default_file_instances_collapse_wildcard_family(self, tmp_path):
+        """Only one default should be created for a constrained wildcard family."""
+        config_dir = tmp_path / "config" / "backends" / "backend-instances"
+        config_dir.mkdir(parents=True)
+        source = BackendInstanceFileSource(instances_dir=config_dir)
+
+        with patch(
+            "src.core.config.sources.backend_instances.backend_registry"
+        ) as mock_registry:
+            mock_registry.get_registered_backends.return_value = [
+                "openai",
+                "gemini-oauth-free",
+                "gemini-oauth-plan",
+            ]
+            result = source.load(
+                existing_instance_names=set(),
+                resolution=ParameterResolution(),
+            )
+
+        backends = result.get("backends", {})
+        assert isinstance(backends, dict)
+        gemini_defaults = sorted(
+            name for name in backends if name.startswith("gemini-oauth-")
+        )
+        assert gemini_defaults == ["gemini-oauth-free.1"]
+
+    def test_default_file_instances_skip_family_when_existing_present(self, tmp_path):
+        """No constrained default should be added when family already has instance."""
+        config_dir = tmp_path / "config" / "backends" / "backend-instances"
+        config_dir.mkdir(parents=True)
+        source = BackendInstanceFileSource(instances_dir=config_dir)
+
+        with patch(
+            "src.core.config.sources.backend_instances.backend_registry"
+        ) as mock_registry:
+            mock_registry.get_registered_backends.return_value = [
+                "gemini-oauth-free",
+                "gemini-oauth-plan",
+            ]
+            result = source.load(
+                existing_instance_names={"gemini-oauth-plan.primary"},
+                resolution=ParameterResolution(),
+            )
+
+        backends = result.get("backends", {})
+        assert isinstance(backends, dict)
+        assert not any(name.startswith("gemini-oauth-") for name in backends)

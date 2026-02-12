@@ -44,10 +44,12 @@ class URIParameterApplicator(IURIParameterApplicator):
         """Apply URI parameters to request with precedence resolution.
 
         Sources and precedence (highest to lowest):
-        1. Session overrides (from commands)
-        2. URI parameters
-        3. Request/extra_body fields (headers)
-        4. Backend/app config
+        1. Connector-forced settings
+        2. Session overrides (from commands)
+        3. Explicit request fields
+        4. URI parameters
+        5. Request extra_body/header-like values
+        6. Backend/app config
 
         Type coercion rules:
         - temperature, top_p -> float
@@ -88,7 +90,9 @@ class URIParameterApplicator(IURIParameterApplicator):
 
         config_params = self._extract_config_params(backend_type)
         header_params = self._extract_header_params(request, backend_type)
+        request_params = self._extract_request_params(request, backend_type)
         session_params = self._extract_session_params(session, backend_type)
+        connector_forced_params = self._extract_connector_forced_params(backend_type)
         self._apply_edit_precision_overrides(request, session_params)
 
         resolved = self._resolve_parameters(
@@ -96,6 +100,8 @@ class URIParameterApplicator(IURIParameterApplicator):
             header_params=header_params,
             config_params=config_params,
             session_params=session_params,
+            request_params=request_params,
+            connector_forced_params=connector_forced_params,
             backend_type=backend_type,
         )
         if resolved is None:
@@ -220,6 +226,7 @@ class URIParameterApplicator(IURIParameterApplicator):
     def _extract_header_params(
         self, request: ChatRequest, backend_type: str
     ) -> dict[str, Any]:
+        """Extract lower-priority extra_body/header-like parameter values."""
         header_params: dict[str, Any] = {}
         try:
             if request.extra_body:
@@ -228,11 +235,6 @@ class URIParameterApplicator(IURIParameterApplicator):
                         self._assign_param(
                             header_params, param_name, request.extra_body[param_name]
                         )
-
-            for param_name in self._param_names():
-                value = getattr(request, param_name, None)
-                if value is not None:
-                    self._assign_param(header_params, param_name, value)
         except Exception as exc:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -243,6 +245,66 @@ class URIParameterApplicator(IURIParameterApplicator):
                 )
 
         return header_params
+
+    def _extract_request_params(
+        self, request: ChatRequest, backend_type: str
+    ) -> dict[str, Any]:
+        """Extract explicit request fields with higher precedence than URI params."""
+        request_params: dict[str, Any] = {}
+        try:
+            for param_name in self._param_names():
+                value = getattr(request, param_name, None)
+                if value is not None:
+                    self._assign_param(request_params, param_name, value)
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to extract explicit request parameters for %s: %s",
+                    backend_type,
+                    exc,
+                    exc_info=True,
+                )
+        return request_params
+
+    def _extract_connector_forced_params(self, backend_type: str) -> dict[str, Any]:
+        """Extract connector-enforced parameter values from backend config."""
+        forced_params: dict[str, Any] = {}
+        try:
+            if not self._config:
+                return forced_params
+
+            from src.core.config.app_config import AppConfig
+
+            app_config = cast(AppConfig, self._config)
+            backend_config = app_config.backends.get(backend_type)
+            if not backend_config:
+                return forced_params
+
+            extra_cfg = getattr(backend_config, "extra", None)
+            if not isinstance(extra_cfg, dict):
+                return forced_params
+
+            nested_forced = extra_cfg.get("connector_forced_params", {})
+            nested = nested_forced if isinstance(nested_forced, dict) else {}
+            for param_name in self._param_names():
+                explicit_key = f"forced_{param_name}"
+                if explicit_key in extra_cfg:
+                    self._assign_param(
+                        forced_params, param_name, extra_cfg[explicit_key]
+                    )
+                    continue
+                if param_name in nested:
+                    self._assign_param(forced_params, param_name, nested[param_name])
+        except Exception as exc:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Failed to extract connector-forced parameters for %s: %s",
+                    backend_type,
+                    exc,
+                    exc_info=True,
+                )
+
+        return forced_params
 
     def _extract_session_params(
         self, session: Any | None, backend_type: str
@@ -298,6 +360,8 @@ class URIParameterApplicator(IURIParameterApplicator):
         header_params: dict[str, Any],
         config_params: dict[str, Any],
         session_params: dict[str, Any],
+        request_params: dict[str, Any],
+        connector_forced_params: dict[str, Any],
         backend_type: str,
     ) -> ResolvedParameters | None:
 
@@ -313,6 +377,8 @@ class URIParameterApplicator(IURIParameterApplicator):
                 config_params=config_params,
                 session_params=session_params,
                 backend=backend_type,
+                request_params=request_params,
+                connector_forced_params=connector_forced_params,
             )
         except Exception as exc:
             if logger.isEnabledFor(logging.ERROR):

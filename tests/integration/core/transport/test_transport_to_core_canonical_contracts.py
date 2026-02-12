@@ -328,6 +328,13 @@ class TestRoutingOutputsCanonicalContracts:
 
         mock_config = MagicMock()
         mock_config.backends = SimpleNamespace(default_backend="openai")
+        mock_routing_service = MagicMock()
+        mock_routing_service.resolve_model_only_backend = MagicMock(
+            return_value="openai.1"
+        )
+        mock_routing_service.resolve_backend_instance = MagicMock(
+            return_value="openai.1"
+        )
 
         resolver = BackendModelResolver(
             session_service=mock_session_service,  # type: ignore[arg-type]
@@ -335,18 +342,12 @@ class TestRoutingOutputsCanonicalContracts:
             planning_phase_manager=mock_planning_phase_manager,  # type: ignore[arg-type]
             backend_lifecycle_manager=mock_backend_lifecycle_manager,  # type: ignore[arg-type]
             config=mock_config,  # type: ignore[arg-type]
+            routing_service=mock_routing_service,  # type: ignore[arg-type]
         )
 
         request = CanonicalChatRequest(
             model="gpt-4", messages=[ChatMessage(role="user", content="test")]
         )
-
-        # Mock routing service to return a backend instance
-        mock_routing_service = MagicMock()
-        mock_routing_service.resolve_backend_instance = MagicMock(
-            return_value="openai.1"
-        )
-        resolver._routing_service = mock_routing_service
 
         result = await resolver.resolve_target(request, context=None)
 
@@ -461,6 +462,13 @@ class TestRoutingOutputsCanonicalContracts:
         )
         mock_config = MagicMock()
         mock_config.backends = SimpleNamespace(default_backend="openai")
+        mock_routing_service = MagicMock()
+        mock_routing_service.resolve_model_only_backend = MagicMock(
+            return_value="openai.1"
+        )
+        mock_routing_service.resolve_backend_instance = MagicMock(
+            return_value="openai.1"
+        )
 
         resolver = BackendModelResolver(
             session_service=mock_session_service,  # type: ignore[arg-type]
@@ -468,13 +476,8 @@ class TestRoutingOutputsCanonicalContracts:
             planning_phase_manager=mock_planning_phase_manager,  # type: ignore[arg-type]
             backend_lifecycle_manager=mock_backend_lifecycle_manager,  # type: ignore[arg-type]
             config=mock_config,  # type: ignore[arg-type]
+            routing_service=mock_routing_service,  # type: ignore[arg-type]
         )
-
-        mock_routing_service = MagicMock()
-        mock_routing_service.resolve_backend_instance = MagicMock(
-            return_value="openai.1"
-        )
-        resolver._routing_service = mock_routing_service
 
         # This will extract URI parameters
         result = await resolver.resolve_target(request, context=None)

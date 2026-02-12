@@ -124,6 +124,23 @@ class TestRandomModelReplacementValidation:
         )
 
     @patch("src.core.cli_support.cli_args_validator.backend_registry")
+    def test_raises_when_replacement_target_is_model_only_selector(
+        self, mock_registry, validator: object, args: argparse.Namespace
+    ) -> None:
+        """Replacement target must use explicit backend:model syntax."""
+        args.replacement_enabled = True
+        args.replacement_rules = [
+            "gpt-4=openrouter/anthropic/claude-3-haiku:free",
+        ]
+        args.replacement_backend_model = None
+        mock_registry.get_registered_backends.return_value = ["openai", "openrouter"]
+
+        with pytest.raises(ValueError) as exc_info:
+            validator.validate(args)  # type: ignore[union-attr]
+
+        assert "backend:model" in str(exc_info.value)
+
+    @patch("src.core.cli_support.cli_args_validator.backend_registry")
     def test_raises_when_replacement_probability_out_of_range(
         self, mock_registry, validator: object, args: argparse.Namespace
     ) -> None:

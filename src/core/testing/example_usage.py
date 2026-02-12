@@ -135,11 +135,17 @@ class SomeComplexService:
 # Example of integrating validation into existing test infrastructure
 def create_validated_test_app() -> Any:
     """Example of creating a test app with validation."""
-    from src.core.app.test_builder import ApplicationTestBuilder
+    from src.core.app.stages import CoreServicesStage, InfrastructureStage
+    from src.core.app.test_builder import ApplicationTestBuilder, create_test_config
     from src.core.testing.type_checker import RuntimePatternChecker
 
-    # Build the app with safe stages
+    # Build the app with safe stages.
+    # InfrastructureStage and CoreServicesStage provide IApplicationState and other
+    # essentials required by _create_fastapi_app. SafeTestStage adds validated mocks.
+    # Use test_builder.create_test_config for robustness (session, logging, etc.).
     builder = ApplicationTestBuilder()
+    builder.add_stage(InfrastructureStage())
+    builder.add_stage(CoreServicesStage())
     builder.add_stage(SafeTestStage())  # Use safe stage instead of problematic one
 
     # Build the app

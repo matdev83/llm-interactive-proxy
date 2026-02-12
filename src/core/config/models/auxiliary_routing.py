@@ -10,6 +10,10 @@ from __future__ import annotations
 from pydantic import ConfigDict, Field, model_validator
 from typing_extensions import Self
 
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 from src.core.interfaces.model_bases import DomainModel
 
 
@@ -65,10 +69,26 @@ class AuxiliaryRoutingConfig(DomainModel):
     def validate_target_configured_if_enabled(self) -> Self:
         """Ensure a valid routing target is configured if enabled."""
         if self.enabled:
-            # Must have either a backend explicitly set, or a model with FQN
-            has_backend = bool(self.backend)
-            has_fqn_model = bool(self.model and ":" in self.model)
-            if not has_backend and not has_fqn_model:
+            # Must have either:
+            # 1) backend explicitly set, or
+            # 2) model with explicit backend:model syntax.
+            has_backend = bool(self.backend and self.backend.strip())
+
+            has_explicit_model_target = False
+            if self.model and has_explicit_backend_selector(self.model):
+                parsed = parse_model_backend(self.model, "")
+                has_explicit_model_target = bool(
+                    parsed.backend_type.strip() and parsed.model_name.strip()
+                )
+
+            if not has_backend and not has_explicit_model_target:
+                if self.model and ":" in self.model:
+                    raise ValueError(
+                        "Auxiliary routing model must use explicit backend:model format "
+                        "when backend is not set. "
+                        "Model-only selectors like vendor/model:variant are not valid "
+                        "for explicit backend selection."
+                    )
                 raise ValueError(
                     "Auxiliary routing is enabled but no target is configured. "
                     "Please provide --auxiliary-routing-model <backend>:<model> "

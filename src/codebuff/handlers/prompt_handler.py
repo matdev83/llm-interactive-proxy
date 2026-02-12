@@ -58,13 +58,13 @@ class PromptHandler:
         """Initialize the prompt handler.
 
         This handler historically depended on a "backend factory" that could
-        `ensure_backend(...)` and then call `backend.chat_completions(...)`.
+        construct connector instances directly for completions.
 
         The new architecture routes calls through `IBackendService`.
 
         For compatibility (and to keep older tests stable), we support both:
         - Preferred: provide `backend_service`
-        - Legacy: provide `backend_factory`
+        - Legacy: provide `backend_factory` only if it exposes `call_completion`
         """
         self._backend_service = backend_service
         # Legacy attribute expected by tests
@@ -248,6 +248,23 @@ class PromptHandler:
         # Default GPT + unknown models -> OpenAI
         return "openai"
 
+    def _resolve_completion_service(self) -> IBackendService:
+        if self._backend_service is not None:
+            return self._backend_service
+
+        if self._backend_factory is not None:
+            call_completion = getattr(self._backend_factory, "call_completion", None)
+            has_declared_completion = callable(
+                getattr(type(self._backend_factory), "call_completion", None)
+            ) or "call_completion" in getattr(self._backend_factory, "__dict__", {})
+            if callable(call_completion) and has_declared_completion:
+                return cast(IBackendService, self._backend_factory)
+
+        raise CodebuffError(
+            "No backend service configured for PromptHandler. "
+            "Provide an IBackendService-compatible dependency with call_completion().",
+        )
+
     async def _stream_response_with_tracking(
         self,
         websocket: WebSocket,
@@ -361,42 +378,14 @@ class PromptHandler:
             )
 
             response: Any
-            if self._backend_service is not None:
-                # Call backend through shared orchestrator (ensures non-forwardable enforcement)
-                response = await self._backend_service.call_completion(
-                    request=request,
-                    stream=True,
-                    allow_failover=True,
-                    context=context,
-                )
-            elif self._backend_factory is not None:
-                # Legacy path for older Codebuff wiring/tests
-                backend_type = self._determine_backend_type(model)
-                app_config = getattr(self._backend_factory, "_config", None)
-                backend_config = None
-                if app_config is not None:
-                    backends = getattr(app_config, "backends", None)
-                    if isinstance(backends, dict):
-                        backend_config = backends.get(backend_type)
-                # Type check: _backend_factory may have ensure_backend method (legacy compatibility)
-                if hasattr(self._backend_factory, "ensure_backend"):
-                    backend = await self._backend_factory.ensure_backend(  # type: ignore[attr-defined]
-                        backend_type,
-                        app_config,
-                        backend_config,
-                    )
-                else:
-                    raise AttributeError(
-                        "backend_factory does not have ensure_backend method"
-                    )
-                # The legacy backend typically returns a dict-like response or an
-                # object with `.response`.
-                response = await backend.chat_completions(request.model_dump())
-            else:
-                raise CodebuffError(
-                    "No backend configured for PromptHandler",
-                    details={"prompt_id": prompt_id},
-                )
+            completion_service = self._resolve_completion_service()
+            # All outbound inference must route through shared orchestrator.
+            response = await completion_service.call_completion(
+                request=request,
+                stream=True,
+                allow_failover=True,
+                context=context,
+            )
 
             # Handle streaming response
             if isinstance(response, StreamingResponseEnvelope):

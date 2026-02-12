@@ -16,6 +16,7 @@ from src.core.common.exceptions import (
     BackendError,
     InvalidRequestError,
     RateLimitExceededError,
+    RoutingError,
     ValidationError,
 )
 from src.core.interfaces.failure_strategy_interface import (
@@ -95,7 +96,7 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
                 reason="Content already streaming, cannot recover",
             )
 
-        # Rule 2: Max failover hops exceeded
+        # Rule 2: Max failover hops exceeded (attempt budget exhausted)
         if len(attempted_backends) >= self._config.max_failover_hops:
             logger.info(
                 "Max failover hops (%d) exceeded for model %s, surfacing error",
@@ -104,11 +105,21 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
             )
             return FailureHandlingResult(
                 decision=FailureDecision.SURFACE_ERROR,
-                error_to_surface=error,
+                error_to_surface=RoutingError(
+                    message=f"Attempt budget exhausted. Max failover hops ({self._config.max_failover_hops}) exceeded for model {model}.",
+                    details={
+                        "code": "temporarily_unavailable",
+                        "category": "availability",
+                        "retryable": True,
+                        "reason": "attempt_budget_exhausted",
+                        "model": model,
+                        "attempted_backends": attempted_backends,
+                    },
+                ),
                 reason=f"Max failover hops ({self._config.max_failover_hops}) exceeded",
             )
 
-        # Rule 3: Total timeout budget exceeded
+        # Rule 3: Total timeout budget exceeded (attempt budget exhausted)
         if elapsed_time >= self._config.total_timeout_budget:
             logger.info(
                 "Total timeout budget (%.1fs) exceeded for model %s, surfacing error",
@@ -117,7 +128,18 @@ class DefaultFailureHandlingStrategy(IFailureHandlingStrategy):
             )
             return FailureHandlingResult(
                 decision=FailureDecision.SURFACE_ERROR,
-                error_to_surface=error,
+                error_to_surface=RoutingError(
+                    message=f"Attempt budget exhausted. Total timeout budget ({self._config.total_timeout_budget}s) exceeded for model {model}.",
+                    details={
+                        "code": "temporarily_unavailable",
+                        "category": "availability",
+                        "retryable": True,
+                        "reason": "attempt_budget_exhausted",
+                        "model": model,
+                        "elapsed_time": elapsed_time,
+                        "attempted_backends": attempted_backends,
+                    },
+                ),
                 reason=f"Total timeout budget ({self._config.total_timeout_budget}s) exceeded",
             )
 

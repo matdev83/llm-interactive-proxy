@@ -17,6 +17,10 @@ import os
 import re
 from typing import Protocol
 
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 from src.core.services.backend_registry import backend_registry
 
 
@@ -361,14 +365,16 @@ class ArgumentParserBuilder:
                 f"<to-model-name> cannot be empty"
             )
 
-        # Validate to_part is in backend:model format
-        if ":" not in to_part:
+        # Validate to_part is in explicit backend:model format
+        if not has_explicit_backend_selector(to_part):
             raise argparse.ArgumentTypeError(
                 f"Invalid replacement rule format '{value}'. "
                 f"<to-model-name> must be in format 'backend:model', got '{to_part}'"
             )
 
-        to_backend, to_model = to_part.split(":", 1)
+        parsed_target = parse_model_backend(to_part, "")
+        to_backend = parsed_target.backend_type.strip()
+        to_model = parsed_target.model_name.strip()
         if not to_backend or not to_model:
             raise argparse.ArgumentTypeError(
                 f"Invalid replacement rule format '{value}'. "
@@ -384,10 +390,12 @@ class ArgumentParserBuilder:
             )
 
         # Validate from_pattern formats (wildcard, partial, or backend:model)
-        if from_pattern != "*" and ":" in from_pattern:
-            # Fully qualified format: validate it has both parts
-            from_parts = from_pattern.split(":", 1)
-            if len(from_parts) != 2 or not from_parts[0] or not from_parts[1]:
+        if from_pattern != "*" and has_explicit_backend_selector(from_pattern):
+            parsed_source = parse_model_backend(from_pattern, "")
+            if (
+                not parsed_source.backend_type.strip()
+                or not parsed_source.model_name.strip()
+            ):
                 raise argparse.ArgumentTypeError(
                     f"Invalid replacement rule format '{value}'. "
                     f"If <from-model-name> contains ':', it must be in format 'backend:model'"

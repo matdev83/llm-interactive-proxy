@@ -323,9 +323,13 @@ class ApplicationBuilder:
 
         # Validate runtime configuration semantics (e.g., static_route)
         # This must run before stage validation to fail-fast on invalid config
-        from src.core.config.semantic_validation import validate_static_route
+        from src.core.config.semantic_validation import (
+            validate_constrained_backend_instances,
+            validate_static_route,
+        )
 
         validate_static_route(config)
+        validate_constrained_backend_instances(config)
 
         # Replace DI-registered AppConfig and IConfig with runtime config instance
         # This ensures validation services see the same config that the builder was given
@@ -612,6 +616,9 @@ class ApplicationBuilder:
                     IBackendLifecycleManager,
                 )
                 from src.core.services.backend_registry import backend_registry
+                from src.core.services.backend_routing_service import (
+                    BackendRoutingService,
+                )
                 from src.core.services.backend_startup_disablement import (
                     apply_backend_disablement_at_startup,
                 )
@@ -627,10 +634,42 @@ class ApplicationBuilder:
                         env=dict(os.environ),
                         backend_lifecycle_manager=backend_lifecycle_manager,
                     )
+
+                routing_service = service_provider.get_service(BackendRoutingService)
+                if routing_service is not None:
+                    active_routing_service = routing_service
+
+                    async def _startup_capability_refresh() -> None:
+                        try:
+                            await active_routing_service.refresh_model_capabilities(
+                                reason="startup"
+                            )
+                        except Exception as exc:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Startup capability refresh failed: %s",
+                                    exc,
+                                    exc_info=True,
+                                )
+
+                    _ = asyncio.create_task(  # noqa: RUF006 - fire-and-forget
+                        _startup_capability_refresh()
+                    )
+
+                    refresh_interval_seconds = 0.0
+                    if app_config is not None and app_config.routing is not None:
+                        refresh_interval_seconds = (
+                            app_config.routing.capability_refresh_interval_seconds
+                            or 0.0
+                        )
+                    if refresh_interval_seconds > 0:
+                        _ = asyncio.create_task(  # noqa: RUF006 - fire-and-forget
+                            active_routing_service.start_model_capability_refresh()
+                        )
             except Exception as exc:
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Startup backend disablement check failed: %s",
+                        "Startup backend initialization checks failed: %s",
                         exc,
                         exc_info=True,
                     )
@@ -641,6 +680,30 @@ class ApplicationBuilder:
             # Shutdown
             if logger.isEnabledFor(logging.INFO):
                 logger.info("Shutting down application")
+
+            # Stop capability refresh loop before backend shutdown.
+            try:
+                from src.core.services.backend_routing_service import (
+                    BackendRoutingService,
+                )
+
+                routing_service = service_provider.get_service(BackendRoutingService)
+                if routing_service is not None:
+                    await routing_service.stop_model_capability_refresh()
+            except (RuntimeError, AttributeError, asyncio.CancelledError) as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to stop capability refresh: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
+            except Exception as exc:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to stop capability refresh: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
 
             # Shutdown backends to prevent resource leaks (processes, connections)
             try:

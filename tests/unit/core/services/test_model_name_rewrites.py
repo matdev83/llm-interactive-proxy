@@ -3,6 +3,7 @@
 Tests ModelAliasResolver and BackendModelResolver integration.
 """
 
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -201,6 +202,11 @@ class TestBackendModelResolverIntegration:
         planning_phase.apply_if_needed = AsyncMock()
 
         model_alias_resolver = ModelAliasResolver(config=config_with_aliases)
+        routing_service = Mock()
+        routing_service.resolve_model_only_backend = Mock(return_value="openrouter")
+        routing_service.resolve_backend_instance = Mock(
+            side_effect=lambda backend, model, excluded_backends=None: backend
+        )
 
         resolver = BackendModelResolver(
             session_service=session_service,
@@ -208,6 +214,7 @@ class TestBackendModelResolverIntegration:
             planning_phase_manager=planning_phase,
             backend_lifecycle_manager=backend_lifecycle,
             config=config_with_aliases,
+            routing_service=routing_service,  # type: ignore[arg-type]
         )
 
         request = ChatRequest(
@@ -246,6 +253,11 @@ class TestBackendModelResolverIntegration:
         planning_phase.apply_if_needed = AsyncMock()
 
         model_alias_resolver = ModelAliasResolver(config=config)
+        routing_service = Mock()
+        routing_service.resolve_model_only_backend = Mock(return_value="forced-backend")
+        routing_service.resolve_backend_instance = Mock(
+            side_effect=lambda backend, model, excluded_backends=None: backend
+        )
 
         resolver = BackendModelResolver(
             session_service=session_service,
@@ -253,6 +265,7 @@ class TestBackendModelResolverIntegration:
             planning_phase_manager=planning_phase,
             backend_lifecycle_manager=backend_lifecycle,
             config=config,
+            routing_service=routing_service,  # type: ignore[arg-type]
         )
 
         request = ChatRequest(
@@ -372,7 +385,16 @@ class TestModelAliasesConfiguration:
         import src.core.cli
 
         original_load_config = src.core.cli.load_config
-        src.core.cli.load_config = lambda path=None, resolution=None: config
+
+        def _load_config_override(
+            path: str | None = None,
+            resolution: Any | None = None,
+        ) -> AppConfig:
+            _ = path
+            _ = resolution
+            return cast(AppConfig, config)
+
+        src.core.cli.load_config = _load_config_override
 
         try:
             # apply_cli_args returns a tuple of (AppConfig, ParameterResolution)

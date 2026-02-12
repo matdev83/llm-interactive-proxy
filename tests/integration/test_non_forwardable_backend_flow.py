@@ -88,7 +88,7 @@ async def test_filtering_before_wire_capture(
 
     # Create request with both messages
     request = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[forwardable_msg, non_forwardable_msg],
     )
     context = RequestContext(
@@ -167,7 +167,7 @@ async def test_filtering_after_compaction(
 
     # Create request with tool result
     request = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[
             ChatMessage(role="user", content="Use tool"),
             tool_result_msg,
@@ -238,7 +238,7 @@ async def test_no_forwardable_content_error(
     )
 
     request = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[user_msg],
     )
     context = RequestContext(
@@ -311,7 +311,7 @@ async def test_session_scoping_no_leakage(
 
     # Create request for session 2 with same message
     request = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[msg],
     )
     context = RequestContext(

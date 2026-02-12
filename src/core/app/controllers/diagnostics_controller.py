@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
+from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from src.core.app.controllers.models_controller import get_backend_service
 from src.core.common.exceptions import ServiceResolutionError
+from src.core.interfaces.backend_lifecycle_manager_interface import (
+    IBackendLifecycleManager,
+)
 from src.core.interfaces.backend_service import IBackendService
+from src.core.interfaces.resilience_interface import IResilienceCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +58,80 @@ def _get_activity_tracker_if_enabled():
         return None
 
 
+def _get_backend_routing_service_if_available() -> Any | None:
+    """Get backend routing service if available in DI."""
+    try:
+        from src.core.di.services import get_or_build_service_provider
+        from src.core.services.backend_routing_service import BackendRoutingService
+
+        provider = get_or_build_service_provider()
+        return provider.get_service(BackendRoutingService)
+    except (ImportError, ModuleNotFoundError, ServiceResolutionError):
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Backend routing service not available", exc_info=True)
+        return None
+
+
+def _get_backend_lifecycle_manager_if_available() -> IBackendLifecycleManager | None:
+    """Get backend lifecycle manager if available in DI."""
+    try:
+        from src.core.di.services import get_or_build_service_provider
+
+        provider = get_or_build_service_provider()
+        manager = provider.get_service(cast(type, IBackendLifecycleManager))
+        if manager is None:
+            return None
+        return cast(IBackendLifecycleManager, manager)
+    except (ImportError, ModuleNotFoundError, ServiceResolutionError):
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Backend lifecycle manager not available", exc_info=True)
+        return None
+
+
+def _get_resilience_coordinator_if_available() -> IResilienceCoordinator | None:
+    """Get resilience coordinator if available in DI."""
+    try:
+        from src.core.di.services import get_or_build_service_provider
+        from src.core.services.resilience.coordinator import ResilienceCoordinator
+
+        provider = get_or_build_service_provider()
+        coordinator = provider.get_service(ResilienceCoordinator)
+        if coordinator is None:
+            return None
+        return cast(IResilienceCoordinator, coordinator)
+    except (ImportError, ModuleNotFoundError, ServiceResolutionError):
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Resilience coordinator not available", exc_info=True)
+        return None
+
+
+def _get_backend_reactivation_control_if_available():
+    """Get backend reactivation control service if available in DI."""
+    try:
+        from src.core.di.services import get_or_build_service_provider
+        from src.core.services.backend_reactivation_control import (
+            BackendReactivationControl,
+        )
+
+        provider = get_or_build_service_provider()
+        return provider.get_service(BackendReactivationControl)
+    except (ImportError, ModuleNotFoundError, ServiceResolutionError):
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Backend reactivation control not available", exc_info=True)
+        return None
+
+
+def _get_positive_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        parsed = int(raw)
+    except ValueError:
+        return default
+    return parsed if parsed > 0 else default
+
+
 class ModelInfo(BaseModel):
     """Information about a model available on a backend."""
 
@@ -84,12 +164,16 @@ class BackendInstanceInfo(BaseModel):
 
     name: str
     connector_type: str
+    availability_status: str = "active"
+    cooldown_remaining_seconds: float | None = None
     is_rate_limited: bool
     retry_after_seconds: float | None = None
     is_functional: bool
     validation_errors: list[str]
     models: list[ModelInfo]
     activity: ActivityInfo | None = None
+    proxy_routing_scope: str = "proxy_instance_model_selection"
+    connector_scheduling_scope: str = "connector_internal_and_opaque"
 
 
 class GlobalActivityInfo(BaseModel):
@@ -101,13 +185,61 @@ class GlobalActivityInfo(BaseModel):
     total_bytes_tx: int
 
 
+class RoutingEligibilityTruncationInfo(BaseModel):
+    """Boundedness metadata for routing eligibility diagnostics."""
+
+    model_limit: int
+    instances_per_model_limit: int
+    models_truncated: bool
+    models_omitted: int
+
+
+class ModelEligibilityInfo(BaseModel):
+    """Model routing eligibility summary."""
+
+    model: str
+    eligible_instances: list[str]
+    eligible_instance_count: int
+    instances_truncated: bool
+    instances_omitted: int
+    applied_preference_policy: str
+    equivalent_score_tie_sets: list[list[str]]
+
+
+class RoutingEligibilityInfo(BaseModel):
+    """Routing diagnostics metadata separated from connector internals."""
+
+    default_preference_policy: str
+    proxy_selection_scope: str
+    connector_scheduling_scope: str
+    truncation: RoutingEligibilityTruncationInfo
+    model_eligibility: list[ModelEligibilityInfo]
+
+
 class DiagnosticResponse(BaseModel):
     """Response from the diagnostics endpoint."""
 
     timestamp: float
     instances: list[BackendInstanceInfo]
+    routing: RoutingEligibilityInfo | None = None
     global_activity: GlobalActivityInfo | None = None
     activity_tracking_enabled: bool = False
+
+
+class ReactivationRequest(BaseModel):
+    """Request payload for explicit backend reactivation."""
+
+    clear_unsupported: bool = False
+
+
+class ReactivationResponse(BaseModel):
+    """Response payload for explicit backend reactivation."""
+
+    backend_instance: str
+    reactivated: bool
+    lifecycle_reactivated: bool
+    resilience_reactivated: bool
+    unsupported_pairs_cleared: int
 
 
 async def verify_local_access(request: Request) -> None:
@@ -137,7 +269,7 @@ async def get_diagnostics(
       (only when activity tracking is enabled via --enable-activity-tracking)
     """
     active_backends = backend_service.get_active_backends()
-    instances = []
+    instances: list[BackendInstanceInfo] = []
 
     # Check if activity tracking is enabled and get tracker
     activity_tracker = _get_activity_tracker_if_enabled()
@@ -153,36 +285,130 @@ async def get_diagnostics(
                     "Failed to get activity tracker snapshot: %s", e, exc_info=True
                 )
 
-    for name, backend in active_backends.items():
-        # Derive connector type from instance name (e.g., "openai.1" -> "openai")
+    routing_service = _get_backend_routing_service_if_available()
+    lifecycle_manager = _get_backend_lifecycle_manager_if_available()
+    resilience = _get_resilience_coordinator_if_available()
+
+    disabled_backends: dict[str, Any] = {}
+    if lifecycle_manager is not None:
+        try:
+            disabled_backends = lifecycle_manager.get_disabled_backends()
+        except Exception:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Failed to load disabled backends", exc_info=True)
+
+    instance_states: dict[str, dict[str, Any]] = {}
+    if resilience is not None:
+        state_manager = getattr(resilience, "state_manager", None)
+        if state_manager is not None:
+            try:
+                raw_states = state_manager.get_all_instance_states()
+                if isinstance(raw_states, dict):
+                    instance_states = raw_states
+            except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("Failed to load resilience state", exc_info=True)
+
+    routing: RoutingEligibilityInfo | None = None
+    if routing_service is not None:
+        builder = getattr(routing_service, "build_model_eligibility_diagnostics", None)
+        if callable(builder):
+            model_limit = _get_positive_int_env(
+                "LLM_PROXY_DIAGNOSTICS_MODEL_LIMIT", 200
+            )
+            instances_limit = _get_positive_int_env(
+                "LLM_PROXY_DIAGNOSTICS_INSTANCES_PER_MODEL_LIMIT", 20
+            )
+            try:
+                routing_data = builder(
+                    model_limit=model_limit,
+                    instances_per_model_limit=instances_limit,
+                )
+                if isinstance(routing_data, dict):
+                    routing = RoutingEligibilityInfo(**routing_data)
+            except Exception:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to build model eligibility diagnostics", exc_info=True
+                    )
+
+    known_instance_names = sorted(
+        set(active_backends.keys())
+        | set(disabled_backends.keys())
+        | set(instance_states.keys())
+    )
+
+    for name in known_instance_names:
+        backend = active_backends.get(name)
         connector_type = name.split(".")[0] if "." in name else name
 
-        # Get available models
-        models = []
-        try:
-            available = backend.get_available_models()
-            models = [ModelInfo(name=m) for m in available]
-        except (AttributeError, NotImplementedError, RuntimeError) as e:
-            # If listing models fails, return empty list but still show backend status
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Failed to get models for backend %s: %s",
-                    name,
-                    e,
-                    exc_info=True,
-                )
+        # Get available models for active instances.
+        models: list[ModelInfo] = []
+        if backend is not None:
+            try:
+                available = backend.get_available_models()
+                models = [ModelInfo(name=m) for m in available]
+            except (AttributeError, NotImplementedError, RuntimeError) as e:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to get models for backend %s: %s",
+                        name,
+                        e,
+                        exc_info=True,
+                    )
 
-        # Check functional status
-        is_functional = True
-        validation_errors = []
-        if hasattr(backend, "is_backend_functional"):
+        # Resolve validation + functional status.
+        is_functional = backend is not None
+        validation_errors: list[str] = []
+        if backend is not None and hasattr(backend, "is_backend_functional"):
             is_functional = backend.is_backend_functional()
-        if hasattr(backend, "get_validation_errors"):
-            validation_errors = backend.get_validation_errors()
+        if backend is not None and hasattr(backend, "get_validation_errors"):
+            validation_errors = list(backend.get_validation_errors())
+
+        state = instance_states.get(name, {})
+        availability_status = str(state.get("status", "active"))
+        cooldown_remaining = state.get("cooldown_remaining")
+
+        disabled_info = disabled_backends.get(name)
+        if disabled_info is not None:
+            availability_status = "disabled"
+            is_functional = False
+            reason = getattr(disabled_info, "reason", None)
+            if isinstance(reason, str) and reason and reason not in validation_errors:
+                validation_errors.append(reason)
+
+        # Retain backward-compatible fields while reflecting resilience state.
+        is_rate_limited = availability_status == "rate_limited"
+        retry_after_seconds = (
+            float(cooldown_remaining) if cooldown_remaining is not None else None
+        )
+        if backend is not None:
+            try:
+                backend_rate_limited = bool(backend.is_rate_limited())
+                backend_retry_after = backend.get_retry_after_remaining()
+                if backend_rate_limited:
+                    is_rate_limited = True
+                    availability_status = "rate_limited"
+                if backend_retry_after is not None:
+                    retry_after_seconds = backend_retry_after
+            except (AttributeError, RuntimeError):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Failed to read rate-limit status for backend %s",
+                        name,
+                        exc_info=True,
+                    )
+
+        if (
+            cooldown_remaining is None
+            and retry_after_seconds is not None
+            and availability_status == "rate_limited"
+        ):
+            cooldown_remaining = retry_after_seconds
 
         # Get activity info for this backend (only if tracking is enabled)
         activity_info = None
-        if activity_tracker is not None:
+        if activity_tracker is not None and backend is not None:
             try:
                 backend_activity = activity_tracker.get_backend_snapshot(name)
                 connections = [
@@ -216,8 +442,14 @@ async def get_diagnostics(
             BackendInstanceInfo(
                 name=name,
                 connector_type=connector_type,
-                is_rate_limited=backend.is_rate_limited(),
-                retry_after_seconds=backend.get_retry_after_remaining(),
+                availability_status=availability_status,
+                cooldown_remaining_seconds=(
+                    float(cooldown_remaining)
+                    if cooldown_remaining is not None
+                    else None
+                ),
+                is_rate_limited=is_rate_limited,
+                retry_after_seconds=retry_after_seconds,
                 is_functional=is_functional,
                 validation_errors=validation_errors,
                 models=models,
@@ -237,9 +469,42 @@ async def get_diagnostics(
 
     return DiagnosticResponse(
         timestamp=time.time(),
-        instances=instances,
+        instances=sorted(instances, key=lambda item: item.name),
+        routing=routing,
         global_activity=global_activity,
         activity_tracking_enabled=activity_tracking_enabled,
+    )
+
+
+@router.post(
+    "/v1/diagnostics/backends/{backend_instance}/reactivate",
+    response_model=ReactivationResponse,
+    dependencies=[Depends(verify_local_access)],
+)
+async def reactivate_backend_instance(
+    backend_instance: str,
+    payload: ReactivationRequest | None = None,
+) -> ReactivationResponse:
+    """Explicitly reactivate a disabled backend instance."""
+    control = _get_backend_reactivation_control_if_available()
+    if control is None:
+        raise HTTPException(status_code=503, detail="Reactivation service unavailable")
+
+    clear_unsupported = bool(payload.clear_unsupported) if payload else False
+    try:
+        result = control.reactivate_backend_instance(
+            backend_instance,
+            clear_unsupported=clear_unsupported,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return ReactivationResponse(
+        backend_instance=result.backend_instance,
+        reactivated=result.reactivated,
+        lifecycle_reactivated=result.lifecycle_reactivated,
+        resilience_reactivated=result.resilience_reactivated,
+        unsupported_pairs_cleared=result.unsupported_pairs_cleared,
     )
 
 

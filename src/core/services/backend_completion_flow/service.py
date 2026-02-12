@@ -47,6 +47,10 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
+from src.core.services.auxiliary_identity import (
+    build_auxiliary_effective_session_id,
+    derive_auxiliary_operation_key,
+)
 from src.core.services.b2bua_bleg_allocator_service import B2buaBlegAllocator
 from src.core.services.boundary_validation import (
     log_boundary_validation_failure,
@@ -545,6 +549,78 @@ class BackendCompletionFlow(IBackendCompletionFlow):
 
         return "initial"
 
+    @staticmethod
+    def _is_auxiliary_request(context: RequestContext | None) -> bool:
+        if context is None:
+            return False
+        extensions = getattr(context, "extensions", None)
+        if not isinstance(extensions, dict):
+            return False
+        return bool(extensions.get("auxiliary_request"))
+
+    @classmethod
+    def _refresh_auxiliary_effective_session_identity(
+        cls,
+        *,
+        context: RequestContext | None,
+        backend_type: str,
+        effective_model: str,
+    ) -> None:
+        if context is None:
+            return
+        extensions = getattr(context, "extensions", None)
+        if not isinstance(extensions, dict):
+            return
+        if not bool(extensions.get("auxiliary_request")):
+            return
+
+        root_session_id = extensions.get("auxiliary_root_session_id")
+        if not isinstance(root_session_id, str) or not root_session_id.strip():
+            context_session_id = getattr(context, "session_id", None)
+            if isinstance(context_session_id, str) and context_session_id.strip():
+                root_session_id = context_session_id
+            else:
+                return
+        normalized_root_session_id = root_session_id.strip()
+
+        purpose = extensions.get("auxiliary_purpose")
+        if not isinstance(purpose, str) or not purpose.strip():
+            purpose = f"{backend_type}:{effective_model}"
+        normalized_purpose = purpose.strip()
+
+        operation_key = extensions.get("auxiliary_operation_key")
+        if not isinstance(operation_key, str) or not operation_key.strip():
+            operation_key = derive_auxiliary_operation_key(
+                context=context,
+                request_data=None,
+                purpose=normalized_purpose,
+            )
+        normalized_operation_key = operation_key.strip()
+
+        retry_attempt_raw = extensions.get("retry_attempt")
+        retry_attempt = 0
+        if isinstance(retry_attempt_raw, int):
+            retry_attempt = max(0, retry_attempt_raw)
+        elif isinstance(retry_attempt_raw, str) and retry_attempt_raw.strip():
+            try:
+                retry_attempt = max(0, int(retry_attempt_raw.strip()))
+            except ValueError:
+                retry_attempt = 0
+        auxiliary_attempt_ordinal = retry_attempt + 1
+
+        extensions["auxiliary_root_session_id"] = normalized_root_session_id
+        extensions["auxiliary_purpose"] = normalized_purpose
+        extensions["auxiliary_operation_key"] = normalized_operation_key
+        extensions["auxiliary_attempt_ordinal"] = auxiliary_attempt_ordinal
+        extensions["auxiliary_effective_session_id"] = (
+            build_auxiliary_effective_session_id(
+                root_session_id=normalized_root_session_id,
+                purpose=normalized_purpose,
+                operation_key=normalized_operation_key,
+                attempt_ordinal=auxiliary_attempt_ordinal,
+            )
+        )
+
     async def _allocate_b2bua_attempt_context(
         self,
         *,
@@ -559,6 +635,8 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             or not isinstance(identity, B2buaIdentity)
             or self._b2bua_bleg_allocator is None
         ):
+            return context, None
+        if self._is_auxiliary_request(context):
             return context, None
 
         resolved_a_session_id = a_session_id or identity.a_session_id
@@ -686,6 +764,11 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         backend_type = target.backend
         effective_model = target.model
         uri_params = target.uri_params
+        self._refresh_auxiliary_effective_session_identity(
+            context=context,
+            backend_type=backend_type,
+            effective_model=effective_model,
+        )
 
         # Step 2: Check if complex failover applies
         if allow_failover and await self._failover_executor.check_complex_failover(
@@ -757,7 +840,11 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 backend_type=backend_type,
                 effective_model=effective_model,
             )
-            if not isinstance(getattr(context, "b2bua_identity", None), B2buaIdentity):
+            if self._is_auxiliary_request(context):
+                outbound_session_id = session_id_for_backend
+            elif not isinstance(
+                getattr(context, "b2bua_identity", None), B2buaIdentity
+            ):
                 # Legacy mode keeps the same outbound correlation semantics.
                 outbound_session_id = session_id_for_backend
 
@@ -1061,6 +1148,16 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     normalized_exc=normalized_exc,
                 )
 
+                # Record each failed attempt so routing/availability state is updated
+                # even when failover succeeds and no error escapes this call.
+                if self._resilience and not getattr(
+                    normalized_exc, "__handled_by_inner_handler__", False
+                ):
+                    self._record_failure(
+                        current_backend, effective_model, normalized_exc, context
+                    )
+                    normalized_exc.__handled_by_inner_handler__ = True  # type: ignore[attr-defined]
+
                 # 3. Record EoS error termination signal (fail-open)
                 if self._eos_adapter is not None:  # type: ignore[reportUnknownVariableType]
                     try:
@@ -1100,22 +1197,6 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     )
 
                 # No failover allowed - record failure and raise the normalized error
-                # According to Requirement 4.4: record_failure must be called when backend
-                # call fails, before re-raising the exception.
-                # We mark the exception to prevent double-calling when it propagates to
-                # the outer exception handler (which also calls record_failure for exceptions
-                # that escape the inner handler, e.g., from apply_failure_recovery failures).
-                if self._resilience:
-                    self._record_failure(
-                        current_backend, effective_model, normalized_exc, context
-                    )
-                    # Mark as handled to prevent outer handler from calling record_failure again.
-                    # This marker is necessary because when allow_failover=False, we call
-                    # record_failure here and then raise, which will be caught by the outer
-                    # handler. Without this marker, record_failure would be called twice for
-                    # the same error.
-                    normalized_exc.__handled_by_inner_handler__ = True  # type: ignore[attr-defined]
-
                 if stream:
                     return await self._build_terminal_error_stream_envelope(
                         error=normalized_exc,

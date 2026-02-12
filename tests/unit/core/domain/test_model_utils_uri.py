@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import json
 
-from src.core.domain.model_utils import parse_model_with_params
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+    parse_model_with_params,
+)
 
 
 def test_parse_model_with_single_parameter() -> None:
@@ -246,6 +250,56 @@ def test_parse_model_with_mixed_separators_and_params() -> None:
     assert result.backend_type == "openai"
     assert result.model_name == "model_group/model_name"
     assert result.uri_params == {"temperature": "0.7", "reasoning_effort": "medium"}
+
+
+def test_parse_vendor_model_suffix_with_colon_stays_model_only() -> None:
+    result = parse_model_with_params("openrouter/anthropic/claude-3-haiku:free")
+
+    assert result.backend_type == ""
+    assert result.model_name == "openrouter/anthropic/claude-3-haiku:free"
+    assert result.uri_params == {}
+
+
+def test_parse_vendor_model_suffix_with_colon_and_query_stays_model_only() -> None:
+    result = parse_model_with_params(
+        "openrouter/anthropic/claude-3-haiku:free?temperature=0.5"
+    )
+
+    assert result.backend_type == ""
+    assert result.model_name == "openrouter/anthropic/claude-3-haiku:free"
+    assert result.uri_params == {"temperature": "0.5"}
+
+
+def test_parse_backend_prefix_with_colon_in_tail_keeps_tail_intact() -> None:
+    result = parse_model_with_params("openrouter:anthropic/claude-3-haiku:free")
+
+    assert result.backend_type == "openrouter"
+    assert result.model_name == "anthropic/claude-3-haiku:free"
+    assert result.uri_params == {}
+
+
+def test_parse_backend_prefix_with_colon_in_tail_and_query_keeps_tail_intact() -> None:
+    result = parse_model_with_params(
+        "openrouter:anthropic/claude-3-haiku:free?temperature=0.5&top_p=0.7"
+    )
+
+    assert result.backend_type == "openrouter"
+    assert result.model_name == "anthropic/claude-3-haiku:free"
+    assert result.uri_params == {"temperature": "0.5", "top_p": "0.7"}
+
+
+def test_has_explicit_backend_selector_uses_colon_before_slash_rule() -> None:
+    assert has_explicit_backend_selector("openrouter:anthropic/claude-3-haiku:free")
+    assert not has_explicit_backend_selector("openrouter/anthropic/claude-3-haiku:free")
+
+
+def test_parse_model_backend_colon_after_slash_uses_default_backend() -> None:
+    parsed = parse_model_backend(
+        "openrouter/anthropic/claude-3-haiku:free", default_backend="openai"
+    )
+
+    assert parsed.backend_type == "openai"
+    assert parsed.model_name == "openrouter/anthropic/claude-3-haiku:free"
 
 
 def test_parse_model_case_sensitivity() -> None:

@@ -79,6 +79,9 @@ class ServerLifecycleManager:
         except Exception as exc:
             raise ValueError(f"Logging configuration failed: {exc}") from exc
 
+        startup_params = self._resolve_startup_params(args)
+        logger.info("CLI startup params: %s", startup_params)
+
         # Log access mode at INFO level (Requirement 1.5)
         access_mode = cfg.access_mode.mode.value
         mode_display = access_mode.replace("_", " ").title()
@@ -123,6 +126,15 @@ class ServerLifecycleManager:
 
         self.check_ports(cfg)
         await self.start_servers(app, cfg)
+
+    @staticmethod
+    def _resolve_startup_params(args: argparse.Namespace) -> list[str]:
+        """Resolve startup CLI parameters for startup logging."""
+        raw_params = getattr(args, "_raw_cli_params", None)
+        if isinstance(raw_params, list | tuple):
+            return [str(param) for param in raw_params]
+
+        return [str(param) for param in sys.argv[1:]]
 
     def is_port_in_use(self, host: str, port: int) -> bool:
         """Check if a port is in use on a given host."""

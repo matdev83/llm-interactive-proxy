@@ -42,6 +42,15 @@ class TestAuxiliaryRoutingConfig:
             AuxiliaryRoutingConfig(enabled=True)
         assert "target is configured" in str(exc.value)
 
+    def test_invalid_model_only_selector_with_colon_suffix(self):
+        """Enabled model-only selector with ':' suffix must not be treated as backend:model."""
+        with pytest.raises(ValidationError) as exc:
+            AuxiliaryRoutingConfig(
+                enabled=True,
+                model="openrouter/anthropic/claude-3-haiku:free",
+            )
+        assert "backend:model" in str(exc.value)
+
     def test_default_patterns_include_new_ones(self):
         config = AuxiliaryRoutingConfig()
         patterns = config.detection_patterns

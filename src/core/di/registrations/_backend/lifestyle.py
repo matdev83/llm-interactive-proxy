@@ -134,7 +134,7 @@ def register_backend_model_resolver(services: ServiceCollection) -> None:
             provider.get_required_service(cast(type, IBackendLifecycleManager))
         )
         config: IConfig = provider.get_required_service(cast(type, IConfig))
-        routing_service: BackendRoutingService | None = provider.get_service(
+        routing_service: BackendRoutingService = provider.get_required_service(
             BackendRoutingService
         )
         return BackendModelResolver(
@@ -155,4 +155,35 @@ def register_backend_model_resolver(services: ServiceCollection) -> None:
         services,
         cast(type, IBackendModelResolver),
         implementation_factory=lambda p: p.get_required_service(BackendModelResolver),
+    )
+
+
+def register_backend_reactivation_control(services: ServiceCollection) -> None:
+    """Register BackendReactivationControl for explicit runtime reactivation."""
+    from src.core.interfaces.backend_lifecycle_manager_interface import (
+        IBackendLifecycleManager,
+    )
+    from src.core.interfaces.resilience_interface import IResilienceCoordinator
+    from src.core.services.backend_reactivation_control import (
+        BackendReactivationControl,
+    )
+
+    def _backend_reactivation_control_factory(
+        provider: IServiceProvider,
+    ) -> BackendReactivationControl:
+        backend_lifecycle_manager: IBackendLifecycleManager = (
+            provider.get_required_service(cast(type, IBackendLifecycleManager))
+        )
+        resilience_coordinator: IResilienceCoordinator | None = provider.get_service(
+            cast(type, IResilienceCoordinator)
+        )
+        return BackendReactivationControl(
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            resilience_coordinator=resilience_coordinator,
+        )
+
+    register_singleton_if_absent(
+        services,
+        BackendReactivationControl,
+        implementation_factory=_backend_reactivation_control_factory,
     )

@@ -15,6 +15,7 @@ from src.core.common.exceptions import (
     LLMProxyError,
     RateLimitExceededError,
 )
+from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -218,11 +219,22 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         start_time: float,
         is_streaming: bool,
         content_started: bool,
-    ) -> tuple[FailureDecision, float | None, str | None]:
-        """Apply failure handling strategy to decide how to handle a backend failure."""
+    ) -> tuple[
+        FailureDecision,
+        float | None,
+        str | None,
+        Exception | None,
+    ]:
+        """Apply failure handling strategy to decide how to handle a backend failure.
+
+        Returns:
+            Tuple of (decision, wait_seconds, next_backend, error_to_surface).
+            error_to_surface is set when decision is SURFACE_ERROR and the strategy
+            provides a canonical error (e.g. RoutingError for attempt_budget_exhausted).
+        """
         if self._failure_strategy is None:
             # No failure strategy configured, surface all errors
-            return FailureDecision.SURFACE_ERROR, None, None
+            return FailureDecision.SURFACE_ERROR, None, None, None
 
         elapsed_time = time.time() - start_time
 
@@ -253,7 +265,12 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 result.reason,
             )
 
-        return result.decision, result.wait_seconds, result.next_backend
+        return (
+            result.decision,
+            result.wait_seconds,
+            result.next_backend,
+            result.error_to_surface,
+        )
 
     async def execute_retry(
         self,
@@ -295,7 +312,10 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 )
             # Only sleep here for non-streaming requests
             if not (is_streaming or getattr(request, "stream", False)):
-                await asyncio.sleep(wait_seconds)
+                await self._wait_with_cancellation_boundaries(
+                    wait_seconds=wait_seconds,
+                    session_key=session_key,
+                )
 
         # Remove from attempted to allow retry
         if attempted_backends and attempted_backends[-1] == backend_type:
@@ -315,9 +335,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
         if is_streaming or getattr(request, "stream", False):
             from src.core.services.streaming_keepalive import KeepAliveGenerator
 
-            capture_session_id = None
-            if context is not None:
-                capture_session_id = getattr(context, "session_id", None)
+            capture_session_id = self._resolve_keepalive_session_id(context)
 
             async def _wait_and_retry_stream() -> Any:
                 # 1. Yield keepalives during the wait
@@ -406,6 +424,41 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             context=context,
         )
 
+    @staticmethod
+    def _resolve_keepalive_session_id(context: RequestContext | None) -> str | None:
+        if context is None:
+            return None
+        identity = getattr(context, "b2bua_identity", None)
+        if isinstance(identity, B2buaIdentity):
+            a_session_id = identity.a_session_id.strip()
+            if a_session_id:
+                return a_session_id
+        context_session_id = getattr(context, "session_id", None)
+        if isinstance(context_session_id, str):
+            normalized_session_id = context_session_id.strip()
+            if normalized_session_id:
+                return normalized_session_id
+        return None
+
+    async def _wait_with_cancellation_boundaries(
+        self,
+        *,
+        wait_seconds: float,
+        session_key: Any | None,
+    ) -> None:
+        """Wait in bounded slices while enforcing proxy cancellation boundaries."""
+        remaining = max(0.0, float(wait_seconds))
+        while remaining > 0:
+            if self._cancellation_coordinator is not None and session_key is not None:
+                self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
+            sleep_slice = min(1.0, remaining)
+            await asyncio.sleep(sleep_slice)
+            remaining = max(0.0, remaining - sleep_slice)
+
+            if self._cancellation_coordinator is not None and session_key is not None:
+                self._cancellation_coordinator.ensure_not_cancelled(session_key)
+
     async def execute_failover(
         self,
         request: ChatRequest,
@@ -493,7 +546,7 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
             )
         )
         # Consult the failure strategy
-        failure_decision, wait_seconds, next_backend = (
+        failure_decision, wait_seconds, next_backend, error_to_surface = (
             await self.apply_failure_strategy(
                 error=normalized_error,
                 model=model,
@@ -529,6 +582,8 @@ class FailureRecoveryExecutor(IFailureRecoveryExecutor):
                 context=context,
             )
         # SURFACE_ERROR or no next backend - raise the error
+        if error_to_surface is not None:
+            raise error_to_surface
         if isinstance(error, BackendError | RateLimitExceededError | LLMProxyError):
             raise error
 

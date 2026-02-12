@@ -17,6 +17,7 @@ from src.core.config.models.misc import (
     EmptyResponseConfig,
     ModelLimitEnforcementConfig,
     ModelRegistryConfig,
+    ReasoningModelTokenFloorConfig,
     ResilienceConfig,
     UsageTrackingConfig,
 )
@@ -114,6 +115,9 @@ class AppConfigModel(DomainModel, IConfig):
     model_registry: ModelRegistryConfig = Field(default_factory=ModelRegistryConfig)
     model_limit_enforcement: ModelLimitEnforcementConfig = Field(
         default_factory=ModelLimitEnforcementConfig
+    )
+    reasoning_model_token_floor: ReasoningModelTokenFloorConfig = Field(
+        default_factory=ReasoningModelTokenFloorConfig
     )
 
     notifications: NotificationConfig = Field(default_factory=NotificationConfig)

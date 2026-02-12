@@ -111,7 +111,9 @@ class TestAttemptFailoverPlan:
         )
 
         request = ChatRequest(
-            model="gpt-4", messages=[ChatMessage(role="user", content="test")]
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="test")],
+            extra_body={"_resolved_uri_params": {"temperature": "0.4"}},
         )
         plan = [("anthropic", "claude-3-5-sonnet"), ("gemini", "gemini-2.0-flash")]
 
@@ -137,6 +139,7 @@ class TestAttemptFailoverPlan:
 
         assert request_arg is not None
         assert request_arg.extra_body["backend_type"] == "anthropic"
+        assert request_arg.extra_body["_resolved_uri_params"] == {"temperature": "0.4"}
 
     @pytest.mark.asyncio
     async def test_attempt_failover_tries_all_backends(self, failover_executor):
@@ -225,19 +228,22 @@ class TestApplyFailureStrategy:
 
         error = BackendError("test error", "openai")
 
-        decision, wait, _ = await failover_executor.apply_failure_strategy(
-            error=error,
-            model="gpt-4",
-            backend_type="openai",
-            attempted_backends=[],
-            start_time=0.0,
-            is_streaming=False,
-            content_started=False,
+        decision, wait, _, surfaced_error = (
+            await failover_executor.apply_failure_strategy(
+                error=error,
+                model="gpt-4",
+                backend_type="openai",
+                attempted_backends=[],
+                start_time=0.0,
+                is_streaming=False,
+                content_started=False,
+            )
         )
 
         # Should surface error when no strategy
         assert decision == FailureDecision.SURFACE_ERROR
         assert wait is None
+        assert surfaced_error is None
 
     @pytest.mark.asyncio
     async def test_strategy_delegates_to_failure_handler(self, mock_dependencies):
@@ -252,6 +258,7 @@ class TestApplyFailureStrategy:
         mock_decision.decision = FailureDecision.WAIT_AND_RETRY
         mock_decision.wait_seconds = 1.0
         mock_decision.next_backend = None
+        mock_decision.error_to_surface = None
         strategy.decide = Mock(return_value=mock_decision)
 
         mock_dependencies["failure_handling_strategy"] = strategy
@@ -259,17 +266,20 @@ class TestApplyFailureStrategy:
 
         error = BackendError("test error", "openai")
 
-        decision, wait, _ = await failover_executor.apply_failure_strategy(
-            error=error,
-            model="gpt-4",
-            backend_type="openai",
-            attempted_backends=[],
-            start_time=0.0,
-            is_streaming=False,
-            content_started=False,
+        decision, wait, _, surfaced_error = (
+            await failover_executor.apply_failure_strategy(
+                error=error,
+                model="gpt-4",
+                backend_type="openai",
+                attempted_backends=[],
+                start_time=0.0,
+                is_streaming=False,
+                content_started=False,
+            )
         )
 
         # Should use strategy's decision
         assert decision == FailureDecision.WAIT_AND_RETRY
         assert wait == 1.0
+        assert surfaced_error is None
         assert strategy.decide.called

@@ -30,15 +30,35 @@ def register_backend_routing_service(services: ServiceCollection) -> None:
             from src.core.interfaces.backend_config_provider_interface import (
                 IBackendConfigProvider,
             )
+            from src.core.interfaces.backend_lifecycle_manager_interface import (
+                IBackendLifecycleManager,
+            )
+            from src.core.interfaces.resilience_interface import IResilienceCoordinator
+            from src.core.services.model_capability_index import (
+                ModelCapabilityDiscoverer,
+            )
 
             config = provider.get_required_service(AppConfig)
             routing_cfg: RoutingConfig | None = getattr(config, "routing", None)
             backend_cfg_provider: IBackendConfigProvider = (
                 provider.get_required_service(cast(type, IBackendConfigProvider))
             )
+            lifecycle_manager = provider.get_service(
+                cast(type, IBackendLifecycleManager)
+            )
+            resilience_coordinator = provider.get_service(
+                cast(type, IResilienceCoordinator)
+            )
+            discoverer = ModelCapabilityDiscoverer(
+                config_provider=backend_cfg_provider,
+                backend_lifecycle_manager=lifecycle_manager,
+            )
             return BackendRoutingService(
                 config_provider=backend_cfg_provider,
                 routing_config=routing_cfg,
+                capability_discoverer=discoverer,
+                backend_lifecycle_manager=lifecycle_manager,
+                resilience_coordinator=resilience_coordinator,
             )
 
         register_singleton_if_absent(

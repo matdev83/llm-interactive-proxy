@@ -21,8 +21,29 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.core.domain.chat import ChatRequest
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_explicit_backend_target(
+    model_selector: str | None,
+) -> tuple[str, str] | None:
+    """Parse explicit backend:model selector if present and valid."""
+    if not isinstance(model_selector, str) or not model_selector:
+        return None
+    if not has_explicit_backend_selector(model_selector):
+        return None
+
+    parsed = parse_model_backend(model_selector, "")
+    backend = parsed.backend_type.strip()
+    model = parsed.model_name.strip()
+    if not backend or not model:
+        return None
+    return backend, model
 
 
 @dataclass
@@ -94,8 +115,8 @@ class AuxiliaryRequestDetector:
             return False
 
         # Check if we have a valid routing target (explicit backend or FQN model)
-        if not self._config.backend and (
-            not self._config.model or ":" not in self._config.model
+        if not self._config.backend and not _parse_explicit_backend_target(
+            self._config.model
         ):
             return False
 
@@ -182,8 +203,10 @@ class AuxiliaryRequestDetector:
         """
         backend = self._config.backend
         model = self._config.model
-        if not backend and model and ":" in model:
-            backend, model = model.split(":", 1)
+        if not backend:
+            parsed = _parse_explicit_backend_target(model)
+            if parsed is not None:
+                backend, model = parsed
         return (backend or "", model)
 
 
@@ -241,11 +264,8 @@ class AuxiliaryRequestRouter:
         Returns:
             The auxiliary backend name
         """
-        if self._config.backend:
-            return self._config.backend
-        if self._config.model and ":" in self._config.model:
-            return self._config.model.split(":", 1)[0]
-        return ""
+        backend, _ = self._detector.get_auxiliary_target()
+        return backend
 
     def get_auxiliary_model(self) -> str | None:
         """Get the effective auxiliary model name.
@@ -253,11 +273,8 @@ class AuxiliaryRequestRouter:
         Returns:
             The auxiliary model name, or None to use backend default
         """
-        if self._config.backend:
-            return self._config.model
-        if self._config.model and ":" in self._config.model:
-            return self._config.model.split(":", 1)[1]
-        return self._config.model
+        _, model = self._detector.get_auxiliary_target()
+        return model
 
     def modify_request_for_auxiliary(
         self, request: ChatRequest

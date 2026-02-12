@@ -20,6 +20,10 @@ if TYPE_CHECKING:
     from src.core.config.parameter_resolution import ParameterResolution
 
 from src.core.config.parameter_resolution import ParameterSource
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 
 
 class AuxiliaryRoutingApplicator:
@@ -55,23 +59,34 @@ class AuxiliaryRoutingApplicator:
         if getattr(args, "auxiliary_routing_model", None) is not None:
 
             model_val: str = args.auxiliary_routing_model
-            if ":" in model_val:
-                backend, model = model_val.split(":", 1)
-                aux_routing_overrides["backend"] = backend
-                aux_routing_overrides["model"] = model
+            if has_explicit_backend_selector(model_val):
+                parsed = parse_model_backend(model_val, "")
+                backend = parsed.backend_type.strip()
+                model = parsed.model_name.strip()
+                if backend and model:
+                    aux_routing_overrides["backend"] = backend
+                    aux_routing_overrides["model"] = model
 
-                resolution.record(
-                    "auxiliary_routing.backend",
-                    backend,
-                    ParameterSource.CLI,
-                    origin="--auxiliary-routing-model (parsed)",
-                )
-                resolution.record(
-                    "auxiliary_routing.model",
-                    model,
-                    ParameterSource.CLI,
-                    origin="--auxiliary-routing-model (parsed)",
-                )
+                    resolution.record(
+                        "auxiliary_routing.backend",
+                        backend,
+                        ParameterSource.CLI,
+                        origin="--auxiliary-routing-model (parsed)",
+                    )
+                    resolution.record(
+                        "auxiliary_routing.model",
+                        model,
+                        ParameterSource.CLI,
+                        origin="--auxiliary-routing-model (parsed)",
+                    )
+                else:
+                    aux_routing_overrides["model"] = model_val
+                    resolution.record(
+                        "auxiliary_routing.model",
+                        model_val,
+                        ParameterSource.CLI,
+                        origin="--auxiliary-routing-model",
+                    )
             else:
                 aux_routing_overrides["model"] = model_val
                 resolution.record(

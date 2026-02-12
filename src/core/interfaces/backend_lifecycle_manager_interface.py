@@ -83,6 +83,17 @@ class IBackendLifecycleManager(ABC):
         """
 
     @abstractmethod
+    def reactivate(self, backend_type: str) -> bool:
+        """Explicitly reactivate a previously disabled backend type.
+
+        Args:
+            backend_type: The backend type to reactivate.
+
+        Returns:
+            True when disabled state was cleared, False when backend was not disabled.
+        """
+
+    @abstractmethod
     def get_active_backends(self) -> dict[str, LLMBackend]:
         """Get all active backend instances.
 

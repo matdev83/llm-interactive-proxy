@@ -111,6 +111,15 @@ Zero changes to your client code. Just point it at the proxy and gain control.
 
 See [User Guide](docs/user_guide/index.md) for the complete feature list.
 
+## Routing Selector Semantics
+
+- `backend:model` selects an explicit backend family.
+- `backend-instance:model` (for example `openai.1:gpt-4o`) targets a concrete backend instance.
+- `model` and `vendor/model` are model-only selectors.
+- `vendor/model:variant` remains model-only (the `:` suffix is part of the model payload unless `:` appears before the first `/`).
+- URI-style parameters in selectors (for example `model?temperature=0.5`) are parsed and propagated through routing metadata.
+- Explicit-backend configuration and command surfaces (for example `--static-route`, replacement targets, and one-off routing) require strict `backend:model` format.
+
 ## Architecture
 
 ```mermaid
@@ -160,13 +169,18 @@ graph TD
 The proxy exposes multiple standard API surfaces, allowing you to use your favorite clients with any backend:
 
 - **OpenAI Chat Completions** (`/v1/chat/completions`) - Compatible with OpenAI SDKs and most tools.
+- **Reasoning-model token floor guard** - For reasoning-first models (e.g. `openrouter:stepfun/step-3.5-flash:free`, `kimi-code:kimi/kimi-for-coding`), explicit low `max_tokens`/`max_completion_tokens` values are raised to a configurable minimum (default 512) to prevent empty assistant messages. Configure via `reasoning_model_token_floor` in app config.
 - **OpenAI Responses** (`/v1/responses`) - Optimized for structured output generation.
-- **OpenAI Models** (`/v1/models`) - Unified model discovery across all backends.
+- **OpenAI Models** (`/v1/models`) - Canonical backend-agnostic model discovery from the capability index (canonical `vendor/model` IDs only).
 - **[Anthropic Messages](docs/user_guide/backends/anthropic.md#using-anthropic-messages-api-directly)** (`/anthropic/v1/messages`) - Native support for Claude clients/SDKs.
 - **Dedicated Anthropic Server** (`http://host:8001/v1/messages`) - Drop-in replacement for Anthropic API on a separate port (default: 8001).
 - **Google Gemini v1beta** (`/v1beta/models`, `:generateContent`) - Native support for Gemini tools.
+- **Routing Error Parity** - Dynamic routing failures are emitted in protocol-native error envelopes while preserving canonical `details.code` and `details.retryable` semantics across OpenAI, Anthropic, and Gemini surfaces.
 
 See [Front-End APIs Overview](docs/user_guide/backends/overview.md#front-end-apis) for more details.
+
+- **Diagnostics Endpoint** (`/v1/diagnostics`) includes bounded routing metadata: availability status per backend instance (`active`, `rate_limited`, `disabled`), canonical model-to-eligible-instance summaries, preference/tie-set diagnostics, and deterministic truncation metadata.
+- **Reactivation Control Endpoint** (`/v1/diagnostics/backends/{backend_instance}/reactivate`) explicitly reactivates disabled backend instances and can optionally clear permanent unsupported `(instance, model)` state.
 
 ## Supported Backends
 
@@ -227,6 +241,9 @@ python -m ruff --fix check .
 
 # Format code
 python -m black .
+
+# Validate unified outbound routing compliance (same check as CI gate)
+python dev/scripts/check_routing_unification_compliance.py
 ```
 
 See [Development Guide](docs/development_guide/index.md) for more details.

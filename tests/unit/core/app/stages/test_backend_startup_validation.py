@@ -53,6 +53,7 @@ class TestBackendStageDelegation:
 
         mock_provider = Mock(spec=IServiceProvider)
         mock_provider.get_required_service = Mock(return_value=mock_validator)
+        mock_provider.get_service = Mock()
 
         with (
             patch(
@@ -66,6 +67,7 @@ class TestBackendStageDelegation:
         mock_provider.get_required_service.assert_called_once_with(
             cast(type, IBackendValidator)
         )
+        mock_provider.get_service.assert_not_called()
         mock_validator.validate_all.assert_called_once_with(app_config)
 
     @pytest.mark.asyncio

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 from src.core.app.controllers.diagnostics_controller import (
@@ -10,6 +11,7 @@ from src.core.app.controllers.diagnostics_controller import (
     DiagnosticResponse,
     GlobalActivityInfo,
     get_activity,
+    get_diagnostics,
 )
 from src.core.domain.connection_activity import ConnectionType
 from src.core.services.connection_activity_tracker import (
@@ -183,3 +185,210 @@ class TestActivityEndpointDirect:
             assert result.total_active_connections == 0
             assert result.total_bytes_rx == 0
             assert result.total_bytes_tx == 0
+
+
+class TestRoutingDiagnostics:
+    @pytest.mark.asyncio
+    async def test_get_diagnostics_includes_routing_eligibility_metadata(self) -> None:
+        backend = MagicMock()
+        backend.get_available_models.return_value = ["openai/gpt-4o"]
+        backend.is_rate_limited.return_value = False
+        backend.get_retry_after_remaining.return_value = None
+        backend.is_backend_functional.return_value = True
+        backend.get_validation_errors.return_value = []
+
+        backend_service = MagicMock()
+        backend_service.get_active_backends.return_value = {"openai.1": backend}
+
+        routing_service = MagicMock()
+        routing_service.build_model_eligibility_diagnostics.return_value = {
+            "default_preference_policy": "cost",
+            "proxy_selection_scope": "proxy_instance_model_selection",
+            "connector_scheduling_scope": "connector_internal_and_opaque",
+            "truncation": {
+                "model_limit": 200,
+                "instances_per_model_limit": 20,
+                "models_truncated": False,
+                "models_omitted": 0,
+            },
+            "model_eligibility": [
+                {
+                    "model": "openai/gpt-4o",
+                    "eligible_instances": ["openai.1", "openai.2"],
+                    "eligible_instance_count": 2,
+                    "instances_truncated": False,
+                    "instances_omitted": 0,
+                    "applied_preference_policy": "cost",
+                    "equivalent_score_tie_sets": [["openai.1", "openai.2"]],
+                }
+            ],
+        }
+
+        state_manager = MagicMock()
+        state_manager.get_all_instance_states.return_value = {
+            "openai.1": {
+                "status": "rate_limited",
+                "cooldown_remaining": 7.5,
+                "disabled_reason": None,
+                "disabled_at": None,
+            }
+        }
+        state_manager.get_all_model_states.return_value = {}
+        resilience = MagicMock()
+        resilience.state_manager = state_manager
+
+        lifecycle = MagicMock()
+        lifecycle.get_disabled_backends.return_value = {}
+
+        with (
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_backend_routing_service_if_available",
+                return_value=routing_service,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_resilience_coordinator_if_available",
+                return_value=resilience,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_backend_lifecycle_manager_if_available",
+                return_value=lifecycle,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_activity_tracker_if_enabled",
+                return_value=None,
+            ),
+        ):
+            result = await get_diagnostics(backend_service=backend_service)
+
+        assert result.routing is not None
+        assert result.routing.default_preference_policy == "cost"
+        assert result.routing.model_eligibility[0].model == "openai/gpt-4o"
+        assert result.routing.model_eligibility[0].equivalent_score_tie_sets == [
+            ["openai.1", "openai.2"]
+        ]
+        assert result.instances[0].availability_status == "rate_limited"
+        assert result.instances[0].cooldown_remaining_seconds == 7.5
+
+    @pytest.mark.asyncio
+    async def test_get_diagnostics_surfaces_disabled_instance_and_truncation(
+        self,
+    ) -> None:
+        backend_service = MagicMock()
+        backend_service.get_active_backends.return_value = {}
+
+        routing_service = MagicMock()
+        routing_service.build_model_eligibility_diagnostics.return_value = {
+            "default_preference_policy": "round_robin",
+            "proxy_selection_scope": "proxy_instance_model_selection",
+            "connector_scheduling_scope": "connector_internal_and_opaque",
+            "truncation": {
+                "model_limit": 1,
+                "instances_per_model_limit": 1,
+                "models_truncated": True,
+                "models_omitted": 2,
+            },
+            "model_eligibility": [],
+        }
+
+        disabled_info = SimpleNamespace(reason="auth failed", timestamp=1234.5)
+        lifecycle = MagicMock()
+        lifecycle.get_disabled_backends.return_value = {"openai.9": disabled_info}
+
+        state_manager = MagicMock()
+        state_manager.get_all_instance_states.return_value = {}
+        state_manager.get_all_model_states.return_value = {}
+        resilience = MagicMock()
+        resilience.state_manager = state_manager
+
+        with (
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_backend_routing_service_if_available",
+                return_value=routing_service,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_resilience_coordinator_if_available",
+                return_value=resilience,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_backend_lifecycle_manager_if_available",
+                return_value=lifecycle,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_activity_tracker_if_enabled",
+                return_value=None,
+            ),
+        ):
+            result = await get_diagnostics(backend_service=backend_service)
+
+        disabled = next(item for item in result.instances if item.name == "openai.9")
+        assert disabled.availability_status == "disabled"
+        assert disabled.validation_errors == ["auth failed"]
+        assert result.routing is not None
+        assert result.routing.truncation.models_truncated is True
+        assert result.routing.truncation.models_omitted == 2
+
+    @pytest.mark.asyncio
+    async def test_get_diagnostics_reflects_reactivation_visibility_transition(
+        self,
+    ) -> None:
+        backend = MagicMock()
+        backend.get_available_models.return_value = ["openai/gpt-4o"]
+        backend.is_rate_limited.return_value = False
+        backend.get_retry_after_remaining.return_value = None
+        backend.is_backend_functional.return_value = True
+        backend.get_validation_errors.return_value = []
+
+        backend_service = MagicMock()
+
+        routing_service = MagicMock()
+        routing_service.build_model_eligibility_diagnostics.return_value = {
+            "default_preference_policy": "round_robin",
+            "proxy_selection_scope": "proxy_instance_model_selection",
+            "connector_scheduling_scope": "connector_internal_and_opaque",
+            "truncation": {
+                "model_limit": 200,
+                "instances_per_model_limit": 20,
+                "models_truncated": False,
+                "models_omitted": 0,
+            },
+            "model_eligibility": [],
+        }
+
+        lifecycle = MagicMock()
+        lifecycle.get_disabled_backends.side_effect = [
+            {"openai.1": SimpleNamespace(reason="auth failed", timestamp=10.0)},
+            {},
+        ]
+
+        state_manager = MagicMock()
+        state_manager.get_all_instance_states.return_value = {}
+        state_manager.get_all_model_states.return_value = {}
+        resilience = MagicMock()
+        resilience.state_manager = state_manager
+
+        with (
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_backend_routing_service_if_available",
+                return_value=routing_service,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_resilience_coordinator_if_available",
+                return_value=resilience,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_backend_lifecycle_manager_if_available",
+                return_value=lifecycle,
+            ),
+            patch(
+                "src.core.app.controllers.diagnostics_controller._get_activity_tracker_if_enabled",
+                return_value=None,
+            ),
+        ):
+            backend_service.get_active_backends.return_value = {}
+            disabled_view = await get_diagnostics(backend_service=backend_service)
+
+            backend_service.get_active_backends.return_value = {"openai.1": backend}
+            active_view = await get_diagnostics(backend_service=backend_service)
+
+        assert disabled_view.instances[0].availability_status == "disabled"
+        assert active_view.instances[0].availability_status == "active"

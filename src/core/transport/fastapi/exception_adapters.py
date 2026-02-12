@@ -23,10 +23,140 @@ from src.core.common.exceptions import (
     LLMProxyError,
     LoopDetectionError,
     RateLimitExceededError,
+    RoutingError,
     ServiceUnavailableError,
 )
 
 logger = logging.getLogger(__name__)
+
+_ROUTING_PROTOCOL_DEFAULT = "frontend_default"
+_ROUTING_PROTOCOL_MESSAGES = "frontend_messages"
+_ROUTING_PROTOCOL_GENERATE = "frontend_generate"
+
+
+def _detect_protocol(request: Request | None) -> str:
+    """Infer frontend protocol from request path."""
+    if request is None:
+        return _ROUTING_PROTOCOL_DEFAULT
+
+    path = request.url.path.lower()
+    if path.startswith(("/anthropic/", "/v1/messages")):
+        return _ROUTING_PROTOCOL_MESSAGES
+    if path.startswith("/v1beta/"):
+        return _ROUTING_PROTOCOL_GENERATE
+    return _ROUTING_PROTOCOL_DEFAULT
+
+
+def _infer_routing_code_from_status(status_code: int) -> str:
+    if status_code == status.HTTP_404_NOT_FOUND:
+        return "unknown_model"
+    if status_code == status.HTTP_400_BAD_REQUEST:
+        return "unsupported_on_instance"
+    if status_code == status.HTTP_403_FORBIDDEN:
+        return "policy_rejected"
+    return "temporarily_unavailable"
+
+
+def _gemini_status_name(status_code: int) -> str:
+    mapping = {
+        status.HTTP_400_BAD_REQUEST: "INVALID_ARGUMENT",
+        status.HTTP_401_UNAUTHORIZED: "UNAUTHENTICATED",
+        status.HTTP_403_FORBIDDEN: "PERMISSION_DENIED",
+        status.HTTP_404_NOT_FOUND: "NOT_FOUND",
+        status.HTTP_409_CONFLICT: "ABORTED",
+        status.HTTP_429_TOO_MANY_REQUESTS: "RESOURCE_EXHAUSTED",
+        status.HTTP_500_INTERNAL_SERVER_ERROR: "INTERNAL",
+        status.HTTP_503_SERVICE_UNAVAILABLE: "UNAVAILABLE",
+    }
+    return mapping.get(status_code, "UNKNOWN")
+
+
+def _build_canonical_routing_envelope(
+    exc: RoutingError, status_code: int
+) -> dict[str, Any]:
+    details_obj = getattr(exc, "details", None)
+    details_dict = dict(details_obj) if isinstance(details_obj, dict) else {}
+
+    code_obj = details_dict.get("code")
+    code = (
+        code_obj
+        if isinstance(code_obj, str) and code_obj
+        else _infer_routing_code_from_status(status_code)
+    )
+
+    category_obj = details_dict.get("category")
+    if isinstance(category_obj, str) and category_obj:
+        category = category_obj
+    elif code == "unknown_model":
+        category = "validation"
+    elif code == "policy_rejected":
+        category = "policy"
+    else:
+        category = "availability"
+
+    retryable_obj = details_dict.get("retryable")
+    retryable = (
+        retryable_obj
+        if isinstance(retryable_obj, bool)
+        else code == "temporarily_unavailable"
+    )
+
+    canonical_details = dict(details_dict)
+    canonical_details["code"] = code
+    canonical_details["category"] = category
+    canonical_details["retryable"] = retryable
+
+    return {
+        "code": code,
+        "category": category,
+        "retryable": retryable,
+        "message": str(getattr(exc, "message", str(exc))),
+        "details": canonical_details,
+    }
+
+
+def _map_routing_error_detail_for_protocol(
+    *,
+    protocol: str,
+    envelope: dict[str, Any],
+    status_code: int,
+) -> dict[str, Any]:
+    details = envelope["details"]
+    message = str(envelope["message"])
+
+    if protocol == _ROUTING_PROTOCOL_MESSAGES:
+        return {
+            "type": "error",
+            "error": {
+                "type": "routing_error",
+                "message": message,
+                "details": envelope,
+            },
+            "details": details,
+        }
+
+    if protocol == _ROUTING_PROTOCOL_GENERATE:
+        return {
+            "error": {
+                "code": status_code,
+                "message": message,
+                "status": _gemini_status_name(status_code),
+                "details": envelope,
+            },
+            "details": details,
+        }
+
+    # OpenAI-compatible default.
+    return {
+        "message": message,
+        "type": "RoutingError",
+        "details": details,
+        "error": {
+            "message": message,
+            "type": "routing_error",
+            "details": envelope,
+        },
+    }
 
 
 def _build_retry_after_header(reset_at: float | None) -> dict[str, str] | None:
@@ -61,7 +191,11 @@ def _resolve_retry_after_header(exc: LLMProxyError) -> dict[str, str] | None:
     return None
 
 
-def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
+def map_domain_exception_to_http_exception(
+    exc: LLMProxyError,
+    *,
+    request: Request | None = None,
+) -> HTTPException:
     """Map a domain exception to a FastAPI HTTP exception.
 
     Args:
@@ -106,6 +240,30 @@ def map_domain_exception_to_http_exception(exc: LLMProxyError) -> HTTPException:
             status_code = status.HTTP_502_BAD_GATEWAY
     elif isinstance(exc, LoopDetectionError):
         status_code = status.HTTP_400_BAD_REQUEST
+    elif isinstance(exc, RoutingError):
+        details_obj = getattr(exc, "details", None) or {}
+        if isinstance(details_obj, dict):
+            details_code = details_obj.get("code")
+            if details_code == "unknown_model":
+                status_code = status.HTTP_404_NOT_FOUND
+            elif details_code == "unsupported_on_instance":
+                status_code = status.HTTP_400_BAD_REQUEST
+            elif details_code == "temporarily_unavailable":
+                status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            elif details_code == "policy_rejected":
+                status_code = status.HTTP_403_FORBIDDEN
+
+        envelope = _build_canonical_routing_envelope(exc, status_code)
+        routing_detail = _map_routing_error_detail_for_protocol(
+            protocol=_detect_protocol(request),
+            envelope=envelope,
+            status_code=status_code,
+        )
+        return HTTPException(
+            status_code=status_code,
+            detail=routing_detail,
+            headers=headers,
+        )
 
     # Convert exception details to a dict for the response
     detail: str | dict[str, Any] = (
@@ -135,7 +293,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def domain_exception_handler(
         request: Request, exc: LLMProxyError
     ) -> Response:
-        http_exception = map_domain_exception_to_http_exception(exc)
+        http_exception = map_domain_exception_to_http_exception(exc, request=request)
         return Response(
             content=json.dumps(http_exception.detail),
             status_code=http_exception.status_code,
@@ -151,6 +309,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     app.exception_handler(InvalidRequestError)(domain_exception_handler)
     app.exception_handler(LoopDetectionError)(domain_exception_handler)
     app.exception_handler(RateLimitExceededError)(domain_exception_handler)
+    app.exception_handler(RoutingError)(domain_exception_handler)
     app.exception_handler(ServiceUnavailableError)(domain_exception_handler)
 
     # Register a generic exception handler for unhandled exceptions

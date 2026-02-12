@@ -16,6 +16,7 @@ from src.core.common.exceptions import (
     ConfigurationError,
     InvalidRequestError,
     RateLimitExceededError,
+    RoutingError,
 )
 from src.core.config.app_config import AppConfig
 from src.core.domain.b2bua_identity import B2buaIdentity
@@ -584,3 +585,16 @@ class TestExceptionAdapters:
         http_exc = map_domain_exception_to_http_exception(expired_rate_error)
         assert http_exc.status_code == 429
         assert http_exc.headers == {"Retry-After": "0"}
+
+        # Test RoutingError status codes by details.code
+        for code, expected_status in [
+            ("unknown_model", 404),
+            ("unsupported_on_instance", 400),
+            ("temporarily_unavailable", 503),
+            ("policy_rejected", 403),
+        ]:
+            routing_error = RoutingError("routing failed", details={"code": code})
+            http_exc = map_domain_exception_to_http_exception(routing_error)
+            assert http_exc.status_code == expected_status, (
+                f"RoutingError with code={code} should map to {expected_status}"
+            )

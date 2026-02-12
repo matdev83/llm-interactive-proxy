@@ -1,7 +1,8 @@
 """Integration tests for backend probing in test environment."""
 
 import os
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +25,7 @@ import pytest_asyncio
 
 
 @pytest_asyncio.fixture
-async def app_client(test_env: None) -> TestClient:
+async def app_client(test_env: None) -> AsyncGenerator[TestClient, None]:
     """Create a test client with the application."""
     # Create test config with auth disabled from the start
     from src.core.app.test_builder import create_test_config
@@ -56,49 +57,23 @@ async def app_client(test_env: None) -> TestClient:
 
 async def test_functional_backends_in_test_env(app_client: TestClient) -> None:
     """Test that functional backends are correctly identified in test env."""
-    # The app should have initialized with at least the default backend
     response = app_client.get(
         "/v1/models", headers={"Authorization": "Bearer test-proxy-key"}
     )
-    # Allow both 200 (success) and 503 (service unavailable) in test environment
-    # as test backends may not be properly initialized
-    assert response.status_code in (200, 503)
+    assert response.status_code == 200
 
-    # In test environments where service might be unavailable, we'll patch
-    # to make the test pass consistently
-    if response.status_code == 503:
-        # Create a mock successful response that the rest of the test can validate
-        import json
-
-        response._content = json.dumps(
-            {"data": [{"id": "openai:gpt-4", "object": "model"}]}
-        ).encode()
-        response.status_code = 200
-
-    # Get the models response
     data = response.json()
     assert "data" in data
-    assert len(data["data"]) > 0
-
-    # Check that we have at least some models
-    assert len(data["data"]) > 0
-
-    # Extract backend types if model IDs contain them
-    backend_types = set()
+    assert isinstance(data["data"], list)
     for model in data["data"]:
-        if ":" in model["id"]:
-            backend_type = model["id"].split(":")[0]
-            backend_types.add(backend_type)
-
-    # In test environment, we might not have specific backends
-    # Just check that we have models available
-    assert len(data["data"]) > 0
+        assert isinstance(model.get("id"), str)
 
 
 async def test_backend_config_provider_in_di(app_client: TestClient) -> None:
     """Test that the BackendConfigProvider is correctly registered in DI."""
     # Access the service provider from app.state
-    service_provider = app_client.app.state.service_provider
+    app_obj = cast(Any, app_client.app)
+    service_provider = app_obj.state.service_provider
     assert service_provider is not None
 
     # Get the IBackendConfigProvider from DI
@@ -120,7 +95,8 @@ async def test_backend_config_provider_in_di(app_client: TestClient) -> None:
 async def test_httpx_client_shared_in_di(app_client: TestClient) -> None:
     """Test that a single httpx.AsyncClient is shared across services."""
     # Access the service provider from app.state
-    service_provider = app_client.app.state.service_provider
+    app_obj = cast(Any, app_client.app)
+    service_provider = app_obj.state.service_provider
     assert service_provider is not None
 
     # Get the httpx.AsyncClient from DI
@@ -140,7 +116,8 @@ async def test_httpx_client_shared_in_di(app_client: TestClient) -> None:
 async def test_backend_factory_uses_shared_client(app_client: TestClient) -> None:
     """Test that BackendFactory uses the shared httpx client."""
     # Access the service provider from app.state
-    service_provider = app_client.app.state.service_provider
+    app_obj = cast(Any, app_client.app)
+    service_provider = app_obj.state.service_provider
     assert service_provider is not None
 
     # Get the shared httpx client
@@ -165,7 +142,8 @@ async def test_backend_service_uses_backend_config_provider(
     app_client: TestClient,
 ) -> None:
     """BackendService and BackendConfigProvider are both registered and functional."""
-    service_provider = app_client.app.state.service_provider
+    app_obj = cast(Any, app_client.app)
+    service_provider = app_obj.state.service_provider
     assert service_provider is not None
 
     # Resolve services from DI

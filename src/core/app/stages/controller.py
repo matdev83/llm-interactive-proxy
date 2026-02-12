@@ -145,6 +145,7 @@ class ControllerStage(InitializationStage):
         """Register models controller with backend service dependency."""
         from src.core.app.controllers.models_controller import ModelsController
         from src.core.interfaces.backend_service_interface import IBackendService
+        from src.core.services.backend_routing_service import BackendRoutingService
 
         def models_controller_factory(provider: IServiceProvider) -> ModelsController:
             """Factory function for creating ModelsController."""
@@ -153,7 +154,8 @@ class ControllerStage(InitializationStage):
             backend_service: IBackendService = provider.get_required_service(
                 cast(type, IBackendService)
             )
-            return ModelsController(backend_service)
+            routing_service = provider.get_service(BackendRoutingService)
+            return ModelsController(backend_service, routing_service=routing_service)
 
         # Register as singleton
         services.add_singleton(

@@ -12,10 +12,15 @@ from typing import Any, cast
 
 from pydantic.types import JsonValue
 
+from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
 from src.core.domain.configuration.backend_config import BackendConfiguration
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_with_params,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
@@ -30,6 +35,9 @@ from src.core.interfaces.session_service_interface import ISessionService
 from src.core.services.backend_routing_service import BackendRoutingService
 
 logger = logging.getLogger(__name__)
+
+_RESOLVED_URI_PARAMS_CONTEXT_KEY = "resolved_uri_params"
+_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY = "_resolved_uri_params"
 
 
 class BackendModelResolver(IBackendModelResolver):
@@ -51,7 +59,7 @@ class BackendModelResolver(IBackendModelResolver):
         planning_phase_manager: IPlanningPhaseManager,
         backend_lifecycle_manager: IBackendLifecycleManager,
         config: IConfig,
-        routing_service: BackendRoutingService | None = None,
+        routing_service: BackendRoutingService,
     ):
         """Initialize the backend model resolver.
 
@@ -61,7 +69,7 @@ class BackendModelResolver(IBackendModelResolver):
             planning_phase_manager: Manager for planning phase application
             backend_lifecycle_manager: Manager for backend lifecycle
             config: Application configuration
-            routing_service: Optional service for backend routing and discovery
+            routing_service: Shared dynamic routing service
         """
         self._session_service = session_service
         self._model_alias_resolver = model_alias_resolver
@@ -137,29 +145,36 @@ class BackendModelResolver(IBackendModelResolver):
 
         # Parse model string with URI parameters
         uri_params: dict[str, JsonValue] = {}
+        preserved_uri_params = self._extract_preserved_uri_params(request, context)
 
         if not backend_type:
             # No backend type set yet - parse from model string
-            from src.core.domain.model_utils import parse_model_with_params
-
             # Pass empty string as default to detect if backend was specified
             parsed = parse_model_with_params(effective_model, "")
+            backend_selected_by_model_only = False
+            explicit_backend_requested = bool(parsed.backend_type)
 
-            # Try backend discovery if no backend was parsed
-            if not parsed.backend_type and self._routing_service:
-                discovered = self._routing_service.resolve_backend_instance(
-                    None, parsed.model_name, excluded_backends
+            # Resolve model-only selectors via the shared routing path.
+            if not parsed.backend_type:
+                parsed.backend_type = self._routing_service.resolve_model_only_backend(
+                    parsed.model_name,
+                    excluded_backends=excluded_backends,
                 )
-                if discovered:
-                    parsed.backend_type = discovered
+                backend_selected_by_model_only = True
 
-            # Fallback to default backend if discovery failed or not used
-            backend_type = parsed.backend_type or default_backend
+            backend_type = parsed.backend_type
             effective_model = parsed.model_name
-            uri_params = parsed.uri_params
+            uri_params = (
+                parsed.uri_params if parsed.uri_params else dict(preserved_uri_params)
+            )
 
             # Route the backend type (either parsed or default)
-            if self._routing_service:
+            should_route_backend_type = (
+                backend_selected_by_model_only
+                or explicit_backend_requested
+                or backend_type != default_backend
+            )
+            if should_route_backend_type:
                 resolved = self._routing_service.resolve_backend_instance(
                     backend_type, effective_model, excluded_backends
                 )
@@ -169,29 +184,48 @@ class BackendModelResolver(IBackendModelResolver):
                             f"RoutingService resolved '{backend_type}' -> '{resolved}'"
                         )
                     backend_type = resolved
+                else:
+                    raise RoutingError(
+                        message=(
+                            f"No available backend instance for '{backend_type}:{effective_model}'."
+                        ),
+                        details=self._build_temporarily_unavailable_details(
+                            backend_type=backend_type,
+                            model=effective_model,
+                        ),
+                    )
 
         else:
             # Backend type already set (from session or extra_body)
             # Still need to parse URI parameters from the model string
-            from src.core.domain.model_utils import parse_model_with_params
-
             # Parse with empty default backend since we already have backend_type
             parsed = parse_model_with_params(effective_model, "")
             parsed_model = parsed.model_name
-            uri_params = parsed.uri_params
+            uri_params = (
+                parsed.uri_params if parsed.uri_params else dict(preserved_uri_params)
+            )
             effective_model = parsed_model
 
-            # Try to route the explicitly set backend
-            if self._routing_service:
-                resolved = self._routing_service.resolve_backend_instance(
-                    backend_type, effective_model, excluded_backends
+            # Route the explicitly set backend.
+            resolved = self._routing_service.resolve_backend_instance(
+                backend_type, effective_model, excluded_backends
+            )
+            if resolved:
+                if logger.isEnabledFor(logging.DEBUG) and resolved != backend_type:
+                    logger.debug(
+                        f"RoutingService resolved '{backend_type}' -> '{resolved}'"
+                    )
+                backend_type = resolved
+            else:
+                raise RoutingError(
+                    message=(
+                        f"No available backend instance for '{backend_type}:{effective_model}'."
+                    ),
+                    details=self._build_temporarily_unavailable_details(
+                        backend_type=backend_type,
+                        model=effective_model,
+                    ),
                 )
-                if resolved:
-                    if logger.isEnabledFor(logging.DEBUG) and resolved != backend_type:
-                        logger.debug(
-                            f"RoutingService resolved '{backend_type}' -> '{resolved}'"
-                        )
-                    backend_type = resolved
 
         # Apply static_route override if configured
         if (
@@ -200,22 +234,38 @@ class BackendModelResolver(IBackendModelResolver):
             and app_config.backends.static_route
         ):
             static_route = app_config.backends.static_route
-            # Parse backend:model format (check it's a string first)
-            if isinstance(static_route, str) and ":" in static_route:
-                forced_backend, forced_model = static_route.split(":", 1)
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Applying static_route override: {backend_type}:{effective_model} -> {forced_backend}:{forced_model}"
+            # Parse static route via canonical parser so URI-like params are handled
+            # the same way as request model selectors.
+            if isinstance(static_route, str):
+                parsed_static = parse_model_with_params(static_route, "")
+
+                if has_explicit_backend_selector(static_route):
+                    forced_backend = parsed_static.backend_type
+                    forced_model = parsed_static.model_name
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            f"Applying static_route override: {backend_type}:{effective_model} -> {forced_backend}:{forced_model}"
+                        )
+                    backend_type = forced_backend
+                    effective_model = forced_model
+                else:
+                    raise ConfigurationError(
+                        message=(
+                            "Invalid runtime static_route. "
+                            "Expected explicit backend:model selector."
+                        ),
+                        details={
+                            "error_code": "invalid_static_route_format",
+                            "static_route": static_route,
+                            "expected_format": "<backend_name>:<model_name>",
+                        },
                     )
-                backend_type = forced_backend
-                effective_model = forced_model
-            else:
-                # If no colon, treat as model only
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        f"Applying static_route model override: {effective_model} -> {static_route}"
-                    )
-                effective_model = static_route
+
+                if parsed_static.uri_params:
+                    # Static-route parameters override request-provided URI params.
+                    uri_params = {**uri_params, **parsed_static.uri_params}
+
+        self._persist_uri_params_in_context(context, uri_params)
 
         return BackendTarget(
             backend=backend_type,
@@ -249,7 +299,7 @@ class BackendModelResolver(IBackendModelResolver):
         # However, if the backend was overridden (e.g., via static_route), update the model.
         should_update_model = False
         if request.model != effective_model:
-            if ":" in request.model:
+            if has_explicit_backend_selector(request.model):
                 # Model has backend prefix - check if it matches the resolved backend
                 request_backend, _ = request.model.split(":", 1)
                 if request_backend != backend_type:
@@ -264,10 +314,25 @@ class BackendModelResolver(IBackendModelResolver):
             updates["model"] = effective_model
 
         extra_body = getattr(request, "extra_body", None)
-        if isinstance(extra_body, dict):
-            updated_extra_body = dict(extra_body)
-            extra_changed = False
+        resolved_uri_params = dict(resolved.uri_params)
+        updated_extra_body: dict[str, Any] = (
+            dict(extra_body) if isinstance(extra_body, dict) else {}
+        )
+        extra_changed = False
+        existing_uri_params = updated_extra_body.get(
+            _RESOLVED_URI_PARAMS_EXTRA_BODY_KEY
+        )
+        if resolved_uri_params:
+            if existing_uri_params != resolved_uri_params:
+                updated_extra_body[_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY] = (
+                    resolved_uri_params
+                )
+                extra_changed = True
+        elif _RESOLVED_URI_PARAMS_EXTRA_BODY_KEY in updated_extra_body:
+            updated_extra_body.pop(_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
+            extra_changed = True
 
+        if isinstance(extra_body, dict):
             if updated_extra_body.get("model") != effective_model:
                 updated_extra_body["model"] = effective_model
                 extra_changed = True
@@ -281,10 +346,82 @@ class BackendModelResolver(IBackendModelResolver):
                 updated_extra_body.pop("backend_type")
                 extra_changed = True
 
-            if extra_changed:
-                updates["extra_body"] = updated_extra_body
+        if extra_changed:
+            updates["extra_body"] = updated_extra_body
 
         if not updates:
             return request
 
         return request.model_copy(update=updates)
+
+    @staticmethod
+    def _normalize_uri_params(raw_value: Any) -> dict[str, JsonValue]:
+        if not isinstance(raw_value, dict):
+            return {}
+        normalized: dict[str, JsonValue] = {}
+        for key, value in raw_value.items():
+            if not isinstance(key, str):
+                continue
+            if isinstance(value, dict):
+                if all(isinstance(nested_key, str) for nested_key in value):
+                    normalized[key] = cast(dict[str, JsonValue], value)
+                continue
+            if isinstance(value, list):
+                normalized[key] = cast(list[JsonValue], value)
+                continue
+            if isinstance(value, str | int | float | bool) or value is None:
+                normalized[key] = value
+        return normalized
+
+    @classmethod
+    def _extract_preserved_uri_params(
+        cls,
+        request: ChatRequest,
+        context: RequestContext | None,
+    ) -> dict[str, JsonValue]:
+        if context is not None:
+            context_value = context.extensions.get(_RESOLVED_URI_PARAMS_CONTEXT_KEY)
+            normalized_context = cls._normalize_uri_params(context_value)
+            if normalized_context:
+                return normalized_context
+
+        extra_body = getattr(request, "extra_body", None)
+        if isinstance(extra_body, dict):
+            extra_value = extra_body.get(_RESOLVED_URI_PARAMS_EXTRA_BODY_KEY)
+            normalized_extra = cls._normalize_uri_params(extra_value)
+            if normalized_extra:
+                return normalized_extra
+
+        return {}
+
+    @staticmethod
+    def _persist_uri_params_in_context(
+        context: RequestContext | None,
+        uri_params: dict[str, JsonValue],
+    ) -> None:
+        if context is None:
+            return
+        context.extensions[_RESOLVED_URI_PARAMS_CONTEXT_KEY] = dict(uri_params)
+
+    @staticmethod
+    def _build_unknown_model_details(*, model: str) -> dict[str, Any]:
+        return {
+            "code": "unknown_model",
+            "category": "validation",
+            "retryable": False,
+            "model": model,
+        }
+
+    @staticmethod
+    def _build_temporarily_unavailable_details(
+        *,
+        backend_type: str,
+        model: str,
+    ) -> dict[str, Any]:
+        return {
+            "code": "temporarily_unavailable",
+            "category": "availability",
+            "retryable": True,
+            "backend_type": backend_type,
+            "model": model,
+        }

@@ -181,6 +181,64 @@ class TestConfigInjection:
             )
 
     @pytest.mark.asyncio
+    async def test_merged_constrained_validation_runs_before_config_registration(
+        self,
+    ) -> None:
+        """Startup must run merged constrained-family validation before DI registration."""
+        builder = ApplicationBuilder()
+        builder.add_stage(MockValidationStage())
+        custom_config = AppConfig()
+        call_order: list[str] = []
+
+        def track_import(*args, **kwargs):
+            call_order.append("import")
+
+        def track_static_route(*args, **kwargs):
+            call_order.append("validate_static_route")
+
+        def track_constrained_validation(*args, **kwargs):
+            call_order.append("validate_constrained_backends")
+
+        def track_register(*args, **kwargs):
+            call_order.append("register_config")
+
+        with (
+            patch("importlib.import_module", side_effect=track_import),
+            patch(
+                "src.core.config.semantic_validation.validate_static_route",
+                side_effect=track_static_route,
+            ),
+            patch(
+                "src.core.config.semantic_validation.validate_constrained_backend_instances",
+                side_effect=track_constrained_validation,
+            ),
+            patch.object(builder._services, "add_instance", side_effect=track_register),
+            patch.object(
+                builder._services, "build_service_provider"
+            ) as mock_build_provider,
+            patch(
+                "src.core.di.provider_lifecycle.temporary_service_provider"
+            ) as mock_temp_provider,
+        ):
+            mock_provider = MagicMock(spec=IServiceProvider)
+            mock_build_provider.return_value = mock_provider
+            mock_temp_provider.return_value.__enter__ = MagicMock()
+            mock_temp_provider.return_value.__exit__ = MagicMock(return_value=False)
+
+            with contextlib.suppress(Exception):
+                await builder.build(custom_config)
+
+            assert call_order.index("import") < call_order.index(
+                "validate_static_route"
+            )
+            assert call_order.index("validate_static_route") < call_order.index(
+                "validate_constrained_backends"
+            )
+            assert call_order.index("validate_constrained_backends") < call_order.index(
+                "register_config"
+            )
+
+    @pytest.mark.asyncio
     async def test_runtime_config_replaces_existing_config_by_object_identity(
         self,
     ) -> None:

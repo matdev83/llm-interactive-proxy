@@ -76,3 +76,21 @@ async def test_oneoff_failure_invalid_format(
     # Assert
     assert result.success is False
     assert "Invalid format" in result.message
+
+
+@pytest.mark.asyncio
+async def test_oneoff_rejects_model_only_selector_with_colon_suffix(
+    command: OneoffCommand, mock_session: Mock
+):
+    # Arrange
+    args = {"openrouter/anthropic/claude-3-haiku:free": True}
+
+    # Act
+    result = await command.execute(args, mock_session)
+
+    # Assert
+    assert result.success is False
+    assert "backend:model" in result.message
+    assert "model-only selector" in result.message.lower()
+    assert result.data is not None
+    assert result.data.get("error_code") == "invalid_explicit_backend_selector"

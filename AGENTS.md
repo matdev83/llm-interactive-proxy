@@ -1,13 +1,17 @@
-<!-- KIRO-SPEC:START -->
-# Kiro Spec-Driven Development
+# Rules for coding agents
 
-## When to Use Kiro Specs
+Language: **English**.
+
+<!-- KIRO-SPEC:START -->
+## Kiro Spec-Driven Development
+
+### When to Use Kiro Specs
 
 **Suggest spec workflow** when request involves: new features, breaking changes, architecture shifts, complex integrations, or unclear requirements needing structured analysis.
 
 **Code directly** for: quick fixes, simple bugs, trivial changes, or when user explicitly says "just code this".
 
-## Opt-In Scope (Important)
+### Opt-In Scope (Important)
 
 Kiro specs are **user-driven and opt-in**.
 
@@ -17,7 +21,7 @@ Kiro specs are **user-driven and opt-in**.
   - explicitly says to use Kiro/spec workflow.
 - If the user does **not** mention Kiro or a spec name/path, proceed with normal engineering work. You may still suggest a spec workflow for complex requests, but do not block implementation by default.
 
-## Kiro Commands (User-Triggered)
+### Kiro Commands (User-Triggered)
 
 When working on specs, the user will invoke `/kiro:*` commands. Follow the instructions provided in each command's context.
 

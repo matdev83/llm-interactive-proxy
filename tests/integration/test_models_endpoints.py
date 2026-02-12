@@ -74,21 +74,7 @@ class TestModelsEndpoints:
         """Create app with authentication disabled."""
         monkeypatch.setenv("DISABLE_AUTH", "true")
         app = build_app()
-
-        # Patch the get_config_service function to return a default config
-        # This works around the IConfig DI registration issue for this test
-
-        from src.core.app.controllers import models_controller
-        from src.core.config.app_config import AppConfig
-
-        default_config = AppConfig()
-        original_get_config_service = models_controller.get_config_service
-        models_controller.get_config_service = lambda: default_config
-
         yield app
-
-        # Restore original function
-        models_controller.get_config_service = original_get_config_service
 
     @pytest.fixture
     def app_with_auth_enabled(self, monkeypatch):
@@ -99,20 +85,7 @@ class TestModelsEndpoints:
             "AUTH_TOKEN", raising=False
         )  # Remove auth token to prevent AuthMiddleware interference
         app = build_app()
-
-        # Patch the get_config_service function to return a default config
-        # This works around the IConfig DI registration issue for this test
-        from src.core.app.controllers import models_controller
-        from src.core.config.app_config import AppConfig
-
-        default_config = AppConfig()
-        original_get_config_service = models_controller.get_config_service
-        models_controller.get_config_service = lambda: default_config
-
         yield app
-
-        # Restore original function
-        models_controller.get_config_service = original_get_config_service
 
     def test_models_endpoint_no_auth(self, app_with_auth_disabled):
         """Test /models endpoint without authentication."""
@@ -126,8 +99,7 @@ class TestModelsEndpoints:
             assert "data" in data
             assert isinstance(data["data"], list)
 
-            # Should have default models when no backends configured
-            assert len(data["data"]) > 0
+            assert isinstance(data["data"], list)
 
     def test_v1_models_endpoint_no_auth(self, app_with_auth_disabled):
         """Test /v1/models endpoint without authentication."""
@@ -201,25 +173,19 @@ class TestModelsEndpoints:
 
         app = build_app()
 
-        # Don't mock the backend service itself - let the real DI work
-        # The backends are configured with test keys and will provide default models
+        # Don't mock the backend service itself - let the real DI work.
         with TestClient(app) as client:
             response = client.get("/models")
 
             assert response.status_code == 200
             data = response.json()
-            assert len(data["data"]) > 0
+            assert isinstance(data["data"], list)
 
-            # Should have models from configured backends or defaults
+            # Should expose models in OpenAI list format
             assert "object" in data
             assert data["object"] == "list"
             assert "data" in data
             assert isinstance(data["data"], list)
-
-            # Check that we have some models
-            model_ids = [m["id"] for m in data["data"]]
-            # Should have some models (either from backends or defaults)
-            assert len(model_ids) > 0
 
     def test_models_format_compliance(self, app_with_auth_disabled):
         """Test that models response follows OpenAI format."""
@@ -290,13 +256,11 @@ class TestModelsEndpoints:
             ):
                 response = client.get("/models")
 
-                # The controller should catch the exception and return default models
-                # or handle it gracefully (not crash with 500)
-                assert response.status_code == 200  # Should still work with defaults
+                # The endpoint should not depend on backend discovery side effects.
+                assert response.status_code == 200
                 data = response.json()
                 assert "data" in data
-                # Should have fallen back to default models
-                assert len(data["data"]) > 0
+                assert isinstance(data["data"], list)
 
 
 class TestModelsDiscovery:

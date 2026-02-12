@@ -1,6 +1,7 @@
 import asyncio
 import socket
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.core.cli_support.server_lifecycle_manager import ServerLifecycleManager
@@ -168,6 +169,77 @@ class TestServerLifecycleManager:
             pytest.raises(SystemExit),
         ):
             manager.check_ports(mock_config)
+
+    def test_resolve_startup_params_prefers_raw_cli_params(self, manager):
+        """Startup params should use parsed raw CLI params when available."""
+        args = MagicMock()
+        args._raw_cli_params = ["--enable-replacement", "--replacement-turn-count", "3"]
+
+        resolved = manager._resolve_startup_params(args)
+
+        assert resolved == [
+            "--enable-replacement",
+            "--replacement-turn-count",
+            "3",
+        ]
+
+    def test_resolve_startup_params_falls_back_to_sys_argv(self, manager):
+        """Startup params should fall back to sys.argv when raw params are absent."""
+        args = MagicMock()
+        args._raw_cli_params = None
+
+        with patch("sys.argv", ["python", "-m", "src.core.cli", "--foo", "bar"]):
+            resolved = manager._resolve_startup_params(args)
+
+        assert resolved == ["-m", "src.core.cli", "--foo", "bar"]
+
+    @pytest.mark.asyncio
+    async def test_run_logs_cli_startup_params(self, manager):
+        """Server startup should emit the CLI params in the configured log stream."""
+        args = MagicMock()
+        args.daemon = False
+        args.allow_admin = False
+        args._raw_cli_params = ["--enable-replacement", "--replacement-turn-count", "3"]
+
+        cfg = MagicMock(spec=AppConfig)
+        cfg.access_mode = SimpleNamespace(mode=SimpleNamespace(value="single_user"))
+        cfg.host = "127.0.0.1"
+        cfg.port = 8000
+        cfg.anthropic_port = None
+        cfg.auth = SimpleNamespace(trusted_ips=[])
+        cfg.logging = SimpleNamespace(log_file=None, use_colors=False, level="INFO")
+
+        with (
+            patch.object(manager, "handle_daemon_mode", return_value=False),
+            patch.object(
+                manager._logging_configurator, "apply_pid_suffixes", return_value=cfg
+            ),
+            patch.object(manager._logging_configurator, "configure"),
+            patch.object(manager._privilege_checker, "check_privileges"),
+            patch.object(manager._access_mode_validator, "validate"),
+            patch.object(manager, "check_ports"),
+            patch.object(manager, "start_servers", new_callable=AsyncMock),
+            patch.object(manager, "_build_app_async_fn", new_callable=AsyncMock),
+            patch(
+                "src.core.cli_support.server_lifecycle_manager.logger.info"
+            ) as mock_logger_info,
+        ):
+            # Configure async callables
+            manager._build_app_async_fn.return_value = MagicMock()
+
+            await manager.run(args, cfg)
+
+            startup_param_logs = [
+                call
+                for call in mock_logger_info.call_args_list
+                if call.args and call.args[0] == "CLI startup params: %s"
+            ]
+            assert startup_param_logs
+            assert startup_param_logs[0].args[1] == [
+                "--enable-replacement",
+                "--replacement-turn-count",
+                "3",
+            ]
 
     @pytest.mark.asyncio
     async def test_start_servers(self, manager, mock_config):

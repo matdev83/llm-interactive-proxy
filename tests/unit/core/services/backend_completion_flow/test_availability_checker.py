@@ -1,7 +1,11 @@
 from unittest.mock import Mock
 
 import pytest
-from src.core.common.exceptions import BackendError, RateLimitExceededError
+from src.core.common.exceptions import (
+    BackendError,
+    RateLimitExceededError,
+    RoutingError,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
@@ -103,6 +107,27 @@ class TestBackendAvailabilityChecker:
         await checker.check_backend_availability(
             backend_type="openai", effective_model="gpt-4", allow_failover=True
         )
+
+    @pytest.mark.asyncio
+    async def test_raises_routing_error_for_permanent_unsupported_pair(
+        self, checker, lifecycle_manager, resilience_coordinator
+    ):
+        lifecycle_manager.get_disabled_backends.return_value = {}
+        resilience_coordinator.check_availability.return_value = ResilienceDecision(
+            action=ActionType.REJECT,
+            reason="Model permanently unsupported on openai.1",
+            cooldown_remaining=None,
+        )
+
+        with pytest.raises(RoutingError) as exc:
+            await checker.check_backend_availability(
+                backend_type="openai.1",
+                effective_model="gpt-4",
+                allow_failover=True,
+            )
+
+        assert exc.value.details is not None
+        assert exc.value.details.get("code") == "unsupported_on_instance"
 
     @pytest.mark.asyncio
     async def test_scopes_personal_backend_with_session_id(

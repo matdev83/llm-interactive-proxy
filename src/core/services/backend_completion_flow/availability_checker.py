@@ -6,7 +6,11 @@ import logging
 import time
 from typing import Any
 
-from src.core.common.exceptions import RateLimitExceededError, ServiceUnavailableError
+from src.core.common.exceptions import (
+    RateLimitExceededError,
+    RoutingError,
+    ServiceUnavailableError,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.backend_completion_collaborators import (
     IBackendAvailabilityChecker,
@@ -82,16 +86,54 @@ class BackendAvailabilityChecker(IBackendAvailabilityChecker):
             instance_id = build_resilience_instance_id(backend_type, context)
             decision = self._resilience.check_availability(instance_id, effective_model)
             if not decision.should_proceed():
+                normalized_reason = decision.reason.lower()
+                if "unsupported" in normalized_reason:
+                    raise RoutingError(
+                        message=decision.reason
+                        or "Model unsupported on selected backend",
+                        details={
+                            "code": "unsupported_on_instance",
+                            "category": "availability",
+                            "retryable": False,
+                            "backend_type": backend_type,
+                            "model": effective_model,
+                            "reason": decision.reason,
+                        },
+                    )
+
+                if "disabled" in normalized_reason and not decision.cooldown_remaining:
+                    raise ServiceUnavailableError(
+                        message=decision.reason or "Backend instance disabled",
+                        details={"backend": backend_type, "reason": decision.reason},
+                    )
+
                 cooldown_info = (
                     f" (retry after {decision.cooldown_remaining:.1f}s)"
                     if decision.cooldown_remaining
                     else ""
                 )
-                raise RateLimitExceededError(
-                    message=f"{decision.reason}{cooldown_info}",
-                    reset_at=(
-                        time.time() + decision.cooldown_remaining
-                        if decision.cooldown_remaining
-                        else None
-                    ),
+                if decision.cooldown_remaining:
+                    raise RateLimitExceededError(
+                        message=f"{decision.reason}{cooldown_info}",
+                        details={
+                            "code": "temporarily_unavailable",
+                            "category": "availability",
+                            "retryable": True,
+                            "backend_type": backend_type,
+                            "model": effective_model,
+                            "reason": decision.reason,
+                        },
+                        reset_at=time.time() + decision.cooldown_remaining,
+                    )
+
+                raise RoutingError(
+                    message=decision.reason or "Backend temporarily unavailable",
+                    details={
+                        "code": "temporarily_unavailable",
+                        "category": "availability",
+                        "retryable": True,
+                        "backend_type": backend_type,
+                        "model": effective_model,
+                        "reason": decision.reason,
+                    },
                 )

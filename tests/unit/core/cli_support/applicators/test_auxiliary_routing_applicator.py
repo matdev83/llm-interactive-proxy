@@ -127,6 +127,24 @@ class TestAuxiliaryRoutingApplicator:
         assert overrides["auxiliary_routing"]["model"] == "google/gemini-flash-1.5"
         assert overrides["auxiliary_routing"]["max_message_count"] == 5
 
+    def test_model_only_selector_with_colon_suffix_is_not_split(
+        self,
+        applicator,
+        empty_args: CliArgs,
+        overrides: CliOverrides,
+        resolution: ParameterResolution,
+    ) -> None:
+        """Model-only selectors like vendor/model:free remain model-only."""
+        empty_args.auxiliary_routing_model = "openrouter/anthropic/claude-3-haiku:free"
+        applicator.apply(empty_args, overrides, resolution)
+
+        assert "auxiliary_routing" in overrides
+        assert "backend" not in overrides["auxiliary_routing"]
+        assert (
+            overrides["auxiliary_routing"]["model"]
+            == "openrouter/anthropic/claude-3-haiku:free"
+        )
+
     def test_no_overrides_when_no_args(
         self,
         applicator,

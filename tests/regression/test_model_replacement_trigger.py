@@ -269,10 +269,14 @@ async def test_replacement_uses_stable_b2bua_scope_key_without_client_session_id
 async def test_quality_verifier_eligible_turn_count_continues_across_b2bua_session_rotation() -> (
     None
 ):
-    """Quality Verifier scheduling uses continuity key when A-leg session ids rotate."""
-    request_data = ChatRequest(
+    """Quality Verifier continuity survives B2BUA rotation and message-hash churn."""
+    request_data_1 = ChatRequest(
         model="kimi-code:kimi/kimi-for-coding",
-        messages=[ChatMessage(role="user", content="same conversation")],
+        messages=[ChatMessage(role="user", content="conversation turn one")],
+    )
+    request_data_2 = ChatRequest(
+        model="kimi-code:kimi/kimi-for-coding",
+        messages=[ChatMessage(role="user", content="conversation turn two")],
     )
 
     app_state = MagicMock()
@@ -308,21 +312,23 @@ async def test_quality_verifier_eligible_turn_count_continues_across_b2bua_sessi
     backend_executor = MagicMock()
 
     session_enricher.enrich = AsyncMock(
-        side_effect=[(_new_session(), request_data), (_new_session(), request_data)]
+        side_effect=[(_new_session(), request_data_1), (_new_session(), request_data_2)]
     )
     session_manager.resolve_session_id = AsyncMock(
         side_effect=["llm-b2bua-ephemeral-1", "llm-b2bua-ephemeral-2"]
     )
-    request_side_effects.apply = AsyncMock(return_value=request_data)
+    request_side_effects.apply = AsyncMock(side_effect=lambda _ctx, _sid, req: req)
     command_handler.handle = AsyncMock(
         return_value=ProcessedResult(
-            modified_messages=list(request_data.messages),
+            modified_messages=list(request_data_1.messages),
             command_executed=False,
             command_results=[],
         )
     )
-    backend_preparer.prepare = AsyncMock(return_value=request_data)
-    transform_pipeline.transform = AsyncMock(return_value=request_data)
+    backend_preparer.prepare = AsyncMock(side_effect=lambda _ctx, _sid, req, _res: req)
+    transform_pipeline.transform = AsyncMock(
+        side_effect=lambda _ctx, _sess, _sid, req: req
+    )
     backend_executor.execute = AsyncMock(return_value=MagicMock())
 
     processor = RequestProcessor(
@@ -365,11 +371,18 @@ async def test_quality_verifier_eligible_turn_count_continues_across_b2bua_sessi
         ),
     )
 
-    await processor.process_request(context_1, request_data)
-    await processor.process_request(context_2, request_data)
+    await processor.process_request(context_1, request_data_1)
+    await processor.process_request(context_2, request_data_2)
 
     assert context_1.extensions.get("quality_verifier_eligible_turn_count") == 1
     assert context_2.extensions.get("quality_verifier_eligible_turn_count") == 2
+    assert context_1.extensions.get(
+        "replacement_effective_session_id"
+    ) != context_2.extensions.get("replacement_effective_session_id")
+    assert (
+        context_1.extensions.get("quality_verifier_effective_session_id")
+        == "b2bua-scope:user-123"
+    )
     assert context_1.extensions.get(
         "quality_verifier_effective_session_id"
     ) == context_2.extensions.get("quality_verifier_effective_session_id")

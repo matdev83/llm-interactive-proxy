@@ -8,7 +8,6 @@ from src.core.domain.responses import ResponseEnvelope
 
 
 class MockBackend:
-
     """Mock LLM backend for testing."""
 
     def __init__(self):
@@ -44,13 +43,12 @@ class MockBackend:
         )
 
 
-
 class MockBackendFactory:
     """Mock backend factory for testing."""
 
     def __init__(self):
         self._config = AppConfig()
-        self._backends = {}
+        self._backends: dict[str, MockBackend] = {}
 
     def create_backend(self, backend_type: str, config: AppConfig | None = None):
         """Create a mock backend."""

@@ -12,6 +12,9 @@ except ModuleNotFoundError:  # pragma: no cover
     yaml = None  # type: ignore
 
 from src.core.common.exceptions import ConfigurationError
+from src.core.config.constrained_backend_policy import (
+    match_constrained_connector_family,
+)
 from src.core.config.parameter_resolution import ParameterResolution, ParameterSource
 from src.core.services.backend_registry import backend_registry
 
@@ -203,20 +206,36 @@ class BackendInstanceFileSource:
             "gemini-cli-cloud-project",
             "anthropic-oauth",
         }
+        available_connectors = sorted(
+            file_based_connectors.intersection(registered_backends)
+        )
+        all_instance_names = existing_instance_names.union(discovered.keys())
+        claimed_constrained_families: set[str] = set()
 
-        for connector in file_based_connectors:
-            if connector not in registered_backends:
-                continue
-
-            has_any_instance = any(
-                name.startswith(f"{connector}.")
-                for name in existing_instance_names.union(discovered.keys())
-            )
-            if has_any_instance:
-                continue
+        for connector in available_connectors:
+            constrained_family = match_constrained_connector_family(connector)
+            if constrained_family:
+                if constrained_family in claimed_constrained_families:
+                    continue
+                has_any_instance = any(
+                    match_constrained_connector_family(name) == constrained_family
+                    for name in all_instance_names
+                )
+                if has_any_instance:
+                    claimed_constrained_families.add(constrained_family)
+                    continue
+            else:
+                has_any_instance = any(
+                    name.startswith(f"{connector}.") for name in all_instance_names
+                )
+                if has_any_instance:
+                    continue
 
             instance_name = f"{connector}.1"
             discovered[instance_name] = {"connector": connector}
+            all_instance_names.add(instance_name)
+            if constrained_family:
+                claimed_constrained_families.add(constrained_family)
             logger.info(
                 "Created default instance '%s' for file-based connector '%s'",
                 instance_name,

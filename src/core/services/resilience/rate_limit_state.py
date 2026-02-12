@@ -1,7 +1,7 @@
 """
 Rate limit state management for the resilience layer.
 
-This module tracks rate-limit state at two granularities:
+This module tracks availability state at two granularities:
 1. Backend Instance (e.g., "openai.1") - affects ALL models on that instance
 2. (Instance, Model) pair (e.g., ("openai.1", "gpt-4o")) - affects only that model
 
@@ -47,6 +47,9 @@ class ModelState:
 
     cooldown_until: float | None = None  # Unix timestamp when cooldown ends
     retry_count: int = 0  # Number of consecutive failures
+    unsupported_permanent: bool = False
+    unsupported_reason: str | None = None
+    unsupported_at: float | None = None
 
 
 @dataclass
@@ -250,12 +253,22 @@ class RateLimitStateManager:
         # Check model-specific cooldown
         key = (instance_id, model)
         state = self._model_state.get(key)
-        if not state or state.cooldown_until is None:
+        if not state:
+            return True
+
+        if state.unsupported_permanent:
+            return False
+
+        if state.cooldown_until is None:
             return True
 
         if time.time() >= state.cooldown_until:
             # Cooldown expired, remove from state
-            self._model_state.pop(key, None)
+            if state.unsupported_permanent:
+                state.cooldown_until = None
+                self._model_state[key] = state
+            else:
+                self._model_state.pop(key, None)
             return True
 
         return False
@@ -281,12 +294,28 @@ class RateLimitStateManager:
         key = (instance_id, model)
         state = self._model_state.get(key)
 
-        if not state or state.cooldown_until is None:
+        if not state:
+            return AvailabilityResult(available=True)
+
+        if state.unsupported_permanent:
+            return AvailabilityResult(
+                available=False,
+                reason=(
+                    f"Model {model} permanently unsupported on {instance_id}: "
+                    f"{state.unsupported_reason or 'unknown reason'}"
+                ),
+            )
+
+        if state.cooldown_until is None:
             return AvailabilityResult(available=True)
 
         if time.time() >= state.cooldown_until:
             # Cooldown expired, remove from state
-            self._model_state.pop(key, None)
+            if state.unsupported_permanent:
+                state.cooldown_until = None
+                self._model_state[key] = state
+            else:
+                self._model_state.pop(key, None)
             return AvailabilityResult(available=True)
 
         remaining = state.cooldown_until - time.time()
@@ -312,6 +341,13 @@ class RateLimitStateManager:
         key = (instance_id, model)
 
         existing = self._model_state.get(key)
+        if existing and existing.unsupported_permanent:
+            logger.debug(
+                "Model %s on %s is permanently unsupported, ignoring cooldown request",
+                model,
+                instance_id,
+            )
+            return
         retry_count = existing.retry_count + 1 if existing else 1
 
         self._model_state[key] = ModelState(
@@ -324,6 +360,56 @@ class RateLimitStateManager:
             instance_id,
             retry_after_seconds,
         )
+
+    def mark_model_unsupported(self, instance_id: str, model: str, reason: str) -> None:
+        """Mark a specific (instance, model) pair as permanently unsupported."""
+        key = (instance_id, model)
+        existing = self._model_state.get(key)
+        retry_count = existing.retry_count if existing else 0
+        self._model_state[key] = ModelState(
+            cooldown_until=None,
+            retry_count=retry_count,
+            unsupported_permanent=True,
+            unsupported_reason=reason,
+            unsupported_at=time.time(),
+        )
+        logger.warning(
+            "Model %s permanently unsupported on instance %s: %s",
+            model,
+            instance_id,
+            reason,
+        )
+
+    def clear_model_unsupported(self, instance_id: str, model: str) -> bool:
+        """Explicitly clear permanent unsupported state for a pair."""
+        key = (instance_id, model)
+        state = self._model_state.get(key)
+        if not state or not state.unsupported_permanent:
+            return False
+
+        if state.cooldown_until is None and state.retry_count == 0:
+            self._model_state.pop(key, None)
+        else:
+            state.unsupported_permanent = False
+            state.unsupported_reason = None
+            state.unsupported_at = None
+            self._model_state[key] = state
+        logger.info(
+            "Cleared permanent unsupported state for model %s on instance %s",
+            model,
+            instance_id,
+        )
+        return True
+
+    def clear_unsupported_for_instance(self, instance_id: str) -> int:
+        """Explicitly clear permanent unsupported state for all models on instance."""
+        cleared = 0
+        for (candidate_instance, model), state in list(self._model_state.items()):
+            if candidate_instance != instance_id or not state.unsupported_permanent:
+                continue
+            if self.clear_model_unsupported(instance_id, model):
+                cleared += 1
+        return cleared
 
     # -------------------------------------------------------------------------
     # Cooldown Management
@@ -414,5 +500,8 @@ class RateLimitStateManager:
             result[key] = {
                 "cooldown_remaining": self.get_cooldown_remaining(instance_id, model),
                 "retry_count": state.retry_count,
+                "unsupported_permanent": state.unsupported_permanent,
+                "unsupported_reason": state.unsupported_reason,
+                "unsupported_at": state.unsupported_at,
             }
         return result

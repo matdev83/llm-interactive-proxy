@@ -41,6 +41,22 @@ def test_set_model_with_backend(command: ModelCommand, mock_session: Mock):
     assert result.new_state.backend_config.backend_type == "new_backend"
 
 
+def test_set_model_colon_after_slash_stays_model_only(
+    command: ModelCommand, mock_session: Mock
+):
+    # Act
+    result = command._set_model("openrouter/anthropic/claude-3-haiku:free", mock_session)
+
+    # Assert
+    assert result.success is True
+    assert (
+        result.message
+        == "Model changed to openrouter/anthropic/claude-3-haiku:free"
+    )
+    assert result.new_state.backend_config.model == "openrouter/anthropic/claude-3-haiku:free"
+    assert result.new_state.backend_config.backend_type is None
+
+
 def test_unset_model(command: ModelCommand, mock_session: Mock):
     # Act
     result = command._unset_model(mock_session)

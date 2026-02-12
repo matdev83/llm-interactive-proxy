@@ -43,6 +43,26 @@ class TestAuxiliaryRequestDetector:
 
         assert detector.is_auxiliary_request(request) is False
 
+    def test_model_only_selector_with_colon_suffix_is_not_treated_as_fqn(self) -> None:
+        """vendor/model:variant should not count as explicit backend:model target."""
+        config = AuxiliaryRoutingConfig(
+            enabled=True,
+            backend=None,
+            model="openrouter/anthropic/claude-3-haiku:free",
+        )
+        detector = AuxiliaryRequestDetector(config)
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[
+                ChatMessage(
+                    role="user", content="The following is the text to summarize: hello"
+                ),
+            ],
+        )
+
+        assert detector.is_auxiliary_request(request) is False
+
     def test_detects_summarize_pattern(self) -> None:
         """Detects 'The following is the text to summarize' pattern."""
         config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")
@@ -172,6 +192,18 @@ class TestAuxiliaryRequestRouter:
         router = AuxiliaryRequestRouter(config)
 
         assert router.get_auxiliary_model() == "google/gemini-flash-1.5"
+
+    def test_model_only_selector_with_colon_suffix_stays_model_only(self) -> None:
+        """vendor/model:variant should not be split into backend/model."""
+        config = AuxiliaryRoutingConfig(
+            enabled=True,
+            backend=None,
+            model="openrouter/anthropic/claude-3-haiku:free",
+        )
+        router = AuxiliaryRequestRouter(config)
+
+        assert router.get_auxiliary_backend() == ""
+        assert router.get_auxiliary_model() == "openrouter/anthropic/claude-3-haiku:free"
 
     def test_stats_tracking(self) -> None:
         """Router tracks request statistics."""

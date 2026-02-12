@@ -14,6 +14,15 @@ from typing import Any
 from src.core.common.exceptions import ConfigurationError
 from src.core.common.session_continuity_warnings import topic_similarity_enabled_warning
 from src.core.config.app_config import AppConfig
+from src.core.config.constrained_backend_policy import (
+    group_constrained_backend_instances,
+    is_constrained_connector_family,
+)
+from src.core.config.models.backends import BackendConfig
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
@@ -128,6 +137,41 @@ class ConfigurationValidator:
                 f"exists for this backend. Ensure the backend is properly configured."
             )
 
+        instance_keys = [
+            key for key in backends_config if isinstance(key, str) and "." in key
+        ]
+        family_keys = [
+            key
+            for key in backends_config
+            if isinstance(key, str)
+            and "." not in key
+            and is_constrained_connector_family(key)
+            and not self._is_default_backend_config_payload(backends_config.get(key))
+        ]
+        backend_instance_names = instance_keys + family_keys
+        constrained_groups = group_constrained_backend_instances(backend_instance_names)
+        for family, instances in constrained_groups.items():
+            if len(instances) <= 1:
+                continue
+            formatted_instances = ", ".join(instances)
+            self.errors.append(
+                "Constrained connector family "
+                f"'{family}' violates single-instance policy. "
+                f"Configured instances: [{formatted_instances}]. "
+                "Keep exactly one proxy instance for this family."
+            )
+
+    @staticmethod
+    def _is_default_backend_config_payload(payload: Any) -> bool:
+        if isinstance(payload, BackendConfig):
+            return payload == BackendConfig()
+        if not isinstance(payload, dict):
+            return False
+        try:
+            return BackendConfig(**payload) == BackendConfig()
+        except Exception:
+            return False
+
     def _validate_session_continuity_config(self) -> None:
         session_cfg = self.config_data.get("session")
         if not isinstance(session_cfg, dict):
@@ -189,6 +233,16 @@ class ConfigurationValidator:
                     "Fix log level:\n"
                     "  Set logging.level to one of: DEBUG, INFO, WARNING, ERROR, CRITICAL"
                 )
+            elif (
+                "Constrained connector family" in error
+                and "single-instance policy" in error
+            ):
+                instructions.append(
+                    "Consolidate constrained connector-family configuration:\n"
+                    "  1. Keep exactly one configured proxy instance per constrained family\n"
+                    "  2. Remove duplicate constrained instances from YAML and backend instance files\n"
+                    "  3. If you need multiple credentials, keep one proxy instance and let the connector rotate identity internally"
+                )
 
         if not instructions:
             instructions.append(
@@ -238,13 +292,33 @@ def validate_static_route(config: AppConfig) -> None:
     if not static_route:
         return
 
-    # Parse <backend_name>:<model_name> format
-    parts = static_route.split(":", 1)
-
-    # Validate format: must contain ':' separator and model part must not be empty
-    if len(parts) != 2:
+    # Validate explicit backend:model selector semantics.
+    if not has_explicit_backend_selector(static_route):
         error_msg = (
             f"Invalid static_route format: '{static_route}'. "
+            f"Expected explicit backend:model format (<backend_name>:<model_name>).\n"
+            f"Model-only selectors (for example 'vendor/model:free') are not valid for static_route.\n"
+            f"Example: gemini-oauth-plan:gemini-2.5-pro"
+        )
+        logger.error("Static route validation failed: %s", error_msg)
+        raise ConfigurationError(
+            message=error_msg,
+            details={
+                "error_code": "invalid_static_route_format",
+                "static_route": static_route,
+                "expected_format": "<backend_name>:<model_name>",
+                "example": "gemini-oauth-plan:gemini-2.5-pro",
+            },
+        )
+
+    parsed = parse_model_backend(static_route, "")
+    backend_name = parsed.backend_type.strip()
+    model_name = parsed.model_name.strip()
+
+    if not backend_name:
+        error_msg = (
+            f"Invalid static_route format: '{static_route}'. "
+            f"Backend name cannot be empty.\n"
             f"Expected format: <backend_name>:<model_name>\n"
             f"Example: gemini-oauth-plan:gemini-2.5-pro"
         )
@@ -252,16 +326,15 @@ def validate_static_route(config: AppConfig) -> None:
         raise ConfigurationError(
             message=error_msg,
             details={
+                "error_code": "invalid_static_route_format",
                 "static_route": static_route,
                 "expected_format": "<backend_name>:<model_name>",
                 "example": "gemini-oauth-plan:gemini-2.5-pro",
             },
         )
 
-    backend_name, model_name = parts
-
     # Validate model part is not empty
-    if not model_name or not model_name.strip():
+    if not model_name:
         error_msg = (
             f"Invalid static_route format: '{static_route}'. "
             f"Model name cannot be empty.\n"
@@ -272,6 +345,7 @@ def validate_static_route(config: AppConfig) -> None:
         raise ConfigurationError(
             message=error_msg,
             details={
+                "error_code": "invalid_static_route_format",
                 "static_route": static_route,
                 "expected_format": "<backend_name>:<model_name>",
                 "example": "gemini-oauth-plan:gemini-2.5-pro",
@@ -304,3 +378,63 @@ def validate_static_route(config: AppConfig) -> None:
                 "example": "gemini-oauth-plan:gemini-2.5-pro",
             },
         )
+
+
+def _collect_runtime_constrained_backend_names(config: AppConfig) -> list[str]:
+    backends = getattr(config, "backends", None)
+    if backends is None:
+        return []
+
+    configured_names: list[str] = []
+    default_backend_config = BackendConfig()
+    for raw_name, value in getattr(backends, "__dict__", {}).items():
+        if (
+            not isinstance(raw_name, str)
+            or not raw_name
+            or raw_name == "default_backend"
+            or raw_name.startswith("_")
+        ):
+            continue
+        if "." in raw_name:
+            configured_names.append(raw_name)
+            continue
+        if not is_constrained_connector_family(raw_name):
+            continue
+        if isinstance(value, BackendConfig) and value != default_backend_config:
+            configured_names.append(raw_name)
+
+    return sorted(set(configured_names))
+
+
+def validate_constrained_backend_instances(config: AppConfig) -> None:
+    """Validate constrained connector-family policy on merged runtime config."""
+    constrained_backend_names = _collect_runtime_constrained_backend_names(config)
+    constrained_groups = group_constrained_backend_instances(constrained_backend_names)
+    conflicts = {
+        family: instances
+        for family, instances in constrained_groups.items()
+        if len(instances) > 1
+    }
+    if not conflicts:
+        return
+
+    conflict_fragments = [
+        f"{family}: [{', '.join(instances)}]"
+        for family, instances in sorted(conflicts.items())
+    ]
+    raise ConfigurationError(
+        message=(
+            "Constrained connector-family single-instance policy violated in merged runtime configuration. "
+            + "; ".join(conflict_fragments)
+        ),
+        details={
+            "error_code": "constrained_family_single_instance_violation",
+            "constrained_family_conflicts": conflicts,
+            "configured_backend_instances": constrained_backend_names,
+            "migration_guidance": [
+                "Keep exactly one proxy instance per constrained connector family.",
+                "Remove duplicate constrained-family instances from merged sources (YAML, environment, backend instance files).",
+                "If multiple credentials are required, keep one proxy instance and delegate identity rotation to connector-internal scheduling.",
+            ],
+        },
+    )

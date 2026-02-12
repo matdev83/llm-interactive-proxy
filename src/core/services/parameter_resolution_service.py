@@ -157,6 +157,8 @@ class ParameterResolutionService:
         config_params: dict[str, Any] | None = None,
         session_params: dict[str, Any] | None = None,
         backend: str = "",
+        request_params: dict[str, Any] | None = None,
+        connector_forced_params: dict[str, Any] | None = None,
     ) -> ResolvedParameters:
         """
         Resolve parameters from all sources with precedence.
@@ -167,6 +169,8 @@ class ParameterResolutionService:
             config_params: Parameters from configuration file
             session_params: Parameters from interactive session commands
             backend: Backend name for logging context
+            request_params: Explicit request fields from the incoming payload
+            connector_forced_params: Connector-enforced parameters (highest precedence)
 
         Returns:
             ResolvedParameters with effective values and source tracking
@@ -187,6 +191,8 @@ class ParameterResolutionService:
         header_params = header_params or {}
         config_params = config_params or {}
         session_params = session_params or {}
+        request_params = request_params or {}
+        connector_forced_params = connector_forced_params or {}
 
         # Track overridden sources for debugging
         overridden_sources: dict[str, list[tuple[str, Any]]] = {
@@ -203,6 +209,8 @@ class ParameterResolutionService:
                 header_params,
                 config_params,
                 session_params,
+                request_params,
+                connector_forced_params,
                 overridden_sources,
             )
             setattr(resolved, param_name, resolved_value)
@@ -219,16 +227,20 @@ class ParameterResolutionService:
         header_params: dict[str, Any],
         config_params: dict[str, Any],
         session_params: dict[str, Any],
+        request_params: dict[str, Any],
+        connector_forced_params: dict[str, Any],
         overridden_sources: dict[str, list[tuple[str, Any]]],
     ) -> ParameterSource | None:
         """
         Resolve a single parameter from all sources with precedence.
 
         Precedence order (highest to lowest):
-        1. session_params
-        2. uri_params
-        3. header_params
-        4. config_params
+        1. connector_forced_params
+        2. session_params
+        3. request_params
+        4. uri_params
+        5. header_params
+        6. config_params
 
         Args:
             param_name: Name of the parameter to resolve
@@ -236,6 +248,8 @@ class ParameterResolutionService:
             header_params: Header parameters
             config_params: Config parameters
             session_params: Session parameters
+            request_params: Explicit request parameters
+            connector_forced_params: Connector-enforced parameters
             overridden_sources: Dict to track overridden sources for debugging
 
         Returns:
@@ -246,7 +260,9 @@ class ParameterResolutionService:
             ("config", config_params.get(param_name)),
             ("header", header_params.get(param_name)),
             ("uri", uri_params.get(param_name)),
+            ("request", request_params.get(param_name)),
             ("session", session_params.get(param_name)),
+            ("connector_forced", connector_forced_params.get(param_name)),
         ]
 
         # Find the highest priority source with a value

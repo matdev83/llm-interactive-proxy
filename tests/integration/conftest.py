@@ -123,6 +123,31 @@ def app_config_legacy_log_disabled():
 
 
 @pytest.fixture
+def app_config_with_openai_backend():
+    """
+    AppConfig with openai backend enabled for tests that exercise backend routing.
+
+    Uses explicit backend format (e.g. openai:gpt-4) to bypass model-only resolution,
+    as required for spec-compliant unknown-model error handling.
+    """
+    from src.core.config.app_config import AppConfig
+
+    return AppConfig.model_validate(
+        {
+            "session": {
+                "tool_call_reactor": {
+                    "emit_legacy_steering_log": False,
+                },
+            },
+            "backends": {
+                "default_backend": "openai",
+                "openai": {"api_key": "test-key-for-routing"},
+            },
+        }
+    )
+
+
+@pytest.fixture
 def app_config_legacy_log_enabled():
     """
     Provides an AppConfig instance with emit_legacy_steering_log set to True.

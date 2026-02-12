@@ -416,6 +416,17 @@ properties:
     additionalProperties: false
     properties:
       enabled: { type: boolean }
+  reasoning_model_token_floor:
+    type: object
+    additionalProperties: false
+    properties:
+      enabled:
+        type: boolean
+        description: "Whether to enforce minimum output tokens for reasoning-first models"
+      models:
+        type: object
+        additionalProperties: { type: integer, minimum: 1 }
+        description: "Model ID (normalized) -> minimum output tokens"
   model_registry:
     type: object
     additionalProperties: false
@@ -484,6 +495,29 @@ properties:
       disable_backend_ids: { type: boolean }
       disable_backend_names: { type: boolean }
       disable_model_names: { type: boolean }
+      model_only_preference_policy:
+        type: string
+        enum: [round_robin, cost, priority]
+      model_only_model_overrides:
+        type: object
+        additionalProperties:
+          type: string
+          enum: [round_robin, cost, priority]
+      model_only_backend_family_overrides:
+        type: object
+        additionalProperties:
+          type: string
+          enum: [round_robin, cost, priority]
+      model_only_missing_cost:
+        type: number
+        minimum: 0
+      model_only_missing_priority: { type: integer }
+      capability_refresh_interval_seconds:
+        type: number
+        minimum: 0
+      capability_refresh_backoff_seconds:
+        type: number
+        minimum: 0
   usage_tracking:
     type: object
     additionalProperties: false

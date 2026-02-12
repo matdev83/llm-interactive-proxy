@@ -69,7 +69,11 @@ def _register_failure_handling_strategy(
 
 def _register_resilience_coordinator(services: ServiceCollection) -> None:
     """Register the resilience coordinator and its backing state manager."""
+    from src.core.interfaces.provider_error_classifier_interface import (
+        IProviderErrorClassifier,
+    )
     from src.core.interfaces.resilience_interface import IResilienceCoordinator
+    from src.core.services.provider_error_classifier import ProviderErrorClassifier
     from src.core.services.resilience.coordinator import ResilienceCoordinator
     from src.core.services.resilience.handlers import (
         AuthErrorHandler,
@@ -78,11 +82,22 @@ def _register_resilience_coordinator(services: ServiceCollection) -> None:
     from src.core.services.resilience.rate_limit_state import RateLimitStateManager
 
     register_singleton_if_absent(services, RateLimitStateManager)
+    register_singleton_if_absent(services, ProviderErrorClassifier)
+    register_singleton_if_absent(
+        services,
+        cast(type, IProviderErrorClassifier),
+        implementation_factory=lambda p: p.get_required_service(
+            ProviderErrorClassifier
+        ),
+    )
 
     def _resilience_coordinator_factory(
         provider: IServiceProvider,
     ) -> ResilienceCoordinator:
         state_manager = provider.get_required_service(RateLimitStateManager)
+        provider_error_classifier: IProviderErrorClassifier = (
+            provider.get_required_service(cast(type, IProviderErrorClassifier))
+        )
         auth_handler = AuthErrorHandler(state_manager)
         rate_limit_handler = RateLimitErrorHandler(
             state_manager, next_handler=auth_handler
@@ -90,6 +105,7 @@ def _register_resilience_coordinator(services: ServiceCollection) -> None:
         return ResilienceCoordinator(
             state_manager=state_manager,
             error_handler_chain=rate_limit_handler,
+            provider_error_classifier=provider_error_classifier,
         )
 
     register_singleton_if_absent(

@@ -68,4 +68,5 @@ class BackendStage(InitializationStage):
         )
 
         # Delegate validation to the backend validation service
-        return bool(await validator.validate_all(config))
+        is_valid = bool(await validator.validate_all(config))
+        return is_valid

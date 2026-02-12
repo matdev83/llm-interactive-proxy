@@ -1,0 +1,112 @@
+"""Central constrained connector-family policy for routing and validation.
+
+This module defines deterministic matching helpers reused by:
+- configuration semantic validation
+- runtime routing behavior
+"""
+
+from __future__ import annotations
+
+import fnmatch
+import re
+from collections import defaultdict
+from collections.abc import Iterable
+
+# Explicit rules have highest precedence.
+_EXPLICIT_CONSTRAINED_FAMILIES: frozenset[str] = frozenset(
+    {
+        "qwen-oauth",
+    }
+)
+
+# Wildcard rules are resolved by deterministic specificity tie-break.
+_WILDCARD_CONSTRAINED_FAMILIES: tuple[str, ...] = (
+    "gemini-oauth*",
+    "antigravity*",
+)
+
+
+def normalize_backend_family_name(raw_name: str) -> str:
+    """Normalize backend/instance names into canonical family form."""
+    normalized = raw_name.strip().lower().replace("_", "-")
+    if "." in normalized:
+        normalized = normalized.split(".", 1)[0]
+    return normalized
+
+
+def match_constrained_connector_family(backend_or_instance: str) -> str | None:
+    """Return constrained family key for backend/instance, or None."""
+    family = normalize_backend_family_name(backend_or_instance)
+    if not family:
+        return None
+
+    if family in _EXPLICIT_CONSTRAINED_FAMILIES:
+        return family
+
+    matches = [
+        pattern
+        for pattern in _WILDCARD_CONSTRAINED_FAMILIES
+        if fnmatch.fnmatch(family, pattern)
+    ]
+    if not matches:
+        return None
+
+    # Deterministic precedence for wildcard rules:
+    # - prefer patterns with more literal characters
+    # - then fewer wildcard tokens
+    # - then lexicographic order for stable tie-breaks
+    def _specificity_key(pattern: str) -> tuple[int, int, str]:
+        literal_chars = len(re.sub(r"[*?]", "", pattern))
+        wildcard_tokens = pattern.count("*") + pattern.count("?")
+        return (-literal_chars, wildcard_tokens, pattern)
+
+    return sorted(matches, key=_specificity_key)[0]
+
+
+def is_constrained_connector_family(backend_or_instance: str) -> bool:
+    """Check whether backend/instance belongs to a constrained family."""
+    return match_constrained_connector_family(backend_or_instance) is not None
+
+
+def group_constrained_backend_instances(
+    backend_instances: Iterable[str],
+) -> dict[str, list[str]]:
+    """Group backend instance names by constrained family key."""
+    grouped: dict[str, list[str]] = defaultdict(list)
+    for backend in backend_instances:
+        family = match_constrained_connector_family(backend)
+        if family is None:
+            continue
+        grouped[family].append(backend)
+    return {family: sorted(instances) for family, instances in sorted(grouped.items())}
+
+
+def collapse_constrained_backend_candidates(candidates: list[str]) -> list[str]:
+    """Collapse candidates so each constrained family contributes at most one instance.
+
+    Selection is deterministic: lexicographically smallest instance in each constrained
+    family is retained. Non-constrained candidates are preserved.
+    """
+    best_by_family: dict[str, str] = {}
+    for candidate in candidates:
+        family = match_constrained_connector_family(candidate)
+        if family is None:
+            continue
+        previous = best_by_family.get(family)
+        if previous is None or candidate < previous:
+            best_by_family[family] = candidate
+
+    collapsed: list[str] = []
+    emitted_families: set[str] = set()
+    for candidate in candidates:
+        family = match_constrained_connector_family(candidate)
+        if family is None:
+            collapsed.append(candidate)
+            continue
+        if family in emitted_families:
+            continue
+        if best_by_family.get(family) == candidate:
+            collapsed.append(candidate)
+            emitted_families.add(family)
+
+    return collapsed

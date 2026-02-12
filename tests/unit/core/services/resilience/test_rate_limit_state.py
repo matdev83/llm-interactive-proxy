@@ -124,6 +124,37 @@ class TestModelLevelState:
         with patch("time.time", return_value=1020.0):
             assert manager.is_model_available("backend.1", "gpt-4") is True
 
+    def test_mark_model_unsupported_blocks_pair_permanently(self) -> None:
+        """Permanent unsupported state should block only the marked pair."""
+        manager = RateLimitStateManager()
+        manager.mark_model_unsupported(
+            "backend.1",
+            "gpt-4",
+            reason="Provider reported model not found",
+        )
+
+        assert manager.is_model_available("backend.1", "gpt-4") is False
+        assert manager.is_model_available("backend.1", "gpt-3.5") is True
+
+        availability = manager.check_model_availability("backend.1", "gpt-4")
+        assert availability.available is False
+        assert "unsupported" in availability.reason.lower()
+
+    def test_reactivate_instance_preserves_model_unsupported_state(self) -> None:
+        """Instance reactivation should not clear permanent model unsupported state."""
+        manager = RateLimitStateManager()
+        manager.disable_instance("backend.1", "Auth failed")
+        manager.mark_model_unsupported(
+            "backend.1",
+            "gpt-4",
+            reason="Provider reported model not found",
+        )
+
+        assert manager.reactivate_instance("backend.1") is True
+        availability = manager.check_model_availability("backend.1", "gpt-4")
+        assert availability.available is False
+        assert "unsupported" in availability.reason.lower()
+
 
 class TestCooldownManagement:
     """Tests for cooldown tracking and clearing."""
@@ -175,6 +206,34 @@ class TestCooldownManagement:
         manager.clear_cooldown("backend.1")
 
         assert manager.is_instance_available("backend.1") is True
+
+    def test_clear_cooldown_does_not_remove_permanent_unsupported_state(self) -> None:
+        """Cooldown clearing should not erase permanent unsupported outcomes."""
+        manager = RateLimitStateManager()
+        manager.mark_model_unsupported(
+            "backend.1",
+            "gpt-4",
+            reason="Provider reported model not found",
+        )
+        manager.set_model_cooldown("backend.1", "gpt-4", retry_after_seconds=60.0)
+
+        manager.clear_cooldown("backend.1", "gpt-4")
+
+        availability = manager.check_model_availability("backend.1", "gpt-4")
+        assert availability.available is False
+        assert "unsupported" in availability.reason.lower()
+
+    def test_clear_model_unsupported_requires_explicit_reset(self) -> None:
+        """Permanent unsupported state should only clear via explicit reset."""
+        manager = RateLimitStateManager()
+        manager.mark_model_unsupported(
+            "backend.1",
+            "gpt-4",
+            reason="Provider reported model not found",
+        )
+
+        assert manager.clear_model_unsupported("backend.1", "gpt-4") is True
+        assert manager.is_model_available("backend.1", "gpt-4") is True
 
 
 class TestAvailabilityChecks:

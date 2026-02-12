@@ -8,6 +8,10 @@
     {
       "spec": "b2bua-like-session-handling",
       "reason": "Spec is complete but intentionally kept active pending archive workflow"
+    },
+    {
+      "spec": "vendor-model-dynamic-routing",
+      "reason": "Spec finalized and kept active temporarily for post-implementation verification"
     }
   ]
 }

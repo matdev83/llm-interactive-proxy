@@ -13,7 +13,10 @@ import logging
 from collections import OrderedDict
 
 from src.core.domain.chat import ChatRequest
-from src.core.domain.model_utils import parse_model_backend
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.interfaces.application_state_interface import IApplicationState
@@ -33,6 +36,10 @@ from src.core.interfaces.request_processor_internal import (
 )
 from src.core.interfaces.response_manager_interface import IResponseManager
 from src.core.interfaces.session_manager_interface import ISessionManager
+from src.core.services.auxiliary_identity import (
+    build_auxiliary_effective_session_id,
+    derive_auxiliary_operation_key,
+)
 from src.core.services.auxiliary_request_router import (
     AuxiliaryRequestRouter,
 )
@@ -177,6 +184,35 @@ class RequestProcessor(IRequestProcessor):
 
         return session_id
 
+    def _resolve_quality_verifier_session_id(
+        self,
+        *,
+        session_id: str,
+        context: RequestContext,
+    ) -> str:
+        """Resolve a stable identifier for Quality Verifier scheduling.
+
+        Quality Verifier scheduling should remain stable across B2BUA A-leg session
+        rotations. Unlike random replacement continuity, verifier scheduling avoids
+        first-user-message hashing because message churn and compaction can cause
+        key churn that prevents frequency counters from progressing.
+        """
+        identity = getattr(context, "b2bua_identity", None)
+        if identity is None:
+            return session_id
+
+        client_session_id = getattr(identity, "client_session_id", None)
+        auth_scope_id = getattr(identity, "auth_scope_id", None)
+
+        if isinstance(client_session_id, str) and client_session_id.strip():
+            scope = auth_scope_id.strip() if isinstance(auth_scope_id, str) else "anon"
+            return f"b2bua-client:{scope}:{client_session_id.strip()}"
+
+        if isinstance(auth_scope_id, str) and auth_scope_id.strip():
+            return f"b2bua-scope:{auth_scope_id.strip()}"
+
+        return session_id
+
     def _get_quality_verifier_turn_count(self, session_key: str) -> int:
         """Return in-memory Quality Verifier turn count for a continuity key."""
         count = self._quality_verifier_turn_counts.get(session_key, 0)
@@ -235,8 +271,28 @@ class RequestProcessor(IRequestProcessor):
                 update={"model": f"{aux_backend}:{routed_model}"}
             )
 
+            auxiliary_purpose = f"{aux_backend}:{routed_model}"
+            operation_key = derive_auxiliary_operation_key(
+                context=context,
+                request_data=request_data,
+                purpose=auxiliary_purpose,
+            )
+            auxiliary_attempt_ordinal = 1
+            auxiliary_effective_session_id = build_auxiliary_effective_session_id(
+                root_session_id=session_id,
+                purpose=auxiliary_purpose,
+                operation_key=operation_key,
+                attempt_ordinal=auxiliary_attempt_ordinal,
+            )
+
             context.extensions["auxiliary_request"] = True
-            context.extensions["auxiliary_effective_session_id"] = f"aux::{session_id}"
+            context.extensions["auxiliary_root_session_id"] = session_id
+            context.extensions["auxiliary_purpose"] = auxiliary_purpose
+            context.extensions["auxiliary_operation_key"] = operation_key
+            context.extensions["auxiliary_attempt_ordinal"] = auxiliary_attempt_ordinal
+            context.extensions["auxiliary_effective_session_id"] = (
+                auxiliary_effective_session_id
+            )
             context.extensions["auxiliary_original_backend"] = original_backend
             context.extensions["auxiliary_original_model"] = original_model
             context.extensions["auxiliary_backend"] = aux_backend
@@ -285,7 +341,10 @@ class RequestProcessor(IRequestProcessor):
             request_data=request_data,
         )
         context.extensions["replacement_effective_session_id"] = replacement_session_id
-        quality_verifier_session_id = replacement_session_id
+        quality_verifier_session_id = self._resolve_quality_verifier_session_id(
+            session_id=session_id,
+            context=context,
+        )
         context.extensions["quality_verifier_effective_session_id"] = (
             quality_verifier_session_id
         )
@@ -464,7 +523,9 @@ class RequestProcessor(IRequestProcessor):
             backend_type = None
 
         model_spec = getattr(request_data, "model", "") or ""
-        has_explicit_backend = isinstance(model_spec, str) and ":" in model_spec
+        has_explicit_backend = isinstance(model_spec, str) and (
+            has_explicit_backend_selector(model_spec)
+        )
         parsed = parse_model_backend(str(model_spec), (backend_type or ""))
         original_backend = (
             parsed.backend_type

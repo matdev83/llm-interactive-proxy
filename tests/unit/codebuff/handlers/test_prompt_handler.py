@@ -7,13 +7,17 @@ and cancellation.
 
 import asyncio
 import contextlib
+from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from src.codebuff.connection_manager import ConnectionManager
 from src.codebuff.exceptions import CodebuffError
 from src.codebuff.format_converter import FormatConverter
 from src.codebuff.handlers.prompt_handler import PromptHandler
 from src.codebuff.schemas import PromptAction, SessionState
+from src.core.domain.chat import ChatMessage
+from src.core.domain.responses import ResponseEnvelope
 
 from tests.mocks.backend_factory import MockBackendFactory
 from tests.mocks.connection_manager import MockConnectionManager
@@ -324,3 +328,82 @@ class TestPromptProcessing:
 
             # Verify auth token was stored
             assert session.auth_token == action.authToken
+
+
+class TestSharedRoutingContract:
+    """Tests enforcing unified routing contract for Codebuff prompt handler."""
+
+    @pytest.mark.asyncio
+    async def test_stream_response_uses_backend_service_call_completion(
+        self, mock_websocket
+    ) -> None:
+        backend_service = AsyncMock()
+        backend_service.call_completion = AsyncMock(
+            return_value=ResponseEnvelope(
+                content={"choices": [{"message": {"content": "ok"}}]},
+                status_code=200,
+                headers={},
+            )
+        )
+        connection_manager = MockConnectionManager()
+        handler = PromptHandler(
+            backend_service=backend_service,
+            format_converter=FormatConverter(),
+            connection_manager=cast(ConnectionManager, connection_manager),
+        )
+
+        from datetime import datetime
+
+        from freezegun import freeze_time
+
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            session = SessionState(
+                session_id="test-session",
+                created_at=fixed_time,
+                last_seen=fixed_time,
+            )
+        connection_manager._sessions[mock_websocket] = session
+
+        await handler._stream_response(
+            websocket=mock_websocket,
+            prompt_id="prompt-1",
+            messages=[ChatMessage(role="user", content="hello")],
+            model="gpt-4",
+            session_state={},
+        )
+
+        backend_service.call_completion.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_stream_response_fails_fast_without_call_completion_service(
+        self, mock_websocket
+    ) -> None:
+        connection_manager = MockConnectionManager()
+        handler = PromptHandler(
+            backend_factory=Mock(),
+            format_converter=FormatConverter(),
+            connection_manager=cast(ConnectionManager, connection_manager),
+        )
+
+        from datetime import datetime
+
+        from freezegun import freeze_time
+
+        with freeze_time("2024-01-01 12:00:00"):
+            fixed_time = datetime(2024, 1, 1, 12, 0, 0)
+            session = SessionState(
+                session_id="test-session",
+                created_at=fixed_time,
+                last_seen=fixed_time,
+            )
+        connection_manager._sessions[mock_websocket] = session
+
+        with pytest.raises(CodebuffError, match="No backend service configured"):
+            await handler._stream_response(
+                websocket=mock_websocket,
+                prompt_id="prompt-2",
+                messages=[ChatMessage(role="user", content="hello")],
+                model="gpt-4",
+                session_state={},
+            )

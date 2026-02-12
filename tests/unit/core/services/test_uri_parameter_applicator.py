@@ -95,6 +95,51 @@ class TestURIParameterApplicatorPrecedence:
 
         assert result.temperature == pytest.approx(0.1)
 
+    def test_explicit_request_field_overrides_uri_defaults(self) -> None:
+        backend_type = "test-backend"
+        config = _make_config(backend_type, extra={"temperature": 0.9})
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="hi")],
+            temperature=0.7,
+            extra_body={"temperature": 0.3},
+        )
+        uri_params = {"temperature": "0.5"}
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.temperature == pytest.approx(0.7)
+
+    def test_connector_forced_overrides_uri_and_request(self) -> None:
+        backend_type = "test-backend"
+        config = _make_config(
+            backend_type,
+            extra={"temperature": 0.9, "forced_temperature": 0.1},
+        )
+
+        request = ChatRequest(
+            model="test-model",
+            messages=[ChatMessage(role="user", content="hi")],
+            temperature=0.6,
+            extra_body={"temperature": 0.4},
+        )
+        uri_params = {"temperature": "0.5"}
+
+        result = URIParameterApplicator(config=config).apply(
+            request=request,
+            uri_params=uri_params,
+            backend_type=backend_type,
+            session=None,
+        )
+
+        assert result.temperature == pytest.approx(0.1)
+
 
 class TestURIParameterApplicatorCoercion:
     """Tests for type coercion behavior."""

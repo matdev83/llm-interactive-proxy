@@ -147,6 +147,25 @@ async def test_handle_backend_and_model_set_both(
 
 
 @pytest.mark.asyncio
+async def test_handle_backend_and_model_colon_after_slash_stays_model_only(
+    command: SetCommand, mock_session: Mock
+):
+    # Arrange
+    args = {"model": "openrouter/anthropic/claude-3-haiku:free"}
+
+    # Act
+    result, new_state = await command._handle_backend_and_model(
+        args, mock_session.state, context={}
+    )
+
+    # Assert
+    assert result.success is True
+    assert result.message == "Model changed to openrouter/anthropic/claude-3-haiku:free"
+    assert new_state.backend_config.backend_type == "test_backend"
+    assert new_state.backend_config.model == "openrouter/anthropic/claude-3-haiku:free"
+
+
+@pytest.mark.asyncio
 async def test_handle_project_success(command: SetCommand, mock_session: Mock):
     # Arrange
     args = {"project": "test_project"}

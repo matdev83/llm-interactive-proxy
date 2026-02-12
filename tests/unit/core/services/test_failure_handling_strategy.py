@@ -11,6 +11,7 @@ from src.core.common.exceptions import (
     BackendError,
     InvalidRequestError,
     RateLimitExceededError,
+    RoutingError,
     ValidationError,
 )
 from src.core.interfaces.failure_strategy_interface import (
@@ -74,7 +75,7 @@ class TestDefaultFailureHandlingStrategy:
     def test_max_failover_hops_exceeded(
         self, strategy: DefaultFailureHandlingStrategy
     ) -> None:
-        """When max failover hops reached, surface the error."""
+        """When max failover hops reached, surface RoutingError with attempt_budget_exhausted."""
         error = BackendError("Test error", status_code=429)
 
         result = strategy.decide(
@@ -95,11 +96,15 @@ class TestDefaultFailureHandlingStrategy:
 
         assert result.decision == FailureDecision.SURFACE_ERROR
         assert "hops" in result.reason.lower()
+        assert result.error_to_surface is not None
+        assert isinstance(result.error_to_surface, RoutingError)
+        assert result.error_to_surface.details.get("code") == "temporarily_unavailable"
+        assert result.error_to_surface.details.get("reason") == "attempt_budget_exhausted"
 
     def test_timeout_budget_exceeded(
         self, strategy: DefaultFailureHandlingStrategy
     ) -> None:
-        """When total timeout budget exceeded, surface the error."""
+        """When total timeout budget exceeded, surface RoutingError with attempt_budget_exhausted."""
         error = BackendError("Test error", status_code=429)
 
         result = strategy.decide(
@@ -114,6 +119,10 @@ class TestDefaultFailureHandlingStrategy:
 
         assert result.decision == FailureDecision.SURFACE_ERROR
         assert "timeout" in result.reason.lower()
+        assert result.error_to_surface is not None
+        assert isinstance(result.error_to_surface, RoutingError)
+        assert result.error_to_surface.details.get("code") == "temporarily_unavailable"
+        assert result.error_to_surface.details.get("reason") == "attempt_budget_exhausted"
 
     def test_recoverable_429_short_wait_waits_and_retries(
         self, strategy: DefaultFailureHandlingStrategy

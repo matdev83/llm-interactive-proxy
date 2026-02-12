@@ -136,6 +136,20 @@ class TestValidateStaticRoute:
         assert "example" in exc.details
         assert exc.details["example"] == "gemini-oauth-plan:gemini-2.5-pro"
 
+    def test_colon_after_slash_selector_raises_configuration_error(self):
+        """Test that vendor/model:variant is rejected for static_route."""
+        backends = BackendSettings()
+        backends.static_route = "openrouter/anthropic/claude-3-haiku:free"
+        config = AppConfig(backends=backends)
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            validate_static_route(config)
+
+        exc = exc_info.value
+        assert "backend:model" in exc.message
+        assert exc.details.get("static_route") == "openrouter/anthropic/claude-3-haiku:free"
+        assert exc.details.get("error_code") == "invalid_static_route_format"
+
     def test_empty_model_part_raises_configuration_error(self):
         """Test that empty model part (e.g., 'openai:') raises ConfigurationError."""
         backends = BackendSettings()

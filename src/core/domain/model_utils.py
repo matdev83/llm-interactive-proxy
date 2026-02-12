@@ -44,6 +44,21 @@ class ParsedModel(BaseModel):
     model_name: str = Field(description="The model name (e.g., 'gpt-4', 'claude-3')")
 
 
+def has_explicit_backend_selector(model: str) -> bool:
+    """Return whether the selector uses explicit `backend:model` routing syntax.
+
+    Backend selection is explicit only when the first `:` appears before the first
+    `/` in the route portion (before any query string).
+    """
+
+    route_portion, _, _ = model.partition("?")
+    first_colon_index = route_portion.find(":")
+    if first_colon_index < 0:
+        return False
+    first_slash_index = route_portion.find("/")
+    return first_slash_index < 0 or first_colon_index < first_slash_index
+
+
 def parse_model_backend(model: str, default_backend: str = "") -> ParsedModel:
     """Parse model string to extract backend and actual model name.
 
@@ -60,10 +75,10 @@ def parse_model_backend(model: str, default_backend: str = "") -> ParsedModel:
     Returns:
         ParsedModel with backend_type and model_name fields
     """
-    # IMPORTANT: Backend selection uses ONLY ":".
-    # "/" is part of model identifier (e.g., "vendor/model") and must not be
-    # treated as a backend separator.
-    if ":" in model:
+    # IMPORTANT: Backend selection uses ONLY ":" and only when it appears before
+    # the first "/" in the route portion. This keeps selectors like
+    # "vendor/model:free" in model-only mode.
+    if has_explicit_backend_selector(model):
         backend, model_name = model.split(":", 1)
         return ParsedModel(backend_type=backend, model_name=model_name)
 

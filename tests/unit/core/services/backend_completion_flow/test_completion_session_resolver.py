@@ -108,3 +108,26 @@ class TestCompletionSessionResolver:
         assert session is None
         assert sid == "llm-b2bua-a-7777"
         session_service.get_session.assert_called_once_with("llm-b2bua-a-7777")
+
+    @pytest.mark.asyncio
+    async def test_resolve_session_prefers_auxiliary_effective_id_in_b2bua_mode(
+        self, resolver, session_service
+    ):
+        session_mock = Mock()
+        session_service.get_session = AsyncMock(return_value=session_mock)
+
+        context = Mock(spec=RequestContext)
+        context.session_id = "legacy-session-id"
+        context.extensions = {
+            "auxiliary_request": True,
+            "auxiliary_effective_session_id": "aux::llm-b2bua-a-2222",
+        }
+        context.b2bua_identity = B2buaIdentity(a_session_id="llm-b2bua-a-2222")
+        request = Mock(spec=ChatRequest)
+        request.extra_body = {"session_id": "client-provided-id"}
+
+        session, sid = await resolver.resolve_session(context, request)
+
+        assert session == session_mock
+        assert sid == "aux::llm-b2bua-a-2222"
+        session_service.get_session.assert_called_once_with("aux::llm-b2bua-a-2222")

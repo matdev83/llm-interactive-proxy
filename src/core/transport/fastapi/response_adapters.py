@@ -385,11 +385,14 @@ def _apply_b2bua_echo_header(
 def _get_json_builder() -> JSONResponseBuilder:
     """Get or create JSON response builder singleton."""
     global _json_builder
-    if _json_builder is None:
+    if _json_builder is None or _is_mock_object(_json_builder):
         with _json_builder_lock:
-            if _json_builder is None:
+            if _json_builder is None or _is_mock_object(_json_builder):
+                resolved = _resolve_service(JSONResponseBuilder)
                 _json_builder = (
-                    _resolve_service(JSONResponseBuilder) or JSONResponseBuilder()
+                    resolved
+                    if resolved is not None and not _is_mock_object(resolved)
+                    else JSONResponseBuilder()
                 )
     return _json_builder
 
@@ -397,11 +400,14 @@ def _get_json_builder() -> JSONResponseBuilder:
 def _get_other_builder() -> OtherResponseBuilder:
     """Get or create other response builder singleton."""
     global _other_builder
-    if _other_builder is None:
+    if _other_builder is None or _is_mock_object(_other_builder):
         with _other_builder_lock:
-            if _other_builder is None:
+            if _other_builder is None or _is_mock_object(_other_builder):
+                resolved = _resolve_service(OtherResponseBuilder)
                 _other_builder = (
-                    _resolve_service(OtherResponseBuilder) or OtherResponseBuilder()
+                    resolved
+                    if resolved is not None and not _is_mock_object(resolved)
+                    else OtherResponseBuilder()
                 )
     return _other_builder
 
@@ -913,17 +919,24 @@ def to_fastapi_streaming_response(
             )
 
         # Ensure async iterator of ProcessedResponse
+        # Normalize raw bytes/str to ProcessedResponse so the converter always receives
+        # typed chunks (tests and legacy callers may pass raw content iterators).
+        def _normalize_chunk(item: Any) -> ProcessedResponse:
+            if isinstance(item, ProcessedResponse):
+                return item
+            return ProcessedResponse(content=item if item is not None else "")
+
         async def _ensure_async_iterator(
             source: AsyncIterator[ProcessedResponse] | Any,
         ) -> AsyncIterator[ProcessedResponse]:
             try:
                 if hasattr(source, "__aiter__"):
                     async for item in source:  # type: ignore[async-for]
-                        yield item
+                        yield _normalize_chunk(item)
                 elif hasattr(source, "__iter__"):
                     # Handle sync iterables (backward compatibility)
                     for item in source:  # type: ignore[union-attr]
-                        yield item
+                        yield _normalize_chunk(item)
                 else:
                     # Not iterable - treat as single item or raise error
                     # This handles Mock objects and other non-iterable types

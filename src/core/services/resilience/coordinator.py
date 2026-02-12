@@ -10,6 +10,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from src.core.interfaces.provider_error_classifier_interface import (
+    IProviderErrorClassifier,
+)
 from src.core.interfaces.resilience_interface import (
     ActionType,
     ErrorContext,
@@ -52,6 +55,7 @@ class ResilienceCoordinator:
     def __init__(
         self,
         state_manager: RateLimitStateManager,
+        provider_error_classifier: IProviderErrorClassifier,
         error_handler_chain: IErrorHandler | None = None,
         default_cooldown: float = 60.0,
     ) -> None:
@@ -61,10 +65,12 @@ class ResilienceCoordinator:
             state_manager: The state manager for tracking cooldowns
             error_handler_chain: Optional chain of error handlers
             default_cooldown: Default cooldown duration when retry-after is not provided
+            provider_error_classifier: Canonical provider error classifier
         """
         self._state = state_manager
         self._error_chain = error_handler_chain
         self._default_cooldown = default_cooldown
+        self._provider_error_classifier = provider_error_classifier
 
     @property
     def state_manager(self) -> RateLimitStateManager:
@@ -168,6 +174,25 @@ class ResilienceCoordinator:
             error=error,
             extra=extra if isinstance(extra, dict) else {},
         )
+
+        classification = self._provider_error_classifier.classify(error)
+        if classification.code == "unsupported_on_instance":
+            self._state.mark_model_unsupported(
+                instance_id,
+                model,
+                reason=classification.reason,
+            )
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Marked permanent unsupported pair %s:%s (%s)",
+                    instance_id,
+                    model,
+                    classification.reason,
+                )
+            return ResilienceAction(
+                type=ActionType.PROCEED,
+                reason="unsupported_on_instance",
+            )
 
         # Try the error handler chain (it will delegate through the chain)
         if self._error_chain:

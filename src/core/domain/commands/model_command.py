@@ -8,6 +8,10 @@ from src.core.constants import COMMAND_EXECUTION_ERROR
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatelessCommandBase
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 from src.core.domain.session import Session
 
 if TYPE_CHECKING:
@@ -90,10 +94,22 @@ class ModelCommand(StatelessCommandBase, BaseCommand):
         """Sets the model, potentially with a backend override."""
         try:
             backend_type = None
-            actual_model = model_name
+            actual_model = model_name.strip()
 
-            if ":" in model_name:
-                backend_type, actual_model = model_name.split(":", 1)
+            if has_explicit_backend_selector(model_name):
+                parsed = parse_model_backend(model_name, "")
+                candidate_backend = parsed.backend_type.strip()
+                candidate_model = parsed.model_name.strip()
+                if not candidate_backend or not candidate_model:
+                    return CommandResult(
+                        name=self.name,
+                        success=False,
+                        message=(
+                            "Invalid model selector. Use backend:model with non-empty backend and model."
+                        ),
+                    )
+                backend_type = candidate_backend
+                actual_model = candidate_model
 
             backend_config = session.state.backend_config.with_model(actual_model)
             if backend_type:

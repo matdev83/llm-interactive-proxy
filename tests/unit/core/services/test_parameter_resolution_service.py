@@ -166,7 +166,7 @@ class TestParameterResolutionService:
         return ParameterResolutionService()
 
     # ========================================================================
-    # Precedence Order Tests (session > uri > header > config)
+    # Precedence Order Tests
     # ========================================================================
 
     def test_precedence_config_only(self, service):
@@ -211,6 +211,34 @@ class TestParameterResolutionService:
         assert result.temperature is not None
         assert result.temperature.value == 0.2
         assert result.temperature.source == "session"
+
+    def test_precedence_request_overrides_uri_header_and_config(self, service):
+        """Explicit request fields should override URI/header/config parameters."""
+        result = service.resolve_parameters(
+            config_params={"temperature": 0.8},
+            header_params={"temperature": 0.6},
+            uri_params={"temperature": 0.4},
+            request_params={"temperature": 0.3},
+        )
+
+        assert result.temperature is not None
+        assert result.temperature.value == 0.3
+        assert result.temperature.source == "request"
+
+    def test_precedence_connector_forced_overrides_everything(self, service):
+        """Connector-forced parameters should have the highest precedence."""
+        result = service.resolve_parameters(
+            config_params={"temperature": 0.8},
+            header_params={"temperature": 0.6},
+            uri_params={"temperature": 0.4},
+            request_params={"temperature": 0.3},
+            session_params={"temperature": 0.2},
+            connector_forced_params={"temperature": 0.1},
+        )
+
+        assert result.temperature is not None
+        assert result.temperature.value == 0.1
+        assert result.temperature.source == "connector_forced"
 
     def test_precedence_reasoning_effort_config_only(self, service):
         """Test reasoning_effort resolution with only config."""

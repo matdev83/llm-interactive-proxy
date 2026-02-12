@@ -13,7 +13,10 @@ from typing import Any
 from src.core.domain.command_results import CommandResult
 from src.core.domain.commands.base_command import BaseCommand
 from src.core.domain.commands.secure_base_command import StatelessCommandBase
-from src.core.domain.model_utils import parse_model_backend
+from src.core.domain.model_utils import (
+    has_explicit_backend_selector,
+    parse_model_backend,
+)
 from src.core.domain.session import Session
 
 logger = logging.getLogger(__name__)
@@ -73,25 +76,36 @@ class OneoffCommand(StatelessCommandBase, BaseCommand):
                 message="Invalid format. Use backend:model.",
             )
 
-        # Use backend:model parsing (colon separates backend selection from model identifier).
-        parsed = parse_model_backend(route_value)
-        backend = parsed.backend_type
-        model = parsed.model_name
-        if not backend or not model:
+        if not has_explicit_backend_selector(route_value):
             return CommandResult(
                 name=self.name,
                 success=False,
-                message="Invalid format. Use backend:model.",
+                message=(
+                    "Invalid format. oneoff requires explicit backend:model; model-only selectors are not allowed."
+                ),
+                data={
+                    "error_code": "invalid_explicit_backend_selector",
+                    "expected_format": "backend:model",
+                    "input": route_value,
+                },
             )
 
-        backend = backend.strip()
-        model = model.strip()
-
+        # Use backend:model parsing (colon separates backend selection from model identifier).
+        parsed = parse_model_backend(route_value)
+        backend = parsed.backend_type.strip()
+        model = parsed.model_name.strip()
         if not backend or not model:
             return CommandResult(
                 name=self.name,
                 success=False,
-                message="Backend and model cannot be empty.",
+                message=(
+                    "Invalid format. oneoff requires explicit backend:model; model-only selectors are not allowed."
+                ),
+                data={
+                    "error_code": "invalid_explicit_backend_selector",
+                    "expected_format": "backend:model",
+                    "input": route_value,
+                },
             )
 
         # Update the session state with the oneoff route

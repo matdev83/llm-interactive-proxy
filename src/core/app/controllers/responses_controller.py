@@ -713,7 +713,7 @@ class ResponsesController:
                     exc_info=True,
                 )
             # Map domain exceptions to HTTP exceptions
-            raise map_domain_exception_to_http_exception(e) from e
+            raise map_domain_exception_to_http_exception(e, request=request) from e
         except HTTPException as e:
             if logger.isEnabledFor(logging.ERROR):
                 logger.error(

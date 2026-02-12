@@ -216,6 +216,11 @@ class TestQwenOAuthConnectorUnit:
             }
             mock_response.headers = {"content-type": "application/json"}
             mock_client.post = AsyncMock(return_value=mock_response)
+            mock_domain_response = MagicMock()
+            mock_domain_response.model_dump.return_value = (
+                mock_response.json.return_value
+            )
+            mock_domain_response.usage = None
             # Mock the refresh token logic and validation to ensure they don't interfere
             with (
                 patch.object(
@@ -233,6 +238,11 @@ class TestQwenOAuthConnectorUnit:
                         "model": "qwen3-coder-plus",
                         "messages": [test_message.model_dump()],
                     },
+                ),
+                patch.object(
+                    connector.translation_service,
+                    "to_domain_response",
+                    return_value=mock_domain_response,
                 ),
             ):
                 response = await connector.chat_completions(
@@ -283,6 +293,11 @@ class TestQwenOAuthConnectorUnit:
             }
             mock_response.headers = {"content-type": "application/json"}
             mock_client.post = AsyncMock(return_value=mock_response)
+            mock_domain_response = MagicMock()
+            mock_domain_response.model_dump.return_value = (
+                mock_response.json.return_value
+            )
+            mock_domain_response.usage = None
             with (
                 patch.object(
                     connector, "_refresh_token_if_needed", AsyncMock(return_value=True)
@@ -299,6 +314,11 @@ class TestQwenOAuthConnectorUnit:
                         "model": "qwen3-coder-plus",
                         "messages": [test_message.model_dump()],
                     },
+                ),
+                patch.object(
+                    connector.translation_service,
+                    "to_domain_response",
+                    return_value=mock_domain_response,
                 ),
             ):
                 response = await connector.chat_completions(

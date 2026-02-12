@@ -8,6 +8,7 @@ to prevent regressions during refactoring.
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
+from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.backend_config import BackendConfiguration
@@ -34,6 +35,13 @@ def mock_dependencies():
     session_service.get_session = AsyncMock(return_value=None)
 
     app_state = Mock(spec=IApplicationState)
+    routing_service = Mock()
+    routing_service.resolve_model_only_backend = Mock(
+        side_effect=lambda model, excluded_backends=None: "openai"
+    )
+    routing_service.resolve_backend_instance = Mock(
+        side_effect=lambda backend, model, excluded_backends=None: backend or "openai"
+    )
 
     from tests.utils.failover_stub import StubFailoverCoordinator
 
@@ -43,6 +51,7 @@ def mock_dependencies():
         "config": config,
         "session_service": session_service,
         "app_state": app_state,
+        "routing_service": routing_service,
         "failover_coordinator": StubFailoverCoordinator(),
     }
 
@@ -83,7 +92,7 @@ def backend_service(mock_dependencies):
         planning_phase_manager=planning_phase_manager,
         backend_lifecycle_manager=backend_lifecycle_manager,
         config=mock_dependencies["config"],
-        routing_service=None,
+        routing_service=mock_dependencies["routing_service"],
     )
 
     mock_dependencies["model_alias_resolver"] = model_alias_resolver
@@ -191,6 +200,22 @@ class TestURIParameterParsing:
         assert model == "claude-3-5-sonnet"
         assert "temperature" in uri_params
 
+    @pytest.mark.asyncio
+    async def test_uri_params_with_backend_instance_prefix(self, backend_service):
+        """Test URI parameters work with backend-instance prefix."""
+        request = ChatRequest(
+            model="openai.1:gpt-4o?temperature=0.6&top_p=0.9",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
+        backend, model, uri_params = await backend_service._resolve_backend_and_model(
+            request
+        )
+
+        assert backend == "openai.1"
+        assert model == "gpt-4o"
+        assert uri_params == {"temperature": "0.6", "top_p": "0.9"}
+
 
 class TestStaticRouteOverride:
     """Test static route override behavior."""
@@ -229,7 +254,7 @@ class TestStaticRouteOverride:
             planning_phase_manager=planning_phase_manager,
             backend_lifecycle_manager=backend_lifecycle_manager,
             config=mock_dependencies["config"],
-            routing_service=None,
+            routing_service=mock_dependencies["routing_service"],
         )
         mock_dependencies["model_alias_resolver"] = model_alias_resolver
         mock_dependencies["planning_phase_manager"] = planning_phase_manager
@@ -252,8 +277,64 @@ class TestStaticRouteOverride:
         assert model == "gemini-2.0-flash"
 
     @pytest.mark.asyncio
-    async def test_static_route_model_only(self, mock_dependencies):
-        """Test static_route with model only (no colon)."""
+    async def test_static_route_query_params_are_parsed_and_merged(
+        self, mock_dependencies
+    ):
+        """Static-route query params should be normalized into uri_params."""
+        mock_dependencies["config"].backends.static_route = (
+            "gemini:gemini-2.0-flash?temperature=0.2"
+        )
+
+        from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+        from src.core.services.backend_model_resolver import BackendModelResolver
+        from src.core.services.model_alias_resolver import ModelAliasResolver
+        from src.core.services.planning_phase_manager import PlanningPhaseManager
+
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
+        )
+
+        model_alias_resolver = ModelAliasResolver(config=mock_dependencies["config"])
+        planning_phase_manager = PlanningPhaseManager(
+            session_service=mock_dependencies["session_service"]
+        )
+        backend_lifecycle_manager = BackendLifecycleManager(
+            factory=mock_dependencies["factory"],
+            config=mock_dependencies["config"],
+            backend_config_provider=Mock(),
+            per_session_limit=32,
+        )
+        backend_model_resolver = BackendModelResolver(
+            session_service=mock_dependencies["session_service"],
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase_manager,
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            config=mock_dependencies["config"],
+            routing_service=mock_dependencies["routing_service"],
+        )
+        mock_dependencies["model_alias_resolver"] = model_alias_resolver
+        mock_dependencies["planning_phase_manager"] = planning_phase_manager
+        mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
+        mock_dependencies["backend_model_resolver"] = backend_model_resolver
+
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
+
+        request = ChatRequest(
+            model="anthropic:claude-3-5-sonnet?temperature=0.7&top_p=0.8",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
+        backend, model, uri_params = await service._resolve_backend_and_model(request)
+
+        assert backend == "gemini"
+        assert model == "gemini-2.0-flash"
+        assert uri_params == {"temperature": "0.2", "top_p": "0.8"}
+
+    @pytest.mark.asyncio
+    async def test_static_route_model_only_is_rejected(self, mock_dependencies):
+        """Model-only static_route must be rejected."""
         mock_dependencies["config"].backends.static_route = "gpt-4o"
 
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
@@ -282,7 +363,7 @@ class TestStaticRouteOverride:
             planning_phase_manager=planning_phase_manager,
             backend_lifecycle_manager=backend_lifecycle_manager,
             config=mock_dependencies["config"],
-            routing_service=None,
+            routing_service=mock_dependencies["routing_service"],
         )
         mock_dependencies["model_alias_resolver"] = model_alias_resolver
         mock_dependencies["planning_phase_manager"] = planning_phase_manager
@@ -298,11 +379,66 @@ class TestStaticRouteOverride:
             messages=[ChatMessage(role="user", content="test")],
         )
 
-        backend, model, uri_params = await service._resolve_backend_and_model(request)
+        with pytest.raises(ConfigurationError) as exc_info:
+            await service._resolve_backend_and_model(request)
+        assert exc_info.value.details is not None
+        assert exc_info.value.details.get("error_code") == "invalid_static_route_format"
 
-        # Backend should be resolved normally, but model overridden
-        assert backend == "anthropic"
-        assert model == "gpt-4o"
+    @pytest.mark.asyncio
+    async def test_static_route_model_like_vendor_suffix_with_colon_is_rejected(
+        self, mock_dependencies
+    ):
+        """Model-like `vendor/model:...` static_route without backend selector is rejected."""
+        mock_dependencies["config"].backends.static_route = (
+            "openrouter/anthropic/claude-3-haiku:free"
+        )
+
+        from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+        from src.core.services.backend_model_resolver import BackendModelResolver
+        from src.core.services.model_alias_resolver import ModelAliasResolver
+        from src.core.services.planning_phase_manager import PlanningPhaseManager
+
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
+        )
+
+        # Recreate real services with updated config
+        model_alias_resolver = ModelAliasResolver(config=mock_dependencies["config"])
+        planning_phase_manager = PlanningPhaseManager(
+            session_service=mock_dependencies["session_service"]
+        )
+        backend_lifecycle_manager = BackendLifecycleManager(
+            factory=mock_dependencies["factory"],
+            config=mock_dependencies["config"],
+            backend_config_provider=Mock(),
+            per_session_limit=32,
+        )
+        backend_model_resolver = BackendModelResolver(
+            session_service=mock_dependencies["session_service"],
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase_manager,
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            config=mock_dependencies["config"],
+            routing_service=mock_dependencies["routing_service"],
+        )
+        mock_dependencies["model_alias_resolver"] = model_alias_resolver
+        mock_dependencies["planning_phase_manager"] = planning_phase_manager
+        mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
+        mock_dependencies["backend_model_resolver"] = backend_model_resolver
+
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
+
+        request = ChatRequest(
+            model="anthropic:claude-3-5-sonnet",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
+        with pytest.raises(ConfigurationError) as exc_info:
+            await service._resolve_backend_and_model(request)
+        assert exc_info.value.details is not None
+        assert exc_info.value.details.get("error_code") == "invalid_static_route_format"
 
 
 class TestSessionBackendResolution:
@@ -359,6 +495,7 @@ class TestBackendDiscoveryAndRouting:
     async def test_routing_service_discovery(self, mock_dependencies):
         """Test backend discovery through routing service."""
         routing_service = Mock()
+        routing_service.resolve_model_only_backend = Mock(return_value="gemini-oauth")
         routing_service.resolve_backend_instance = Mock(return_value="gemini-oauth")
 
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
@@ -409,6 +546,177 @@ class TestBackendDiscoveryAndRouting:
 
         # Should discover gemini-oauth backend
         assert backend == "gemini-oauth"
+        routing_service.resolve_model_only_backend.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_model_only_unknown_raises_routing_error_before_dispatch(
+        self, mock_dependencies
+    ):
+        """Unknown model-only identifiers raise RoutingError per Req 3.3."""
+        routing_service = Mock()
+        routing_service.resolve_model_only_backend = Mock(
+            side_effect=RoutingError(
+                message="Unknown model",
+                details={"code": "unknown_model", "model": "unknown-model"},
+            )
+        )
+        routing_service.resolve_backend_instance = Mock(return_value=None)
+
+        from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+        from src.core.services.backend_model_resolver import BackendModelResolver
+        from src.core.services.model_alias_resolver import ModelAliasResolver
+        from src.core.services.planning_phase_manager import PlanningPhaseManager
+
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
+        )
+
+        model_alias_resolver = ModelAliasResolver(config=mock_dependencies["config"])
+        planning_phase_manager = PlanningPhaseManager(
+            session_service=mock_dependencies["session_service"]
+        )
+        backend_lifecycle_manager = BackendLifecycleManager(
+            factory=mock_dependencies["factory"],
+            config=mock_dependencies["config"],
+            backend_config_provider=Mock(),
+            per_session_limit=32,
+        )
+        backend_model_resolver = BackendModelResolver(
+            session_service=mock_dependencies["session_service"],
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase_manager,
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            config=mock_dependencies["config"],
+            routing_service=routing_service,
+        )
+        mock_dependencies["model_alias_resolver"] = model_alias_resolver
+        mock_dependencies["planning_phase_manager"] = planning_phase_manager
+        mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
+        mock_dependencies["backend_model_resolver"] = backend_model_resolver
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
+
+        request = ChatRequest(
+            model="unknown-model",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
+        with pytest.raises(RoutingError) as exc_info:
+            await service._resolve_backend_and_model(request)
+
+        assert exc_info.value.details is not None
+        assert exc_info.value.details.get("code") == "unknown_model"
+        routing_service.resolve_model_only_backend.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_model_only_resolution_requires_routing_service_contract(
+        self, mock_dependencies
+    ) -> None:
+        """Model-only resolution must fail-fast when routing service contract is incomplete."""
+
+        class _RoutingServiceWithoutModelOnly:
+            def __init__(self) -> None:
+                self.resolve_backend_instance = Mock(return_value=None)
+
+        routing_service = _RoutingServiceWithoutModelOnly()
+
+        from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+        from src.core.services.backend_model_resolver import BackendModelResolver
+        from src.core.services.model_alias_resolver import ModelAliasResolver
+        from src.core.services.planning_phase_manager import PlanningPhaseManager
+
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
+        )
+
+        model_alias_resolver = ModelAliasResolver(config=mock_dependencies["config"])
+        planning_phase_manager = PlanningPhaseManager(
+            session_service=mock_dependencies["session_service"]
+        )
+        backend_lifecycle_manager = BackendLifecycleManager(
+            factory=mock_dependencies["factory"],
+            config=mock_dependencies["config"],
+            backend_config_provider=Mock(),
+            per_session_limit=32,
+        )
+        backend_model_resolver = BackendModelResolver(
+            session_service=mock_dependencies["session_service"],
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase_manager,
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            config=mock_dependencies["config"],
+            routing_service=routing_service,  # type: ignore[arg-type]
+        )
+        mock_dependencies["model_alias_resolver"] = model_alias_resolver
+        mock_dependencies["planning_phase_manager"] = planning_phase_manager
+        mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
+        mock_dependencies["backend_model_resolver"] = backend_model_resolver
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
+
+        request = ChatRequest(
+            model="unknown-model",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
+        with pytest.raises(AttributeError):
+            await service._resolve_backend_and_model(request)
+
+    @pytest.mark.asyncio
+    async def test_explicit_backend_without_available_instance_raises_routing_error(
+        self, mock_dependencies
+    ):
+        routing_service = Mock()
+        routing_service.resolve_backend_instance = Mock(return_value=None)
+        routing_service.resolve_model_only_backend = Mock()
+
+        from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+        from src.core.services.backend_model_resolver import BackendModelResolver
+        from src.core.services.model_alias_resolver import ModelAliasResolver
+        from src.core.services.planning_phase_manager import PlanningPhaseManager
+
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
+        )
+
+        model_alias_resolver = ModelAliasResolver(config=mock_dependencies["config"])
+        planning_phase_manager = PlanningPhaseManager(
+            session_service=mock_dependencies["session_service"]
+        )
+        backend_lifecycle_manager = BackendLifecycleManager(
+            factory=mock_dependencies["factory"],
+            config=mock_dependencies["config"],
+            backend_config_provider=Mock(),
+            per_session_limit=32,
+        )
+        backend_model_resolver = BackendModelResolver(
+            session_service=mock_dependencies["session_service"],
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase_manager,
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            config=mock_dependencies["config"],
+            routing_service=routing_service,
+        )
+        mock_dependencies["model_alias_resolver"] = model_alias_resolver
+        mock_dependencies["planning_phase_manager"] = planning_phase_manager
+        mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
+        mock_dependencies["backend_model_resolver"] = backend_model_resolver
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
+
+        request = ChatRequest(
+            model="openai:gpt-4o",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
+        with pytest.raises(RoutingError) as exc_info:
+            await service._resolve_backend_and_model(request)
+
+        assert exc_info.value.details is not None
+        assert exc_info.value.details.get("code") == "temporarily_unavailable"
 
 
 class TestRequestSynchronization:
@@ -470,6 +778,44 @@ class TestRequestSynchronization:
         assert synced.extra_body["model"] == "claude-3-5-sonnet"
         assert synced.extra_body["backend_type"] == "anthropic"
         assert synced.extra_body["some_field"] == "value"  # Preserved
+
+    @pytest.mark.asyncio
+    async def test_synchronize_preserves_uri_params_for_follow_up_resolution(
+        self, backend_service
+    ) -> None:
+        """Resolved URI params should remain available after request synchronization."""
+        resolver = backend_service._backend_model_resolver
+        request = ChatRequest(
+            model="gpt-4?temperature=0.4&top_p=0.8",
+            messages=[ChatMessage(role="user", content="test")],
+        )
+
+        initial_target = await resolver.resolve_target(request=request, context=None)
+        synchronized = resolver.synchronize_request_with_target(request, initial_target)
+
+        assert synchronized.extra_body is not None
+        assert synchronized.extra_body.get("_resolved_uri_params") == {
+            "temperature": "0.4",
+            "top_p": "0.8",
+        }
+
+        failover_request = synchronized.model_copy(
+            update={
+                "extra_body": {
+                    **(synchronized.extra_body or {}),
+                    "backend_type": "anthropic",
+                }
+            }
+        )
+
+        failover_target = await resolver.resolve_target(
+            request=failover_request,
+            context=None,
+        )
+
+        assert failover_target.backend == "anthropic"
+        assert failover_target.model == "gpt-4"
+        assert failover_target.uri_params == {"temperature": "0.4", "top_p": "0.8"}
 
 
 class TestEdgeCases:

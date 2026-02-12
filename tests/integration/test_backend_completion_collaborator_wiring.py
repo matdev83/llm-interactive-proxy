@@ -52,21 +52,21 @@ async def test_session_resolver_returns_typed_session(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_backend_request_preparer_accepts_typed_session(
-    app_config_legacy_log_disabled,
+    app_config_with_openai_backend,
 ):
     """Test that IBackendRequestPreparer accepts ISession | None."""
     from src.core.app.application_builder import ApplicationBuilder
     from src.core.domain.backend_target import BackendTarget
 
     builder = ApplicationBuilder().add_default_stages()
-    app = await builder.build(app_config_legacy_log_disabled)
+    app = await builder.build(app_config_with_openai_backend)
     service_provider = app.state.service_provider
 
     request_preparer = service_provider.get_required_service(IBackendRequestPreparer)
 
-    # Create a test request
+    # Create a test request - use explicit backend format to bypass model-only resolution
     request = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[ChatMessage(role="user", content="test")],
     )
     context = RequestContext(
@@ -153,14 +153,14 @@ async def test_usage_accounting_orchestrator_accepts_typed_session(
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_collaborator_wiring_end_to_end(
-    app_config_legacy_log_disabled,
+    app_config_with_openai_backend,
 ):
     """Test that all collaborators work together with typed parameters."""
     from src.core.app.application_builder import ApplicationBuilder
     from src.core.domain.backend_target import BackendTarget
 
     builder = ApplicationBuilder().add_default_stages()
-    app = await builder.build(app_config_legacy_log_disabled)
+    app = await builder.build(app_config_with_openai_backend)
     service_provider = app.state.service_provider
 
     session_resolver = service_provider.get_required_service(ICompletionSessionResolver)
@@ -169,9 +169,9 @@ async def test_collaborator_wiring_end_to_end(
         IWireCaptureOrchestrator
     )
 
-    # Create a test request
+    # Create a test request - use explicit backend format to bypass model-only resolution
     request = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[ChatMessage(role="user", content="test")],
     )
     context = RequestContext(

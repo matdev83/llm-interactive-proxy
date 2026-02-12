@@ -368,7 +368,9 @@ def _warn_if_quality_verifier_frequency_too_low(cfg: AppConfig) -> AppConfig:
     try:
         session_cfg = cfg.session
         quality_verifier_model = getattr(session_cfg, "quality_verifier_model", None)
-        quality_verifier_frequency = int(getattr(session_cfg, "quality_verifier_frequency", 10) or 10)
+        quality_verifier_frequency = int(
+            getattr(session_cfg, "quality_verifier_frequency", 10) or 10
+        )
     except Exception:
         return cfg
 
@@ -414,12 +416,11 @@ async def main(
 
     error_handler = ErrorHandler()
     try:
-        # Log raw CLI params as early as possible for debugging
         raw_params = argv if argv is not None else sys.argv[1:]
-        logger.info("CLI startup params: %s", raw_params)
 
         # Parse arguments
         args: argparse.Namespace = parse_cli_args(argv)
+        args._raw_cli_params = list(raw_params)
 
         cfg_result = apply_cli_args(args, return_resolution=True)
         cfg, resolution = cfg_result

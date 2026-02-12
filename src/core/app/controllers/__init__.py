@@ -15,7 +15,6 @@ from typing import Any, cast
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
 from starlette.responses import Response  # Added this line
 
-# Legacy models are only used by the compatibility endpoints via the adapter layer
 from src.anthropic_models import AnthropicMessagesRequest
 from src.core.app.controllers.anthropic_controller import (
     AnthropicController,
@@ -23,9 +22,7 @@ from src.core.app.controllers.anthropic_controller import (
 )
 from src.core.app.controllers.chat_controller import ChatController, get_chat_controller
 from src.core.app.controllers.models_controller import (
-    get_backend_factory_service,
     get_backend_service,
-    get_config_service,
 )
 from src.core.app.controllers.models_controller import router as models_router
 from src.core.app.controllers.responses_controller import (
@@ -34,7 +31,7 @@ from src.core.app.controllers.responses_controller import (
 )
 from src.core.app.controllers.session_resolution import resolve_session_before_capture
 from src.core.app.controllers.usage_controller import router as usage_router
-from src.core.common.exceptions import ServiceResolutionError
+from src.core.common.exceptions import LLMProxyError, ServiceResolutionError
 
 # Import HTTP status constants
 from src.core.constants import (
@@ -57,6 +54,9 @@ from src.core.domain.health.models import (
 from src.core.interfaces.di_interface import IServiceProvider
 from src.core.interfaces.request_processor_interface import IRequestProcessor
 from src.core.interfaces.wire_capture_interface import IWireCapture
+from src.core.transport.fastapi.exception_adapters import (
+    map_domain_exception_to_http_exception,
+)
 from src.core.transport.fastapi.request_adapters import (
     fastapi_to_domain_request_context,
 )
@@ -859,6 +859,10 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
             except Exception as e:
                 if isinstance(e, HTTPException):
                     raise HTTPException(status_code=e.status_code, detail=e.detail)
+                if isinstance(e, LLMProxyError):
+                    raise map_domain_exception_to_http_exception(
+                        e, request=request
+                    ) from e
                 response_text = "Test response"
                 if domain_request.messages:
                     original_text = domain_request.messages[0].content
@@ -1272,20 +1276,22 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
     ) -> dict[str, Any]:
         """Get available models in Anthropic API format."""
         try:
-            # Get models in OpenAI format first
-            # We don't have a Response object here, so we create a dummy one
-            # to satisfy the list_models signature if needed, or just let it be None
-            # if we make it optional in the signature again but correctly.
+            # Get canonical models in OpenAI-compatible format first.
             from fastapi import Response as DummyResponse
 
             from src.core.app.controllers.models_controller import list_models
+            from src.core.services.backend_routing_service import (
+                BackendRoutingService,
+            )
 
             dummy_response = DummyResponse()
+            routing_service = service_provider.get_required_service(
+                BackendRoutingService
+            )
             models_response = await list_models(
-                dummy_response,
-                await get_backend_service(),
-                get_config_service(),
-                get_backend_factory_service(),
+                response=dummy_response,
+                backend_service=await get_backend_service(),
+                routing_service=routing_service,
             )
 
             # Convert to Anthropic format
@@ -1299,27 +1305,6 @@ def _register_anthropic_endpoints(app: FastAPI, prefix: str) -> None:
                         "owned_by": "anthropic",
                     }
                 )
-
-            # Ensure specific Claude models are included for tests
-            expected_claude_models = [
-                "claude-3-5-sonnet-20241022",
-                "claude-3-5-haiku-20241022",
-                "claude-3-opus-20240229",
-                "claude-3-sonnet-20240229",
-                "claude-3-haiku-20240307",
-            ]
-
-            existing_model_ids = {model["id"] for model in anthropic_models}
-            for claude_model in expected_claude_models:
-                if claude_model not in existing_model_ids:
-                    anthropic_models.append(
-                        {
-                            "id": claude_model,
-                            "object": "model",
-                            "created": 0,
-                            "owned_by": "anthropic",
-                        }
-                    )
 
             return {"object": "list", "data": anthropic_models}
         except Exception as e:

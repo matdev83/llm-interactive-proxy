@@ -36,6 +36,23 @@ class CompletionSessionResolver(ICompletionSessionResolver):
         a_session_id = identity.a_session_id.strip()
         return a_session_id or None
 
+    @staticmethod
+    def _resolve_auxiliary_effective_session_id(
+        context: RequestContext | None,
+    ) -> str | None:
+        if context is None:
+            return None
+        extensions = getattr(context, "extensions", None)
+        if not isinstance(extensions, dict):
+            return None
+        if not bool(extensions.get("auxiliary_request")):
+            return None
+        auxiliary_session_id = extensions.get("auxiliary_effective_session_id")
+        if not isinstance(auxiliary_session_id, str):
+            return None
+        normalized = auxiliary_session_id.strip()
+        return normalized or None
+
     async def resolve_session(
         self, context: RequestContext | None, request: CanonicalChatRequest
     ) -> tuple[ISession | None, str | None]:
@@ -50,11 +67,15 @@ class CompletionSessionResolver(ICompletionSessionResolver):
 
         # Resolve session from context when available
         if context:
-            b2bua_a_leg = self._resolve_b2bua_a_leg_session_id(context)
-            if b2bua_a_leg:
-                session_id_for_backend = b2bua_a_leg
-            elif getattr(context, "session_id", None):
-                session_id_for_backend = context.session_id
+            auxiliary_session_id = self._resolve_auxiliary_effective_session_id(context)
+            if auxiliary_session_id:
+                session_id_for_backend = auxiliary_session_id
+            else:
+                b2bua_a_leg = self._resolve_b2bua_a_leg_session_id(context)
+                if b2bua_a_leg:
+                    session_id_for_backend = b2bua_a_leg
+                elif getattr(context, "session_id", None):
+                    session_id_for_backend = context.session_id
 
         if session_id_for_backend:
             try:

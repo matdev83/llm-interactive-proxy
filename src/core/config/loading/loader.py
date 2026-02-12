@@ -82,6 +82,6 @@ def _collect_backend_instance_names(config_dict: dict[str, Any]) -> set[str]:
         return set()
     names: set[str] = set()
     for key in backends:
-        if isinstance(key, str) and "." in key:
+        if isinstance(key, str) and key and key != "default_backend":
             names.add(key)
     return names

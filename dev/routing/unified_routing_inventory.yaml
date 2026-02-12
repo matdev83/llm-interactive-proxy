@@ -1,0 +1,90 @@
+version: 1
+
+scan_roots:
+  - src/core/services
+  - src/core/app/controllers
+  - src/codebuff/handlers
+  - src/connectors/hybrid_backend/infrastructure
+
+call_surfaces:
+  - id: primary_request_execution
+    kind: direct
+    file: src/core/services/backend_processor.py
+    function: _process_forward
+    call: self._backend_service.call_completion
+
+  - id: quality_verifier_verification
+    kind: direct
+    file: src/core/services/backend_request_manager/quality_verifier_stream_verifier.py
+    function: _call_quality_verifier_once
+    call: backend_service.chat_completions
+
+  - id: quality_verifier_correction
+    kind: direct
+    file: src/core/services/backend_request_manager/quality_verifier_stream_verifier.py
+    function: verify_or_passthrough
+    call: backend_service.chat_completions
+
+  - id: quality_verifier_response_verification
+    kind: direct
+    file: src/core/services/response_processor_service.py
+    function: _call_quality_verifier_once
+    call: backend_service.chat_completions
+
+  - id: quality_verifier_response_correction
+    kind: direct
+    file: src/core/services/response_processor_service.py
+    function: _apply_quality_verifier_verification
+    call: backend_service.chat_completions
+
+  - id: project_directory_resolution
+    kind: direct
+    file: src/core/services/project_directory_resolution_service.py
+    function: _call_resolution_model
+    call: self._backend_service.call_completion
+
+  - id: gemini_generate_content
+    kind: direct
+    file: src/core/app/controllers/__init__.py
+    function: gemini_generate_content
+    call: backend_service.call_completion
+
+  - id: gemini_stream_generate_content
+    kind: direct
+    file: src/core/app/controllers/__init__.py
+    function: generate_stream
+    call: backend_service.call_completion
+
+  - id: codebuff_prompt_handler
+    kind: direct
+    file: src/codebuff/handlers/prompt_handler.py
+    function: _stream_response
+    call: completion_service.call_completion
+
+  - id: hybrid_reasoning_phase
+    kind: direct
+    file: src/connectors/hybrid_backend/infrastructure/phase_executor.py
+    function: execute_reasoning_phase
+    call: backend_service.call_completion
+
+  - id: hybrid_execution_phase
+    kind: direct
+    file: src/connectors/hybrid_backend/infrastructure/phase_executor.py
+    function: execute_execution_phase
+    call: backend_service.call_completion
+
+  - id: random_model_replacement
+    kind: indirect
+    file: src/core/services/request_processor_service.py
+    marker: self._replacement_service.get_effective_backend_model(
+    routes_via: primary_request_execution
+
+  - id: auxiliary_sidecar_inference
+    kind: indirect
+    file: src/core/services/request_processor_service.py
+    marker: context.extensions["auxiliary_request"] = True
+    routes_via: primary_request_execution
+
+allowed_adapter_boundaries:
+  - src/core/services/connector_invoker.py
+  - src/connectors/

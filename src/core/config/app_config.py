@@ -109,6 +109,7 @@ class AppConfig(AppConfigModel):
             "health_check",
             "failure_handling",
             "routing",
+            "reasoning_model_token_floor",
             "memory",
             "database",
             "vtc_client_patterns",

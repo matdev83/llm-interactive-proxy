@@ -785,11 +785,69 @@ class OpenAIConnector(LLMBackend):
         extra = getattr(request_data, "extra_body", None)
         if isinstance(extra, dict):
             payload.update(extra)
+        self._enforce_reasoning_model_min_tokens(payload, effective_model, context)
         # Remove internal-only keys and any None-valued entries (recursively)
         # so providers receive a clean OpenAI-compatible payload.
         payload = self._clean_openai_payload(payload)
 
         return payload  # type: ignore[no-any-return]
+
+    @staticmethod
+    def _normalize_model_for_token_floor(model_name: Any) -> str:
+        if not isinstance(model_name, str):
+            return ""
+
+        normalized = model_name.strip().lower()
+        colon_idx = normalized.find(":")
+        slash_idx = normalized.find("/")
+        if colon_idx != -1 and (slash_idx == -1 or colon_idx < slash_idx):
+            normalized = normalized[colon_idx + 1 :]
+        return normalized
+
+    @staticmethod
+    def _coerce_positive_int(value: Any) -> int | None:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return value if value > 0 else None
+        if isinstance(value, str):
+            try:
+                parsed = int(value)
+            except ValueError:
+                return None
+            return parsed if parsed > 0 else None
+        return None
+
+    def _enforce_reasoning_model_min_tokens(
+        self,
+        payload: dict[str, Any],
+        effective_model: str,
+        context: ConnectorRequestContext | None = None,
+    ) -> None:
+        cfg = self.config.reasoning_model_token_floor
+        if not cfg.enabled:
+            return
+        model_key = self._normalize_model_for_token_floor(
+            effective_model or payload.get("model")
+        )
+        min_tokens = cfg.models.get(model_key)
+        if min_tokens is None:
+            return
+
+        log_extra_payload = self._get_log_extra(context) if context else None
+        for token_key in ("max_completion_tokens", "max_tokens"):
+            current_tokens = self._coerce_positive_int(payload.get(token_key))
+            if current_tokens is None or current_tokens >= min_tokens:
+                continue
+            payload[token_key] = min_tokens
+            logger.debug(
+                "Raised %s from %d to %d for reasoning-first model '%s'",
+                token_key,
+                current_tokens,
+                min_tokens,
+                model_key,
+                extra=log_extra_payload if log_extra_payload else None,
+            )
 
     def _clean_openai_payload(self, payload: Any) -> dict[str, Any]:
         """Strip None values and internal-only keys from an OpenAI payload."""

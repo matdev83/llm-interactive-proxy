@@ -16,6 +16,24 @@ from src.codebuff.handlers.prompt_handler import PromptHandler
 from src.codebuff.schemas import InitAction, PromptAction
 
 
+def _build_prompt_handler(
+    *,
+    connection_manager: ConnectionManager,
+    format_converter: FormatConverter,
+    response_payload: dict[str, object],
+) -> tuple[PromptHandler, MagicMock, MagicMock]:
+    backend_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.response = response_payload
+    backend_service.call_completion = AsyncMock(return_value=mock_response)
+    handler = PromptHandler(
+        backend_service=backend_service,
+        format_converter=format_converter,
+        connection_manager=connection_manager,
+    )
+    return handler, backend_service, mock_response
+
+
 class TestAuthTokenHandling:
     """Tests for auth token handling."""
 
@@ -25,24 +43,10 @@ class TestAuthTokenHandling:
         # Setup
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
-        backend_factory = MagicMock()
-
-        # Create mock backend
-        mock_backend = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.response = {
-            "choices": [{"message": {"content": "test response"}}]
-        }
-        mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-        backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-        backend_factory._config = MagicMock()
-        backend_factory._config.backends = {}
-
-        handler = PromptHandler(
-            backend_factory=backend_factory,
-            format_converter=format_converter,
+        handler, _, _ = _build_prompt_handler(
             connection_manager=connection_manager,
+            format_converter=format_converter,
+            response_payload={"choices": [{"message": {"content": "test response"}}]},
         )
 
         # Create mock websocket
@@ -76,24 +80,10 @@ class TestAuthTokenHandling:
         # Setup
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
-        backend_factory = MagicMock()
-
-        # Create mock backend
-        mock_backend = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.response = {
-            "choices": [{"message": {"content": "test response"}}]
-        }
-        mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-        backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-        backend_factory._config = MagicMock()
-        backend_factory._config.backends = {}
-
-        handler = PromptHandler(
-            backend_factory=backend_factory,
-            format_converter=format_converter,
+        handler, _, _ = _build_prompt_handler(
             connection_manager=connection_manager,
+            format_converter=format_converter,
+            response_payload={"choices": [{"message": {"content": "test response"}}]},
         )
 
         # Create mock websocket
@@ -167,24 +157,10 @@ class TestFingerprintTracking:
         # Setup
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
-        backend_factory = MagicMock()
-
-        # Create mock backend
-        mock_backend = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.response = {
-            "choices": [{"message": {"content": "test response"}}]
-        }
-        mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-        backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-        backend_factory._config = MagicMock()
-        backend_factory._config.backends = {}
-
-        handler = PromptHandler(
-            backend_factory=backend_factory,
-            format_converter=format_converter,
+        handler, _, _ = _build_prompt_handler(
             connection_manager=connection_manager,
+            format_converter=format_converter,
+            response_payload={"choices": [{"message": {"content": "test response"}}]},
         )
 
         # Create mock websocket
@@ -249,24 +225,10 @@ class TestFingerprintTracking:
         # Setup
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
-        backend_factory = MagicMock()
-
-        # Create mock backend
-        mock_backend = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.response = {
-            "choices": [{"message": {"content": "test response"}}]
-        }
-        mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-        backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-        backend_factory._config = MagicMock()
-        backend_factory._config.backends = {}
-
-        handler = PromptHandler(
-            backend_factory=backend_factory,
-            format_converter=format_converter,
+        handler, _, _ = _build_prompt_handler(
             connection_manager=connection_manager,
+            format_converter=format_converter,
+            response_payload={"choices": [{"message": {"content": "test response"}}]},
         )
 
         # Create mock websocket
@@ -315,29 +277,17 @@ class TestCostAttribution:
         # Setup
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
-        backend_factory = MagicMock()
-
-        # Create mock backend with usage info
-        mock_backend = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.response = {
-            "choices": [{"message": {"content": "test response"}}],
-            "usage": {
-                "prompt_tokens": 100,
-                "completion_tokens": 50,
-                "total_tokens": 150,
-            },
-        }
-        mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-        backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-        backend_factory._config = MagicMock()
-        backend_factory._config.backends = {}
-
-        handler = PromptHandler(
-            backend_factory=backend_factory,
-            format_converter=format_converter,
+        handler, backend_service, mock_response = _build_prompt_handler(
             connection_manager=connection_manager,
+            format_converter=format_converter,
+            response_payload={
+                "choices": [{"message": {"content": "test response"}}],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                },
+            },
         )
 
         # Create mock websocket
@@ -365,7 +315,7 @@ class TestCostAttribution:
         assert session.fingerprint_id == "cost-tracking-fingerprint"
 
         # Verify backend was called (usage data available)
-        assert mock_backend.chat_completions.called
+        assert backend_service.call_completion.called
 
     @pytest.mark.asyncio
     async def test_cost_attributable_to_session_id_when_no_fingerprint(self):
@@ -373,29 +323,17 @@ class TestCostAttribution:
         # Setup
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
-        backend_factory = MagicMock()
-
-        # Create mock backend with usage info
-        mock_backend = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.response = {
-            "choices": [{"message": {"content": "test response"}}],
-            "usage": {
-                "prompt_tokens": 100,
-                "completion_tokens": 50,
-                "total_tokens": 150,
-            },
-        }
-        mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-        backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-        backend_factory._config = MagicMock()
-        backend_factory._config.backends = {}
-
-        handler = PromptHandler(
-            backend_factory=backend_factory,
-            format_converter=format_converter,
+        handler, backend_service, _ = _build_prompt_handler(
             connection_manager=connection_manager,
+            format_converter=format_converter,
+            response_payload={
+                "choices": [{"message": {"content": "test response"}}],
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                },
+            },
         )
 
         # Create mock websocket
@@ -423,7 +361,7 @@ class TestCostAttribution:
         assert session.session_id == session_id
 
         # Verify backend was called (usage data available)
-        assert mock_backend.chat_completions.called
+        assert backend_service.call_completion.called
 
     @pytest.mark.asyncio
     async def test_usage_data_available_for_accounting(self):
@@ -431,29 +369,17 @@ class TestCostAttribution:
         # Setup
         connection_manager = ConnectionManager()
         format_converter = FormatConverter()
-        backend_factory = MagicMock()
-
-        # Create mock backend with detailed usage info
-        mock_backend = AsyncMock()
-        mock_response = MagicMock()
-        mock_response.response = {
-            "choices": [{"message": {"content": "test response"}}],
-            "usage": {
-                "prompt_tokens": 250,
-                "completion_tokens": 125,
-                "total_tokens": 375,
-            },
-        }
-        mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-        backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-        backend_factory._config = MagicMock()
-        backend_factory._config.backends = {}
-
-        handler = PromptHandler(
-            backend_factory=backend_factory,
-            format_converter=format_converter,
+        handler, backend_service, mock_response = _build_prompt_handler(
             connection_manager=connection_manager,
+            format_converter=format_converter,
+            response_payload={
+                "choices": [{"message": {"content": "test response"}}],
+                "usage": {
+                    "prompt_tokens": 250,
+                    "completion_tokens": 125,
+                    "total_tokens": 375,
+                },
+            },
         )
 
         # Create mock websocket
@@ -477,7 +403,7 @@ class TestCostAttribution:
         await handler.handle_prompt(websocket, action)
 
         # Verify backend was called
-        assert mock_backend.chat_completions.called
+        assert backend_service.call_completion.called
 
         # Verify usage data is in the response
         assert "usage" in mock_response.response

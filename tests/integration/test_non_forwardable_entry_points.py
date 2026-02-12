@@ -9,6 +9,7 @@ Tests verify:
 
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -39,7 +40,7 @@ async def backend_service(test_app) -> IBackendService:
     from src.core.services.backend_service import BackendService
 
     backend_service = service_provider.get_required_service(BackendService)
-    return backend_service
+    return cast(IBackendService, backend_service)
 
 
 @pytest_asyncio.fixture
@@ -49,7 +50,7 @@ async def identity_service(test_app) -> INonForwardableMessageIdentityService:
     identity_service = service_provider.get_required_service(
         INonForwardableMessageIdentityService
     )
-    return identity_service
+    return cast(INonForwardableMessageIdentityService, identity_service)
 
 
 @pytest_asyncio.fixture
@@ -57,7 +58,7 @@ async def registry(test_app) -> INonForwardableMessageRegistry:
     """Get registry from test app."""
     service_provider = test_app.state.service_provider
     registry = service_provider.get_required_service(INonForwardableMessageRegistry)
-    return registry
+    return cast(INonForwardableMessageRegistry, registry)
 
 
 @pytest.mark.integration
@@ -84,7 +85,7 @@ async def test_websocket_session_scoping(
 
     # Create request for session 1 - message should be filtered
     request1 = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[tagged_msg, ChatMessage(role="user", content="Hello")],
     )
     context1 = RequestContext(
@@ -126,7 +127,7 @@ async def test_websocket_session_scoping(
 
     # Create request for session 2 with same message - should NOT be filtered
     request2 = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[tagged_msg],
     )
     context2 = RequestContext(
@@ -184,7 +185,7 @@ async def test_websocket_multiturn_continuity(
 
     # First turn - message should be filtered
     request1 = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[tagged_msg, ChatMessage(role="user", content="First turn")],
     )
     context1 = RequestContext(
@@ -225,7 +226,7 @@ async def test_websocket_multiturn_continuity(
 
     # Second turn - resubmit history with tagged message, should still be filtered
     request2 = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[
             tagged_msg,  # Resubmitted tagged message
             ChatMessage(role="assistant", content="OK"),  # Previous response
@@ -291,7 +292,7 @@ async def test_hybrid_backend_session_propagation(
     # Create request that would trigger hybrid backend
     # Note: This test verifies session_id propagation, not full hybrid execution
     request = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[tagged_msg, ChatMessage(role="user", content="Continue")],
     )
     context = RequestContext(
@@ -366,7 +367,7 @@ async def test_concurrent_session_isolation(
 
     # Session A request with its tagged message
     request_a = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[msg_a, ChatMessage(role="user", content="Other A")],
     )
     context_a = RequestContext(
@@ -379,7 +380,7 @@ async def test_concurrent_session_isolation(
 
     # Session B request with its tagged message
     request_b = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[msg_b, ChatMessage(role="user", content="Other B")],
     )
     context_b = RequestContext(
@@ -505,7 +506,7 @@ async def test_all_entry_points_route_through_enforcement(
 
     # Create request with tagged message
     request = CanonicalChatRequest(
-        model="test-model",
+        model="openai:gpt-4",
         messages=[tagged_msg, ChatMessage(role="user", content="Hello")],
     )
     context = RequestContext(

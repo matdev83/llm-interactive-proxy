@@ -18,6 +18,24 @@ from src.codebuff.handlers.prompt_handler import PromptHandler
 from src.codebuff.schemas import PromptAction
 
 
+def _build_prompt_handler(
+    *,
+    connection_manager: ConnectionManager,
+    format_converter: FormatConverter,
+    response_payload: dict[str, object],
+) -> tuple[PromptHandler, MagicMock, MagicMock]:
+    backend_service = MagicMock()
+    mock_response = MagicMock()
+    mock_response.response = response_payload
+    backend_service.call_completion = AsyncMock(return_value=mock_response)
+    handler = PromptHandler(
+        backend_service=backend_service,
+        format_converter=format_converter,
+        connection_manager=connection_manager,
+    )
+    return handler, backend_service, mock_response
+
+
 # Strategies for generating test data
 @st.composite
 def prompt_action_strategy(draw):
@@ -46,22 +64,10 @@ async def test_property_14_token_validation(action: PromptAction):
     # Setup
     connection_manager = ConnectionManager()
     format_converter = FormatConverter()
-    backend_factory = MagicMock()
-
-    # Create mock backend
-    mock_backend = AsyncMock()
-    mock_response = MagicMock()
-    mock_response.response = {"choices": [{"message": {"content": "test response"}}]}
-    mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-    backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-    backend_factory._config = MagicMock()
-    backend_factory._config.backends = {}
-
-    handler = PromptHandler(
-        backend_factory=backend_factory,
-        format_converter=format_converter,
+    handler, _, _ = _build_prompt_handler(
         connection_manager=connection_manager,
+        format_converter=format_converter,
+        response_payload={"choices": [{"message": {"content": "test response"}}]},
     )
 
     # Create mock websocket
@@ -78,6 +84,7 @@ async def test_property_14_token_validation(action: PromptAction):
     # Verify: For MVP, we accept the token without validation
     # The token should be stored in the session
     session = await connection_manager.get_session(websocket)
+    assert session is not None
 
     if action.authToken:
         # Token should be stored in session
@@ -109,22 +116,10 @@ async def test_property_15_fingerprint_association(
     # Setup
     connection_manager = ConnectionManager()
     format_converter = FormatConverter()
-    backend_factory = MagicMock()
-
-    # Create mock backend
-    mock_backend = AsyncMock()
-    mock_response = MagicMock()
-    mock_response.response = {"choices": [{"message": {"content": "test response"}}]}
-    mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-    backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-    backend_factory._config = MagicMock()
-    backend_factory._config.backends = {}
-
-    handler = PromptHandler(
-        backend_factory=backend_factory,
-        format_converter=format_converter,
+    handler, _, _ = _build_prompt_handler(
         connection_manager=connection_manager,
+        format_converter=format_converter,
+        response_payload={"choices": [{"message": {"content": "test response"}}]},
     )
 
     # Create mock websocket
@@ -143,6 +138,7 @@ async def test_property_15_fingerprint_association(
 
     # Verify: Fingerprint ID should be associated with the session
     session = await connection_manager.get_session(websocket)
+    assert session is not None
     assert session.fingerprint_id == fingerprint_id
 
 
@@ -160,29 +156,17 @@ async def test_property_16_cost_attribution(action: PromptAction):
     # Setup
     connection_manager = ConnectionManager()
     format_converter = FormatConverter()
-    backend_factory = MagicMock()
-
-    # Create mock backend with usage info
-    mock_backend = AsyncMock()
-    mock_response = MagicMock()
-    mock_response.response = {
-        "choices": [{"message": {"content": "test response"}}],
-        "usage": {
-            "prompt_tokens": 10,
-            "completion_tokens": 20,
-            "total_tokens": 30,
-        },
-    }
-    mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-    backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-    backend_factory._config = MagicMock()
-    backend_factory._config.backends = {}
-
-    handler = PromptHandler(
-        backend_factory=backend_factory,
-        format_converter=format_converter,
+    handler, _, _ = _build_prompt_handler(
         connection_manager=connection_manager,
+        format_converter=format_converter,
+        response_payload={
+            "choices": [{"message": {"content": "test response"}}],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30,
+            },
+        },
     )
 
     # Create mock websocket
@@ -198,6 +182,7 @@ async def test_property_16_cost_attribution(action: PromptAction):
 
     # Verify: Session should have fingerprint ID for cost attribution
     session = await connection_manager.get_session(websocket)
+    assert session is not None
 
     # Cost should be attributable to either fingerprint_id or session_id
     assert session.fingerprint_id is not None or session.session_id is not None
@@ -221,29 +206,17 @@ async def test_property_33_accounting_integration(action: PromptAction):
     # Setup
     connection_manager = ConnectionManager()
     format_converter = FormatConverter()
-    backend_factory = MagicMock()
-
-    # Create mock backend with usage info
-    mock_backend = AsyncMock()
-    mock_response = MagicMock()
-    mock_response.response = {
-        "choices": [{"message": {"content": "test response"}}],
-        "usage": {
-            "prompt_tokens": 10,
-            "completion_tokens": 20,
-            "total_tokens": 30,
-        },
-    }
-    mock_backend.chat_completions = AsyncMock(return_value=mock_response)
-
-    backend_factory.ensure_backend = AsyncMock(return_value=mock_backend)
-    backend_factory._config = MagicMock()
-    backend_factory._config.backends = {}
-
-    handler = PromptHandler(
-        backend_factory=backend_factory,
-        format_converter=format_converter,
+    handler, backend_service, mock_response = _build_prompt_handler(
         connection_manager=connection_manager,
+        format_converter=format_converter,
+        response_payload={
+            "choices": [{"message": {"content": "test response"}}],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 20,
+                "total_tokens": 30,
+            },
+        },
     )
 
     # Create mock websocket
@@ -260,11 +233,10 @@ async def test_property_33_accounting_integration(action: PromptAction):
     # Verify: Backend was called (which means accounting can happen)
     # In MVP, we don't have full accounting integration yet, but we verify
     # that the infrastructure is in place (backend is called, usage data exists)
-    assert backend_factory.ensure_backend.called
-    assert mock_backend.chat_completions.called
+    assert backend_service.call_completion.called
 
     # Verify usage data is available in the response
-    call_args = mock_backend.chat_completions.call_args
+    call_args = backend_service.call_completion.call_args
     assert call_args is not None
 
     # The response contains usage information that can be used for accounting

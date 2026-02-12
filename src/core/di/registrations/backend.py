@@ -30,6 +30,7 @@ from src.core.di.registrations._backend.infrastructure import (
 from src.core.di.registrations._backend.lifestyle import (
     register_backend_lifecycle_manager,
     register_backend_model_resolver,
+    register_backend_reactivation_control,
 )
 from src.core.di.registrations._backend.main_service import register_backend_service
 from src.core.di.registrations._backend.routing import register_backend_routing_service
@@ -67,6 +68,7 @@ def register(services: ServiceCollection, app_config: AppConfig | None) -> None:
     register_extracted_backend_services(services)
     register_backend_lifecycle_manager(services)
     register_backend_model_resolver(services)
+    register_backend_reactivation_control(services)
     register_backend_service(services)
     register_codex_services(services)
 
