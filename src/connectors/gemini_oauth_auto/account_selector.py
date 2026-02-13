@@ -5,7 +5,6 @@ Manages which account to use for API requests with round-robin rotation.
 
 import asyncio
 import logging
-import threading
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -68,7 +67,7 @@ class AccountSelectorService(IAccountSelector):
 
     # Global rotation state to coordinate across parallel requests/connector instances
     _global_rotation_indices: dict[str, int] = {}
-    _rotation_lock = threading.Lock()
+    _rotation_locks: dict[str, asyncio.Lock] = {}
 
     def __init__(
         self,
@@ -117,14 +116,12 @@ class AccountSelectorService(IAccountSelector):
     def rotation_index(self) -> int:
         """Current rotation index."""
         storage_key = str(getattr(self._storage, "_storage_path", "default"))
-        with self._rotation_lock:
-            return self._global_rotation_indices.get(storage_key, 0)
+        return self._global_rotation_indices.get(storage_key, 0)
 
     @rotation_index.setter
     def rotation_index(self, value: int) -> None:
         storage_key = str(getattr(self._storage, "_storage_path", "default"))
-        with self._rotation_lock:
-            self._global_rotation_indices[storage_key] = value
+        self._global_rotation_indices[storage_key] = value
 
     @property
     def refresh_buffer_ms(self) -> int:
@@ -465,7 +462,7 @@ class AccountSelectorService(IAccountSelector):
                     if self._selection_strategy == "session-affinity"
                     else self._selection_strategy
                 )
-                account = self._select_account_from_available(
+                account = await self._select_account_from_available_async(
                     eligible, strategy=fallback_strategy
                 )
             if not account:
@@ -521,6 +518,37 @@ class AccountSelectorService(IAccountSelector):
                 )
             return account
 
+    @classmethod
+    def _get_rotation_lock(cls, storage_key: str) -> asyncio.Lock:
+        lock = cls._rotation_locks.get(storage_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            cls._rotation_locks[storage_key] = lock
+        return lock
+
+    async def _select_account_from_available_async(
+        self, available: list[StoredAccount], *, strategy: str | None = None
+    ) -> StoredAccount | None:
+        if not available:
+            return None
+
+        selection_strategy = strategy or self._selection_strategy
+        if selection_strategy == "round-robin":
+            storage_key = str(getattr(self._storage, "_storage_path", "default"))
+            lock = self._get_rotation_lock(storage_key)
+            async with lock:
+                idx = self._global_rotation_indices.get(storage_key, 0)
+                if idx >= len(available):
+                    idx = 0
+
+                account = available[idx]
+                self._global_rotation_indices[storage_key] = (idx + 1) % len(available)
+                return account
+
+        return self._select_account_from_available(
+            available, strategy=selection_strategy
+        )
+
     def _select_account_from_available(
         self, available: list[StoredAccount], *, strategy: str | None = None
     ) -> StoredAccount | None:
@@ -543,16 +571,15 @@ class AccountSelectorService(IAccountSelector):
         if selection_strategy == "first-available":
             return available[0]
 
-        # Use shared rotation state
+        # Use shared rotation state (synchronous fallback path)
         storage_key = str(getattr(self._storage, "_storage_path", "default"))
-        with self._rotation_lock:
-            idx = self._global_rotation_indices.get(storage_key, 0)
-            if idx >= len(available):
-                idx = 0
+        idx = self._global_rotation_indices.get(storage_key, 0)
+        if idx >= len(available):
+            idx = 0
 
-            account = available[idx]
-            self._global_rotation_indices[storage_key] = (idx + 1) % len(available)
-            return account
+        account = available[idx]
+        self._global_rotation_indices[storage_key] = (idx + 1) % len(available)
+        return account
 
     async def mark_current_account_used(self) -> None:
         if not self._current_account:

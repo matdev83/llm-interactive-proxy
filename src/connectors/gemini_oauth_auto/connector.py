@@ -72,7 +72,7 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
         "confirm your identity",
     )
 
-    _STREAM_PRIME_TIMEOUT_SECONDS: float = 0.75
+    _STREAM_PRIME_TIMEOUT_SECONDS: float = 0.15
 
     @staticmethod
     def _is_project_not_found_error(error: BackendError) -> bool:
@@ -394,6 +394,11 @@ class GeminiOAuthAutoConnector(GeminiOAuthBaseConnector):
     @_oauth_credentials.setter
     def _oauth_credentials(self, value: dict[str, Any] | None) -> None:
         """Setter for backward compatibility, currently no-op for auto-connector."""
+
+    @property
+    def selection_strategy(self) -> str:
+        """Expose selection strategy for retry orchestration decisions."""
+        return self._account_selector.selection_strategy
 
     def get_thought_signature_namespace(self) -> str | None:
         """Return a namespace identifier for thought signature caching."""

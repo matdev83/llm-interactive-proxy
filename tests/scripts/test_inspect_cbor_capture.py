@@ -1,11 +1,21 @@
 import json
 import subprocess
 import sys
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
 import cbor2
 
 SCRIPT_PATH = Path("scripts/inspect_cbor_capture.py")
+
+
+def _load_inspector_module():
+    """Load inspect_cbor_capture.py as a module for direct unit testing."""
+    spec = spec_from_file_location("inspect_cbor_capture", SCRIPT_PATH)
+    assert spec is not None and spec.loader is not None
+    module = module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def test_script_exists():
@@ -87,3 +97,81 @@ def test_script_analysis(tmp_path):
     assert "Model: test-model" in output
     assert "test_tool" in output  # Tool name verification
     assert "Timing: TTFT=0.500s" in output  # Timing verification
+
+
+def test_detect_issues_correlates_by_request_id_before_session_ids():
+    """Regression: avoid false missing response when asid/bsid differ across legs."""
+    inspector = _load_inspector_module()
+
+    entries = [
+        {
+            "seq": 10,
+            "dir": 0,  # C->P
+            "ts": 1000.0,
+            "meta": {"rid": "req-1", "asid": "a-session"},
+            "data": b"{}",
+        },
+        {
+            "seq": 11,
+            "dir": 2,  # P->B
+            "ts": 1000.1,
+            "meta": {
+                "rid": "req-1",
+                "asid": "a-session",
+                "bsid": "b-session",
+                "be": "gemini-oauth-auto",
+            },
+            "data": b"{}",
+        },
+        {
+            "seq": 12,
+            "dir": 3,  # B->P
+            "ts": 1000.2,
+            "meta": {
+                "rid": "req-1",
+                "asid": "a-session",
+                "be": "gemini-oauth-auto",
+            },
+            "data": b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+        },
+    ]
+
+    issues = inspector.detect_issues(entries)
+    assert not [i for i in issues if i["type"] == "missing_response"]
+
+
+def test_detect_issues_falls_back_to_asid_when_bsid_missing_on_response():
+    """Regression: sid fallback should check both asid and bsid."""
+    inspector = _load_inspector_module()
+
+    entries = [
+        {
+            "seq": 20,
+            "dir": 0,  # C->P
+            "ts": 2000.0,
+            "meta": {"rid": "req-2", "asid": "a-session"},
+            "data": b"{}",
+        },
+        {
+            "seq": 21,
+            "dir": 2,  # P->B
+            "ts": 2000.1,
+            "meta": {
+                "rid": "req-2",
+                "asid": "a-session",
+                "bsid": "b-session",
+                "be": "gemini-oauth-auto",
+            },
+            "data": b"{}",
+        },
+        {
+            "seq": 22,
+            "dir": 3,  # B->P
+            "ts": 2000.2,
+            "meta": {"asid": "a-session", "be": "gemini-oauth-auto"},
+            "data": b'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+        },
+    ]
+
+    issues = inspector.detect_issues(entries)
+    assert not [i for i in issues if i["type"] == "missing_response"]

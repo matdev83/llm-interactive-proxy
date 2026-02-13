@@ -52,6 +52,8 @@ class StreamingContentConverter:
     metadata, tracks usage, and detects completion signals.
     """
 
+    _USAGE_RECALC_TIMEOUT_SECONDS = 0.5
+
     def __init__(
         self,
         sse_decoder: ISSEDecoder | None = None,
@@ -629,14 +631,30 @@ class StreamingContentConverter:
                         if final_chunk_usage is None and isinstance(best_usage, dict):
                             final_chunk_usage = best_usage
 
-                        computed_usage_raw: Any = await asyncio.to_thread(
-                            service.merge_streaming_usage,
-                            accumulated_content=accumulated_content or "",
-                            final_chunk_usage=final_chunk_usage,
-                            context=request_context,
-                            model=model_name,
-                            force_recalculation=force_usage_recalc,
-                        )
+                        try:
+                            computed_usage_raw: Any = await asyncio.wait_for(
+                                asyncio.to_thread(
+                                    service.merge_streaming_usage,
+                                    accumulated_content=accumulated_content or "",
+                                    final_chunk_usage=final_chunk_usage,
+                                    context=request_context,
+                                    model=model_name,
+                                    force_recalculation=force_usage_recalc,
+                                ),
+                                timeout=self._USAGE_RECALC_TIMEOUT_SECONDS,
+                            )
+                        except asyncio.TimeoutError:
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Streaming usage recalculation exceeded %.2fs; "
+                                    "using best-effort usage fallback",
+                                    self._USAGE_RECALC_TIMEOUT_SECONDS,
+                                )
+                            computed_usage_raw = (
+                                final_chunk_usage
+                                if final_chunk_usage is not None
+                                else best_usage
+                            )
                         computed_usage = computed_usage_raw
 
                         normalizer = self._get_usage_normalizer()

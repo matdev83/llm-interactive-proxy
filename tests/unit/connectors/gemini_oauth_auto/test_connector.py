@@ -124,6 +124,14 @@ class TestGeminiOAuthAutoConnector:
 
         assert connector._oauth_credentials is None
 
+    def test_selection_strategy_property(
+        self, connector: GeminiOAuthAutoConnector
+    ) -> None:
+        selector = cast(MagicMock, connector._account_selector)
+        selector.selection_strategy = "session-affinity"
+
+        assert connector.selection_strategy == "session-affinity"
+
     @pytest.mark.asyncio
     async def test_refresh_token_if_needed_delegates(
         self, connector: GeminiOAuthAutoConnector

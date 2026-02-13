@@ -383,6 +383,94 @@ class StreamingExecutor:
                 exc_info=True,
             )
 
+    @staticmethod
+    def _is_oauth_auto_refresher(token_refresher: ITokenRefresher | None) -> bool:
+        if token_refresher is None:
+            return False
+        backend_type = str(getattr(token_refresher, "backend_type", ""))
+        return "oauth-auto" in backend_type
+
+    @staticmethod
+    def _get_oauth_auto_selection_strategy(
+        token_refresher: ITokenRefresher | None,
+    ) -> str | None:
+        if token_refresher is None:
+            return None
+
+        strategy = getattr(token_refresher, "selection_strategy", None)
+        if isinstance(strategy, str) and strategy:
+            return strategy
+
+        selector = getattr(token_refresher, "_account_selector", None)
+        strategy_from_selector = getattr(selector, "selection_strategy", None)
+        if isinstance(strategy_from_selector, str) and strategy_from_selector:
+            return strategy_from_selector
+        return None
+
+    def _should_wait_same_account_on_rate_limit(
+        self,
+        *,
+        token_refresher: ITokenRefresher | None,
+        sleep_seconds: float,
+    ) -> bool:
+        if sleep_seconds > self.MAX_RATE_LIMIT_RETRY_SECONDS:
+            return False
+        if not self._is_oauth_auto_refresher(token_refresher):
+            return True
+        strategy = self._get_oauth_auto_selection_strategy(token_refresher)
+        return strategy == "session-affinity"
+
+    @staticmethod
+    def _apply_refreshed_auth_header(
+        prepared: PreparedChatRequest,
+        token_refresher: ITokenRefresher,
+    ) -> None:
+        creds = getattr(token_refresher, "_oauth_credentials", None)
+        if isinstance(creds, dict):
+            access_token = creds.get("access_token")
+            if (
+                isinstance(access_token, str)
+                and access_token
+                and hasattr(prepared.auth_session, "headers")
+            ):
+                prepared.auth_session.headers["Authorization"] = (
+                    f"Bearer {access_token}"
+                )
+
+    async def _try_rotate_oauth_auto_account(
+        self,
+        *,
+        token_refresher: ITokenRefresher | None,
+        prepared: PreparedChatRequest,
+        retry_after_seconds: float | None,
+        log_context: str,
+    ) -> bool:
+        if token_refresher is None or not self._is_oauth_auto_refresher(
+            token_refresher
+        ):
+            return False
+
+        try:
+            rotated = await token_refresher.refresh_token_if_needed(
+                force_reload=True,
+                session_id=prepared.session_id,
+                retry_after_seconds=retry_after_seconds,
+            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("%s: rotated=%s", log_context, rotated)
+        except Exception as rotation_error:
+            logger.warning(
+                "Failed to rotate account on rate limit (%s): %s",
+                log_context,
+                str(rotation_error),
+                exc_info=True,
+            )
+            return False
+
+        if rotated:
+            self._apply_refreshed_auth_header(prepared, token_refresher)
+        return rotated
+
     async def execute(
         self,
         prepared: PreparedChatRequest,
@@ -575,8 +663,7 @@ class StreamingExecutor:
                 # before giving up - another account may not be timing out
                 if (
                     token_refresher
-                    and "oauth-auto"
-                    in str(getattr(token_refresher, "backend_type", ""))
+                    and self._is_oauth_auto_refresher(token_refresher)
                     and not _timeout_retry_attempted
                 ):
                     logger.warning(
@@ -585,37 +672,14 @@ class StreamingExecutor:
                         url,
                     )
 
-                    rotated = False
-                    try:
-                        rotated = await token_refresher.refresh_token_if_needed(
-                            force_reload=True,
-                            session_id=prepared.session_id,
-                        )
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "Account rotation on timeout: rotated=%s", rotated
-                            )
-                    except Exception as rotation_err:
-                        logger.warning(
-                            "Failed to rotate account on timeout: %s",
-                            str(rotation_err),
-                            exc_info=True,
-                        )
+                    rotated = await self._try_rotate_oauth_auto_account(
+                        token_refresher=token_refresher,
+                        prepared=prepared,
+                        retry_after_seconds=None,
+                        log_context="Account rotation on timeout",
+                    )
 
                     if rotated:
-                        # Update auth header and retry with new account
-                        creds = getattr(token_refresher, "_oauth_credentials", None)
-                        if isinstance(creds, dict):
-                            access_token = creds.get("access_token")
-                            if (
-                                isinstance(access_token, str)
-                                and access_token
-                                and hasattr(prepared.auth_session, "headers")
-                            ):
-                                prepared.auth_session.headers["Authorization"] = (
-                                    f"Bearer {access_token}"
-                                )
-
                         # Retry immediately with new account (no sleep needed)
                         logger.info(
                             "Retrying streaming request immediately after account rotation due to timeout"
@@ -1241,51 +1305,61 @@ class StreamingExecutor:
                     and decision.sleep_seconds is not None
                     and not _rate_limit_retry_attempted
                 ):
-                    # Try account rotation for oauth-auto backends before sleeping
-                    rotated_credentials = False
                     sleep_seconds = decision.sleep_seconds
+                    retry_after = self._extract_retry_after_seconds(err)
+                    is_oauth_auto = self._is_oauth_auto_refresher(token_refresher)
+                    preserve_affinity_wait = (
+                        self._should_wait_same_account_on_rate_limit(
+                            token_refresher=token_refresher,
+                            sleep_seconds=sleep_seconds,
+                        )
+                    )
+                    rotated_credentials = False
 
-                    backend_type = ""
-                    if token_refresher:
-                        backend_type = str(getattr(token_refresher, "backend_type", ""))
-
-                    if token_refresher and "oauth-auto" in backend_type:
-                        try:
-                            # Pass retry delay to allow exponential backoff calculation
-                            retry_after = self._extract_retry_after_seconds(err)
+                    # Do not perform very long connector-local waits. Either rotate to
+                    # another oauth-auto account or surface the retryable error so the
+                    # failure strategy can fail over.
+                    if sleep_seconds > self.MAX_RATE_LIMIT_RETRY_SECONDS:
+                        if is_oauth_auto:
                             rotated_credentials = (
-                                await token_refresher.refresh_token_if_needed(
-                                    force_reload=True,
-                                    session_id=prepared.session_id,
+                                await self._try_rotate_oauth_auto_account(
+                                    token_refresher=token_refresher,
+                                    prepared=prepared,
                                     retry_after_seconds=retry_after,
+                                    log_context="Account rotation on 429 (early path)",
                                 )
                             )
-                            if logger.isEnabledFor(logging.DEBUG):
-                                logger.debug(
-                                    "Account rotation on 429 (early path): rotated=%s",
-                                    rotated_credentials,
+                            if rotated_credentials:
+                                sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+                            else:
+                                logger.info(
+                                    "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
+                                    "surfacing retryable error for upstream failover",
+                                    sleep_seconds,
+                                    self.MAX_RATE_LIMIT_RETRY_SECONDS,
                                 )
-                        except Exception as e:
-                            logger.warning(
-                                "Failed to rotate account on 429 rate limit (early path): %s",
-                                str(e),
-                                exc_info=True,
+                                raise
+                        else:
+                            logger.info(
+                                "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
+                                "surfacing retryable error for upstream failover",
+                                sleep_seconds,
+                                self.MAX_RATE_LIMIT_RETRY_SECONDS,
                             )
-                            rotated_credentials = False
+                            raise
 
-                        if rotated_credentials:
-                            creds = getattr(token_refresher, "_oauth_credentials", None)
-                            if isinstance(creds, dict):
-                                access_token = creds.get("access_token")
-                                if (
-                                    isinstance(access_token, str)
-                                    and access_token
-                                    and hasattr(prepared.auth_session, "headers")
-                                ):
-                                    prepared.auth_session.headers["Authorization"] = (
-                                        f"Bearer {access_token}"
-                                    )
-
+                    # For session-affinity flows, keep the same account for short waits.
+                    if (
+                        is_oauth_auto
+                        and not preserve_affinity_wait
+                        and not rotated_credentials
+                    ):
+                        rotated_credentials = await self._try_rotate_oauth_auto_account(
+                            token_refresher=token_refresher,
+                            prepared=prepared,
+                            retry_after_seconds=retry_after,
+                            log_context="Account rotation on 429 (early path)",
+                        )
                     if rotated_credentials:
                         sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
                     else:
@@ -1467,7 +1541,7 @@ class StreamingExecutor:
             if response.status_code == 429 and status_val == "RESOURCE_EXHAUSTED":
                 # Gemini often reports rate limiting as RESOURCE_EXHAUSTED.
                 # Distinguish between:
-                # - retryable rate limit windows (Retry-After / retry_after present) -> allow internal retry
+                # - retryable rate limit windows (Retry-After / retry_after present)
                 # - non-retryable quota exhaustion (no retry hint) -> return 503 immediately
                 if retry_hint_seconds is None and error_message:
                     parsed_retry = parse_retry_from_message(error_message)
@@ -1481,17 +1555,16 @@ class StreamingExecutor:
                     error_message and "no capacity available" in error_message.lower()
                 )
 
-                retryable = (
-                    retry_hint_seconds is not None
-                    and retry_hint_seconds <= self.MAX_RATE_LIMIT_RETRY_SECONDS
-                ) or is_capacity_error
-
                 # Assign a default retry delay for capacity errors if none provided
                 if is_capacity_error and retry_hint_seconds is None:
                     # Use a moderate delay to allow capacity to recover
                     retry_hint_seconds = 5.0
                     detail_payload["retry_after"] = retry_hint_seconds
 
+                # Any explicit retry hint is retryable even when the delay exceeds
+                # the connector-local wait ceiling. In that case we surface the
+                # retryable error upstream instead of remapping to quota_exceeded.
+                retryable = retry_hint_seconds is not None or is_capacity_error
                 code = "rate_limit_exceeded" if retryable else "quota_exceeded"
 
             elif response.status_code == 429:
@@ -1626,44 +1699,56 @@ class StreamingExecutor:
                 # often be mitigated by rotating to a different account rather than
                 # waiting out the full retry-after window.
                 rotated_credentials = False
-                backend_type = (
-                    getattr(token_refresher, "backend_type", "")
-                    if token_refresher
-                    else ""
+                retry_after = self._extract_retry_after_seconds(backend_error)
+                is_oauth_auto = self._is_oauth_auto_refresher(token_refresher)
+                preserve_affinity_wait = self._should_wait_same_account_on_rate_limit(
+                    token_refresher=token_refresher,
+                    sleep_seconds=sleep_seconds,
                 )
-                if token_refresher and "oauth-auto" in str(backend_type):
-                    try:
-                        rotated_credentials = (
-                            await token_refresher.refresh_token_if_needed(
-                                force_reload=True,
-                                session_id=prepared.session_id,
-                            )
-                        )
-                        if logger.isEnabledFor(logging.DEBUG):
-                            logger.debug(
-                                "Account rotation on 429: rotated=%s",
-                                rotated_credentials,
-                            )
-                    except Exception as e:
-                        logger.warning(
-                            "Failed to rotate account on 429 rate limit: %s",
-                            str(e),
-                            exc_info=True,
-                        )
-                        rotated_credentials = False
 
-                    if rotated_credentials:
-                        creds = getattr(token_refresher, "_oauth_credentials", None)
-                        if isinstance(creds, dict):
-                            access_token = creds.get("access_token")
-                            if (
-                                isinstance(access_token, str)
-                                and access_token
-                                and hasattr(prepared.auth_session, "headers")
-                            ):
-                                prepared.auth_session.headers["Authorization"] = (
-                                    f"Bearer {access_token}"
-                                )
+                # Do not perform very long connector-local waits. Either rotate to
+                # another oauth-auto account or surface the retryable error so the
+                # outer failure strategy can fail over.
+                if sleep_seconds > self.MAX_RATE_LIMIT_RETRY_SECONDS:
+                    if is_oauth_auto:
+                        rotated_credentials = await self._try_rotate_oauth_auto_account(
+                            token_refresher=token_refresher,
+                            prepared=prepared,
+                            retry_after_seconds=retry_after,
+                            log_context="Account rotation on 429 (late path)",
+                        )
+                        if rotated_credentials:
+                            sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+                        else:
+                            logger.info(
+                                "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
+                                "surfacing retryable error for upstream failover",
+                                sleep_seconds,
+                                self.MAX_RATE_LIMIT_RETRY_SECONDS,
+                            )
+                            raise backend_error
+                    else:
+                        logger.info(
+                            "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
+                            "surfacing retryable error for upstream failover",
+                            sleep_seconds,
+                            self.MAX_RATE_LIMIT_RETRY_SECONDS,
+                        )
+                        raise backend_error
+
+                # For session-affinity flows, preserve account affinity and wait on
+                # the current account for short retry windows.
+                if (
+                    is_oauth_auto
+                    and not preserve_affinity_wait
+                    and not rotated_credentials
+                ):
+                    rotated_credentials = await self._try_rotate_oauth_auto_account(
+                        token_refresher=token_refresher,
+                        prepared=prepared,
+                        retry_after_seconds=retry_after,
+                        log_context="Account rotation on 429 (late path)",
+                    )
 
                 if rotated_credentials:
                     sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS

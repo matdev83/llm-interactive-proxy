@@ -139,8 +139,7 @@ class TestAccountSelectorService:
         )
         from src.connectors.gemini_oauth_auto.errors import TokenRefreshError
 
-        print(f"DEBUG: Test TokenRefreshError id: {id(TokenRefreshError)}")
-        print(f"DEBUG: Selector TokenRefreshError id: {id(SelectorTokenRefreshError)}")
+        assert TokenRefreshError is SelectorTokenRefreshError
 
         accounts = [
             create_valid_account("account-1", hours_until_expiry=0),  # Expired
@@ -316,6 +315,32 @@ class TestAccountSelectorService:
         second = await selector.get_next_account()
         assert second is not None
         assert second.account_id == "acc-1"
+
+    @pytest.mark.asyncio
+    async def test_round_robin_selection_is_stable_under_concurrency(
+        self,
+        mock_storage: MagicMock,
+        mock_refresh_service: MagicMock,
+    ) -> None:
+        accounts = [
+            create_valid_account("acc-1"),
+            create_valid_account("acc-2"),
+        ]
+        mock_storage._storage_path = "test-round-robin-concurrency"
+
+        selector = AccountSelectorService(
+            storage=mock_storage,
+            refresh_service=mock_refresh_service,
+            selection_strategy="round-robin",
+        )
+        selector.rotation_index = 0
+
+        selected = await asyncio.gather(
+            *[selector._select_account_from_available_async(accounts) for _ in range(6)]
+        )
+
+        ids = [account.account_id for account in selected if account is not None]
+        assert ids == ["acc-1", "acc-2", "acc-1", "acc-2", "acc-1", "acc-2"]
 
     @pytest.mark.asyncio
     async def test_mark_current_account_used(

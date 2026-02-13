@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic.types import JsonValue
@@ -425,6 +426,58 @@ class TestStreamingContentConverter:
             assert results[0].is_done is True
 
     @pytest.mark.asyncio
+    async def test_usage_recalculation_timeout_uses_best_effort_fallback(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from src.core.transport.fastapi.adapters.streaming import (
+            content_converter as module_under_test,
+        )
+
+        converter = StreamingContentConverter()
+
+        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content={
+                    "choices": [
+                        {"delta": {"content": "test"}, "finish_reason": "stop"}
+                    ],
+                    "usage": {
+                        "prompt_tokens": 3,
+                        "completion_tokens": 4,
+                        "total_tokens": 7,
+                    },
+                },
+                metadata={},
+            )
+
+        mock_context = MagicMock()
+        mock_context.requires_usage_recalculation.return_value = False
+        context: dict[str, JsonValue | RequestContext | None] = {
+            "envelope_metadata": {},
+            "context": mock_context,  # type: ignore[assignment]
+        }
+
+        with patch(
+            "src.core.services.usage_calculation_service.get_usage_calculation_service"
+        ) as mock_get_service:
+            mock_service = MagicMock()
+            mock_get_service.return_value = mock_service
+            monkeypatch.setattr(
+                module_under_test.asyncio,
+                "wait_for",
+                AsyncMock(side_effect=asyncio.TimeoutError()),
+            )
+
+            results = []
+            async for content in converter.convert_stream(raw_stream(), context):
+                results.append(content)
+
+        assert len(results) == 1
+        assert results[0].is_done is True
+        assert results[0].usage is not None
+        assert results[0].usage.prompt_tokens == 3
+
+    @pytest.mark.asyncio
     async def test_sync_iterator_handling(self) -> None:
         """Test handling of sync iterators."""
         converter = StreamingContentConverter()
@@ -563,7 +616,7 @@ class TestStreamingContentConverter:
         """Test typed ProcessedResponse with JSON-safe metadata."""
         converter = StreamingContentConverter()
 
-        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+        async def raw_stream_json() -> AsyncIterator[ProcessedResponse]:
             yield ProcessedResponse(
                 content="test",
                 metadata={
@@ -574,9 +627,9 @@ class TestStreamingContentConverter:
                 },
             )
 
-        context: dict[str, JsonValue | RequestContext | None] = {}
+        context_json: dict[str, JsonValue | RequestContext | None] = {}
         results = []
-        async for content in converter.convert_stream(raw_stream(), context):
+        async for content in converter.convert_stream(raw_stream_json(), context_json):
             results.append(content)
 
         assert len(results) == 1
@@ -611,7 +664,7 @@ class TestStreamingContentConverter:
         messages = [rec.getMessage() for rec in caplog.records]
         assert any("Streaming content conversion terminated" in m for m in messages)
 
-        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+        async def raw_stream_json() -> AsyncIterator[ProcessedResponse]:
             yield ProcessedResponse(
                 content="test",
                 metadata={
@@ -622,9 +675,9 @@ class TestStreamingContentConverter:
                 },
             )
 
-        context: dict[str, JsonValue | RequestContext | None] = {}
+        context_json: dict[str, JsonValue | RequestContext | None] = {}
         results = []
-        async for content in converter.convert_stream(raw_stream(), context):
+        async for content in converter.convert_stream(raw_stream_json(), context_json):
             results.append(content)
 
         assert len(results) == 1

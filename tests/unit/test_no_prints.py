@@ -2,6 +2,7 @@ import ast
 import json
 import pathlib
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import pytest
@@ -98,43 +99,56 @@ def print_check_cache() -> dict[str, Any]:
         "stubs",
     }
 
-    files_checked: dict[str, Any] = {}
-
+    paths_to_check: list[pathlib.Path] = []
     for search_path in search_paths:
         for path in search_path.rglob("*.py"):
             if any(skip_part in path.parts for skip_part in skip_parts):
                 continue
             if path in ALLOWED_FILES:
                 continue
-            if not path.is_file():
-                continue
+            if path.is_file():
+                paths_to_check.append(path)
 
+    def _check_one(path: pathlib.Path) -> tuple[str, dict[str, Any]] | None:
+        try:
             path_str = str(path)
             file_mtime = path.stat().st_mtime
+            source = path.read_text()
+            tree = ast.parse(source)
+            has_print = False
+            print_line = None
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "print"
+                ):
+                    has_print = True
+                    print_line = node.lineno
+                    break
+            return (
+                path_str,
+                {"mtime": file_mtime, "has_print": has_print, "line_no": print_line},
+            )
+        except (SyntaxError, ValueError):
+            return None
 
-            try:
-                source = path.read_text()
-                tree = ast.parse(source)
-                has_print = False
-                print_line = None
-
-                for node in ast.walk(tree):
-                    if (
-                        isinstance(node, ast.Call)
-                        and isinstance(node.func, ast.Name)
-                        and node.func.id == "print"
-                    ):
-                        has_print = True
-                        print_line = node.lineno
-                        break
-
-                files_checked[path_str] = {
-                    "mtime": file_mtime,
-                    "has_print": has_print,
-                    "line_no": print_line,
-                }
-            except (SyntaxError, ValueError):
-                continue
+    files_checked: dict[str, Any] = {}
+    max_workers = min(8, max(1, len(paths_to_check) // 8))
+    if max_workers <= 1 or len(paths_to_check) < 30:
+        for path in paths_to_check:
+            result = _check_one(path)
+            if result:
+                path_str, data = result
+                files_checked[path_str] = data
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(_check_one, p): p for p in paths_to_check}
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    path_str, data = result
+                    files_checked[path_str] = data
 
     result = {
         "src_hash": src_hash,

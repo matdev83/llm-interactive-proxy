@@ -524,29 +524,65 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # 2) For each P->B, verify there is at least one B->P response chunk before the
     #    next P->B on the same backend correlation id (bsid/asid)
 
-    # Index proxy->backend requests by rid
-    pb_index_by_rid: dict[str, int] = {}
+    # Index proxy->backend requests and backend->proxy responses by rid/session.
+    pb_indices_by_rid: dict[str, list[int]] = {}
+    bp_indices_by_rid: dict[str, list[int]] = {}
     pb_indices_by_sid: dict[str, list[int]] = {}
     bp_indices_by_sid: dict[str, list[int]] = {}
 
     for i, e in enumerate(entries):
         meta = e.get("meta", {})
-        sid = _meta_backend_correlation_id(meta)
+        session_ids: list[str] = []
+        a_session_id = _meta_a_session_id(meta)
+        b_session_id = _meta_b_session_id(meta)
+        if isinstance(a_session_id, str) and a_session_id:
+            session_ids.append(a_session_id)
+        if (
+            isinstance(b_session_id, str)
+            and b_session_id
+            and b_session_id != a_session_id
+        ):
+            session_ids.append(b_session_id)
+        rid = meta.get("rid")
         if e.get("dir") == 2:
-            rid = meta.get("rid")
             if isinstance(rid, str) and rid:
-                pb_index_by_rid[rid] = i
-            if isinstance(sid, str) and sid:
-                pb_indices_by_sid.setdefault(sid, []).append(i)
+                pb_indices_by_rid.setdefault(rid, []).append(i)
+            for session_id in session_ids:
+                pb_indices_by_sid.setdefault(session_id, []).append(i)
         elif e.get("dir") == 3:
-            if isinstance(sid, str) and sid:
-                bp_indices_by_sid.setdefault(sid, []).append(i)
+            if isinstance(rid, str) and rid:
+                bp_indices_by_rid.setdefault(rid, []).append(i)
+            for session_id in session_ids:
+                bp_indices_by_sid.setdefault(session_id, []).append(i)
 
     # Ensure ordering
+    for _rid, idxs in pb_indices_by_rid.items():
+        idxs.sort()
+    for _rid, idxs in bp_indices_by_rid.items():
+        idxs.sort()
     for _sid, idxs in pb_indices_by_sid.items():
         idxs.sort()
     for _sid, idxs in bp_indices_by_sid.items():
         idxs.sort()
+
+    # Helper: does a backend response with the same rid exist for this P->B index?
+    def _pb_has_response_by_rid(request_id: str, pb_idx: int) -> bool:
+        pb_list = pb_indices_by_rid.get(request_id)
+        bp_list = bp_indices_by_rid.get(request_id)
+        if not pb_list or not bp_list:
+            return False
+
+        # Next P->B index for this request id bounds this backend attempt.
+        pos = bisect.bisect_right(pb_list, pb_idx)
+        next_pb_idx = pb_list[pos] if pos < len(pb_list) else None
+
+        # Any B->P index strictly after pb_idx and before next_pb_idx counts.
+        bp_pos = bisect.bisect_right(bp_list, pb_idx)
+        if bp_pos >= len(bp_list):
+            return False
+        if next_pb_idx is None:
+            return True
+        return bp_list[bp_pos] < next_pb_idx
 
     # Helper: does a backend response exist for this P->B index?
     def _pb_has_response(pb_idx: int, sid: str) -> bool:
@@ -567,7 +603,24 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             return True
         return bp_list[bp_pos] < next_pb_idx
 
-    for e in entries:
+    # Helper: collect all possible session ids from a P->B entry for fallback
+    # correlation. Some captures include both asid/bsid on P->B but only asid on
+    # B->P; checking both avoids false "missing response" reports.
+    def _pb_candidate_session_ids(pb_meta: dict[str, Any]) -> list[str]:
+        candidate_ids: list[str] = []
+        a_session_id = _meta_a_session_id(pb_meta)
+        b_session_id = _meta_b_session_id(pb_meta)
+        if isinstance(a_session_id, str) and a_session_id:
+            candidate_ids.append(a_session_id)
+        if (
+            isinstance(b_session_id, str)
+            and b_session_id
+            and b_session_id != a_session_id
+        ):
+            candidate_ids.append(b_session_id)
+        return candidate_ids
+
+    for client_idx, e in enumerate(entries):
         if e.get("dir") != 0:
             continue
         meta = e.get("meta", {})
@@ -575,8 +628,10 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not isinstance(rid, str) or not rid:
             continue
 
-        pb_idx = pb_index_by_rid.get(rid)
-        if pb_idx is None:
+        pb_candidates = pb_indices_by_rid.get(rid, [])
+        # Use only backend requests that occur after this client request.
+        pb_candidates = [idx for idx in pb_candidates if idx > client_idx]
+        if not pb_candidates:
             # Proxy never forwarded this request to any backend.
             # This can happen if the client disconnects early or retries quickly.
             issues.append(
@@ -589,10 +644,29 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
             continue
 
-        pb_meta = entries[pb_idx].get("meta", {})
-        pb_sid = _meta_backend_correlation_id(pb_meta)
-        if not isinstance(pb_sid, str) or not pb_sid:
-            # Can't correlate without backend session id
+        # Primary correlation: same request id across backend legs.
+        if any(_pb_has_response_by_rid(rid, pb_idx) for pb_idx in pb_candidates):
+            continue
+
+        # Fallback correlation: session ids for captures where rid is absent on B->P.
+        missing_session_id_for_all_candidates = True
+        has_response_via_session_id = False
+        for pb_idx in pb_candidates:
+            pb_meta = entries[pb_idx].get("meta", {})
+            candidate_session_ids = _pb_candidate_session_ids(pb_meta)
+            if candidate_session_ids:
+                missing_session_id_for_all_candidates = False
+            if any(
+                _pb_has_response(pb_idx, session_id)
+                for session_id in candidate_session_ids
+            ):
+                has_response_via_session_id = True
+                break
+
+        if has_response_via_session_id:
+            continue
+
+        if missing_session_id_for_all_candidates:
             issues.append(
                 {
                     "type": "missing_response",
@@ -603,15 +677,14 @@ def detect_issues(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             )
             continue
 
-        if not _pb_has_response(pb_idx, pb_sid):
-            issues.append(
-                {
-                    "type": "missing_response",
-                    "severity": "error",
-                    "entry": e.get("seq"),
-                    "description": f"Request at [{e.get('seq')}] has no backend response",
-                }
-            )
+        issues.append(
+            {
+                "type": "missing_response",
+                "severity": "error",
+                "entry": e.get("seq"),
+                "description": f"Request at [{e.get('seq')}] has no backend response",
+            }
+        )
 
     return issues
 

@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -179,66 +180,84 @@ def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     tmp_path.replace(path)
 
 
+def _scan_single_file_for_stalls(file_path: Path, repo_root: Path) -> list[LintFinding]:
+    """Scan a single file for stall-causing patterns. Used for parallel execution."""
+    try:
+        source = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        source = file_path.read_text(encoding="latin-1")
+
+    suppressions = _build_stall_lint_suppressions(source)
+    try:
+        tree = ast.parse(source, filename=str(file_path))
+    except SyntaxError:
+        return []
+
+    file_findings: list[LintFinding] = []
+
+    patch_visitor = _PatchRecursionVisitor(file_path=file_path)
+    patch_visitor.visit(tree)
+    file_findings.extend(patch_visitor.findings)
+
+    fake_clock_visitor = _FakeClockContextSleepVisitor(file_path=file_path)
+    fake_clock_visitor.visit(tree)
+    file_findings.extend(fake_clock_visitor.findings)
+
+    sleep_without_await_visitor = _AsyncioSleepWithoutAwaitVisitor(file_path=file_path)
+    sleep_without_await_visitor.visit(tree)
+    file_findings.extend(sleep_without_await_visitor.findings)
+
+    task_leak_visitor = _AsyncTaskLeakVisitor(file_path=file_path)
+    task_leak_visitor.visit(tree)
+    file_findings.extend(task_leak_visitor.findings)
+
+    run_until_complete_visitor = _RunUntilCompleteInAsyncVisitor(
+        file_path=file_path
+    )
+    run_until_complete_visitor.visit(tree)
+    file_findings.extend(run_until_complete_visitor.findings)
+
+    thread_join_visitor = _ThreadJoinTimeoutVisitor(file_path=file_path)
+    thread_join_visitor.visit(tree)
+    file_findings.extend(thread_join_visitor.findings)
+
+    thread_lock_await_visitor = _ThreadLockAwaitVisitor(file_path=file_path)
+    thread_lock_await_visitor.visit(tree)
+    file_findings.extend(thread_lock_await_visitor.findings)
+
+    if any(
+        token in source for token in ("watchdog", "Observer", "observer", "Watcher")
+    ):
+        watchdog_visitor = _WatchdogShutdownVisitor(file_path=file_path)
+        watchdog_visitor.visit(tree)
+        file_findings.extend(watchdog_visitor.findings)
+
+    return [
+        finding for finding in file_findings if not _is_suppressed(finding, suppressions)
+    ]
+
+
 def _scan_repo_for_stalls(
     repo_root: Path, *, files: list[Path] | None = None
 ) -> list[LintFinding]:
+    target_files = files or _iter_stall_lint_files(repo_root)
     findings: list[LintFinding] = []
-    for file_path in files or _iter_stall_lint_files(repo_root):
-        try:
-            source = file_path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            source = file_path.read_text(encoding="latin-1")
+    max_workers = min(8, (len(target_files) // 4) + 1)
 
-        suppressions = _build_stall_lint_suppressions(source)
-        try:
-            tree = ast.parse(source, filename=str(file_path))
-        except SyntaxError:
-            continue
+    if max_workers <= 1 or len(target_files) < 20:
+        for file_path in target_files:
+            findings.extend(
+                _scan_single_file_for_stalls(file_path, repo_root)
+            )
+        return findings
 
-        patch_visitor = _PatchRecursionVisitor(file_path=file_path)
-        patch_visitor.visit(tree)
-        file_findings = list(patch_visitor.findings)
-
-        fake_clock_visitor = _FakeClockContextSleepVisitor(file_path=file_path)
-        fake_clock_visitor.visit(tree)
-        file_findings.extend(fake_clock_visitor.findings)
-
-        sleep_without_await_visitor = _AsyncioSleepWithoutAwaitVisitor(
-            file_path=file_path
-        )
-        sleep_without_await_visitor.visit(tree)
-        file_findings.extend(sleep_without_await_visitor.findings)
-
-        task_leak_visitor = _AsyncTaskLeakVisitor(file_path=file_path)
-        task_leak_visitor.visit(tree)
-        file_findings.extend(task_leak_visitor.findings)
-
-        run_until_complete_visitor = _RunUntilCompleteInAsyncVisitor(
-            file_path=file_path
-        )
-        run_until_complete_visitor.visit(tree)
-        file_findings.extend(run_until_complete_visitor.findings)
-
-        thread_join_visitor = _ThreadJoinTimeoutVisitor(file_path=file_path)
-        thread_join_visitor.visit(tree)
-        file_findings.extend(thread_join_visitor.findings)
-
-        thread_lock_await_visitor = _ThreadLockAwaitVisitor(file_path=file_path)
-        thread_lock_await_visitor.visit(tree)
-        file_findings.extend(thread_lock_await_visitor.findings)
-
-        if any(
-            token in source for token in ("watchdog", "Observer", "observer", "Watcher")
-        ):
-            watchdog_visitor = _WatchdogShutdownVisitor(file_path=file_path)
-            watchdog_visitor.visit(tree)
-            file_findings.extend(watchdog_visitor.findings)
-
-        findings.extend(
-            finding
-            for finding in file_findings
-            if not _is_suppressed(finding, suppressions)
-        )
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_scan_single_file_for_stalls, fp, repo_root): fp
+            for fp in target_files
+        }
+        for future in as_completed(futures):
+            findings.extend(future.result())
     return findings
 
 
