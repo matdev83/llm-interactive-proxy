@@ -32,12 +32,12 @@ def _wait_port(port: int, host: str = "127.0.0.1", timeout: float = 60.0) -> Non
     """
     end = time.time() + timeout
     # Use exponential backoff for more efficient waiting
-    backoff_time = 0.01  # Start with 10ms
-    max_backoff = 1.0  # Max 1 second between attempts
+    backoff_time = 0.005  # Start with 5ms
+    max_backoff = 0.5  # Max 0.5s between attempts
 
     while time.time() < end:
         try:
-            with socket.create_connection((host, port), timeout=1):
+            with socket.create_connection((host, port), timeout=0.5):
                 return
         except OSError:
             time.sleep(backoff_time)

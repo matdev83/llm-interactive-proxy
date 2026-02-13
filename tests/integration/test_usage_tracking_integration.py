@@ -14,13 +14,10 @@ from src.core.services.in_memory_usage_store import InMemoryUsageStore
 @pytest.mark.asyncio
 async def test_usage_tracking_services_registered():
     """Test that usage tracking services are registered in DI container."""
-    from src.core.app.application_builder import build_app_async
+    from src.core.app.test_builder import build_test_app_async
 
-    # Create config with usage tracking enabled
     config = AppConfig.from_env()
-
-    # Build the app
-    app = await build_app_async(config)
+    app = await build_test_app_async(config)
 
     # Verify services are registered
     service_provider = app.state.service_provider
@@ -41,18 +38,14 @@ async def test_usage_tracking_services_registered():
 @pytest.mark.asyncio
 async def test_usage_tracking_disabled():
     """Test that usage tracking services are not registered when disabled."""
-    from src.core.app.application_builder import build_app_async
+    from src.core.app.test_builder import build_test_app_async
     from src.core.config.app_config import UsageTrackingConfig
 
-    # Create config with usage tracking disabled
     config = AppConfig.from_env()
-    # Create a new config with usage_tracking disabled
     config = config.model_copy(
         update={"usage_tracking": UsageTrackingConfig(enabled=False)}
     )
-
-    # Build the app
-    app = await build_app_async(config)
+    app = await build_test_app_async(config)
 
     # Verify services are not registered
     service_provider = app.state.service_provider
@@ -75,22 +68,18 @@ async def test_usage_tracking_disabled():
 @pytest.mark.asyncio
 async def test_usage_tracking_config_values():
     """Test that usage tracking configuration values are properly set."""
-    from src.core.app.application_builder import build_app_async
+    from src.core.app.test_builder import build_test_app_async
     from src.core.config.app_config import UsageTrackingConfig
 
-    # Create config with custom values
     custom_config = UsageTrackingConfig(
         enabled=True,
         persistence_path="./custom/path.json",
         flush_interval_seconds=60.0,
         max_records_in_memory=50000,
     )
-
     config = AppConfig.from_env()
     config = config.model_copy(update={"usage_tracking": custom_config})
-
-    # Build the app
-    app = await build_app_async(config)
+    app = await build_test_app_async(config)
 
     # Verify config values are accessible
     app_config = app.state.service_provider.get_required_service(AppConfig)

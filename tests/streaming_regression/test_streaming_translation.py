@@ -183,8 +183,8 @@ async def test_anthropic_frontend_openai_backend_streaming() -> None:
     )
 
     backend = OpenAIStreamingEmulator(
-        chunks=chunks, chunk_delay=0.1
-    )  # Reduced from 0.02 for performance
+        chunks=chunks, chunk_delay=0.02
+    )  # Minimal delay; 10ms buffering threshold is in emulator
     app = _build_streaming_test_app()
     _inject_backend(app, backend, "openai")
 

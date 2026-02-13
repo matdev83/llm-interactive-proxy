@@ -22,6 +22,44 @@ from src.core.services.backend_registry import BackendRegistry
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
 
+def _run_multi_user_oauth_errors() -> dict[str, str]:
+    """Run OAuth error checks in one subprocess (gemini, anthropic, qwen)."""
+    script = """
+import os
+os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
+
+import src.connectors  # noqa: F401
+from src.core.services.backend_registry import backend_registry
+
+for name in ["gemini-oauth-auto", "anthropic-oauth", "qwen-oauth"]:
+    try:
+        backend_registry.get_backend_factory(name)
+        print(f"{name}||NO_ERROR")
+    except ValueError as e:
+        print(f"{name}||{e!s}")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Script failed: {result.stderr}")
+    out = {}
+    for line in result.stdout.strip().split("\n"):
+        if "||" in line:
+            name, _, msg = line.partition("||")
+            out[name.strip()] = msg
+    return out
+
+
+@pytest.fixture(scope="class")
+def multi_user_oauth_errors() -> dict[str, str]:
+    """Shared OAuth error messages from one subprocess run."""
+    return _run_multi_user_oauth_errors()
+
+
 class TestBackendRegistryOAuthErrors:
     """Tests for OAuth-specific error messages in backend registry."""
 
@@ -36,41 +74,12 @@ class TestBackendRegistryOAuthErrors:
         assert "nonexistent-backend" in error_msg
         assert "is not registered" in error_msg
 
-    def test_specific_error_for_oauth_connector_in_multi_user_mode(self) -> None:
+    def test_specific_error_for_oauth_connector_in_multi_user_mode(
+        self, multi_user_oauth_errors: dict[str, str]
+    ) -> None:
         """Test specific error for OAuth connector in Multi User Mode (Requirement 6.5)."""
-        script = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-
-try:
-    backend_registry.get_backend_factory("gemini-oauth-auto")
-    print("NO_ERROR")
-except ValueError as e:
-    error_msg = str(e)
-    print(f"ERROR:{error_msg}")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        output = result.stdout.strip()
-        assert "NO_ERROR" not in output, "Should raise ValueError"
-
-        # Extract error message
-        error_line = next(
-            line for line in output.split("\n") if line.startswith("ERROR:")
-        )
-        error_msg = error_line.replace("ERROR:", "")
-
-        # Verify error message is specific to Multi User Mode OAuth blocking
+        error_msg = multi_user_oauth_errors.get("gemini-oauth-auto", "")
+        assert "NO_ERROR" not in error_msg, "Should raise ValueError"
         assert "Multi User Mode" in error_msg, "Error should mention Multi User Mode"
         assert "OAuth" in error_msg, "Error should mention OAuth"
         assert (
@@ -80,41 +89,14 @@ except ValueError as e:
             "personal credentials" in error_msg or "production" in error_msg
         ), "Error should explain why OAuth is blocked"
 
-    def test_error_message_provides_actionable_guidance(self) -> None:
+    def test_error_message_provides_actionable_guidance(
+        self, multi_user_oauth_errors: dict[str, str]
+    ) -> None:
         """Test error message provides guidance on alternatives (Requirement 6.5)."""
-        script = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-
-try:
-    backend_registry.get_backend_factory("anthropic-oauth")
-except ValueError as e:
-    error_msg = str(e)
-    print(f"ERROR:{error_msg}")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        error_line = next(
-            line
-            for line in result.stdout.strip().split("\n")
-            if line.startswith("ERROR:")
-        )
-        error_msg = error_line.replace("ERROR:", "")
-
-        # Should provide guidance on alternatives
+        error_msg = multi_user_oauth_errors.get("anthropic-oauth", "").lower()
         has_guidance = any(
-            phrase in error_msg.lower()
-            for phrase in [
+            p in error_msg
+            for p in [
                 "single-user-mode",
                 "single user mode",
                 "static api key",
@@ -125,36 +107,11 @@ except ValueError as e:
             has_guidance
         ), f"Error should provide guidance on alternatives: {error_msg}"
 
-    def test_error_references_specific_backend_name(self) -> None:
+    def test_error_references_specific_backend_name(
+        self, multi_user_oauth_errors: dict[str, str]
+    ) -> None:
         """Test error message includes the specific backend name requested."""
-        script = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-
-try:
-    backend_registry.get_backend_factory("qwen-oauth")
-except ValueError as e:
-    print(f"ERROR:{str(e)}")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        error_line = next(
-            line
-            for line in result.stdout.strip().split("\n")
-            if line.startswith("ERROR:")
-        )
-        error_msg = error_line.replace("ERROR:", "")
-
+        error_msg = multi_user_oauth_errors.get("qwen-oauth", "")
         assert (
             "qwen-oauth" in error_msg
         ), "Error should reference the requested backend name"

@@ -7,7 +7,6 @@ import tempfile
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.buffered_wire_capture_service import BufferedWireCapture
@@ -38,10 +37,9 @@ def mock_app_config(temp_capture_file):
 @pytest_asyncio.fixture
 async def test_app(mock_app_config):
     """Create a test application with wire capture enabled."""
-    builder = ApplicationBuilder().add_default_stages()
-    app = builder.build_compat(mock_app_config)
+    from src.core.app.test_builder import build_test_app_async
 
-    # Return both the app and the capture file path for inspection
+    app = await build_test_app_async(mock_app_config)
     return app, mock_app_config.logging.capture_file
 
 

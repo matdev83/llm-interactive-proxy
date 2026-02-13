@@ -19,445 +19,265 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 # Get the project root directory
 PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+
+@pytest.fixture(scope="module")
+def single_user_data() -> dict[str, int | list[str]]:
+    """Shared Single User Mode backend data from one subprocess run."""
+    return _run_single_user_checks()
+
+
+@pytest.fixture(scope="module")
+def multi_user_data_module() -> dict[str, int | list[str] | str | bool]:
+    """Shared Multi User Mode backend data from one subprocess run (module scope)."""
+    return _run_multi_user_checks()
+
+
+def _run_single_user_checks() -> dict[str, int | list[str]]:
+    """Run Single User Mode checks in one subprocess to avoid redundant imports."""
+    script = """
+import os
+os.environ["LLM_PROXY_ACCESS_MODE"] = "single_user"
+
+import src.connectors  # noqa: F401
+from src.core.services.backend_registry import backend_registry
+
+backends = backend_registry.get_registered_backends()
+oauth_backends = [b for b in backends if any(p in b for p in ["oauth", "codex"])]
+known_oauth = ["gemini-oauth-auto", "gemini-oauth-plan", "gemini-oauth-free",
+               "anthropic-oauth", "qwen-oauth", "openai-codex"]
+found_oauth = [n for n in known_oauth if n in backends]
+print(f"TOTAL_BACKENDS:{len(backends)}")
+print(f"OAUTH_BACKENDS:{len(oauth_backends)}")
+print(f"FOUND_OAUTH:{','.join(found_oauth)}")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Script failed: {result.stderr}")
+    lines = result.stdout.strip().split("\n")
+    total = int(
+        next(l.split(":")[-1] for l in lines if l.startswith("TOTAL_BACKENDS:"))
+    )
+    oauth_count = int(
+        next(l.split(":")[-1] for l in lines if l.startswith("OAUTH_BACKENDS:"))
+    )
+    found_str = next(l.split(":")[-1] for l in lines if l.startswith("FOUND_OAUTH:"))
+    return {
+        "total_backends": total,
+        "oauth_count": oauth_count,
+        "found_oauth": found_str.split(",") if found_str else [],
+    }
 
 
 class TestOAuthConnectorFilteringSingleUserMode:
     """Integration tests for Single User Mode connector loading."""
 
-    def test_single_user_mode_loads_all_connectors_including_oauth(self) -> None:
+    def test_single_user_mode_loads_all_connectors_including_oauth(
+        self, single_user_data: dict[str, int | list[str]]
+    ) -> None:
         """Test Single User Mode loads all connectors including OAuth (Requirement 3.1)."""
-        # Use subprocess to ensure clean module state
-        script = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "single_user"
-
-# Import connectors to trigger auto-discovery
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-
-# Get all registered backends
-backends = backend_registry.get_registered_backends()
-
-# Check for OAuth connectors
-oauth_backends = [
-    b for b in backends
-    if any(pattern in b for pattern in ["oauth", "codex"])
-]
-
-# Print results for assertion
-print(f"TOTAL_BACKENDS:{len(backends)}")
-print(f"OAUTH_BACKENDS:{len(oauth_backends)}")
-print(f"OAUTH_NAMES:{','.join(oauth_backends)}")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        # Parse output
-        output_lines = result.stdout.strip().split("\n")
-        total_backends = int(
-            next(
-                line.split(":")[-1]
-                for line in output_lines
-                if line.startswith("TOTAL_BACKENDS:")
-            )
-        )
-        oauth_backends_count = int(
-            next(
-                line.split(":")[-1]
-                for line in output_lines
-                if line.startswith("OAUTH_BACKENDS:")
-            )
-        )
-
-        # Assertions
-        assert total_backends > 0, "No backends were loaded"
+        assert single_user_data["total_backends"] > 0, "No backends were loaded"
         assert (
-            oauth_backends_count > 0
+            single_user_data["oauth_count"] > 0
         ), "OAuth backends should be loaded in Single User Mode"
 
-    def test_single_user_mode_includes_specific_oauth_connectors(self) -> None:
+    def test_single_user_mode_includes_specific_oauth_connectors(
+        self, single_user_data: dict[str, int | list[str]]
+    ) -> None:
         """Test Single User Mode includes known OAuth connectors (Requirement 3.1)."""
-        script = """
+        assert (
+            len(single_user_data["found_oauth"]) > 0
+        ), "No OAuth connectors found in Single User Mode"
+
+
+def _run_multi_user_checks() -> dict[str, int | list[str] | str | bool]:
+    """Run Multi User Mode checks in one subprocess to avoid redundant imports."""
+    script = """
 import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "single_user"
+import logging
+import sys
+logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
+os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
 
 import src.connectors  # noqa: F401
 from src.core.services.backend_registry import backend_registry
 
 backends = backend_registry.get_registered_backends()
-
-# Check for specific known OAuth connectors
-known_oauth = [
-    "gemini-oauth-auto",
-    "gemini-oauth-plan",
-    "gemini-oauth-free",
-    "anthropic-oauth",
-    "qwen-oauth",
-    "openai-codex",
-]
-
-found_oauth = [name for name in known_oauth if name in backends]
-print(f"FOUND_OAUTH:{','.join(found_oauth)}")
+oauth_backends = [b for b in backends if any(p in b for p in ["oauth", "codex"])]
+known_oauth = ["gemini-oauth-auto", "gemini-oauth-plan", "gemini-oauth-free",
+               "anthropic-oauth", "qwen-oauth", "openai-codex", "antigravity-oauth",
+               "kiro-oauth-auto"]
+found_oauth = [n for n in known_oauth if n in backends]
+non_oauth = ["openai", "anthropic", "gemini"]
+found_non_oauth = [n for n in non_oauth if n in backends]
+print(f"TOTAL_BACKENDS:{len(backends)}")
+print(f"OAUTH_BACKENDS:{len(oauth_backends)}")
+print(f"FOUND_NON_OAUTH:{','.join(found_non_oauth)}")
+print(f"NO_OAUTH_IN_REGISTRY:{len(found_oauth) == 0}")
+try:
+    backend_registry.get_backend_factory("gemini-oauth-auto")
+    print("REJECTION_ERROR_NO_EXCEPTION")
+except ValueError as e:
+    err = str(e)
+    print(f"REJECTION_ERROR_MESSAGE:{err}")
+    if "Multi User Mode" in err and "OAuth" in err:
+        print("REJECTION_SUCCESS_SPECIFIC_ERROR")
 """
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Script failed: {result.stderr}")
+    lines = result.stdout.strip().split("\n")
+    total = int(
+        next(l.split(":")[-1] for l in lines if l.startswith("TOTAL_BACKENDS:"))
+    )
+    oauth_count = int(
+        next(l.split(":")[-1] for l in lines if l.startswith("OAUTH_BACKENDS:"))
+    )
+    found_non_str = next(
+        l.split(":")[-1] for l in lines if l.startswith("FOUND_NON_OAUTH:")
+    )
+    no_oauth = (
+        next(l.split(":")[-1] for l in lines if l.startswith("NO_OAUTH_IN_REGISTRY:"))
+        == "True"
+    )
+    rejection_no_exception = any(
+        "REJECTION_ERROR_NO_EXCEPTION" in line for line in lines
+    )
+    rejection_success = any(
+        "REJECTION_SUCCESS_SPECIFIC_ERROR" in line for line in lines
+    )
+    return {
+        "total_backends": total,
+        "oauth_count": oauth_count,
+        "found_non_oauth": found_non_str.split(",") if found_non_str else [],
+        "no_oauth_in_registry": no_oauth,
+        "stderr": result.stderr,
+        "rejection_no_exception": rejection_no_exception,
+        "rejection_success": rejection_success,
+    }
 
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
 
-        # Parse output
-        found_oauth_str = next(
-            line.split(":")[-1]
-            for line in result.stdout.strip().split("\n")
-            if line.startswith("FOUND_OAUTH:")
-        )
-        found_oauth = found_oauth_str.split(",") if found_oauth_str else []
-
-        # At least some OAuth connectors should be found
-        # (exact list depends on which are installed/enabled)
-        assert len(found_oauth) > 0, "No OAuth connectors found in Single User Mode"
+@pytest.fixture(scope="class")
+def multi_user_data(
+    multi_user_data_module: dict[str, int | list[str] | str | bool]
+) -> dict[str, int | list[str] | str | bool]:
+    """Shared Multi User Mode backend data (reuses module fixture)."""
+    return multi_user_data_module
 
 
 class TestOAuthConnectorFilteringMultiUserMode:
     """Integration tests for Multi User Mode connector filtering."""
 
-    def test_multi_user_mode_skips_oauth_connectors(self) -> None:
+    def test_multi_user_mode_skips_oauth_connectors(
+        self, multi_user_data: dict[str, int | list[str] | str]
+    ) -> None:
         """Test Multi User Mode skips OAuth connectors during auto-discovery (Requirement 6.1)."""
-        script = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-
-backends = backend_registry.get_registered_backends()
-
-# Check for OAuth connectors
-oauth_backends = [
-    b for b in backends
-    if any(pattern in b for pattern in ["oauth", "codex"])
-]
-
-print(f"TOTAL_BACKENDS:{len(backends)}")
-print(f"OAUTH_BACKENDS:{len(oauth_backends)}")
-if oauth_backends:
-    print(f"UNEXPECTED_OAUTH:{','.join(oauth_backends)}")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
+        assert multi_user_data["total_backends"] > 0, "No backends were loaded"
+        assert multi_user_data["oauth_count"] == 0, (
+            f"OAuth backends should NOT be loaded in Multi User Mode, "
+            f"but found: {multi_user_data['oauth_count']}"
         )
 
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        # Parse output
-        output_lines = result.stdout.strip().split("\n")
-        total_backends = int(
-            next(
-                line.split(":")[-1]
-                for line in output_lines
-                if line.startswith("TOTAL_BACKENDS:")
-            )
-        )
-        oauth_backends_count = int(
-            next(
-                line.split(":")[-1]
-                for line in output_lines
-                if line.startswith("OAUTH_BACKENDS:")
-            )
-        )
-
-        # Assertions
-        assert total_backends > 0, "No backends were loaded"
-        assert (
-            oauth_backends_count == 0
-        ), f"OAuth backends should NOT be loaded in Multi User Mode, but found: {oauth_backends_count}"
-
-    def test_multi_user_mode_loads_non_oauth_connectors(self) -> None:
+    def test_multi_user_mode_loads_non_oauth_connectors(
+        self, multi_user_data: dict[str, int | list[str] | str]
+    ) -> None:
         """Test Multi User Mode still loads non-OAuth connectors (Requirement 6.2)."""
-        script = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-
-backends = backend_registry.get_registered_backends()
-
-# Check for non-OAuth connectors
-non_oauth = ["openai", "anthropic", "gemini"]
-found_non_oauth = [name for name in non_oauth if name in backends]
-
-print(f"TOTAL_BACKENDS:{len(backends)}")
-print(f"FOUND_NON_OAUTH:{','.join(found_non_oauth)}")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        # Parse output
-        output_lines = result.stdout.strip().split("\n")
-        total_backends = int(
-            next(
-                line.split(":")[-1]
-                for line in output_lines
-                if line.startswith("TOTAL_BACKENDS:")
-            )
-        )
-        found_non_oauth_str = next(
-            line.split(":")[-1]
-            for line in output_lines
-            if line.startswith("FOUND_NON_OAUTH:")
-        )
-        found_non_oauth = found_non_oauth_str.split(",") if found_non_oauth_str else []
-
-        # Assertions
-        assert total_backends > 0, "No backends were loaded"
+        assert multi_user_data["total_backends"] > 0, "No backends were loaded"
         assert (
-            len(found_non_oauth) > 0
+            len(multi_user_data["found_non_oauth"]) > 0
         ), "Non-OAuth connectors should be loaded in Multi User Mode"
 
-    def test_multi_user_mode_backend_registry_excludes_oauth(self) -> None:
+    def test_multi_user_mode_backend_registry_excludes_oauth(
+        self, multi_user_data: dict[str, int | list[str] | str]
+    ) -> None:
         """Test backend registry does not contain OAuth connectors in Multi User Mode (Requirement 6.4)."""
-        script = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-
-backends = backend_registry.get_registered_backends()
-
-# Known OAuth connectors that should be excluded
-known_oauth = [
-    "gemini-oauth-auto",
-    "gemini-oauth-plan",
-    "gemini-oauth-free",
-    "anthropic-oauth",
-    "qwen-oauth",
-    "openai-codex",
-    "antigravity-oauth",
-    "kiro-oauth-auto",
-]
-
-# Check if any are present
-found_oauth = [name for name in known_oauth if name in backends]
-
-print(f"BACKENDS:{','.join(backends)}")
-if found_oauth:
-    print(f"ERROR_FOUND_OAUTH:{','.join(found_oauth)}")
-else:
-    print("SUCCESS_NO_OAUTH_FOUND")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        # Check output
-        output = result.stdout.strip()
         assert (
-            "SUCCESS_NO_OAUTH_FOUND" in output
-        ), f"OAuth connectors found in backend registry in Multi User Mode: {output}"
+            multi_user_data["no_oauth_in_registry"] is True
+        ), "OAuth connectors found in backend registry in Multi User Mode"
 
-    def test_multi_user_mode_logs_skipped_oauth_count(self) -> None:
+    def test_multi_user_mode_logs_skipped_oauth_count(
+        self, multi_user_data: dict[str, int | list[str] | str]
+    ) -> None:
         """Test Multi User Mode logs skipped OAuth connector count (Requirement 10.5)."""
-        script = """
-import os
-import logging
-import sys
-
-# Set up logging to capture INFO level
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s:%(name)s:%(message)s",
-    stream=sys.stderr,
-)
-
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-
-import src.connectors  # noqa: F401
-
-print("SCRIPT_COMPLETE")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        # Check stderr for logging output
-        log_output = result.stderr.lower()
-
-        # Should log skipped OAuth connectors
-        # Look for patterns like "skipped", "oauth", "multi user"
+        log_output = str(multi_user_data["stderr"]).lower()
         assert (
             "skip" in log_output or "filter" in log_output or "block" in log_output
-        ), f"Expected logging about skipped OAuth connectors, got: {result.stderr}"
+        ), f"Expected logging about skipped OAuth connectors, got: {multi_user_data['stderr']}"
 
 
 class TestOAuthConnectorFilteringRequestRejection:
     """Integration tests for request rejection of OAuth connectors in Multi User Mode."""
 
-    def test_multi_user_mode_rejects_requests_to_oauth_connectors(self) -> None:
+    def test_multi_user_mode_rejects_requests_to_oauth_connectors(
+        self, multi_user_data_module: dict[str, int | list[str] | str | bool]
+    ) -> None:
         """Test requests to OAuth connectors fail with specific error in Multi User Mode (Requirement 6.5)."""
-        script = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-
-# Import connectors to trigger filtering
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-
-# Try to get an OAuth connector that should be blocked
-try:
-    backend_registry.get_backend_factory("gemini-oauth-auto")
-    print("ERROR_NO_EXCEPTION")
-except ValueError as e:
-    error_msg = str(e)
-    print(f"ERROR_MESSAGE:{error_msg}")
-    
-    # Check if error message is specific to Multi User Mode OAuth blocking
-    if "Multi User Mode" in error_msg and "OAuth" in error_msg:
-        print("SUCCESS_SPECIFIC_ERROR")
-    else:
-        print(f"ERROR_GENERIC:{error_msg}")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
+        # Uses multi_user_data_module (from _run_multi_user_checks) - no extra subprocess
+        assert not multi_user_data_module.get(
+            "rejection_no_exception", True
+        ), "OAuth connector should not be available"
+        assert multi_user_data_module.get("rejection_success", False), (
+            "Error message should be specific to Multi User Mode OAuth blocking. "
+            f"Data: {multi_user_data_module}"
         )
 
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
 
-        output = result.stdout.strip()
-
-        # Should NOT succeed in getting the backend
-        assert (
-            "ERROR_NO_EXCEPTION" not in output
-        ), "OAuth connector should not be available"
-
-        # Should have a specific error message about Multi User Mode
-        assert (
-            "SUCCESS_SPECIFIC_ERROR" in output
-        ), f"Error message should be specific to Multi User Mode OAuth blocking. Output: {output}"
+def _run_oauth_mode_count(mode: str) -> int:
+    """Run a subprocess to get backend count for the given access mode. Used for parallel execution."""
+    script = """
+import os
+import sys
+os.environ["LLM_PROXY_ACCESS_MODE"] = sys.argv[1]
+import src.connectors  # noqa: F401
+from src.core.services.backend_registry import backend_registry
+print(len(backend_registry.get_registered_backends()))
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, mode],
+        cwd=str(PROJECT_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"Script failed: {result.stderr}")
+    return int(result.stdout.strip())
 
 
 class TestOAuthConnectorFilteringComparison:
     """Comparison tests between Single User and Multi User modes."""
 
-    def test_single_user_has_more_backends_than_multi_user(self) -> None:
+    def test_single_user_has_more_backends_than_multi_user(
+        self,
+        single_user_data: dict[str, int | list[str]],
+        multi_user_data_module: dict[str, int | list[str] | str],
+    ) -> None:
         """Test Single User Mode loads more backends than Multi User Mode."""
-        # Run Single User Mode
-        script_single = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "single_user"
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-print(len(backend_registry.get_registered_backends()))
-"""
-        result_single = subprocess.run(
-            [sys.executable, "-c", script_single],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        # Run Multi User Mode
-        script_multi = """
-import os
-os.environ["LLM_PROXY_ACCESS_MODE"] = "multi_user"
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-print(len(backend_registry.get_registered_backends()))
-"""
-        result_multi = subprocess.run(
-            [sys.executable, "-c", script_multi],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert (
-            result_single.returncode == 0
-        ), f"Single user script failed: {result_single.stderr}"
-        assert (
-            result_multi.returncode == 0
-        ), f"Multi user script failed: {result_multi.stderr}"
-
-        count_single = int(result_single.stdout.strip())
-        count_multi = int(result_multi.stdout.strip())
+        count_single = single_user_data["total_backends"]
+        count_multi = multi_user_data_module["total_backends"]
 
         # Single User Mode should have more backends (includes OAuth)
         assert (
             count_single > count_multi
         ), f"Single User Mode ({count_single}) should have more backends than Multi User Mode ({count_multi})"
 
-    def test_difference_is_oauth_connectors_only(self) -> None:
+    def test_difference_is_oauth_connectors_only(
+        self, single_user_data: dict[str, int | list[str]]
+    ) -> None:
         """Test the difference between modes is OAuth connectors only."""
-        script = """
-import os
-
-# Get Single User Mode backends
-os.environ["LLM_PROXY_ACCESS_MODE"] = "single_user"
-import src.connectors  # noqa: F401
-from src.core.services.backend_registry import backend_registry
-single_backends = set(backend_registry.get_registered_backends())
-
-# Clear and reload for Multi User Mode
-# (This is a simplification - in real test we'd use subprocess)
-# For this test, we'll just check that OAuth patterns exist in difference
-oauth_patterns = ["oauth", "codex"]
-single_oauth = [b for b in single_backends if any(p in b for p in oauth_patterns)]
-
-print(f"SINGLE_OAUTH_COUNT:{len(single_oauth)}")
-print(f"SINGLE_OAUTH:{','.join(sorted(single_oauth))}")
-"""
-        result = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=str(PROJECT_ROOT),
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, f"Script failed: {result.stderr}"
-
-        # Parse output
-        output_lines = result.stdout.strip().split("\n")
-        oauth_count = int(
-            next(
-                line.split(":")[-1]
-                for line in output_lines
-                if line.startswith("SINGLE_OAUTH_COUNT:")
-            )
-        )
-
-        # Should find OAuth connectors in Single User Mode
+        # Reuse single_user_data - OAuth connectors are the difference (single has them, multi doesn't)
+        oauth_count = single_user_data["oauth_count"]
         assert oauth_count > 0, "No OAuth connectors found in Single User Mode"

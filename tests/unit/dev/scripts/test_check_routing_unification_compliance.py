@@ -1,12 +1,30 @@
 from __future__ import annotations
 
+import contextlib
+import hashlib
 import importlib.util
+import json
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 SCRIPT_PATH = REPO_ROOT / "dev" / "scripts" / "check_routing_unification_compliance.py"
 INVENTORY_PATH = REPO_ROOT / "dev" / "routing" / "unified_routing_inventory.yaml"
+
+
+def _compliance_cache_hash() -> str:
+    """Compute hash of repo + inventory for cache invalidation."""
+    hasher = hashlib.md5()
+    for py in (REPO_ROOT / "src" / "core" / "services").rglob("*.py"):
+        with contextlib.suppress(OSError):
+            hasher.update(
+                f"{py.relative_to(REPO_ROOT)}:{py.stat().st_mtime_ns}".encode()
+            )
+    if INVENTORY_PATH.exists():
+        hasher.update(f"{INVENTORY_PATH}:{INVENTORY_PATH.stat().st_mtime}".encode())
+    return hasher.hexdigest()
 
 
 def _load_compliance_module():
@@ -165,11 +183,58 @@ def test_run_checks_allows_internal_call_completion_delegate(tmp_path: Path) -> 
     assert not any("bypass" in error.lower() for error in report.errors)
 
 
-def test_live_repo_inventory_contract_has_no_drift_or_bypass() -> None:
+@pytest.fixture(scope="session")
+def _live_repo_compliance_report():
+    """Session-scoped compliance report, with file cache to avoid re-scanning repo."""
+    cache_dir = REPO_ROOT / ".pytest_cache"
+    cache_dir.mkdir(exist_ok=True)
+    cache_file = cache_dir / "routing_compliance_cache.json"
+    cache_hash = _compliance_cache_hash()
+
+    if cache_file.exists():
+        try:
+            with open(cache_file, encoding="utf-8") as f:
+                cached = json.load(f)
+            # Cache valid if hash matches (time-based expiry skipped for deterministic tests)
+            if cached.get("hash") == cache_hash:
+                module = _load_compliance_module()
+                report = module.ComplianceReport()
+                report.errors = cached.get("errors", [])
+                report.discovered_keys = set(cached.get("discovered_keys", []))
+                report.inventory_direct_keys = set(
+                    cached.get("inventory_direct_keys", [])
+                )
+                report.bypass_keys = set(cached.get("bypass_keys", []))
+                return report
+        except (OSError, json.JSONDecodeError):
+            pass
+
     module = _load_compliance_module()
     report = module.run_compliance_checks(
         repo_root=REPO_ROOT, inventory_path=INVENTORY_PATH
     )
+    try:
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "hash": cache_hash,
+                    "errors": report.errors,
+                    "discovered_keys": list(report.discovered_keys),
+                    "inventory_direct_keys": list(report.inventory_direct_keys),
+                    "bypass_keys": list(report.bypass_keys),
+                },
+                f,
+                indent=2,
+            )
+    except OSError:
+        pass
+    return report
+
+
+def test_live_repo_inventory_contract_has_no_drift_or_bypass(
+    _live_repo_compliance_report,
+) -> None:
+    report = _live_repo_compliance_report
 
     assert report.errors == []
     assert report.bypass_keys == set()

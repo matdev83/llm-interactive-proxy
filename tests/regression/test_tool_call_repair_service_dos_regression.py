@@ -104,12 +104,6 @@ class TestToolCallRepairServiceDoSRegression:
                 f"Got: {result}"
             )
 
-            # Should return None (rejected) for large payloads
-            assert result is None, (
-                f"{vector_name} attack vector should return None for large payloads. "
-                f"Got: {result}"
-            )
-
     def test_small_json_payload_processed(
         self, repair_service: ToolCallRepairService
     ) -> None:

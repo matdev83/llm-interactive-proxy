@@ -9,7 +9,6 @@ import tempfile
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from src.core.app.application_builder import ApplicationBuilder
 from src.core.config.app_config import AppConfig
 from src.core.interfaces.wire_capture_interface import IWireCapture
 from src.core.services.buffered_wire_capture_service import BufferedWireCapture
@@ -52,16 +51,15 @@ def mock_app_config(temp_capture_file):
 @pytest_asyncio.fixture
 async def test_app(mock_app_config):
     """Create a test application with buffered wire capture enabled."""
-    builder = ApplicationBuilder().add_default_stages()
-    app = builder.build_compat(mock_app_config)
+    from src.core.app.test_builder import build_test_app_async
+
+    app = await build_test_app_async(mock_app_config)
 
     # Return both the app and the capture file path for inspection
     yield app, mock_app_config.logging.capture_file
 
     # Cleanup
     with contextlib.suppress(Exception):
-        from src.core.interfaces.wire_capture_interface import IWireCapture
-
         wire_capture = app.state.service_provider.get_service(IWireCapture)
         if wire_capture and hasattr(wire_capture, "shutdown"):
             await wire_capture.shutdown()
@@ -149,10 +147,10 @@ async def test_buffered_wire_capture_end_to_end(test_app, cleanup_wire_capture):
         request_payload=request_payload,
     )
 
-    # Simulate some processing time
+    # Simulate some processing time (minimal delay; FakeClock advances instantly)
     async with FakeClockContext() as clock:
-        sleep_task = asyncio.create_task(asyncio.sleep(0.05))
-        clock.advance(0.05)
+        sleep_task = asyncio.create_task(asyncio.sleep(0.01))
+        clock.advance(0.01)
         await sleep_task
 
     # Capture inbound response
@@ -298,15 +296,15 @@ async def test_buffered_wire_capture_performance(test_app, cleanup_wire_capture)
     # Get the wire capture service
     wire_capture = app.state.service_provider.get_service(IWireCapture)
 
-    # Capture many entries quickly
-    num_entries = 50
+    # Capture many entries quickly (25 is sufficient for throughput assertion)
+    num_entries = 25
     loop = asyncio.get_running_loop()
     start_time = loop.time()
 
     for i in range(num_entries):
         await wire_capture.capture_outbound_request(
             context=None,
-            session_id=f"perf-session-{i % 10}",  # 10 different sessions
+            session_id=f"perf-session-{i % 5}",  # 5 sessions for fewer unique IDs
             backend="test-backend",
             model="test-model",
             key_name="TEST_KEY",
@@ -338,7 +336,7 @@ async def test_buffered_wire_capture_performance(test_app, cleanup_wire_capture)
     request_entries = [e for e in entries if e["direction"] == "outbound_request"]
     assert len(request_entries) == num_entries
 
-    # Sort entries by sequence number to handle cases where background flushes 
+    # Sort entries by sequence number to handle cases where background flushes
     # might have written batches out of order during high-throughput
     request_entries.sort(key=lambda x: x.get("sequence", 0))
 
@@ -346,7 +344,6 @@ async def test_buffered_wire_capture_performance(test_app, cleanup_wire_capture)
     for i, entry in enumerate(request_entries):
         assert entry["payload"]["request_id"] == i
         assert entry["payload"]["data"] == f"test data {i}"
-
 
 
 def test_buffered_wire_capture_configuration_validation(temp_capture_file):

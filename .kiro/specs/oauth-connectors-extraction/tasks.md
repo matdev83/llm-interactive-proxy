@@ -1,92 +1,138 @@
-# Implementation Tasks
+# Implementation Plan
 
-## Phase 1: Core Plugin Infrastructure
+- [ ] 1. Establish packaging boundary for extracted OAuth connectors
+- [ ] 1.1 Define and prepare the standalone OAuth connector distribution for pip installation
+  - Define package structure, metadata, and release strategy for extracted connectors.
+  - Ensure extracted connector ownership is clearly separated from core distribution lifecycle.
+  - _Requirements: 1.1, 9.1_
 
-### Task 1.1: Implement BackendDiscoveryService
-- **Description**: Create a new service `src/core/services/backend_discovery.py` that uses `importlib.metadata.entry_points` to scan the `llm_proxy_backends` group.
-- **Details**:
-    - Implement `discover_external_backends` method.
-    - Add version compatibility check (`min_core_version`).
-    - Handle loading failures gracefully with logging.
-- **Traceability**: Req 1.1, 1.3, 1.4, 2.6
-- **Status**: pending
+- [ ] 1.2 Add optional core installation extra for OAuth connector package
+  - Provide optional installation path through core package extras.
+  - Ensure full optional-install guidance is clear and consistent for operators.
+  - _Requirements: 1.2, 1.3_
 
-### Task 1.2: Update BackendRegistry for Metadata Tracking
-- **Description**: Update `BackendRegistry` to store metadata about discovered backends (e.g., whether it's a plugin, compatibility version, optional DI hooks).
-- **Details**:
-    - Add methods to store and retrieve plugin metadata.
-    - Ensure thread-safe access to metadata.
-- **Traceability**: Req 1.5, 2.3
-- **Status**: pending
+- [ ] 1.3 Separate optional connector dependencies from mandatory core dependencies
+  - Move OAuth-only dependency requirements behind optional install mode.
+  - Keep core dependency footprint valid for non-OAuth operation.
+  - _Requirements: 1.4_
 
-### Task 1.3: Integrate Discovery into src/connectors/__init__.py
-- **Description**: Call `BackendDiscovery.discover_external_backends()` within `src/connectors/__init__.py` to ensure plugins are loaded alongside internal connectors.
-- **Traceability**: Req 1.1, 1.2
-- **Status**: pending
+- [ ] 2. Implement fail-open plugin discovery for optional external backends
+- [ ] 2.1 Extend startup discovery to include external backend entry-point scan
+  - Discover plugin backends through `llm_proxy_backends` entry-point group.
+  - Preserve deterministic startup order before backend selection/validation.
+  - _Requirements: 2.1, 2.2, 2.6_
 
-## Phase 2: DI Hardening & Pluggable Service Registration
+- [ ] 2.2 Implement no-entrypoint and load-failure fail-open behavior
+  - Treat missing entry points as valid optional absence.
+  - Log actionable warnings for plugin load failures without aborting startup.
+  - _Requirements: 2.3, 2.4, 5.1_
 
-### Task 2.1: Implement Pluggable DI Hook in Backend Registrar
-- **Description**: Update `src/core/di/registrations/backend.py` to iterate through registered plugins and call an optional `register_services` hook if provided by the plugin.
-- **Traceability**: Req 2.5
-- **Status**: pending
+- [ ] 2.3 Register discovered plugin backends through stable registry contract
+  - Register successfully loaded plugin backends with deterministic naming.
+  - Persist compatibility metadata needed for runtime safety decisions.
+  - _Requirements: 2.5, 9.2, 9.4_
 
-### Task 2.2: Guard Core DI against Missing Extracted Connectors
-- **Description**: Refactor `src/core/di/registrations/backend.py` and its sub-modules (`codex.py`, `gemini.py`) to use conditional imports and registrations.
-- **Details**:
-    - Wrap Codex and Gemini registration calls in try-except or check for package presence.
-- **Traceability**: Req 2.5, 3.3
-- **Status**: pending
+- [ ] 3. Enforce core independence from concrete backend connectors
+- [ ] 3.1 Remove unconditional core imports of extracted connector modules
+  - Harden startup and DI composition paths to avoid hard dependency on extracted modules.
+  - Keep optional plugin loading isolated from core bootstrap health.
+  - _Requirements: 3.1, 3.2, 3.5_
 
-## Phase 3: Runtime Behavior & Validation
+- [ ] 3.2 Ensure plugin onboarding does not require core business-logic edits
+  - Drive connector extensibility through supported plugin contracts only.
+  - Validate that adding connector types does not require routing/session core rewrites.
+  - _Requirements: 3.3, 9.1, 9.2_
 
-### Task 3.1: Enhance BackendValidationService with Actionable Warnings
-- **Description**: Update `src/core/services/backend_validation_service.py` to detect configurations referencing extracted but unregistered backends.
-- **Details**:
-    - Add `KNOWN_EXTRACTED_BACKENDS` list.
-    - Implement logic to suggest `pip install llm-interactive-proxy[oauth]` in warnings.
-- **Traceability**: Req 3.2, 3.5
-- **Status**: pending
+- [ ] 3.3 Protect non-extracted connector behavior from plugin changes
+  - Validate that changes in extracted plugin connectors cannot break core connector operation.
+  - Preserve fail-open guarantees for optional plugin instability.
+  - _Requirements: 3.4, 5.6, 10.4_
 
-### Task 3.2: Implement Request-Time Error Handling for Unregistered Backends
-- **Description**: Ensure that requests targeting a configured but unregistered backend return a clear error response (503 Service Unavailable or similar) instead of crashing.
-- **Traceability**: Req 3.4
-- **Status**: pending
+- [ ] 4. Enforce frontend adapter decoupling and shared routing usage
+- [ ] 4.1 Align frontend adapters to canonical domain/request contracts
+  - Keep frontend protocol layers focused on translation and adapter concerns only.
+  - Keep core policy layers independent from concrete adapter classes.
+  - _Requirements: 4.1, 4.2_
 
-## Phase 4: Consolidation & Extraction
+- [ ] 4.2 Verify all outbound inference surfaces use shared routing boundary
+  - Ensure primary, replacement, verifier, and auxiliary flows resolve through the same routing contract.
+  - Preserve existing no-bypass compliance behavior.
+  - _Requirements: 4.4, 6.1, 6.2, 6.3, 6.4_
 
-### Task 4.1: Consolidate Universal Mixins and Utils
-- **Description**: Move truly universal mixins (e.g., `usage_calculation_mixin.py`) and utils to a stable location in core (e.g., `src/connectors/base_mixins.py`).
-- **Traceability**: Req 2.4, 3.1
-- **Status**: pending
+- [ ] 4.3 Add anti-drift checks for frontend-to-core boundary integrity
+  - Prevent protocol-specific business logic from leaking into core routing/session services.
+  - Keep layering and dependency direction explicit and reviewable.
+  - _Requirements: 4.3, 10.1, 10.2_
 
-### Task 4.2: Move OAuth Connectors to External Package
-- **Description**: Physically move the 13 identified OAuth-based connectors and their dedicated tests/utilities to the new `llm-proxy-oauth-connectors` repository.
-- **Traceability**: Req 2.1, 2.2, 6.3
-- **Status**: pending
+- [ ] 5. Preserve B2BUA identity and constrained-family architecture contracts
+- [ ] 5.1 Verify B2BUA identity isolation remains intact for core and plugin connectors
+  - Keep A-leg continuity internal and B-leg connector-facing.
+  - Ensure connector boundary sanitizes sensitive identity fields.
+  - _Requirements: 7.1, 7.2, 7.3, 7.4_
 
-## Phase 5: Packaging & Installation
+- [ ] 5.2 Verify auxiliary session isolation behavior under extraction changes
+  - Ensure sidecar/auxiliary calls do not mutate primary continuity identity lifecycle.
+  - Preserve deterministic derived session behavior.
+  - _Requirements: 7.5_
 
-### Task 5.1: Update Core pyproject.toml
-- **Description**: Move OAuth-only dependencies (`google-auth`, `watchdog`, etc.) to an optional extra named `oauth`.
-- **Details**:
-    - Define `oauth` extra that depends on the external package.
-- **Traceability**: Req 5.1, 5.2, 5.3
-- **Status**: pending
+- [ ] 5.3 Preserve constrained single-instance policy for self-managed OAuth families
+  - Keep shared policy enforcement for constrained families across validation and routing.
+  - Preserve deterministic conflict diagnostics and operator guidance.
+  - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
-### Task 5.2: Create pyproject.toml for External Package
-- **Description**: Define the metadata, dependencies, and entry points for the `llm-proxy-oauth-connectors` package.
-- **Traceability**: Req 2.2, 5.3
-- **Status**: pending
+- [ ] 6. Implement clear runtime behavior when optional OAuth package is absent
+- [ ] 6.1 Add actionable diagnostics for unregistered extracted backends
+  - Emit install guidance when configuration references extracted backends that are unavailable.
+  - Keep warnings precise and operator-actionable.
+  - _Requirements: 5.2, 1.3_
 
-## Phase 6: Testing & Verification
+- [ ] 6.2 Enforce startup failure only when no viable backend path remains
+  - Fail startup with actionable error when required backend target is unavailable and no alternative exists.
+  - Keep startup healthy when at least one configured backend remains operational.
+  - _Requirements: 5.3, 5.5_
 
-### Task 6.1: Implement Core Mock Discovery Tests
-- **Description**: Add unit tests in core using `unittest.mock` to verify that `BackendDiscovery` correctly handles mocked entry points.
-- **Traceability**: Req 6.1, 6.2
-- **Status**: pending
+- [ ] 6.3 Return deterministic handled errors for request-time missing extracted backends
+  - Avoid unhandled exceptions when clients target unavailable extracted backends.
+  - Keep behavior consistent across supported protocol adapters.
+  - _Requirements: 5.4_
 
-### Task 6.2: Final Integration Verification
-- **Description**: Verify that the proxy starts and functions correctly with and without the `oauth` extra installed.
-- **Traceability**: Req 4.1, 4.2, 6.3
-- **Status**: pending
+- [ ] 6.4 Validate continuity of API-key connector functionality without oauth package
+  - Confirm non-OAuth connector paths remain fully functional in core-only install mode.
+  - _Requirements: 5.1, 5.6_
+
+- [ ] 7. Define and enforce stable plugin API compatibility contract
+- [ ] 7.1 Publish supported plugin contract surface and registration hooks
+  - Document stable interfaces and supported integration points for plugin authors.
+  - _Requirements: 9.1, 9.2_
+
+- [ ] 7.2 Implement compatibility gating and optional hook execution behavior
+  - Execute plugin hooks conditionally without making core startup dependent on them.
+  - Skip incompatible plugins with warnings and continue startup.
+  - _Requirements: 9.3, 9.4_
+
+- [ ] 7.3 Apply SOLID/DRY/layering checks to extraction-related implementation
+  - Review and enforce single-responsibility boundaries across routing/session/discovery concerns.
+  - Avoid duplicate policy logic across adapters, core services, and connector layers.
+  - _Requirements: 10.1, 10.2, 10.3, 10.4_
+
+- [ ] 8. Build verification matrix and regression safeguards
+- [ ] 8.1 Add core-only mode tests for startup and discovery fail-open behavior
+  - Validate startup in absence of oauth package and missing plugin entry points.
+  - _Requirements: 11.1, 11.2, 5.1_
+
+- [ ] 8.2 Add core-only mode tests for API-key connector operational continuity
+  - Validate non-extracted backend functionality remains stable without optional package.
+  - _Requirements: 11.3, 5.6_
+
+- [ ] 8.3 Add tests for deterministic warnings/errors around missing extracted backends
+  - Validate startup-time and request-time diagnostics/error behavior for unavailable extracted backends.
+  - _Requirements: 11.4, 5.2, 5.3, 5.4, 5.5_
+
+- [ ] 8.4 Add tests for routing-unification and B2BUA boundary non-regression
+  - Keep shared routing no-bypass guard active.
+  - Verify A-leg/B-leg and identity sanitization behavior remains intact.
+  - _Requirements: 6.5, 6.6, 7.1, 7.2, 7.3, 7.4, 7.5_
+
+- [ ] 8.5 Add and run external plugin package test suite
+  - Maintain separate verification for extracted connector package behavior.
+  - _Requirements: 11.5_

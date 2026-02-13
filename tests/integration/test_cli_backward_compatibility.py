@@ -8,6 +8,7 @@ Requirements:
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import FastAPI
 from src.core import cli
 from src.core.config.app_config import AppConfig
 
@@ -28,7 +29,8 @@ async def test_full_cli_invocation_simulation():
         "--disable-auth",
     ]
 
-    # We mock out the actual server startup to avoid binding ports or hanging
+    # We mock out the actual server startup to avoid binding ports or hanging,
+    # and the app build to avoid heavy staged initialization (~2s savings)
     with (
         patch(
             "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.start_servers",
@@ -36,6 +38,11 @@ async def test_full_cli_invocation_simulation():
         ) as mock_start,
         patch(
             "src.core.cli_support.server_lifecycle_manager.ServerLifecycleManager.check_ports"
+        ),
+        patch(
+            "src.core.cli.build_app_async",
+            new_callable=AsyncMock,
+            return_value=FastAPI(),
         ),
     ):
         # Execute main with test args

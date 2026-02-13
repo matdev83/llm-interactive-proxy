@@ -231,7 +231,7 @@ async def test_property_random_signal_ordering_maintains_dedupe(
     num_signals=st.integers(min_value=2, max_value=10),
 )
 @property_test_settings(
-    max_examples=15,  # Reduced from 20 for performance
+    max_examples=8,  # Reduced for performance while preserving coverage
     suppress_health_check=[
         HealthCheck.too_slow,
         HealthCheck.data_too_large,

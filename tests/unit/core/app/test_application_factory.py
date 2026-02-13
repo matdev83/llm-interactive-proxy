@@ -32,24 +32,14 @@ pytestmark = pytest.mark.filterwarnings(
 class TestApplicationBuilderServices:  # Renamed class to reflect testing ApplicationBuilder's service init
     """Tests for ApplicationBuilder's service initialization."""
 
-    @patch(
-        "src.core.di.services.get_service_collection"
-    )  # Patch get_service_collection where it's imported from
     async def test_initialize_services_registers_all_required_services(
-        self, mock_get_service_collection
+        self,
     ):
         """Test that all required services are registered during build."""
-        mock_services = MagicMock()  # Create a mock ServiceCollection
-        mock_get_service_collection.return_value = (
-            mock_services  # Return it from get_service_collection
-        )
-        mock_services.build_service_provider.return_value = (
-            MagicMock()
-        )  # Mock the return of build_service_provider
-
         config = AppConfig()
 
         builder = ApplicationBuilder()
+        builder.add_default_stages()
         app = await builder.build(config)
 
         # Verify core services are registered via the app.state.service_provider

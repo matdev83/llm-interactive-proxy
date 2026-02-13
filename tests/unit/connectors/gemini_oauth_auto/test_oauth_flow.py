@@ -200,7 +200,7 @@ class TestOAuthFlowService:
             patch("uvicorn.Server.serve", new_callable=AsyncMock),
             pytest.raises(OAuthError, match="Authorization timed out"),
         ):
-            await oauth_service.authorize(timeout=1, open_browser=False)
+            await oauth_service.authorize(timeout=0.1, open_browser=False)
 
     @pytest.mark.asyncio
     async def test_exchange_code_network_error(
@@ -272,7 +272,7 @@ class TestOAuthFlowService:
             patch("uvicorn.Server.serve", new_callable=AsyncMock),
             pytest.raises(OAuthError, match="Authorization timed out"),
         ):
-            await oauth_service.authorize(timeout=1, open_browser=False)
+            await oauth_service.authorize(timeout=0.1, open_browser=False)
 
         mock_open.assert_not_called()
         assert "Please visit this URL" in caplog.text
@@ -288,6 +288,6 @@ class TestOAuthFlowService:
             patch("uvicorn.Server.serve", new_callable=AsyncMock),
             pytest.raises(OAuthError, match="Authorization timed out"),
         ):
-            await oauth_service.authorize(timeout=1, open_browser=True)
+            await oauth_service.authorize(timeout=0.1, open_browser=True)
 
         mock_open.assert_called_once()

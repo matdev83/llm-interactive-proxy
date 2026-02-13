@@ -1,46 +1,116 @@
-# Research: OAuth Connectors Extraction
+# Research and Design Decisions: oauth-connectors-extraction
+
+## Summary
+
+Research confirms the codebase already contains most runtime primitives needed for safe extraction (unified routing, B2BUA boundary isolation, constrained-family policy). The primary work is boundary and packaging formalization:
+- move OAuth/sensitive connectors to optional external package
+- add entry-point plugin discovery with fail-open semantics
+- harden and verify decoupling contracts for backend and frontend integration layers
+
+## Research Scope
+
+- Active spec files under `.kiro/specs/oauth-connectors-extraction/`
+- Current routing/session architecture in `src/core/services/`
+- Startup/discovery path in `src/connectors/__init__.py` and bootstrap services
+- Constrained policy and semantic validation in `src/core/config/`
+- Unified routing compliance gate artifacts under `dev/routing/` and `dev/scripts/`
+- Commit history from this week (B2BUA/session handling, unified routing, constrained connector validation)
 
 ## Discovery Findings
 
-### 1. Current Discovery Mechanism
-The proxy currently uses `pkgutil.iter_modules` in `src/connectors/__init__.py` to import all modules in the `src/connectors` directory. Registration happens as a side effect of these imports via `backend_registry.register_backend`.
+### 1) Startup and Connector Discovery
+- Current discovery auto-imports local connector modules via `pkgutil.iter_modules` in `src/connectors/__init__.py`.
+- No current runtime discovery of external entry points under `llm_proxy_backends`.
+- OAuth filtering for multi-user mode exists, but it is not equivalent to optional external plugin package detection.
 
-### 2. DI Registration Hotspots
-Specific connectors (Gemini, Codex) have dedicated registration logic in `src/core/di/registrations/_backend/`.
-- `gemini.py`: Registers `GeminiCredentialCoordinator`, `GeminiErrorMapper`, etc.
-- `codex.py`: Registers `CredentialManager`, `SettingsLoader`, `ToolExecutionService`, and `CodexConnectorDependencies`.
+### 2) Unified Routing Is Already Centralized
+- Shared routing stack exists:
+  - `src/core/services/backend_model_resolver.py`
+  - `src/core/services/backend_routing_service.py`
+- Compliance guard exists and is wired as explicit check artifact:
+  - `dev/routing/unified_routing_inventory.yaml`
+  - `dev/scripts/check_routing_unification_compliance.py`
+- Inventory includes primary, verifier, replacement, auxiliary, and selected connector-internal outbound surfaces.
 
-These registrations are currently triggered in `src/core/di/registrations/backend.py`. For a modular architecture, the external package should provide its own registration logic that the core can invoke upon discovery.
+### 3) B2BUA Boundary Isolation Is Already Enforced
+- `src/core/services/backend_completion_flow/completion_session_resolver.py`
+  - B2BUA mode uses A-leg for session continuity resolution.
+- `src/core/services/backend_completion_flow/backend_request_preparer.py`
+  - connector-facing `session_id` uses B-leg when B2BUA identity exists.
+- `src/core/services/connector_invoker.py`
+  - strips sensitive identity fields (`a_session_id`, `client_session_id`, `auth_scope_id`) from connector-facing context.
 
-Design constraint discovered during review: backend discovery currently runs very early (module import time via `src/core/cli.py` importing `src/core/services/backend_imports.py`). At that point, DI (`ServiceCollection`) and `AppConfig` are not available. This makes “plugin registers DI services during discovery” impractical as a primary mechanism.
+### 4) Frontend Adapter Separation Exists but Is Not Explicitly Contracted in This Spec
+- Controllers/protocol adapters largely depend on interfaces and canonical request-processing boundaries:
+  - `src/core/app/controllers/chat_controller.py`
+  - `src/core/app/controllers/anthropic_controller.py`
+  - `src/core/app/controllers/responses_controller.py`
+- This supports the target contract that core business services remain protocol-agnostic.
 
-### 3. Shared Utilities
-Connectors depend on:
-- `src/connectors/utils/`: `cline_auth.py`, `gemini_request_counter.py`, `model_capabilities.py`, etc.
-- `src/connectors/mixins/`: `antigravity_auth_mixin.py`, `gemini_code_assist_mixin.py`, `usage_calculation_mixin.py`.
+### 5) Constrained Connector-Family Policy Exists and Is Shared
+- Policy source and matching:
+  - `src/core/config/constrained_backend_policy.py`
+- Semantic validation and runtime checks:
+  - `src/core/config/semantic_validation.py`
+- Families include explicit/wildcard rules (`qwen-oauth`, `gemini-oauth*`, `antigravity*`).
 
-Extraction of these utilities is risky because some are used by core (non-extracted) connectors. Example: `UsageCalculationMixin` is imported by the core `gemini` connector.
+### 6) Weekly Refactor Signals Relevant to This Spec
+- Commits indicate recent architecture movement around:
+  - B2BUA-like session handling and continuity
+  - unified routing and compliance guardrails
+  - constrained OAuth connector instance validation
+- Implication: this spec must avoid reintroducing older assumptions (for example monolithic backend service-centric routing language).
 
-### 4. Configuration Precedence
-Backend configurations are dynamic in `BackendSettings`. Any attribute not matching a pre-defined field is treated as a `BackendConfig`. This naturally supports external backends as long as they are registered in the `BackendRegistry`.
+## Decisions
 
-### 5. Validation Logic
-`BackendValidationService` currently filters "configured" backends against "registered" backends. If a backend is configured (e.g., has an `api_key` or is `default_backend`) but not registered, it should trigger a specific warning suggesting the installation of the OAuth package.
+### D1: Keep Optional Extraction as First-Class Package Contract
+- Extracted OAuth connectors are defined as separate package (`llm-proxy-oauth-connectors`).
+- Core package provides optional install extra (`llm-interactive-proxy[oauth]`).
 
-## Architecture Decisions
+### D2: Use Entry-Point Discovery for Optional Plugin Activation
+- Group name: `llm_proxy_backends`.
+- No entry points and entry-point load failures are non-fatal startup states.
 
-### D1: Entry Point Selection
-We will use the group name `llm_proxy_backends`. The entry point will point to a factory or the backend class itself.
+### D3: Preserve Resolver-Centric Unified Routing
+- Extraction must not introduce alternative routing paths.
+- All outbound call surfaces continue using shared routing boundary and compliance gate.
 
-### D2: Optional DI Dependencies
-Core DI registration must not hard-import extracted connector modules. Connector-specific DI helpers (e.g., Codex components) should be guarded/optional, and extracted connectors should remain functional without requiring core-side DI wiring.
+### D4: Preserve B2BUA Identity Boundary as Non-Regression Constraint
+- A-leg remains internal continuity identity.
+- B-leg remains connector-facing identity.
+- Sensitive internal identity fields must not cross connector boundary.
 
-### D3: Core Package as Dependency
-The external package will depend on `llm-interactive-proxy` to access `LLMBackend`, `BackendRegistry`, and common interfaces.
+### D5: Treat Core-to-Connector and Core-to-Frontend Decoupling as Explicit Requirements
+- Core business logic depends on abstractions/contracts, not concrete connector classes.
+- Frontend protocol adapters remain transport translators and do not own routing/session policy logic.
 
-### D4: Extraction Scope Reality Check
-`gemini-cli-cloud-project` is an OAuth-based backend in core and depends on `google-auth` and `watchdog`. To meet the “optional plugin” separation goal, it must be part of the extracted set (otherwise core will retain OAuth-only dependencies).
+### D6: Keep Constrained-Family Policy Central and Reused
+- Single-instance policy remains shared between semantic validation and routing behavior.
+- Extraction cannot bypass or duplicate this policy.
 
-## Research Needed (Carry Forward)
-- [ ] Test `importlib.metadata.entry_points(group="...")` compatibility with Python 3.10 and 3.11.
-- [ ] Verify if `pyproject.toml` `optional-dependencies` can depend on a package that is not yet published (for local testing).
+### D7: Introduce Explicit Plugin Compatibility Contract
+- Plugin activation should include compatibility metadata handling.
+- Incompatible plugins are skipped with warnings, not startup-fatal errors.
+
+### D8: Verification Must Cover Both Installation Modes
+- Core-only mode (no oauth package) and core+oauth mode are both mandatory test targets.
+
+## Risks and Mitigations
+
+### Risk 1: Startup coupling regressions through import paths
+- **Mitigation:** prohibit unconditional imports of extracted connectors in core startup/DI paths; enforce via focused tests and code review checklist.
+
+### Risk 2: Hidden routing bypass introduced during extraction changes
+- **Mitigation:** keep unified routing compliance gate mandatory; update inventory when new call surfaces are added.
+
+### Risk 3: Identity leakage during connector boundary changes
+- **Mitigation:** maintain B2BUA boundary tests validating no A-leg/internal field leakage to connector context.
+
+### Risk 4: Optional package absence breaks operational continuity
+- **Mitigation:** explicit acceptance criteria and tests for no-entrypoint/no-package states, plus API-key connector smoke coverage.
+
+## Follow-Up Research Items
+
+- Confirm final published package naming/versioning policy for `llm-proxy-oauth-connectors`.
+- Finalize compatibility metadata shape for plugin entry points (minimum core version field and validation strategy).
+- Define strict anti-coupling static checks for forbidden import directions between core services and extracted connector modules.

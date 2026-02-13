@@ -77,6 +77,11 @@ class ToolCallRepairService(IToolCallRepairService):
         if not response_content:
             return None
 
+        # DoS protection: reject oversized content before any expensive processing
+        # Use char count as cheap proxy for byte size (O(1)); ASCII payloads match 1:1
+        if len(response_content) > MAX_JSON_PARSE_SIZE:
+            return None
+
         # If tools are explicitly disallowed, skip detection entirely
         if allowed_tools is not None and len(allowed_tools) == 0:
             return None

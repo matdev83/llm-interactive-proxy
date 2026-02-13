@@ -16,6 +16,11 @@ def mock_dependencies():
     config = MagicMock()
     # Mock config.get to return False for disable_health_checks
     config.get.return_value = False
+    # Provide structured backends to avoid slow config parsing in initialize
+    config.backends = {"gemini-oauth-auto": MagicMock(extra={})}
+    config.failure_handling = MagicMock(max_silent_wait=5.0)
+    config.host = "127.0.0.1"
+    config.notifications = MagicMock()
     translation_service = MagicMock()
     return client, config, translation_service
 
@@ -31,12 +36,21 @@ async def connector(mock_dependencies, mocker):
     mock_selector.get_next_account = AsyncMock()
     mock_selector.get_available_count.return_value = 1
 
-    # Patch services in the connector module
+    # Patch services in the connector module to avoid heavy initialization
     mocker.patch("src.connectors.gemini_oauth_auto.connector.TokenStorageService")
     mocker.patch("src.connectors.gemini_oauth_auto.connector.TokenRefreshService")
     mocker.patch(
         "src.connectors.gemini_oauth_auto.connector.AccountSelectorService",
         return_value=mock_selector,
+    )
+    mocker.patch(
+        "src.connectors.gemini_oauth_auto.connector.NotificationService",
+        return_value=MagicMock(),
+    )
+    # Prevent model discovery (network/expensive) during initialize
+    mocker.patch(
+        "src.connectors.gemini_oauth_auto.connector.GeminiOAuthAutoConnector._ensure_models_loaded",
+        new_callable=AsyncMock,
     )
 
     conn = GeminiOAuthAutoConnector(client, config, translation_service)

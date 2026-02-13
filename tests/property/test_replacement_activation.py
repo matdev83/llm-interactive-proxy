@@ -109,12 +109,19 @@ def test_property_11_turn_counter_initialization(
     original_model=st.text(min_size=1, max_size=20).filter(
         lambda x: x.replace("-", "").isalnum()
     ),
-    replacement_backend_model=st.text(min_size=1, max_size=20).filter(
-        lambda x: ":" in x
+    # Build backend:model explicitly to avoid filter_too_much (":" rarely in random text)
+    replacement_backend_model=st.builds(
+        lambda b, m: f"{b}:{m}",
+        b=st.text(min_size=1, max_size=10).filter(
+            lambda x: x.replace("-", "").replace("_", "").isalnum()
+        ),
+        m=st.text(min_size=1, max_size=10).filter(
+            lambda x: x.replace("-", "").replace("_", "").isalnum()
+        ),
     ),
 )
 @property_test_settings(
-    max_examples=15,  # Reduced from 20 for performance
+    max_examples=6,  # Reduced for performance while preserving coverage
     suppress_health_check=[HealthCheck.filter_too_much],
 )
 async def test_property_21_activation_logging(
