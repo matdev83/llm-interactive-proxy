@@ -145,8 +145,10 @@ class TestBackendDiscovery:
         with pytest.raises(ConfigurationError, match="Duplicate credentials path"):
             source.load(existing_instance_names=set(), resolution=ParameterResolution())
 
-    def test_default_file_instances_collapse_wildcard_family(self, tmp_path):
-        """Only one default should be created for a constrained wildcard family."""
+    def test_default_file_instances_create_per_backend_for_wildcard_family(
+        self, tmp_path
+    ):
+        """Create one default per concrete constrained backend name."""
         config_dir = tmp_path / "config" / "backends" / "backend-instances"
         config_dir.mkdir(parents=True)
         source = BackendInstanceFileSource(instances_dir=config_dir)
@@ -169,10 +171,10 @@ class TestBackendDiscovery:
         gemini_defaults = sorted(
             name for name in backends if name.startswith("gemini-oauth-")
         )
-        assert gemini_defaults == ["gemini-oauth-free.1"]
+        assert gemini_defaults == ["gemini-oauth-free.1", "gemini-oauth-plan.1"]
 
-    def test_default_file_instances_skip_family_when_existing_present(self, tmp_path):
-        """No constrained default should be added when family already has instance."""
+    def test_default_file_instances_skip_existing_backend_when_present(self, tmp_path):
+        """Do not add default for a backend that already has an instance."""
         config_dir = tmp_path / "config" / "backends" / "backend-instances"
         config_dir.mkdir(parents=True)
         source = BackendInstanceFileSource(instances_dir=config_dir)
@@ -191,4 +193,6 @@ class TestBackendDiscovery:
 
         backends = result.get("backends", {})
         assert isinstance(backends, dict)
-        assert not any(name.startswith("gemini-oauth-") for name in backends)
+        assert sorted(
+            name for name in backends if name.startswith("gemini-oauth-")
+        ) == ["gemini-oauth-free.1"]

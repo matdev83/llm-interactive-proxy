@@ -824,13 +824,25 @@ class OpenAIConnector(LLMBackend):
         effective_model: str,
         context: ConnectorRequestContext | None = None,
     ) -> None:
-        cfg = self.config.reasoning_model_token_floor
-        if not cfg.enabled:
+        cfg = getattr(self.config, "reasoning_model_token_floor", None)
+        enabled = True
+        model_floors: dict[str, int] = {
+            "stepfun/step-3.5-flash:free": 512,
+            "kimi/kimi-for-coding": 512,
+            "kimi-for-coding": 512,
+        }
+        if cfg is not None:
+            enabled = bool(getattr(cfg, "enabled", True))
+            configured_floors = getattr(cfg, "models", None)
+            if isinstance(configured_floors, dict):
+                model_floors = configured_floors
+
+        if not enabled:
             return
         model_key = self._normalize_model_for_token_floor(
             effective_model or payload.get("model")
         )
-        min_tokens = cfg.models.get(model_key)
+        min_tokens = model_floors.get(model_key)
         if min_tokens is None:
             return
 

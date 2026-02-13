@@ -8,7 +8,6 @@ This module defines deterministic matching helpers reused by:
 from __future__ import annotations
 
 import fnmatch
-import re
 from collections import defaultdict
 from collections.abc import Iterable
 
@@ -19,7 +18,8 @@ _EXPLICIT_CONSTRAINED_FAMILIES: frozenset[str] = frozenset(
     }
 )
 
-# Wildcard rules are resolved by deterministic specificity tie-break.
+# Wildcard rules mark constrained connector families but enforce uniqueness using
+# the concrete normalized backend family name (for example "gemini-oauth-plan").
 _WILDCARD_CONSTRAINED_FAMILIES: tuple[str, ...] = (
     "gemini-oauth*",
     "antigravity*",
@@ -43,24 +43,12 @@ def match_constrained_connector_family(backend_or_instance: str) -> str | None:
     if family in _EXPLICIT_CONSTRAINED_FAMILIES:
         return family
 
-    matches = [
-        pattern
-        for pattern in _WILDCARD_CONSTRAINED_FAMILIES
-        if fnmatch.fnmatch(family, pattern)
-    ]
-    if not matches:
+    if not any(
+        fnmatch.fnmatch(family, pattern) for pattern in _WILDCARD_CONSTRAINED_FAMILIES
+    ):
         return None
 
-    # Deterministic precedence for wildcard rules:
-    # - prefer patterns with more literal characters
-    # - then fewer wildcard tokens
-    # - then lexicographic order for stable tie-breaks
-    def _specificity_key(pattern: str) -> tuple[int, int, str]:
-        literal_chars = len(re.sub(r"[*?]", "", pattern))
-        wildcard_tokens = pattern.count("*") + pattern.count("?")
-        return (-literal_chars, wildcard_tokens, pattern)
-
-    return sorted(matches, key=_specificity_key)[0]
+    return family
 
 
 def is_constrained_connector_family(backend_or_instance: str) -> bool:

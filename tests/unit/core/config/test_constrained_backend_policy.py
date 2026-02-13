@@ -20,11 +20,11 @@ def test_policy_matches_explicit_and_wildcard_families() -> None:
     assert match_constrained_connector_family("qwen-oauth.1") == "qwen-oauth"
     assert (
         match_constrained_connector_family("gemini_oauth_plan.primary")
-        == "gemini-oauth*"
+        == "gemini-oauth-plan"
     )
     assert (
         match_constrained_connector_family("antigravity-oauth.account-a")
-        == "antigravity*"
+        == "antigravity-oauth"
     )
     assert match_constrained_connector_family("openai.1") is None
 
@@ -36,7 +36,7 @@ def test_is_constrained_connector_family_uses_same_matcher() -> None:
     assert not is_constrained_connector_family("openai")
 
 
-def test_grouping_uses_canonical_wildcard_family_key() -> None:
+def test_grouping_uses_concrete_backend_family_keys() -> None:
     grouped = group_constrained_backend_instances(
         [
             "gemini-oauth-plan.primary",
@@ -45,11 +45,9 @@ def test_grouping_uses_canonical_wildcard_family_key() -> None:
         ]
     )
 
-    assert grouped["gemini-oauth*"] == [
-        "gemini-oauth-free.secondary",
-        "gemini-oauth-plan.primary",
-    ]
-    assert grouped["antigravity*"] == ["antigravity-oauth.alpha"]
+    assert grouped["gemini-oauth-plan"] == ["gemini-oauth-plan.primary"]
+    assert grouped["gemini-oauth-free"] == ["gemini-oauth-free.secondary"]
+    assert grouped["antigravity-oauth"] == ["antigravity-oauth.alpha"]
 
 
 def test_semantic_validation_rejects_multiple_constrained_instances(
@@ -74,7 +72,7 @@ def test_semantic_validation_rejects_multiple_constrained_instances(
     )
 
 
-def test_semantic_validation_rejects_cross_connector_wildcard_conflict(
+def test_semantic_validation_allows_cross_connector_wildcard_variants(
     tmp_path,
 ) -> None:
     config_data = {
@@ -85,18 +83,7 @@ def test_semantic_validation_rejects_cross_connector_wildcard_conflict(
         }
     }
 
-    with pytest.raises(ConfigurationError) as exc_info:
-        validate_config_semantics(config_data, tmp_path / "config.yaml")
-
-    details = exc_info.value.details
-    assert isinstance(details, dict)
-    errors = details.get("errors", [])
-    assert any("gemini-oauth*" in error for error in errors)
-    recovery = details.get("recovery_instructions", [])
-    assert any(
-        "Consolidate constrained connector-family configuration" in item
-        for item in recovery
-    )
+    validate_config_semantics(config_data, tmp_path / "config.yaml")
 
 
 def test_semantic_validation_rejects_family_key_plus_instance(
@@ -143,7 +130,7 @@ def test_runtime_validation_rejects_multiple_constrained_instances() -> None:
     assert "qwen-oauth.2" in str(details)
 
 
-def test_runtime_validation_rejects_wildcard_family_conflicts() -> None:
+def test_runtime_validation_allows_cross_connector_wildcard_variants() -> None:
     backends = BackendSettings(
         default_backend="openai",
         **{
@@ -153,14 +140,4 @@ def test_runtime_validation_rejects_wildcard_family_conflicts() -> None:
     )
     config = AppConfig(backends=backends)
 
-    with pytest.raises(ConfigurationError) as exc_info:
-        validate_constrained_backend_instances(config)
-
-    details = exc_info.value.details
-    assert isinstance(details, dict)
-    conflicts = details.get("constrained_family_conflicts", {})
-    assert "gemini-oauth*" in conflicts
-    assert conflicts["gemini-oauth*"] == [
-        "gemini-oauth-free.secondary",
-        "gemini-oauth-plan.primary",
-    ]
+    validate_constrained_backend_instances(config)
