@@ -11,18 +11,12 @@ import fnmatch
 from collections import defaultdict
 from collections.abc import Iterable
 
-# Explicit rules have highest precedence.
-_EXPLICIT_CONSTRAINED_FAMILIES: frozenset[str] = frozenset(
-    {
-        "qwen-oauth",
-    }
-)
-
-# Wildcard rules mark constrained connector families but enforce uniqueness using
-# the concrete normalized backend family name (for example "gemini-oauth-plan").
-_WILDCARD_CONSTRAINED_FAMILIES: tuple[str, ...] = (
-    "gemini-oauth*",
-    "antigravity*",
+# Constrained families are defined by naming contract rather than static catalog.
+# Any oauth-style backend family (for example gemini-oauth-plan, qwen-oauth,
+# anthropic-oauth) is constrained to a single configured proxy instance.
+_CONSTRAINED_FAMILY_PATTERNS: tuple[str, ...] = (
+    "*-oauth",
+    "*-oauth-*",
 )
 
 
@@ -40,11 +34,8 @@ def match_constrained_connector_family(backend_or_instance: str) -> str | None:
     if not family:
         return None
 
-    if family in _EXPLICIT_CONSTRAINED_FAMILIES:
-        return family
-
     if not any(
-        fnmatch.fnmatch(family, pattern) for pattern in _WILDCARD_CONSTRAINED_FAMILIES
+        fnmatch.fnmatch(family, pattern) for pattern in _CONSTRAINED_FAMILY_PATTERNS
     ):
         return None
 

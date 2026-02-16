@@ -8,11 +8,15 @@ the final resolved AppConfig.static_route value against registered backends.
 from __future__ import annotations
 
 import importlib
+from unittest.mock import patch
 
 import pytest
 from src.core.common.exceptions import ConfigurationError
 from src.core.config.app_config import AppConfig, BackendSettings
-from src.core.config.semantic_validation import validate_static_route
+from src.core.config.semantic_validation import (
+    validate_extracted_backend_references,
+    validate_static_route,
+)
 
 
 class TestValidateStaticRoute:
@@ -29,7 +33,7 @@ class TestValidateStaticRoute:
     def test_valid_static_route_gemini_passes(self):
         """Test that valid static_route with gemini backend passes validation."""
         backends = BackendSettings()
-        backends.static_route = "gemini-oauth-plan:gemini-2.5-pro"
+        backends.static_route = "gemini:gemini-2.5-pro"
         config = AppConfig(backends=backends)
 
         # Should not raise any exception
@@ -101,7 +105,7 @@ class TestValidateStaticRoute:
         assert "expected_format" in exc.details
         assert exc.details["expected_format"] == "<backend_name>:<model_name>"
         assert "example" in exc.details
-        assert exc.details["example"] == "gemini-oauth-plan:gemini-2.5-pro"
+        assert exc.details["example"] == "gemini:gemini-2.5-pro"
 
         # Assert available_backends list contains known backends
         assert "available_backends" in exc.details
@@ -110,7 +114,7 @@ class TestValidateStaticRoute:
         assert len(available_backends) > 0
 
         # Verify known backends are in the list
-        known_backends = ["openai", "anthropic", "gemini-oauth-plan", "openrouter"]
+        known_backends = ["openai", "anthropic", "gemini", "openrouter"]
         for backend in known_backends:
             assert (
                 backend in available_backends
@@ -134,7 +138,7 @@ class TestValidateStaticRoute:
         assert "expected_format" in exc.details
         assert exc.details["expected_format"] == "<backend_name>:<model_name>"
         assert "example" in exc.details
-        assert exc.details["example"] == "gemini-oauth-plan:gemini-2.5-pro"
+        assert exc.details["example"] == "gemini:gemini-2.5-pro"
 
     def test_colon_after_slash_selector_raises_configuration_error(self):
         """Test that vendor/model:variant is rejected for static_route."""
@@ -147,7 +151,10 @@ class TestValidateStaticRoute:
 
         exc = exc_info.value
         assert "backend:model" in exc.message
-        assert exc.details.get("static_route") == "openrouter/anthropic/claude-3-haiku:free"
+        assert (
+            exc.details.get("static_route")
+            == "openrouter/anthropic/claude-3-haiku:free"
+        )
         assert exc.details.get("error_code") == "invalid_static_route_format"
 
     def test_empty_model_part_raises_configuration_error(self):
@@ -172,7 +179,7 @@ class TestValidateStaticRoute:
         assert "expected_format" in exc.details
         assert exc.details["expected_format"] == "<backend_name>:<model_name>"
         assert "example" in exc.details
-        assert exc.details["example"] == "gemini-oauth-plan:gemini-2.5-pro"
+        assert exc.details["example"] == "gemini:gemini-2.5-pro"
 
     def test_whitespace_only_model_part_raises_configuration_error(self):
         """Test that whitespace-only model part raises ConfigurationError."""
@@ -228,3 +235,54 @@ class TestValidateStaticRoute:
         assert available_backends == sorted(
             available_backends
         ), "available_backends should be sorted"
+
+    def test_missing_extracted_static_route_warns_with_install_guidance(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        """Missing extracted static_route warns when a registered alternative exists."""
+        backends = BackendSettings()
+        backends.static_route = "gemini-oauth-plan:gemini-2.5-pro"
+        config = AppConfig(backends=backends)
+
+        # Syntax is valid; extracted availability is handled by dedicated validator.
+        validate_static_route(config)
+
+        with (
+            caplog.at_level("WARNING"),
+            patch(
+                "src.core.config.semantic_validation.backend_registry.get_registered_backends",
+                return_value=["openai", "anthropic", "gemini"],
+            ),
+        ):
+            validate_extracted_backend_references(config)
+
+        assert "gemini-oauth-plan" in caplog.text
+        assert "pip install llm-interactive-proxy[oauth]" in caplog.text
+        assert "llm-proxy-oauth-connectors" in caplog.text
+        assert "registered alternatives are configured" in caplog.text
+
+    def test_missing_extracted_default_backend_fails_without_viable_path(self):
+        """Missing extracted default backend should fail when no alternative exists."""
+        backends = BackendSettings(default_backend="gemini-oauth-plan")
+        config = AppConfig(backends=backends)
+
+        with (
+            patch(
+                "src.core.config.semantic_validation.backend_registry.get_registered_backends",
+                return_value=["openai", "anthropic", "gemini"],
+            ),
+            pytest.raises(ConfigurationError) as exc_info,
+        ):
+            validate_extracted_backend_references(config)
+
+        exc = exc_info.value
+        assert (
+            exc.details.get("error_code") == "missing_extracted_backends_no_viable_path"
+        )
+        assert "gemini-oauth-plan" in exc.details.get("missing_extracted_backends", [])
+        assert (
+            exc.details.get("install_command")
+            == "pip install llm-interactive-proxy[oauth]"
+        )
+        assert exc.details.get("optional_package") == "llm-proxy-oauth-connectors"

@@ -17,7 +17,7 @@ git clone https://github.com/matdev83/llm-interactive-proxy.git
 cd llm-interactive-proxy
 python -m venv .venv
 source .venv/Scripts/activate  # Windows: .venv\Scripts\activate
-pip install -e .[dev]
+pip install -e .[dev]  # add ",oauth" to include optional OAuth connectors
 ```
 
 ### 2. Start the Proxy
@@ -203,11 +203,15 @@ See [Front-End APIs Overview](docs/user_guide/backends/overview.md#front-end-api
 See [Backends Overview](docs/user_guide/backends/overview.md) for full details and configuration.
 
 ## Access Modes
-
 The proxy supports two operational modes to enforce appropriate security boundaries:
-
 - **Single User Mode** (default): For local development. Allows OAuth connectors, optional authentication, localhost-only binding.
 - **Multi User Mode**: For production/shared deployments. Blocks OAuth connectors, requires authentication for remote access, allows any IP binding.
+
+For OAuth-oriented Single User Mode backends, install the optional package via `pip install llm-interactive-proxy[oauth]`; extracted OAuth implementations are owned by that package and discovered through entry points.
+
+Currently extracted OAuth backends are: `anthropic-oauth`, `antigravity-oauth`, `gemini-oauth-auto`, `gemini-oauth-free`, `gemini-oauth-plan`, `kiro-oauth-auto`, and `qwen-oauth`.
+
+If configuration references an extracted OAuth backend that is not installed, startup now emits actionable install guidance and continues only when at least one configured registered backend path remains. Request-time routing for missing extracted backends returns deterministic `unknown_model` errors with `pip install llm-interactive-proxy[oauth]` guidance.
 
 ### Quick Examples
 
@@ -227,23 +231,17 @@ See [Access Modes User Guide](docs/user_guide/access-modes.md) for detailed docu
 - [Discussions](https://github.com/matdev83/llm-interactive-proxy/discussions) - Ask questions and share ideas
 
 ## License
-
 This project is licensed under the [GNU AGPL v3.0 or later](LICENSE).
 
 ## Development
-
 ```bash
 # Run tests
 python -m pytest
-
 # Run linter
 python -m ruff --fix check .
-
 # Format code
 python -m black .
-
 # Validate unified outbound routing compliance (same check as CI gate)
 python dev/scripts/check_routing_unification_compliance.py
 ```
-
 See [Development Guide](docs/development_guide/index.md) for more details.

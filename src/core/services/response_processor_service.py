@@ -16,6 +16,9 @@ from src.core.common.exceptions import (
     LoopDetectionError,
     ParsingError,
 )
+from src.core.common.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 from src.core.domain.chat import StreamingChatResponse
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -44,9 +47,6 @@ from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
 )
 from src.core.services.streaming.stream_normalizer import StreamNormalizer
-from src.core.transport.session_key_resolver import (
-    resolve_session_key_from_request_context,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -204,8 +204,12 @@ class ResponseProcessor(IResponseProcessor):
                     )
                     session_cfg = getattr(cfg, "session", None)
                     model_spec = getattr(session_cfg, "quality_verifier_model", None)
-                    frequency_value = getattr(session_cfg, "quality_verifier_frequency", 10)
-                    max_history_value = getattr(session_cfg, "quality_verifier_max_history", None)
+                    frequency_value = getattr(
+                        session_cfg, "quality_verifier_frequency", 10
+                    )
+                    max_history_value = getattr(
+                        session_cfg, "quality_verifier_max_history", None
+                    )
                     max_consecutive_failures = getattr(
                         session_cfg, "quality_verifier_max_consecutive_failures", 5
                     )
@@ -242,7 +246,10 @@ class ResponseProcessor(IResponseProcessor):
                     notification_service=notification_service,
                 )
 
-                if not quality_verifier_svc.is_enabled() or not quality_verifier_svc.is_healthy():
+                if (
+                    not quality_verifier_svc.is_enabled()
+                    or not quality_verifier_svc.is_healthy()
+                ):
                     if not quality_verifier_svc.is_enabled():
                         return {"action": "pass"}
                     else:
@@ -306,7 +313,9 @@ class ResponseProcessor(IResponseProcessor):
 
             # Never run Quality Verifier for tool-result continuation requests.
             try:
-                if QualityVerifierService.is_tool_result_followup_request(original_request):
+                if QualityVerifierService.is_tool_result_followup_request(
+                    original_request
+                ):
                     return {"action": "pass"}
             except Exception:
                 # Fail-open: if detection fails, continue.
@@ -326,7 +335,9 @@ class ResponseProcessor(IResponseProcessor):
             # Prefer explicit per-request eligible turn counter (computed upstream).
             eligible_turn_count: int | None = None
             if request_context is not None:
-                raw_count = request_context.extensions.get("quality_verifier_eligible_turn_count")
+                raw_count = request_context.extensions.get(
+                    "quality_verifier_eligible_turn_count"
+                )
                 try:
                     if isinstance(raw_count, int):
                         eligible_turn_count = raw_count
@@ -340,7 +351,9 @@ class ResponseProcessor(IResponseProcessor):
                 if eligible_turn_count <= 0 or (eligible_turn_count % freq_int) != 0:
                     return {"action": "pass"}
             else:
-                if not QualityVerifierService.should_run_for_request(original_request, frequency):
+                if not QualityVerifierService.should_run_for_request(
+                    original_request, frequency
+                ):
                     return {"action": "pass"}
 
             verification_request = svc.build_verification_request(
@@ -404,7 +417,9 @@ class ResponseProcessor(IResponseProcessor):
                 if isinstance(payload, ResponseEnvelope):
                     if payload.status_code >= 400:
                         return True
-                    if isinstance(payload.content, dict) and payload.content.get("error"):
+                    if isinstance(payload.content, dict) and payload.content.get(
+                        "error"
+                    ):
                         return True
                 value = getattr(payload, "content", payload)
                 return isinstance(value, dict) and bool(value.get("error"))
@@ -575,7 +590,9 @@ class ResponseProcessor(IResponseProcessor):
                     if session_key:
                         self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
-            async def _call_quality_verifier_once(quality_verifier_request: ChatRequest) -> str | None:
+            async def _call_quality_verifier_once(
+                quality_verifier_request: ChatRequest,
+            ) -> str | None:
                 try:
                     _ensure_quality_verifier_not_cancelled()
                     quality_verifier_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
@@ -638,12 +655,14 @@ class ResponseProcessor(IResponseProcessor):
                         )
                     return None
 
-            quality_verifier_text = await _call_quality_verifier_once(verification_request)
+            quality_verifier_text = await _call_quality_verifier_once(
+                verification_request
+            )
             if quality_verifier_text is None:
                 return {"action": "pass"}
 
-            is_valid_format, invalid_reason = svc.validate_quality_verifier_output_format(
-                quality_verifier_text
+            is_valid_format, invalid_reason = (
+                svc.validate_quality_verifier_output_format(quality_verifier_text)
             )
             if not is_valid_format:
                 retry_request = svc.build_invalid_format_retry_request(
@@ -656,8 +675,8 @@ class ResponseProcessor(IResponseProcessor):
                     return {"action": "pass"}
                 quality_verifier_text = retry_text
 
-                is_valid_format, invalid_reason = svc.validate_quality_verifier_output_format(
-                    quality_verifier_text
+                is_valid_format, invalid_reason = (
+                    svc.validate_quality_verifier_output_format(quality_verifier_text)
                 )
                 if not is_valid_format:
                     if logger.isEnabledFor(logging.WARNING):
@@ -759,7 +778,9 @@ class ResponseProcessor(IResponseProcessor):
                     return {"action": "pass"}
 
                 if isinstance(corrected_response, StreamingResponseEnvelope):
-                    corrected_text = await _collect_stream_text_with_ttft(corrected_response)
+                    corrected_text = await _collect_stream_text_with_ttft(
+                        corrected_response
+                    )
                     if corrected_text is None:
                         return {"action": "pass"}
                 else:
@@ -1009,9 +1030,7 @@ class ResponseProcessor(IResponseProcessor):
             except (KeyError, TypeError, ValueError, AttributeError):
                 # Be conservative: do not break normal flow on Quality Verifier errors
                 if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Quality Verifier failed; continuing", exc_info=True
-                    )
+                    logger.warning("Quality Verifier failed; continuing", exc_info=True)
 
             return processed_response
 

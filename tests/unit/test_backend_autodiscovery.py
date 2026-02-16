@@ -45,22 +45,17 @@ class TestBackendAutoDiscovery:
             # Verify we have backends registered
             assert len(registered) > 0, "No backends were auto-discovered"
 
-            # Expected backends (update this list as new backends are added)
+            # Core backends expected to be available without optional OAuth plugins.
             expected_backends = [
                 "anthropic",
-                "anthropic-oauth",
                 "gemini",
                 "gemini-cli-cloud-project",
-                "gemini-oauth-free",
-                "gemini-oauth-plan",
-                "antigravity-oauth",
                 "hybrid",
                 "minimax",
                 "openai",
                 "openai-codex",
                 "openai-responses",
                 "openrouter",
-                "qwen-oauth",
                 "zai",
                 "zai-coding-plan",
                 "zenmux",
@@ -77,6 +72,20 @@ class TestBackendAutoDiscovery:
             assert len(registered) == len(
                 set(registered)
             ), "Duplicate backends detected in registry"
+
+            # Extracted OAuth connectors must not be loaded from core auto-discovery.
+            extracted_oauth_backends = {
+                "anthropic-oauth",
+                "antigravity-oauth",
+                "gemini-oauth-auto",
+                "gemini-oauth-free",
+                "gemini-oauth-plan",
+                "qwen-oauth",
+            }
+            leaked_oauth = extracted_oauth_backends.intersection(set(registered))
+            assert (
+                not leaked_oauth
+            ), f"Extracted OAuth backends leaked into core discovery: {sorted(leaked_oauth)}"
 
         finally:
             # Restore original registry
@@ -108,6 +117,14 @@ class TestBackendAutoDiscovery:
                 "Backends should be auto-discovered, not hardcoded."
             )
 
+    def test_core_discovery_does_not_mutate_sys_path_for_optional_plugins(self):
+        """Core discovery must not inject optional plugin sources into sys.path."""
+        connectors_init = Path("src/connectors/__init__.py")
+        content = connectors_init.read_text(encoding="utf-8")
+
+        assert "llm-proxy-oauth-connectors" not in content
+        assert "sys.path.insert(" not in content
+
     def test_new_backend_would_be_auto_discovered(self, tmp_path):
         """Test that a new backend file would be automatically discovered."""
         # This test verifies the auto-discovery mechanism would work for new backends
@@ -125,6 +142,13 @@ class TestBackendAutoDiscovery:
             "gemini_oauth_base",
             "oauth_detector",
             "openai_codex_config",  # Configuration file, not a backend
+            # Extracted OAuth connectors are loaded through plugin entry points.
+            "anthropic_oauth",
+            "antigravity_oauth",
+            "gemini_oauth_auto",
+            "gemini_oauth_free",
+            "gemini_oauth_plan",
+            "qwen_oauth",
         )
         backend_files = [
             f.stem

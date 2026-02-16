@@ -32,6 +32,12 @@ Get the LLM Interactive Proxy up and running in minutes.
    ./.venv/Scripts/python.exe -m pip install -e .[dev]
    ```
 
+   If you want OAuth-oriented optional connectors, install the `oauth` extra (it installs the extracted `llm-proxy-oauth-connectors` package):
+
+   ```bash
+   ./.venv/Scripts/python.exe -m pip install -e .[dev,oauth]
+   ```
+
 ## Configuration
 
 ### Step 1: Set Up API Keys

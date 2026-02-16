@@ -6,14 +6,12 @@ This stage registers backend-related services via DI registrar and delegates val
 
 from __future__ import annotations
 
-import importlib
 import logging
 from typing import cast
 
 from src.core.config.app_config import AppConfig
 from src.core.di.container import ServiceCollection
 from src.core.interfaces.backend_validator_interface import IBackendValidator
-from src.core.services.backend_registry import backend_registry
 
 from .base import InitializationStage
 
@@ -39,14 +37,6 @@ class BackendStage(InitializationStage):
         """Register backend services."""
         if logger.isEnabledFor(logging.INFO):
             logger.info("Initializing backend services...")
-
-        # Import connectors package to trigger backend registrations via side effects
-
-        importlib.import_module("src.connectors")
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
-            )
 
         # Backend registrations are now handled by backend registrar
         # Register backend services via registrar

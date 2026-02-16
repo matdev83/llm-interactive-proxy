@@ -14,7 +14,7 @@ import time
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any, cast
 
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import BackendError, LLMProxyError
 from src.core.interfaces.backend_lifecycle_manager_interface import (
     IBackendLifecycleManager,
 )
@@ -164,6 +164,10 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                 self._backends.move_to_end(cache_key)
                 await self._enforce_global_backend_limit()
             return created_backend
+        except LLMProxyError:
+            # Preserve domain errors (for example RoutingError unknown_model)
+            # so protocol adapters can map deterministic status/details.
+            raise
         except (TypeError, ValueError, AttributeError, KeyError) as e:
             raise BackendError(
                 message=f"Failed to create backend {backend_type}: {e!s}",

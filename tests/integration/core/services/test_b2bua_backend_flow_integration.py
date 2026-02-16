@@ -20,7 +20,7 @@ from src.core.services.b2bua_session_id_factory import B2BUASessionIdFactory
 from src.core.services.backend_completion_flow.service import BackendCompletionFlow
 from src.core.services.cbor_wire_capture_service import CborWireCaptureService
 from src.core.services.connector_invoker import ConnectorInvoker
-from src.core.transport.fastapi.response_adapters import to_fastapi_response
+from src.core.adapters.response_adapters import to_fastapi_response
 
 
 def _with_b2bua_enabled(config: AppConfig) -> AppConfig:
@@ -374,3 +374,69 @@ async def test_auxiliary_fail_open_preserves_isolated_identity_without_a_leg_lea
     kwargs_call = deps["request_preparer"].prepare_backend_kwargs.call_args.kwargs
     assert kwargs_call["session_id_for_backend"] == a_session_id
     assert connector_facing_session_ids[-1] == auxiliary_effective_session_id
+
+
+@pytest.mark.asyncio
+async def test_primary_allocator_fail_open_preserves_a_leg_without_connector_leakage() -> (
+    None
+):
+    a_session_id = "llm-b2bua-a-primary-9002"
+    allocator = MagicMock()
+    allocator.allocate = AsyncMock(side_effect=RuntimeError("allocator unavailable"))
+
+    flow, deps = _build_flow(
+        a_session_id=a_session_id,
+        allocator=cast(B2buaBlegAllocator, allocator),
+    )
+    context = RequestContext(
+        headers={},
+        cookies={},
+        state={},
+        app_state=MagicMock(),
+        request_id="req-primary-fail-open",
+        session_id=a_session_id,
+        b2bua_identity=B2buaIdentity(
+            a_session_id=a_session_id,
+            auth_scope_id="scope-primary",
+            client_session_id="client-primary",
+        ),
+    )
+    context.extensions.update(
+        {
+            "a_session_id": "must-not-leak",
+            "client_session_id": "must-not-leak",
+            "auth_scope_id": "must-not-leak",
+            "b2bua": {
+                "a_session_id": "must-not-leak",
+                "client_session_id": "must-not-leak",
+                "auth_scope_id": "must-not-leak",
+            },
+        }
+    )
+
+    result = await flow.call_completion(
+        request=CanonicalChatRequest(
+            model="gpt-4o",
+            messages=[ChatMessage(role="user", content="Primary fail-open check")],
+        ),
+        stream=False,
+        allow_failover=False,
+        context=context,
+    )
+    assert isinstance(result, ResponseEnvelope)
+
+    allocator.allocate.assert_awaited_once()
+    kwargs_call = deps["request_preparer"].prepare_backend_kwargs.call_args.kwargs
+    assert kwargs_call["session_id_for_backend"] is None
+    assert kwargs_call["context"].session_id == a_session_id
+
+    projected = ConnectorInvoker()._project_context(
+        deps["connector_invoker"].invoke.call_args.kwargs["context"]
+    )
+    assert projected is not None
+    assert projected.session_id is None
+    assert projected.extensions is not None
+    assert "a_session_id" not in projected.extensions
+    assert "client_session_id" not in projected.extensions
+    assert "auth_scope_id" not in projected.extensions
+    assert projected.extensions.get("b2bua") is None

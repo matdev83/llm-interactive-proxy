@@ -161,3 +161,91 @@ class TestPostBuildHooks:
             # Verify provider is functional
             manager = provider.get_service(MiddlewareApplicationManager)
             assert manager is not None
+
+    def test_post_build_hooks_execute_registered_plugin_hooks(self) -> None:
+        """Plugin hooks should execute after core post-build actions."""
+        services = ServiceCollection()
+        config = AppConfig()
+        core.register(services, config)
+        streaming.register(services, config)
+        provider = services.build_service_provider(run_post_build_hooks=False)
+
+        hook_calls: list[IServiceProvider] = []
+
+        def plugin_hook(received_provider: IServiceProvider) -> None:
+            hook_calls.append(received_provider)
+
+        with (
+            patch(
+                "src.core.di.registration_helpers.post_build_actions.initialize_feature_parity_registry"
+            ),
+            patch(
+                "src.core.di.registration_helpers.post_build_actions.register_tool_call_handlers"
+            ),
+            patch(
+                "src.core.common.backend_discovery_state.get_plugin_post_build_hooks",
+                return_value=[("hooked-oauth", plugin_hook)],
+            ),
+        ):
+            post_build_hooks(provider)
+
+        assert hook_calls == [provider]
+
+    def test_post_build_hooks_handle_plugin_hook_failures_fail_open(
+        self, caplog
+    ) -> None:
+        """Plugin hook failures should log warnings and continue startup."""
+        services = ServiceCollection()
+        config = AppConfig()
+        core.register(services, config)
+        streaming.register(services, config)
+        provider = services.build_service_provider(run_post_build_hooks=False)
+
+        def failing_hook(_provider: IServiceProvider) -> None:
+            raise RuntimeError("hook failed")
+
+        with (
+            patch(
+                "src.core.di.registration_helpers.post_build_actions.initialize_feature_parity_registry"
+            ),
+            patch(
+                "src.core.di.registration_helpers.post_build_actions.register_tool_call_handlers"
+            ),
+            patch(
+                "src.core.common.backend_discovery_state.get_plugin_post_build_hooks",
+                return_value=[("broken-oauth", failing_hook)],
+            ),
+            caplog.at_level("WARNING"),
+        ):
+            post_build_hooks(provider)
+
+        assert "Plugin post-build hook failed for backend 'broken-oauth'" in caplog.text
+
+    def test_lazy_global_provider_build_runs_post_build_hooks_once(self) -> None:
+        """Global lazy provider construction should execute post-build hooks once."""
+        from src.core.di import provider_lifecycle
+
+        services = ServiceCollection()
+        hook_calls: list[IServiceProvider] = []
+
+        def track_hooks_call(provider_arg: IServiceProvider) -> None:
+            hook_calls.append(provider_arg)
+
+        provider_lifecycle.set_service_provider(None)
+        try:
+            with (
+                patch(
+                    "src.core.di.services.get_service_collection",
+                    return_value=services,
+                ),
+                patch("src.core.di.services.register_core_services"),
+                patch(
+                    "src.core.di.provider_lifecycle.post_build_hooks",
+                    side_effect=track_hooks_call,
+                ),
+            ):
+                provider = provider_lifecycle.get_or_build_service_provider()
+
+            assert hook_calls == [provider]
+        finally:
+            provider_lifecycle.set_service_provider(None)

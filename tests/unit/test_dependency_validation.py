@@ -58,7 +58,11 @@ class DependencyValidator:
             self._metadata_cache = {}
             try:
                 for dist in importlib.metadata.distributions():
-                    name = dist.metadata.get("Name", "").lower()
+                    name = (
+                        str(dist.metadata["Name"]).lower()
+                        if "Name" in dist.metadata
+                        else ""
+                    )
                     if name:
                         self._metadata_cache[name] = True
                         # Also cache underscore variant
@@ -95,7 +99,9 @@ class DependencyValidator:
                     and current_time - cache_data.get("timestamp", 0) < cache_timeout
                     and "pip_list" in cache_data
                 ):
-                    return cache_data["pip_list"]
+                    cached_pip_list = cache_data.get("pip_list")
+                    if isinstance(cached_pip_list, list):
+                        return [str(item).lower() for item in cached_pip_list]
             except (OSError, json.JSONDecodeError):
                 pass
 
@@ -108,13 +114,15 @@ class DependencyValidator:
                 timeout=10,
             )
             if result.returncode == 0:
-                pip_list = result.stdout.lower().splitlines()
+                generated_pip_list = [
+                    str(line).lower() for line in str(result.stdout).splitlines()
+                ]
 
                 # Save cache
                 cache_data = {
                     "env_hash": env_hash,
                     "timestamp": time.time(),
-                    "pip_list": pip_list,
+                    "pip_list": generated_pip_list,
                 }
 
                 try:
@@ -123,7 +131,7 @@ class DependencyValidator:
                 except OSError:
                     pass  # Continue if cache write fails
 
-                return pip_list
+                return generated_pip_list
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             pass
 
@@ -216,6 +224,7 @@ class DependencyValidator:
             "types-jsonschema",  # Type stubs
             "types-colorama",  # Type stubs
             "types-pytz",  # Type stubs
+            "llm-proxy-oauth-connectors",  # Optional extracted connector package
         }
         return package_name in non_essential_deps
 

@@ -11,6 +11,12 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from src.core.common.backend_discovery_state import (
+    get_oauth_install_command,
+    get_optional_oauth_package_name,
+    is_extracted_backend_name,
+    normalize_backend_name,
+)
 from src.core.common.exceptions import ConfigurationError
 from src.core.common.session_continuity_warnings import topic_similarity_enabled_warning
 from src.core.config.app_config import AppConfig
@@ -18,7 +24,7 @@ from src.core.config.constrained_backend_policy import (
     group_constrained_backend_instances,
     is_constrained_connector_family,
 )
-from src.core.config.models.backends import BackendConfig
+from src.core.config.models.backends import BackendConfig, BackendSettings
 from src.core.domain.model_utils import (
     has_explicit_backend_selector,
     parse_model_backend,
@@ -298,7 +304,7 @@ def validate_static_route(config: AppConfig) -> None:
             f"Invalid static_route format: '{static_route}'. "
             f"Expected explicit backend:model format (<backend_name>:<model_name>).\n"
             f"Model-only selectors (for example 'vendor/model:free') are not valid for static_route.\n"
-            f"Example: gemini-oauth-plan:gemini-2.5-pro"
+            f"Example: gemini:gemini-2.5-pro"
         )
         logger.error("Static route validation failed: %s", error_msg)
         raise ConfigurationError(
@@ -307,7 +313,7 @@ def validate_static_route(config: AppConfig) -> None:
                 "error_code": "invalid_static_route_format",
                 "static_route": static_route,
                 "expected_format": "<backend_name>:<model_name>",
-                "example": "gemini-oauth-plan:gemini-2.5-pro",
+                "example": "gemini:gemini-2.5-pro",
             },
         )
 
@@ -320,7 +326,7 @@ def validate_static_route(config: AppConfig) -> None:
             f"Invalid static_route format: '{static_route}'. "
             f"Backend name cannot be empty.\n"
             f"Expected format: <backend_name>:<model_name>\n"
-            f"Example: gemini-oauth-plan:gemini-2.5-pro"
+            f"Example: gemini:gemini-2.5-pro"
         )
         logger.error("Static route validation failed: %s", error_msg)
         raise ConfigurationError(
@@ -329,7 +335,7 @@ def validate_static_route(config: AppConfig) -> None:
                 "error_code": "invalid_static_route_format",
                 "static_route": static_route,
                 "expected_format": "<backend_name>:<model_name>",
-                "example": "gemini-oauth-plan:gemini-2.5-pro",
+                "example": "gemini:gemini-2.5-pro",
             },
         )
 
@@ -339,7 +345,7 @@ def validate_static_route(config: AppConfig) -> None:
             f"Invalid static_route format: '{static_route}'. "
             f"Model name cannot be empty.\n"
             f"Expected format: <backend_name>:<model_name>\n"
-            f"Example: gemini-oauth-plan:gemini-2.5-pro"
+            f"Example: gemini:gemini-2.5-pro"
         )
         logger.error("Static route validation failed: %s", error_msg)
         raise ConfigurationError(
@@ -348,7 +354,7 @@ def validate_static_route(config: AppConfig) -> None:
                 "error_code": "invalid_static_route_format",
                 "static_route": static_route,
                 "expected_format": "<backend_name>:<model_name>",
-                "example": "gemini-oauth-plan:gemini-2.5-pro",
+                "example": "gemini:gemini-2.5-pro",
             },
         )
 
@@ -356,6 +362,12 @@ def validate_static_route(config: AppConfig) -> None:
     registered_backends = backend_registry.get_registered_backends()
 
     if backend_name not in registered_backends:
+        # Extracted backends are optional and may be absent by design.
+        # Startup fail/warn policy for missing extracted references is handled in
+        # validate_extracted_backend_references().
+        if is_extracted_backend_name(backend_name):
+            return
+
         available_backends = sorted(registered_backends)
         available_backends_str = ", ".join(available_backends)
 
@@ -365,7 +377,7 @@ def validate_static_route(config: AppConfig) -> None:
             f"Available backends: {available_backends_str}\n"
             f"Current static_route value: '{static_route}'\n"
             f"Expected format: <backend_name>:<model_name>\n"
-            f"Example: gemini-oauth-plan:gemini-2.5-pro"
+            f"Example: gemini:gemini-2.5-pro"
         )
         logger.error("Static route validation failed: %s", error_msg)
         raise ConfigurationError(
@@ -375,9 +387,120 @@ def validate_static_route(config: AppConfig) -> None:
                 "available_backends": available_backends,
                 "static_route": static_route,
                 "expected_format": "<backend_name>:<model_name>",
-                "example": "gemini-oauth-plan:gemini-2.5-pro",
+                "example": "gemini:gemini-2.5-pro",
             },
         )
+
+
+def _collect_runtime_referenced_backends(config: AppConfig) -> set[str]:
+    backends = getattr(config, "backends", None)
+    if backends is None:
+        return set()
+
+    references: set[str] = set()
+
+    default_backend = getattr(backends, "default_backend", None)
+    if isinstance(default_backend, str) and default_backend.strip():
+        references.add(default_backend.strip())
+
+    static_route = getattr(backends, "static_route", None)
+    if (
+        isinstance(static_route, str)
+        and static_route.strip()
+        and has_explicit_backend_selector(static_route)
+    ):
+        parsed = parse_model_backend(static_route, "")
+        backend_name = parsed.backend_type.strip()
+        if backend_name:
+            references.add(backend_name)
+
+    default_backend_config = BackendConfig()
+    for raw_name, value in getattr(backends, "__dict__", {}).items():
+        if (
+            not isinstance(raw_name, str)
+            or not raw_name
+            or raw_name.startswith("_")
+            or raw_name in {"default_backend", "static_route"}
+            or raw_name in BackendSettings.model_fields
+        ):
+            continue
+        if "." in raw_name:
+            references.add(raw_name)
+            continue
+        if isinstance(value, BackendConfig) and value != default_backend_config:
+            references.add(raw_name)
+
+    return references
+
+
+def validate_extracted_backend_references(config: AppConfig) -> None:
+    """Validate runtime references to optional extracted backends.
+
+    Behavior:
+    - If extracted backend references are missing but at least one configured
+      reference is registered, startup continues with warning.
+    - If extracted backend references are missing and no configured/registered
+      path remains, raise ConfigurationError with install guidance.
+    """
+    referenced_backends = _collect_runtime_referenced_backends(config)
+    if not referenced_backends:
+        return
+
+    normalized_registered_backends = {
+        normalize_backend_name(name)
+        for name in backend_registry.get_registered_backends()
+    }
+    normalized_referenced_backends = {
+        normalize_backend_name(name) for name in referenced_backends
+    }
+
+    missing_extracted_backends = sorted(
+        backend_name
+        for backend_name in normalized_referenced_backends
+        if is_extracted_backend_name(backend_name)
+        and backend_name not in normalized_registered_backends
+    )
+    if not missing_extracted_backends:
+        return
+
+    viable_registered_references = sorted(
+        backend_name
+        for backend_name in normalized_referenced_backends
+        if backend_name in normalized_registered_backends
+    )
+
+    install_command = get_oauth_install_command()
+    optional_package = get_optional_oauth_package_name()
+    missing_backends_text = ", ".join(missing_extracted_backends)
+
+    if viable_registered_references:
+        logger.warning(
+            "Configured extracted backend(s) are unavailable: %s. "
+            "Startup continues because registered alternatives are configured: %s. "
+            "Install optional package '%s' with '%s'.",
+            missing_backends_text,
+            ", ".join(viable_registered_references),
+            optional_package,
+            install_command,
+        )
+        return
+
+    raise ConfigurationError(
+        message=(
+            "Configured extracted backend(s) are unavailable and no viable configured "
+            f"registered backend path remains: {missing_backends_text}. "
+            f"Install optional package '{optional_package}' using '{install_command}', "
+            "or switch default_backend/static_route to a registered core backend."
+        ),
+        details={
+            "error_code": "missing_extracted_backends_no_viable_path",
+            "missing_extracted_backends": missing_extracted_backends,
+            "configured_backend_references": sorted(normalized_referenced_backends),
+            "registered_backends": sorted(normalized_registered_backends),
+            "install_command": install_command,
+            "optional_package": optional_package,
+        },
+    )
 
 
 def _collect_runtime_constrained_backend_names(config: AppConfig) -> list[str]:

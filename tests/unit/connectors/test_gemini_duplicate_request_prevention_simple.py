@@ -7,13 +7,28 @@ duplicate requests.
 """
 
 import glob
+import importlib.util
 import re
+from pathlib import Path
 
 import pytest
 
 
 class TestGeminiDuplicateRequestPrevention:
     """Test suite to prevent duplicate API requests."""
+
+    @staticmethod
+    def _resolve_streaming_files() -> list[Path]:
+        """Resolve streaming implementation files available in current environment."""
+        files = [Path("src/connectors/gemini_cloud_project.py")]
+        plugin_spec = importlib.util.find_spec(
+            "llm_proxy_oauth_connectors.gemini_oauth_base"
+        )
+        if plugin_spec and plugin_spec.origin:
+            plugin_file = Path(plugin_spec.origin)
+            if plugin_file.exists():
+                files.insert(0, plugin_file)
+        return files
 
     def test_request_deduplication_pattern_detection(self):
         """
@@ -71,14 +86,10 @@ class TestGeminiDuplicateRequestPrevention:
         Verifies that main streaming methods delegate to stream_generator
         rather than making direct requests.
         """
-        # Check the specific files that were fixed
-        files_to_check = [
-            "src/connectors/gemini_oauth_base.py",
-            "src/connectors/gemini_cloud_project.py",
-        ]
+        files_to_check = self._resolve_streaming_files()
 
         for file_path in files_to_check:
-            with open(file_path) as f:
+            with file_path.open(encoding="utf-8") as f:
                 source_code = f.read()
 
             # Look for the streaming method
@@ -118,13 +129,10 @@ class TestGeminiDuplicateRequestPrevention:
         """
         Test that there's no duplicate SSE parsing logic that indicates duplicate requests.
         """
-        files_to_check = [
-            "src/connectors/gemini_oauth_base.py",
-            "src/connectors/gemini_cloud_project.py",
-        ]
+        files_to_check = self._resolve_streaming_files()
 
         for file_path in files_to_check:
-            with open(file_path) as f:
+            with file_path.open(encoding="utf-8") as f:
                 source_code = f.read()
 
             # Look for SSE parsing patterns that might indicate duplicate processing

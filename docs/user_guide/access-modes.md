@@ -32,6 +32,17 @@ Access modes prevent common misconfigurations that could:
 - **OAuth Auto-Replacement**: `--allow-oauth-auto-replacement` flag is allowed
 - **Desktop Notifications**: Can be enabled or disabled
 
+### Optional Installation for OAuth Connectors
+
+Install the OAuth connector package extra before using OAuth backends:
+
+```bash
+pip install llm-interactive-proxy[oauth]
+```
+
+The optional package owns extracted OAuth connector implementations and exposes
+them to core through plugin entry points.
+
 ### Restrictions
 
 - **Host Binding**: Cannot bind to any IP address other than `127.0.0.1`
@@ -441,6 +452,13 @@ notifications:
 # Instead of gemini-oauth-auto, use gemini with API key
 export GEMINI_API_KEY="your-api-key"
 ./.venv/Scripts/python.exe -m src.core.cli --multi-user-mode --default-backend gemini:gemini-exp-1206
+```
+
+In Single User Mode, ensure the optional package is installed when OAuth
+connectors are not available:
+
+```bash
+pip install llm-interactive-proxy[oauth]
 ```
 
 ### Health Endpoint Shows Wrong Mode

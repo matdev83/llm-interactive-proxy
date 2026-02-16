@@ -92,19 +92,14 @@ class TestBackendImportsIntegration:
             "Check that backend_imports.py actually imports src.connectors."
         )
 
-        # Expected backends (keep this list updated as new backends are added)
+        # Core-only backends expected without optional OAuth plugin package
         expected_backends = [
             "anthropic",
-            "anthropic-oauth",
             "gemini",
             "gemini-cli-cloud-project",
-            "gemini-oauth-free",
-            "gemini-oauth-plan",
-            "antigravity-oauth",
             "openai",
             "openai-codex",
             "openrouter",
-            "qwen-oauth",
             "zai",
             "zai-coding-plan",
             "zenmux",
@@ -141,14 +136,14 @@ class TestBackendImportsIntegration:
         # Import backend_imports to trigger discovery
         import src.core.services.backend_imports  # noqa: F401
         from src.connectors.anthropic import AnthropicBackend
+        from src.connectors.gemini import GeminiBackend
 
         # Now try to import some connector classes
         # These should work without any additional imports
-        from src.connectors.gemini_oauth_plan import GeminiOAuthPlanConnector
         from src.connectors.openai import OpenAIConnector
 
         # Verify they are actual classes
-        assert isinstance(GeminiOAuthPlanConnector, type)
+        assert isinstance(GeminiBackend, type)
         assert isinstance(AnthropicBackend, type)
         assert isinstance(OpenAIConnector, type)
 
@@ -221,18 +216,16 @@ class TestBackendImportsIntegration:
         # Read the file
         content = backend_imports_path.read_text()
 
-        # Check that it actually imports something
-        # It should either directly import connectors or import each connector module
+        # Check that it actually triggers backend discovery.
         has_meaningful_imports = (
-            "import src.connectors" in content
-            or "from src.connectors import" in content
-            or ("import" in content and "connector" in content.lower())
+            "discover_backends()" in content
+            or "from src.core.services.backend_discovery import discover_backends"
+            in content
         )
 
         assert has_meaningful_imports, (
-            "CRITICAL BUG: backend_imports.py does not import any connectors! "
-            "The file appears to be empty or incomplete. "
-            "It must import src.connectors to trigger auto-discovery, or import connector modules directly."
+            "CRITICAL BUG: backend_imports.py does not trigger backend discovery! "
+            "It must call discover_backends() to load core and plugin connectors."
         )
 
         # Check that the file is not just docstrings and __all__

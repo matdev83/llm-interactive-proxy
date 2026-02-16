@@ -72,14 +72,61 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         "ToolCallRepairProcessor",
         "MiddlewareApplicationProcessor",
     }
+    ALLOWED_CONNECTOR_CORE_SERVICE_IMPORTS = (
+        "src.core.services.backend_registry",
+        "src.core.services.boundary_validation",
+        "src.core.services.translation_service",
+        "src.core.services.notification_service",
+        "src.core.services.quota_status_service",
+        "src.core.services.streaming",
+        "src.core.services.tool_call_reactor_service",
+        "src.core.services.tool_text_renderer",
+        "src.core.services.tool_call_repair_service",
+        "src.core.services.usage_calculation_service",
+        "src.core.services.uri_parameter_validator",
+        "src.core.services.backend_service",
+        "src.core.services.non_forwardable_message_enforcer",
+        "src.core.services.universal_mcp_client",
+        "src.core.services.universal_tool_executor",
+    )
 
     def __init__(self, file_path: str):
         self.file_path = file_path
         normalized_path = file_path.replace("\\", "/")
+        self.normalized_path = normalized_path
         self.violations: list[ArchitecturalViolation] = []
         self.is_domain_layer = "/domain/" in normalized_path
         self.is_service_layer = "/services/" in normalized_path
         self.is_interface_layer = "/interfaces/" in normalized_path
+        self.is_config_layer = "/core/config/" in normalized_path
+        self.is_source_file = (
+            "/src/" in normalized_path or normalized_path.startswith("src/")
+        )
+        self.is_plugin_discovery_source = normalized_path.endswith(
+            "src/core/services/backend_plugin_discovery.py"
+        )
+        self.is_core_transport_forbidden_scope = any(
+            scope_fragment in normalized_path
+            for scope_fragment in (
+                "/core/services/",
+                "/core/config/",
+                "/core/domain/",
+                "/core/common/",
+            )
+        )
+        self.is_core_frontend_forbidden_scope = any(
+            scope_fragment in normalized_path
+            for scope_fragment in (
+                "/core/services/",
+                "/core/config/",
+                "/core/domain/",
+                "/core/common/",
+            )
+        )
+        self.is_connector_layer = (
+            "/src/connectors/" in normalized_path
+            or normalized_path.startswith("src/connectors/")
+        )
         self.is_test_file = (
             "/tests/" in normalized_path
             or "test" in normalized_path.lower()
@@ -106,6 +153,9 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         """Visit import statements."""
         for name in node.names:
             self.imports[name.asname or name.name] = name.name
+            self._check_core_transport_import_boundary(name.name, node)
+            self._check_core_frontend_controller_import_boundary(name.name, node)
+            self._check_connector_core_service_import_boundary(name.name, node)
         self.generic_visit(node)
 
     def visit_ImportFrom(  # noqa: N802 - AST visitor API requires this name
@@ -113,6 +163,9 @@ class SOLIDViolationDetector(ast.NodeVisitor):
     ):
         """Visit from-import statements."""
         if node.module:
+            self._check_core_transport_import_boundary(node.module, node)
+            self._check_core_frontend_controller_import_boundary(node.module, node)
+            self._check_connector_core_service_import_boundary(node.module, node)
             # Check for direct imports from implementation modules instead of interfaces
             if (
                 self.is_service_layer
@@ -286,6 +339,8 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self, node: ast.Call
     ):
         """Visit function calls."""
+        self._check_plugin_discovery_dry_boundary(node)
+
         # Check for direct instantiation of DI-managed services
         if (
             isinstance(node.func, ast.Name)
@@ -347,6 +402,59 @@ class SOLIDViolationDetector(ast.NodeVisitor):
             )
 
         self.generic_visit(node)
+
+    def _check_plugin_discovery_dry_boundary(self, node: ast.Call) -> None:
+        """Enforce single implementation point for plugin entry-point scanning.
+
+        Extraction architecture relies on one shared plugin discovery boundary.
+        Direct `importlib.metadata.entry_points()` calls outside the canonical
+        discovery service can drift behavior and break fail-open guarantees.
+        """
+        is_explicit_test_scope = (
+            "/tests/" in self.normalized_path
+            or self.normalized_path.startswith("tests/")
+            or self.normalized_path.endswith("_test.py")
+            or self.normalized_path.endswith("conftest.py")
+        )
+        if (
+            is_explicit_test_scope
+            or not self.is_source_file
+            or self.is_plugin_discovery_source
+        ):
+            return
+        if not isinstance(node.func, ast.Attribute) or node.func.attr != "entry_points":
+            return
+
+        owner = node.func.value
+        is_metadata_entry_points_call = False
+        if isinstance(owner, ast.Name):
+            imported_target = self.imports.get(owner.id)
+            is_metadata_entry_points_call = imported_target == "importlib.metadata"
+        elif (
+            isinstance(owner, ast.Attribute)
+            and owner.attr == "metadata"
+            and isinstance(owner.value, ast.Name)
+            and owner.value.id == "importlib"
+        ):
+            is_metadata_entry_points_call = True
+
+        if not is_metadata_entry_points_call:
+            return
+
+        self.violations.append(
+            ArchitecturalViolation(
+                self.file_path,
+                node.lineno,
+                node.col_offset,
+                (
+                    "Plugin discovery DRY violation: direct "
+                    "importlib.metadata.entry_points() usage is only allowed in "
+                    "src/core/services/backend_plugin_discovery.py. Reuse "
+                    "discover_plugin_backends() instead."
+                ),
+                "error",
+            )
+        )
 
     def _is_app_state_access(self, node: ast.Attribute) -> bool:
         """Check if this is direct app.state access."""
@@ -422,6 +530,54 @@ class SOLIDViolationDetector(ast.NodeVisitor):
             pass
         return False
 
+    def _check_core_transport_import_boundary(
+        self, imported_module: str, node: ast.AST
+    ) -> None:
+        """Enforce core-layer boundary: services/config/domain must not import transport."""
+        if not self.is_core_transport_forbidden_scope:
+            return
+        if not imported_module.startswith("src.core.transport"):
+            return
+
+        self.violations.append(
+            ArchitecturalViolation(
+                self.file_path,
+                getattr(node, "lineno", 0),
+                getattr(node, "col_offset", 0),
+                (
+                    "Core import boundary violation: files under src/core/services, "
+                    "src/core/config, src/core/domain, and src/core/common must not import "
+                    f"'{imported_module}'. Move shared utilities to src/core/common "
+                    "(without transport dependencies) or another core-neutral namespace."
+                ),
+                "error",
+            )
+        )
+
+    def _check_core_frontend_controller_import_boundary(
+        self, imported_module: str, node: ast.AST
+    ) -> None:
+        """Enforce core-layer boundary: core policy layers must not import frontend controllers."""
+        if not self.is_core_frontend_forbidden_scope:
+            return
+        if not imported_module.startswith("src.core.app.controllers"):
+            return
+
+        self.violations.append(
+            ArchitecturalViolation(
+                self.file_path,
+                getattr(node, "lineno", 0),
+                getattr(node, "col_offset", 0),
+                (
+                    "Core frontend boundary violation: files under src/core/services, "
+                    "src/core/config, src/core/domain, and src/core/common must not import "
+                    f"'{imported_module}'. Depend on core interfaces/services instead of "
+                    "concrete frontend controller modules."
+                ),
+                "error",
+            )
+        )
+
     def _has_dip_noqa_comment_for_call(self, node: ast.Call) -> bool:
         """Check if the call node has a DIP noqa comment."""
         # This is a simplified check - in a real implementation you'd need to parse comments
@@ -470,6 +626,35 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         except Exception:
             pass
         return False
+
+    def _check_connector_core_service_import_boundary(
+        self, imported_module: str, node: ast.AST
+    ) -> None:
+        """Enforce connector boundary: avoid direct imports from core services."""
+        if not self.is_connector_layer:
+            return
+        if not imported_module.startswith("src.core.services"):
+            return
+
+        if any(
+            imported_module == allowed or imported_module.startswith(f"{allowed}.")
+            for allowed in self.ALLOWED_CONNECTOR_CORE_SERVICE_IMPORTS
+        ):
+            return
+
+        self.violations.append(
+            ArchitecturalViolation(
+                self.file_path,
+                getattr(node, "lineno", 0),
+                getattr(node, "col_offset", 0),
+                (
+                    "Connector import boundary violation: files under src/connectors "
+                    f"must not import '{imported_module}'. Depend on src.core.common, "
+                    "src.core.plugin_api, or other connector-safe abstractions."
+                ),
+                "error",
+            )
+        )
 
     def _check_domain_class_violations(self, node: ast.ClassDef):
         """Check for domain layer class violations."""

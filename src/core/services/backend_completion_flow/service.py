@@ -19,7 +19,11 @@ from src.core.common.exceptions import (
     NoForwardableContentError,
     NonForwardableEnforcementError,
     RateLimitExceededError,
+    RoutingError,
     SessionCancelledError,
+)
+from src.core.common.session_key_resolver import (
+    resolve_session_key_from_request_context,
 )
 from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
@@ -62,9 +66,6 @@ from src.core.services.resilience.scope import (
 )
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
-)
-from src.core.transport.session_key_resolver import (
-    resolve_session_key_from_request_context,
 )
 
 # Import EoS adapter (optional dependency)
@@ -1315,6 +1316,11 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         from src.core.services.streaming.error_mapping import handle_streaming_error
 
         normalized_error = self._normalize_backend_exception(error, provider)
+        routing_details: dict[str, Any] = {}
+        if isinstance(normalized_error, RoutingError):
+            maybe_details = getattr(normalized_error, "details", None)
+            if isinstance(maybe_details, dict):
+                routing_details = maybe_details
 
         status_code = getattr(normalized_error, "status_code", None)
         if not isinstance(status_code, int):
@@ -1323,6 +1329,22 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             status_code = 500
 
         error_code = getattr(normalized_error, "code", None)
+        if not error_code and routing_details:
+            details_code = routing_details.get("code")
+            if isinstance(details_code, str):
+                error_code = details_code
+
+        # Keep streaming and non-streaming HTTP mappings aligned for routing errors.
+        if isinstance(normalized_error, RoutingError):
+            details_code = routing_details.get("code")
+            if details_code == "unknown_model":
+                status_code = 404
+            elif details_code == "unsupported_on_instance":
+                status_code = 400
+            elif details_code == "temporarily_unavailable":
+                status_code = 503
+            elif details_code == "policy_rejected":
+                status_code = 403
 
         async def _iterator():
             terminal_chunk = await handle_streaming_error(
@@ -1335,7 +1357,17 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             metadata.setdefault("finish_reason", "error")
 
             error_payload = metadata.get("error")
-            if not isinstance(error_payload, dict):
+            if isinstance(error_payload, dict):
+                if isinstance(error_code, str) and error_payload.get("code") in (
+                    None,
+                    "",
+                    "unknown",
+                ):
+                    error_payload["code"] = error_code
+                if isinstance(status_code, int) and "status_code" not in error_payload:
+                    error_payload["status_code"] = status_code
+                metadata["error"] = error_payload
+            else:
                 error_payload = {
                     "type": type(normalized_error).__name__,
                     "message": str(normalized_error),

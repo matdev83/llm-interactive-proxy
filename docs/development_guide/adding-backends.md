@@ -49,6 +49,18 @@ class LLMBackend(abc.ABC):
 
 ## Creating a New Backend
 
+### Choose integration path
+
+There are two supported ways to ship a backend:
+
+1. **Core connector**: add module(s) under `src/connectors/` for backends that
+   are part of the core distribution.
+2. **Plugin connector**: publish an external package that registers providers
+   through the `llm_proxy_backends` entry-point group.
+
+Use the plugin path for optional or separately-versioned connector families.
+For the exact plugin contract, see [Plugin API](./plugin-api.md).
+
 ### Step 1: Create the Connector File
 
 Create a new file in `src/connectors/` named after your provider (e.g., `my_provider.py`).

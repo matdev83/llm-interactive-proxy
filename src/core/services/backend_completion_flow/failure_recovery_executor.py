@@ -15,6 +15,9 @@ from src.core.common.exceptions import (
     LLMProxyError,
     RateLimitExceededError,
 )
+from src.core.common.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 from src.core.domain.b2bua_identity import B2buaIdentity
 from src.core.domain.chat import CanonicalChatRequest, ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -33,9 +36,6 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
 )
 from src.core.services.backend_routing_service import BackendRoutingService
 from src.core.services.failover_service import FailoverAttempt
-from src.core.transport.session_key_resolver import (
-    resolve_session_key_from_request_context,
-)
 
 logger = logging.getLogger(__name__)
 

@@ -11,6 +11,7 @@ try:
 except ModuleNotFoundError:  # pragma: no cover
     yaml = None  # type: ignore
 
+from src.core.common.backend_discovery_state import get_extracted_backend_names
 from src.core.common.exceptions import ConfigurationError
 from src.core.config.constrained_backend_policy import (
     match_constrained_connector_family,
@@ -19,6 +20,13 @@ from src.core.config.parameter_resolution import ParameterResolution, ParameterS
 from src.core.services.backend_registry import backend_registry
 
 logger = logging.getLogger(__name__)
+
+# Backend instances that are configured primarily through credentials files.
+# Reuse extracted backend names from shared discovery state to avoid drift.
+_EXTRACTED_FILE_BASED_CONNECTORS = set(get_extracted_backend_names())
+_FILE_BASED_CONNECTORS = frozenset(
+    _EXTRACTED_FILE_BASED_CONNECTORS.union({"gemini-cli-cloud-project"})
+)
 
 
 def _default_backend_instances_dir() -> Path:
@@ -156,20 +164,11 @@ class BackendInstanceFileSource:
     def _validate_credentials_uniqueness(
         self, discovered: dict[str, dict[str, Any]]
     ) -> None:
-        file_based_connectors = {
-            "qwen-oauth",
-            "gemini-oauth-free",
-            "gemini-oauth-plan",
-            "antigravity-oauth",
-            "gemini-cli-cloud-project",
-            "anthropic-oauth",
-        }
-
         connector_paths: dict[str, dict[str, str]] = {}
 
         for instance_name, config in discovered.items():
             connector = str(config.get("connector") or instance_name.split(".")[0])
-            if connector not in file_based_connectors:
+            if connector not in _FILE_BASED_CONNECTORS:
                 continue
 
             creds_path = config.get("credentials_path")
@@ -198,16 +197,8 @@ class BackendInstanceFileSource:
         existing_instance_names: set[str],
         registered_backends: set[str],
     ) -> None:
-        file_based_connectors = {
-            "qwen-oauth",
-            "gemini-oauth-free",
-            "gemini-oauth-plan",
-            "antigravity-oauth",
-            "gemini-cli-cloud-project",
-            "anthropic-oauth",
-        }
         available_connectors = sorted(
-            file_based_connectors.intersection(registered_backends)
+            _FILE_BASED_CONNECTORS.intersection(registered_backends)
         )
         all_instance_names = existing_instance_names.union(discovered.keys())
         claimed_constrained_families: set[str] = set()

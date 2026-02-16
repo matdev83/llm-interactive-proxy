@@ -83,19 +83,22 @@ class BackendRegistry:
 
                 # Check if this is an OAuth connector that was skipped in Multi User Mode
                 try:
-                    from src.connectors import (
+                    from src.core.common.backend_discovery_state import (
                         get_skipped_oauth_connectors,
+                        is_extracted_backend_name,
                         is_running_in_multi_user_mode,
+                        normalize_backend_name,
                     )
 
                     if is_running_in_multi_user_mode():
                         skipped = get_skipped_oauth_connectors()
-                        # Check if the requested backend matches any skipped connector
-                        # (handle both module name format and backend name format)
-                        if any(
-                            name in connector or connector.replace("_", "-") == name
+                        normalized_name = normalize_backend_name(name)
+                        explicitly_skipped = any(
+                            normalized_name == connector.replace("_", "-")
                             for connector in skipped
-                        ):
+                        )
+                        oauth_like_name = is_extracted_backend_name(normalized_name)
+                        if explicitly_skipped or oauth_like_name:
                             error_msg = (
                                 f"Backend '{name}' is not available in Multi User Mode. "
                                 f"OAuth-based connectors are blocked in production deployments to prevent "

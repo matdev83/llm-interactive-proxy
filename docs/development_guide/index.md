@@ -22,6 +22,7 @@ Welcome to the LLM Interactive Proxy development guide. This section contains do
 - **[Contributing](./contributing.md)** - Contribution guidelines, pull request process, and code review standards
 - **[Adding Features](./adding-features.md)** - Guide for implementing new features in the proxy
 - **[Adding Backends](./adding-backends.md)** - Guide for creating new backend connectors
+- **[Plugin API](./plugin-api.md)** - Supported contract for entry-point backend plugins
 
 ## Integration Guides
 

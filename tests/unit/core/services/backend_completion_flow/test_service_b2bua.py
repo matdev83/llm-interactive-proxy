@@ -14,6 +14,7 @@ from src.core.domain.responses import ResponseEnvelope
 from src.core.services.auxiliary_identity import build_auxiliary_effective_session_id
 from src.core.services.b2bua_bleg_allocator_service import BlegAllocation
 from src.core.services.backend_completion_flow.service import BackendCompletionFlow
+from src.core.services.connector_invoker import ConnectorInvoker
 
 
 def _build_flow(
@@ -218,6 +219,66 @@ async def test_failover_enabled_records_attempt_failure_in_resilience_state() ->
     assert record_args[0] == "openai"
     assert record_args[1] == "gpt-4"
     assert isinstance(record_args[2], BackendError)
+
+
+@pytest.mark.asyncio
+async def test_primary_b2bua_allocator_fail_open_does_not_leak_a_leg_to_connector() -> (
+    None
+):
+    a_session_id = "llm-b2bua-a-9091"
+    allocator = MagicMock()
+    allocator.allocate = AsyncMock(side_effect=RuntimeError("allocator unavailable"))
+    flow, deps = _build_flow(a_session_id=a_session_id, allocator=allocator)
+
+    request = CanonicalChatRequest(
+        model="gpt-4",
+        messages=[ChatMessage(role="user", content="allocator fail-open path")],
+    )
+    context = _build_context(a_session_id)
+    context.b2bua_identity = B2buaIdentity(
+        a_session_id=a_session_id,
+        auth_scope_id="scope-9091",
+        client_session_id="client-9091",
+    )
+    context.extensions.update(
+        {
+            "a_session_id": "must-not-leak",
+            "client_session_id": "must-not-leak",
+            "auth_scope_id": "must-not-leak",
+            "b2bua": {
+                "a_session_id": "must-not-leak",
+                "client_session_id": "must-not-leak",
+                "auth_scope_id": "must-not-leak",
+            },
+        }
+    )
+
+    result = await flow.call_completion(
+        request=request,
+        stream=False,
+        allow_failover=False,
+        context=context,
+    )
+
+    assert isinstance(result, ResponseEnvelope)
+    allocator.allocate.assert_awaited_once()
+
+    kwargs_call = deps["request_preparer"].prepare_backend_kwargs.call_args.kwargs
+    assert kwargs_call["session_id_for_backend"] is None
+    attempt_context = kwargs_call["context"]
+    assert attempt_context.session_id == a_session_id
+    assert attempt_context.b2bua_identity is not None
+    assert attempt_context.b2bua_identity.b_session_id is None
+
+    invoke_context = deps["connector_invoker"].invoke.call_args.kwargs["context"]
+    projected = ConnectorInvoker()._project_context(invoke_context)
+    assert projected is not None
+    assert projected.session_id is None
+    assert projected.extensions is not None
+    assert "a_session_id" not in projected.extensions
+    assert "client_session_id" not in projected.extensions
+    assert "auth_scope_id" not in projected.extensions
+    assert projected.extensions.get("b2bua") is None
 
 
 @pytest.mark.asyncio

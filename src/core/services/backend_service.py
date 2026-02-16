@@ -449,7 +449,7 @@ class BackendService(IBackendService):
         """Execute complex failover strategy for models with configured routes"""
         # Cancellation gate: ensure session is not cancelled before complex failover
         if self._cancellation_coordinator and context:
-            from src.core.transport.session_key_resolver import (
+            from src.core.common.session_key_resolver import (
                 resolve_session_key_from_request_context,
             )
 
@@ -512,7 +512,7 @@ class BackendService(IBackendService):
         """
         # Cancellation gate: ensure session is not cancelled before failover plan execution
         if self._cancellation_coordinator and context:
-            from src.core.transport.session_key_resolver import (
+            from src.core.common.session_key_resolver import (
                 resolve_session_key_from_request_context,
             )
 
@@ -527,7 +527,7 @@ class BackendService(IBackendService):
         for attempt in plan:
             # Cancellation gate: ensure session is not cancelled before each failover attempt
             if self._cancellation_coordinator and context:
-                from src.core.transport.session_key_resolver import (
+                from src.core.common.session_key_resolver import (
                     resolve_session_key_from_request_context,
                 )
 

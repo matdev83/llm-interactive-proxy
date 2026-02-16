@@ -9,6 +9,15 @@ import httpx
 
 from src.connectors.base import LLMBackend
 from src.connectors.strategies.registry import initialization_strategy_registry
+from src.core.common.backend_discovery_state import (
+    get_oauth_install_command,
+    get_optional_oauth_package_name,
+    get_skipped_oauth_connectors,
+    is_extracted_backend_name,
+    is_running_in_multi_user_mode,
+    normalize_backend_name,
+)
+from src.core.common.exceptions import RoutingError
 from src.core.common.logging_utils import redact_sensitive_value
 from src.core.config.app_config import AppConfig, BackendConfig
 from src.core.interfaces.activity_tracker_interface import IConnectionActivityTracker
@@ -54,6 +63,47 @@ def _redact_sensitive_config_values(config: dict[str, Any]) -> dict[str, Any]:
             redacted[key] = value
 
     return redacted
+
+
+def _build_multi_user_oauth_block_error(
+    backend_name: str, *, message: str | None = None
+) -> RoutingError:
+    """Build deterministic Multi User Mode guidance for OAuth backends."""
+    resolved_message = message or (
+        f"Backend '{backend_name}' is not available in Multi User Mode. "
+        "OAuth-based connectors are blocked in production deployments to prevent "
+        "use of personal credentials. Use --single-user-mode for local OAuth "
+        "workflows, or configure a non-OAuth backend with API keys."
+    )
+    return RoutingError(
+        message=resolved_message,
+        details={
+            "code": "unknown_model",
+            "category": "validation",
+            "retryable": False,
+            "backend_type": backend_name,
+            "access_mode": "multi_user",
+            "multi_user_blocked": True,
+            "guidance": (
+                "Use --single-user-mode for local OAuth workflows, "
+                "or configure a non-OAuth backend with API keys."
+            ),
+        },
+    )
+
+
+def _is_multi_user_config(config: Any) -> bool:
+    """Safely detect Multi User Mode from possibly legacy config shapes."""
+    access_mode = getattr(config, "access_mode", None)
+    if access_mode is None:
+        return False
+    checker = getattr(access_mode, "is_multi_user", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker())
+    except Exception:
+        return False
 
 
 class BackendFactory(IBackendFactory):
@@ -106,9 +156,53 @@ class BackendFactory(IBackendFactory):
         Raises:
             ValueError: If the backend type is not supported
         """
-        backend_factory = self._backend_registry.get_backend_factory(backend_type)
-        # Backend connectors only accept the client and config in constructor
         effective_config = config if config is not None else self._config
+        configured_multi_user = _is_multi_user_config(
+            effective_config
+        ) or _is_multi_user_config(self._config)
+        normalized_backend = normalize_backend_name(backend_type)
+        if configured_multi_user and is_extracted_backend_name(normalized_backend):
+            raise _build_multi_user_oauth_block_error(normalized_backend)
+
+        try:
+            backend_factory = self._backend_registry.get_backend_factory(backend_type)
+        except ValueError as exc:
+            if is_extracted_backend_name(normalized_backend):
+                skipped_connectors = {
+                    normalize_backend_name(name)
+                    for name in get_skipped_oauth_connectors()
+                }
+                if (
+                    configured_multi_user
+                    or (
+                        is_running_in_multi_user_mode()
+                        and normalized_backend in skipped_connectors
+                    )
+                ):
+                    raise _build_multi_user_oauth_block_error(
+                        normalized_backend,
+                        message=str(exc),
+                    ) from exc
+
+                install_command = get_oauth_install_command()
+                optional_package = get_optional_oauth_package_name()
+                raise RoutingError(
+                    message=(
+                        f"Backend '{normalized_backend}' is unavailable. "
+                        f"Install optional package '{optional_package}' using "
+                        f"'{install_command}'."
+                    ),
+                    details={
+                        "code": "unknown_model",
+                        "category": "validation",
+                        "retryable": False,
+                        "backend_type": normalized_backend,
+                        "optional_package": optional_package,
+                        "install_command": install_command,
+                    },
+                ) from exc
+            raise
+        # Backend connectors only accept the client and config in constructor
         return backend_factory(
             self._client, effective_config, self._translation_service
         )

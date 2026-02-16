@@ -20,6 +20,9 @@ from src.core.common.exceptions import (
     NonForwardableEnforcementError,
     NonForwardableTagLimitExceededError,
 )
+from src.core.common.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 from src.core.domain.backend_request_manager.context_models import ToolCallRetryState
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.non_forwardable import NonForwardableTagScope
@@ -39,9 +42,6 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
 )
 from src.core.services.non_forwardable_message_enforcer import (
     PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
-)
-from src.core.transport.session_key_resolver import (
-    resolve_session_key_from_request_context,
 )
 
 logger = logging.getLogger(__name__)

@@ -101,7 +101,7 @@ class TestConfigInjection:
         # Mock the add_instance to verify it's called with the runtime config
         with (
             patch.object(builder._services, "add_instance") as mock_add_instance,
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch.object(
                 builder._services, "build_service_provider"
@@ -153,7 +153,10 @@ class TestConfigInjection:
             call_order.append("register_config")
 
         with (
-            patch("importlib.import_module", side_effect=track_import),
+            patch(
+                "src.core.services.backend_discovery.import_module",
+                side_effect=track_import,
+            ),
             patch(
                 "src.core.config.semantic_validation.validate_static_route",
                 side_effect=track_validate,
@@ -181,6 +184,62 @@ class TestConfigInjection:
             )
 
     @pytest.mark.asyncio
+    async def test_plugin_discovery_runs_before_semantic_validation(
+        self,
+    ) -> None:
+        """Plugin discovery must run before semantic validation checks."""
+        builder = ApplicationBuilder()
+        builder.add_stage(MockValidationStage())
+
+        custom_config = AppConfig()
+        call_order: list[str] = []
+
+        def track_import(*args, **kwargs):
+            call_order.append("core_import")
+
+        def track_plugin_discovery(*args, **kwargs):
+            call_order.append("plugin_discovery")
+            return []
+
+        def track_static_route(*args, **kwargs):
+            call_order.append("validate_static_route")
+
+        with (
+            patch(
+                "src.core.services.backend_discovery.import_module",
+                side_effect=track_import,
+            ),
+            patch(
+                "src.core.services.backend_discovery.discover_plugin_backends",
+                side_effect=track_plugin_discovery,
+            ),
+            patch(
+                "src.core.config.semantic_validation.validate_static_route",
+                side_effect=track_static_route,
+            ),
+            patch(
+                "src.core.config.semantic_validation.validate_constrained_backend_instances"
+            ),
+            patch.object(
+                builder._services, "build_service_provider"
+            ) as mock_build_provider,
+            patch(
+                "src.core.di.provider_lifecycle.temporary_service_provider"
+            ) as mock_temp_provider,
+        ):
+            mock_provider = MagicMock(spec=IServiceProvider)
+            mock_build_provider.return_value = mock_provider
+            mock_temp_provider.return_value.__enter__ = MagicMock()
+            mock_temp_provider.return_value.__exit__ = MagicMock(return_value=False)
+
+            with contextlib.suppress(Exception):
+                await builder.build(custom_config)
+
+        assert call_order.index("plugin_discovery") < call_order.index(
+            "validate_static_route"
+        )
+
+    @pytest.mark.asyncio
     async def test_merged_constrained_validation_runs_before_config_registration(
         self,
     ) -> None:
@@ -203,7 +262,10 @@ class TestConfigInjection:
             call_order.append("register_config")
 
         with (
-            patch("importlib.import_module", side_effect=track_import),
+            patch(
+                "src.core.services.backend_discovery.import_module",
+                side_effect=track_import,
+            ),
             patch(
                 "src.core.config.semantic_validation.validate_static_route",
                 side_effect=track_static_route,
@@ -295,7 +357,7 @@ class TestConfigInjection:
 
         # Now build with custom config - should replace any existing config
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch.object(
                 builder._services, "build_service_provider"
@@ -334,7 +396,7 @@ class TestValidationProviderLifecycle:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -376,7 +438,7 @@ class TestValidationProviderLifecycle:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -414,7 +476,7 @@ class TestValidationProviderLifecycle:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -453,7 +515,7 @@ class TestValidationProviderLifecycle:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -493,7 +555,7 @@ class TestValidationProviderDisposal:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -530,7 +592,7 @@ class TestValidationProviderDisposal:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -575,7 +637,7 @@ class TestValidationProviderDisposal:
             disposal_order.append("provider_dispose")
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -616,7 +678,7 @@ class TestValidationProviderDisposal:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -660,7 +722,7 @@ class TestValidationFailureCleanup:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -699,7 +761,7 @@ class TestValidationFailureCleanup:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -738,7 +800,7 @@ class TestValidationFailureCleanup:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"
@@ -818,7 +880,7 @@ class TestValidationServiceResolution:
         config = AppConfig()
 
         with (
-            patch("importlib.import_module"),
+            patch("src.core.services.backend_discovery.import_module"),
             patch("src.core.config.semantic_validation.validate_static_route"),
             patch(
                 "src.core.di.registration_helpers.core_foundational.register_app_config"

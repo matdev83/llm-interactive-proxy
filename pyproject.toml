@@ -23,7 +23,6 @@ dependencies = [
     "pyyaml",
     "jsonschema>=4.19.0",
     "google-auth>=2.27.0",
-    "google-auth-oauthlib>=1.2.0",
     "json-repair",
     "ijson",
     "watchdog",
@@ -64,6 +63,10 @@ classifiers = [
 
 
 [project.optional-dependencies]
+oauth = [
+    "llm-proxy-oauth-connectors",
+]
+
 dev = [
     # Test stack (pin to match local green runs)
     "pytest==8.3.2",
@@ -447,11 +450,4 @@ ignore_names = [
 [tool.testmon]
 run_variant_expression = "','.join(sorted(str(v) for v in [sys.version_info[:2], sys.platform]))"
 historian = "git"
-
-[tool.llm-interactive-proxy.backends]
-gemini-oauth-plan = "src.connectors.gemini_oauth_plan:GeminiOAuthPlanConnector"
-gemini-oauth-free = "src.connectors.gemini_oauth_free:GeminiOAuthFreeConnector"
-gemini-oauth-auto = "src.connectors.gemini_oauth_auto:GeminiOAuthAutoConnector"
-antigravity-oauth = "src.connectors.antigravity_oauth:AntigravityOAuthConnector"
-
 

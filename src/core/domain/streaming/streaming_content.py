@@ -281,7 +281,7 @@ class StreamingContent:
             This method delegates to SSESerializer to maintain separation of concerns.
             The serializer handles SSE framing, tool-call sanitization, and usage handling.
         """
-        from src.core.transport.streaming.sse_serializer import SSESerializer
+        from src.core.common.streaming_sse_serializer import SSESerializer
 
         serializer = SSESerializer()
         return serializer.serialize(self)

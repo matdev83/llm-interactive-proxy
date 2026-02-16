@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -37,6 +37,11 @@ async def codex_connector_compat_disabled_fixture(auth_dir: Path):
                 backend, "_validate_credentials_structure", return_value=(True, [])
             ),
             patch.object(backend, "_start_file_watching"),
+            patch.object(
+                backend._credential_manager,
+                "_load_auth",
+                new=AsyncMock(return_value=True),
+            ),
         ):
             await backend.initialize(openai_codex_path=str(auth_dir))
             backend._auth_credentials = {"tokens": {"access_token": "test_token"}}
@@ -62,6 +67,11 @@ async def codex_connector_compat_enabled_fixture(auth_dir: Path):
                 backend, "_validate_credentials_structure", return_value=(True, [])
             ),
             patch.object(backend, "_start_file_watching"),
+            patch.object(
+                backend._credential_manager,
+                "_load_auth",
+                new=AsyncMock(return_value=True),
+            ),
         ):
             await backend.initialize(openai_codex_path=str(auth_dir))
             backend._auth_credentials = {"tokens": {"access_token": "test_token"}}

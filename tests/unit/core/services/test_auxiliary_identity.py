@@ -58,6 +58,22 @@ def test_build_auxiliary_effective_session_id_changes_with_attempt_ordinal() -> 
     assert second.startswith("aux-2-")
 
 
+def test_build_auxiliary_effective_session_id_isolated_from_primary_continuity() -> (
+    None
+):
+    root_session_id = "llm-b2bua-a-primary"
+    auxiliary = build_auxiliary_effective_session_id(
+        root_session_id=root_session_id,
+        purpose="quality_verifier",
+        operation_key="req:req-aux",
+        attempt_ordinal=1,
+    )
+
+    assert auxiliary != root_session_id
+    assert root_session_id == "llm-b2bua-a-primary"
+    assert auxiliary.startswith("aux-1-")
+
+
 def test_derive_auxiliary_operation_key_prefers_request_id() -> None:
     context = _build_context(request_id="req-abc")
     request = ChatRequest(

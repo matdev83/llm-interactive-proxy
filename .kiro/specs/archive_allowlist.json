@@ -12,6 +12,10 @@
     {
       "spec": "vendor-model-dynamic-routing",
       "reason": "Spec finalized and kept active temporarily for post-implementation verification"
+    },
+    {
+      "spec": "oauth-connectors-extraction",
+      "reason": "Spec completed and retained in active folder during connector package rollout"
     }
   ]
 }

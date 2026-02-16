@@ -1,10 +1,7 @@
-"""Module that imports all connector modules to ensure backend registration.
+"""Module that triggers backend discovery during application startup."""
 
-This module should be imported at application startup to ensure all backend
-connectors register themselves with the backend registry.
-"""
+from src.core.services.backend_discovery import discover_backends
 
-# Import the connectors package to trigger auto-discovery and registration
-import src.connectors  # noqa: F401
+discover_backends()
 
-__all__: list[str] = []
+__all__: list[str] = ["discover_backends"]

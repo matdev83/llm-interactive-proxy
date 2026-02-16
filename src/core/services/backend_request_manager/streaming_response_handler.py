@@ -30,6 +30,9 @@ from src.core.common.exceptions import (
     ParsingError,
     TranslationError,
 )
+from src.core.common.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 from src.core.domain.backend_request_manager.context_models import (
     ResponseProcessingContext,
     StreamingContext,
@@ -53,9 +56,6 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.services.empty_response_middleware import EmptyResponseRetryError
-from src.core.transport.session_key_resolver import (
-    resolve_session_key_from_request_context,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -329,20 +329,26 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
         skip_verification = False
 
         if hasattr(context, "extensions") and context.extensions:
-            quality_verifier_model_spec_value = context.extensions.get("quality_verifier_model", None)
+            quality_verifier_model_spec_value = context.extensions.get(
+                "quality_verifier_model", None
+            )
             quality_verifier_model_spec = (
                 str(quality_verifier_model_spec_value)
                 if quality_verifier_model_spec_value is not None
                 else None
             )
-            quality_verifier_frequency_value = context.extensions.get("quality_verifier_frequency", 10)
+            quality_verifier_frequency_value = context.extensions.get(
+                "quality_verifier_frequency", 10
+            )
             # Convert JsonValue to int safely
             if quality_verifier_frequency_value is not None:
                 if isinstance(quality_verifier_frequency_value, int | float):
                     quality_verifier_frequency = int(quality_verifier_frequency_value)
                 elif isinstance(quality_verifier_frequency_value, str):
                     try:
-                        quality_verifier_frequency = int(quality_verifier_frequency_value)
+                        quality_verifier_frequency = int(
+                            quality_verifier_frequency_value
+                        )
                     except (ValueError, TypeError):
                         quality_verifier_frequency = 10  # default value
                 else:
@@ -350,13 +356,19 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             else:
                 quality_verifier_frequency = 10  # default value
 
-            quality_verifier_max_history_value = context.extensions.get("quality_verifier_max_history", None)
+            quality_verifier_max_history_value = context.extensions.get(
+                "quality_verifier_max_history", None
+            )
             if quality_verifier_max_history_value is not None:
                 if isinstance(quality_verifier_max_history_value, int | float):
-                    quality_verifier_max_history = int(quality_verifier_max_history_value)
+                    quality_verifier_max_history = int(
+                        quality_verifier_max_history_value
+                    )
                 elif isinstance(quality_verifier_max_history_value, str):
                     try:
-                        quality_verifier_max_history = int(quality_verifier_max_history_value)
+                        quality_verifier_max_history = int(
+                            quality_verifier_max_history_value
+                        )
                     except (ValueError, TypeError):
                         quality_verifier_max_history = None
                 else:
@@ -365,12 +377,16 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 quality_verifier_max_history = None
 
             # Extract circuit breaker settings
-            failures_value = context.extensions.get("quality_verifier_max_consecutive_failures", 5)
+            failures_value = context.extensions.get(
+                "quality_verifier_max_consecutive_failures", 5
+            )
             if isinstance(failures_value, int | float | str):
                 with contextlib.suppress(ValueError, TypeError):
                     quality_verifier_max_consecutive_failures = int(failures_value)
 
-            cooldown_value = context.extensions.get("quality_verifier_cooldown_seconds", 300)
+            cooldown_value = context.extensions.get(
+                "quality_verifier_cooldown_seconds", 300
+            )
             if isinstance(cooldown_value, int | float | str):
                 with contextlib.suppress(ValueError, TypeError):
                     quality_verifier_cooldown_seconds = int(cooldown_value)
@@ -396,7 +412,9 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 except (TypeError, ValueError):
                     eligible_turn_count = None
 
-            skip_value = context.extensions.get("quality_verifier_skip_verification", None)
+            skip_value = context.extensions.get(
+                "quality_verifier_skip_verification", None
+            )
             if isinstance(skip_value, bool):
                 skip_verification = skip_value
             elif isinstance(skip_value, str):
@@ -553,11 +571,13 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             # Use RequestContext directly for cancellation gate
 
             # verify_or_passthrough is an async generator, returns AsyncIterator directly
-            verified_stream = self._quality_verifier_stream_verifier.verify_or_passthrough(
-                request=request,
-                stream=processed_stream,
-                context=streaming_context,
-                request_context=request_context,
+            verified_stream = (
+                self._quality_verifier_stream_verifier.verify_or_passthrough(
+                    request=request,
+                    stream=processed_stream,
+                    context=streaming_context,
+                    request_context=request_context,
+                )
             )
             return verified_stream
         except Exception as err:

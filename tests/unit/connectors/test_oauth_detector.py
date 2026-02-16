@@ -57,27 +57,9 @@ class TestKnownOAuthConnectors:
         assert KNOWN_OAUTH_CONNECTORS is not None
         assert len(KNOWN_OAUTH_CONNECTORS) > 0
 
-    def test_known_oauth_connectors_includes_gemini_oauth_variants(self) -> None:
-        """Test that known connectors include all Gemini OAuth variants."""
-        assert "gemini-oauth-auto" in KNOWN_OAUTH_CONNECTORS
-        assert "gemini-oauth-plan" in KNOWN_OAUTH_CONNECTORS
-        assert "gemini-oauth-free" in KNOWN_OAUTH_CONNECTORS
-
-    def test_known_oauth_connectors_includes_anthropic_oauth(self) -> None:
-        """Test that known connectors include anthropic-oauth."""
-        assert "anthropic-oauth" in KNOWN_OAUTH_CONNECTORS
-
-    def test_known_oauth_connectors_includes_qwen_oauth(self) -> None:
-        """Test that known connectors include qwen-oauth."""
-        assert "qwen-oauth" in KNOWN_OAUTH_CONNECTORS
-
     def test_known_oauth_connectors_includes_openai_codex(self) -> None:
         """Test that known connectors include openai-codex (special case)."""
         assert "openai-codex" in KNOWN_OAUTH_CONNECTORS
-
-    def test_known_oauth_connectors_includes_antigravity_oauth(self) -> None:
-        """Test that known connectors include antigravity-oauth."""
-        assert "antigravity-oauth" in KNOWN_OAUTH_CONNECTORS
 
     def test_known_oauth_connectors_includes_kiro_oauth_auto(self) -> None:
         """Test that known connectors include kiro-oauth-auto."""

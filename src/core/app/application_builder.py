@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import importlib
 import logging
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, Any
@@ -311,24 +310,29 @@ class ApplicationBuilder:
         if logger.isEnabledFor(logging.INFO):
             logger.info("Starting application build process...")
 
-        # Import connectors to trigger auto-discovery before validation
-        # This ensures backend registry is populated before static_route validation
-        importlib.import_module("src.connectors")
+        # Discover core and plugin backends before semantic validation.
+        # This ensures backend registry is populated before static_route validation.
+        from src.core.services.backend_discovery import discover_backends
+
+        discover_backends()
         if logger.isEnabledFor(logging.DEBUG):
             from src.core.services.backend_registry import backend_registry
 
             logger.debug(
-                f"Imported connectors, registered backends: {backend_registry.get_registered_backends()}"
+                "Backend discovery complete, registered backends: %s",
+                backend_registry.get_registered_backends(),
             )
 
         # Validate runtime configuration semantics (e.g., static_route)
         # This must run before stage validation to fail-fast on invalid config
         from src.core.config.semantic_validation import (
             validate_constrained_backend_instances,
+            validate_extracted_backend_references,
             validate_static_route,
         )
 
         validate_static_route(config)
+        validate_extracted_backend_references(config)
         validate_constrained_backend_instances(config)
 
         # Replace DI-registered AppConfig and IConfig with runtime config instance

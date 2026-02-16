@@ -19,6 +19,9 @@ from collections.abc import AsyncIterator
 from typing import Any, cast
 
 from src.core.common.exceptions import BackendError
+from src.core.common.session_key_resolver import (
+    resolve_session_key_from_request_context,
+)
 from src.core.domain.backend_request_manager.context_models import StreamingContext
 from src.core.domain.chat import ChatRequest
 from src.core.domain.request_context import RequestContext
@@ -33,9 +36,6 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.services.quality_verifier_service import QualityVerifierService
-from src.core.transport.session_key_resolver import (
-    resolve_session_key_from_request_context,
-)
 
 logger = logging.getLogger(__name__)
 

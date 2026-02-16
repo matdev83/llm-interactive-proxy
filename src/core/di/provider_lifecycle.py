@@ -76,8 +76,6 @@ def get_or_build_service_provider() -> IServiceProvider:
                     len(services._descriptors),  # type: ignore[attr-defined]
                 )
         _service_provider = services.build_service_provider()
-        # Register feature parity tracking after provider is built
-        post_build_hooks(_service_provider)
         try:
             from src.core.di import services as di_services
 
@@ -226,6 +224,7 @@ def post_build_hooks(provider: IServiceProvider) -> None:
     Args:
         provider: The service provider that was just built
     """
+    from src.core.common.backend_discovery_state import get_plugin_post_build_hooks
     from src.core.di.registration_helpers.post_build_actions import (
         initialize_feature_parity_registry,
         register_tool_call_handlers,
@@ -233,3 +232,14 @@ def post_build_hooks(provider: IServiceProvider) -> None:
 
     initialize_feature_parity_registry(provider)
     register_tool_call_handlers(provider)
+
+    for backend_name, hook in get_plugin_post_build_hooks():
+        try:
+            hook(provider)
+        except Exception as exc:
+            logger.warning(
+                "Plugin post-build hook failed for backend '%s': %s",
+                backend_name,
+                exc,
+                exc_info=True,
+            )

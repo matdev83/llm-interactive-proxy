@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from src.core.common.exceptions import RoutingError
 from src.core.config.app_config import BackendConfig
 from src.core.services.backend_factory import BackendFactory
 from src.core.services.backend_registry import BackendRegistry
@@ -33,6 +34,109 @@ def mock_backend_registry() -> BackendRegistry:
 
 
 # No custom test class needed anymore
+
+
+def test_create_backend_maps_missing_extracted_backend_to_routing_error() -> None:
+    """Missing extracted backends should surface deterministic routing errors."""
+    from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
+
+    mock_client = MagicMock(spec=httpx.AsyncClient)
+    mock_registry = MagicMock(spec=BackendRegistry)
+    mock_registry.get_backend_factory.side_effect = ValueError(
+        "Backend 'gemini-oauth-plan' is not registered."
+    )
+    factory = BackendFactory(
+        mock_client, mock_registry, AppConfig(), TranslationService()
+    )
+
+    with pytest.raises(RoutingError) as exc_info:
+        factory.create_backend("gemini-oauth-plan")
+
+    exc = exc_info.value
+    assert exc.details.get("code") == "unknown_model"
+    assert exc.details.get("backend_type") == "gemini-oauth-plan"
+    assert exc.details.get("optional_package") == "llm-proxy-oauth-connectors"
+    assert (
+        exc.details.get("install_command") == "pip install llm-interactive-proxy[oauth]"
+    )
+
+
+def test_create_backend_preserves_non_extracted_registry_error() -> None:
+    """Unknown non-extracted backends should keep existing ValueError behavior."""
+    from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
+
+    mock_client = MagicMock(spec=httpx.AsyncClient)
+    mock_registry = MagicMock(spec=BackendRegistry)
+    mock_registry.get_backend_factory.side_effect = ValueError(
+        "Backend 'unknown-backend' is not registered."
+    )
+    factory = BackendFactory(
+        mock_client, mock_registry, AppConfig(), TranslationService()
+    )
+
+    with pytest.raises(ValueError, match="unknown-backend"):
+        factory.create_backend("unknown-backend")
+
+
+def test_create_backend_surfaces_multi_user_oauth_guidance() -> None:
+    """Multi User blocked OAuth backends should preserve mode-specific guidance."""
+    from src.core.config.app_config import AppConfig
+    from src.core.services.translation_service import TranslationService
+
+    mock_client = MagicMock(spec=httpx.AsyncClient)
+    mock_registry = MagicMock(spec=BackendRegistry)
+    mock_registry.get_backend_factory.side_effect = ValueError(
+        "Backend 'gemini-oauth-plan' is not available in Multi User Mode."
+    )
+    factory = BackendFactory(
+        mock_client, mock_registry, AppConfig(), TranslationService()
+    )
+
+    with (
+        patch(
+            "src.core.services.backend_factory.is_running_in_multi_user_mode",
+            return_value=True,
+        ),
+        patch(
+            "src.core.services.backend_factory.get_skipped_oauth_connectors",
+            return_value=["gemini_oauth_plan"],
+        ),
+        pytest.raises(RoutingError) as exc_info,
+    ):
+        factory.create_backend("gemini-oauth-plan")
+
+    exc = exc_info.value
+    assert "Multi User Mode" in exc.message
+    assert exc.details.get("code") == "unknown_model"
+    assert exc.details.get("multi_user_blocked") is True
+    assert exc.details.get("access_mode") == "multi_user"
+    assert exc.details.get("install_command") is None
+
+
+def test_create_backend_blocks_registered_extracted_backend_in_multi_user_mode() -> None:
+    """Extracted OAuth backends must be blocked before registry lookup in Multi User Mode."""
+    from src.core.config.app_config import AppConfig
+    from src.core.config.models.access_mode import AccessMode, AccessModeConfig
+    from src.core.services.translation_service import TranslationService
+
+    mock_client = MagicMock(spec=httpx.AsyncClient)
+    mock_registry = MagicMock(spec=BackendRegistry)
+    mock_registry.get_backend_factory.return_value = MagicMock()
+    config = AppConfig(access_mode=AccessModeConfig(mode=AccessMode.MULTI_USER))
+    factory = BackendFactory(mock_client, mock_registry, config, TranslationService())
+
+    with pytest.raises(RoutingError) as exc_info:
+        factory.create_backend("gemini-oauth-plan.primary")
+
+    mock_registry.get_backend_factory.assert_not_called()
+    exc = exc_info.value
+    assert "Multi User Mode" in exc.message
+    assert exc.details.get("code") == "unknown_model"
+    assert exc.details.get("backend_type") == "gemini-oauth-plan"
+    assert exc.details.get("multi_user_blocked") is True
+    assert exc.details.get("access_mode") == "multi_user"
 
 
 @pytest.fixture

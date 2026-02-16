@@ -36,7 +36,6 @@ if _TESTMON_DATAFILE_ENV not in os.environ:
     testmon_dir.mkdir(parents=True, exist_ok=True)
     os.environ[_TESTMON_DATAFILE_ENV] = str(testmon_dir / ".testmondata")
 
-
 def _module_is_available(name: str) -> bool:
     """Return True if the optional module can be imported."""
 
@@ -155,6 +154,7 @@ def pytest_collection_modifyitems(config, items):  # type: ignore[no-untyped-def
         # Auto-mark tests in the integration folder with @pytest.mark.integration
         # Cache fspath string conversion once per item
         item_path_str = str(item.fspath)
+
         if integration_path_str in item_path_str and not item.get_closest_marker(
             "integration"
         ):

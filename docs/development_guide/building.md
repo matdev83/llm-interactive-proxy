@@ -37,13 +37,19 @@ source .venv/bin/activate
 ```bash
 # Install the package in editable mode with development dependencies
 ./.venv/Scripts/python.exe -m pip install -e .[dev]
+
+# Install with optional OAuth connector package
+./.venv/Scripts/python.exe -m pip install -e .[dev,oauth]
 ```
+
+The `oauth` extra installs the extracted `llm-proxy-oauth-connectors` package, which owns OAuth connector implementations and plugin entry points.
 
 This installs:
 
 - The proxy package in editable mode (`-e`)
 - All runtime dependencies
 - All development dependencies (`[dev]`)
+- Optionally, extracted OAuth connectors via `[oauth]`
 
 ## Dependency Management
 
@@ -85,6 +91,8 @@ After modifying `pyproject.toml`, reinstall the package:
 
 ```bash
 ./.venv/Scripts/python.exe -m pip install -e .[dev]
+# Or with optional OAuth connectors:
+./.venv/Scripts/python.exe -m pip install -e .[dev,oauth]
 ```
 
 ## Project Structure
@@ -110,6 +118,9 @@ llm-interactive-proxy/
 ```bash
 # Install in editable mode with dev dependencies
 ./.venv/Scripts/python.exe -m pip install -e .[dev]
+
+# Install in editable mode with dev + optional OAuth connectors
+./.venv/Scripts/python.exe -m pip install -e .[dev,oauth]
 
 # Install in editable mode without dev dependencies
 ./.venv/Scripts/python.exe -m pip install -e .

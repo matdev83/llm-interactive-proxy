@@ -12,7 +12,7 @@ import asyncio
 from typing import Any
 
 import pytest
-from src.core.common.exceptions import BackendError
+from src.core.common.exceptions import BackendError, RoutingError
 from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
 
@@ -108,6 +108,29 @@ class TestBackendLifecycleManagerGetOrCreate:
             await manager.get_or_create("openai")
 
         assert "no factory configured" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_propagates_llmproxy_error_from_factory(self) -> None:
+        """Routing/domain errors should not be wrapped as BackendError."""
+
+        class RoutingErrorFactory(MockBackendFactory):
+            async def ensure_backend(  # type: ignore[override]
+                self, backend_type: str, app_config: Any, backend_config: Any = None
+            ) -> MockLLMBackend:
+                raise RoutingError(
+                    message="Unknown extracted backend",
+                    details={
+                        "code": "unknown_model",
+                        "backend_type": backend_type,
+                    },
+                )
+
+        manager = BackendLifecycleManager(factory=RoutingErrorFactory())  # type: ignore
+
+        with pytest.raises(RoutingError) as exc_info:
+            await manager.get_or_create("gemini-oauth-plan")
+
+        assert exc_info.value.details.get("code") == "unknown_model"
 
     @pytest.mark.asyncio
     async def test_per_session_cache_lru_eviction(self) -> None:

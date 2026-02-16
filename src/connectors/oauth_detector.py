@@ -13,25 +13,26 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.core.common.backend_discovery_state import get_extracted_backend_names
+
 # OAuth connector naming patterns (converted to underscore for module filenames)
 OAUTH_CONNECTOR_PATTERNS: list[str] = [
     "_oauth_",  # Matches: gemini_oauth_auto, gemini_oauth_free, kiro_oauth_auto
     "_oauth",  # Matches: anthropic_oauth, qwen_oauth, antigravity_oauth
 ]
 
-# Known OAuth connectors (explicit list for clarity and documentation)
-# Module names use underscores, but logical connector names use dashes
-KNOWN_OAUTH_CONNECTORS: set[str] = {
-    "gemini-oauth-auto",
-    "gemini-oauth-plan",
-    "gemini-oauth-free",
-    "anthropic-oauth",
-    "antigravity-oauth",
-    "qwen-oauth",
-    "kiro-oauth-auto",
-    "openai-codex",  # Uses OAuth via auth.json (special case)
-    "opencode-zen",  # Check has_static_credentials property
-}
+# Keep extracted OAuth family names sourced from shared discovery state.
+_EXTRACTED_OAUTH_CONNECTORS: set[str] = set(get_extracted_backend_names())
+
+# Known OAuth connectors (explicit list for clarity and documentation).
+# Module names use underscores, but logical connector names use dashes.
+KNOWN_OAUTH_CONNECTORS: set[str] = _EXTRACTED_OAUTH_CONNECTORS.union(
+    {
+        "kiro-oauth-auto",
+        "openai-codex",  # Uses OAuth via auth.json (special case)
+        "opencode-zen",  # Check has_static_credentials property
+    }
+)
 
 
 def is_oauth_connector(
