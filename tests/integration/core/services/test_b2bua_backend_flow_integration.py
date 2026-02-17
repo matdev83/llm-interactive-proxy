@@ -20,7 +20,7 @@ from src.core.services.b2bua_session_id_factory import B2BUASessionIdFactory
 from src.core.services.backend_completion_flow.service import BackendCompletionFlow
 from src.core.services.cbor_wire_capture_service import CborWireCaptureService
 from src.core.services.connector_invoker import ConnectorInvoker
-from src.core.adapters.response_adapters import to_fastapi_response
+from src.core.transport.fastapi.response_adapters import to_fastapi_response
 
 
 def _with_b2bua_enabled(config: AppConfig) -> AppConfig:

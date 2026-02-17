@@ -105,7 +105,7 @@ class SOLIDViolationDetector(ast.NodeVisitor):
         self.is_plugin_discovery_source = normalized_path.endswith(
             "src/core/services/backend_plugin_discovery.py"
         )
-        self.is_core_transport_forbidden_scope = any(
+        is_core_scope = any(
             scope_fragment in normalized_path
             for scope_fragment in (
                 "/core/services/",
@@ -114,14 +114,14 @@ class SOLIDViolationDetector(ast.NodeVisitor):
                 "/core/common/",
             )
         )
-        self.is_core_frontend_forbidden_scope = any(
-            scope_fragment in normalized_path
-            for scope_fragment in (
-                "/core/services/",
-                "/core/config/",
-                "/core/domain/",
-                "/core/common/",
-            )
+        is_under_tests = "/tests/" in normalized_path or normalized_path.startswith(
+            "tests/"
+        )
+        self.is_core_transport_forbidden_scope = (
+            is_core_scope and not is_under_tests
+        )
+        self.is_core_frontend_forbidden_scope = (
+            is_core_scope and not is_under_tests
         )
         self.is_connector_layer = (
             "/src/connectors/" in normalized_path

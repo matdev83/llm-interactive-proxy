@@ -42,6 +42,7 @@ _REQUIRES_NON_EMPTY_SESSION_ID_FAMILIES: frozenset[str] = frozenset(
         "openai-codex",
     }
 )
+_SKIP_STATIC_ROUTE_CONTEXT_KEY = "skip_static_route"
 
 
 class BackendRequestPreparer(IBackendRequestPreparer):
@@ -73,15 +74,60 @@ class BackendRequestPreparer(IBackendRequestPreparer):
         as an auxiliary request (title/summary generation), the target will
         be overridden to use the configured auxiliary backend.
         """
-        # First, resolve the default target
-        target = await self._backend_model_resolver.resolve_target(request, context)
+        async def _resolve_target_with_optional_static_route_skip(
+            request_to_resolve: CanonicalChatRequest,
+            *,
+            skip_static_route: bool,
+        ) -> BackendTarget:
+            had_previous_skip_static_route = False
+            previous_skip_static_route: JsonValue | None = None
+            if (
+                skip_static_route
+                and context is not None
+                and isinstance(context.extensions, dict)
+            ):
+                had_previous_skip_static_route = (
+                    _SKIP_STATIC_ROUTE_CONTEXT_KEY in context.extensions
+                )
+                if had_previous_skip_static_route:
+                    previous_skip_static_route = cast(
+                        JsonValue | None,
+                        context.extensions.get(_SKIP_STATIC_ROUTE_CONTEXT_KEY),
+                    )
+                context.extensions[_SKIP_STATIC_ROUTE_CONTEXT_KEY] = True
 
-        # Check if this is an auxiliary request that should be routed differently
-        if (
-            self._auxiliary_router
+            try:
+                return await self._backend_model_resolver.resolve_target(
+                    request_to_resolve, context
+                )
+            finally:
+                if (
+                    skip_static_route
+                    and context is not None
+                    and isinstance(context.extensions, dict)
+                ):
+                    if not had_previous_skip_static_route:
+                        context.extensions.pop(_SKIP_STATIC_ROUTE_CONTEXT_KEY, None)
+                    else:
+                        context.extensions[_SKIP_STATIC_ROUTE_CONTEXT_KEY] = (
+                            previous_skip_static_route
+                        )
+
+        should_route_auxiliary = (
+            self._auxiliary_router is not None
             and self._auxiliary_router.enabled
             and self._auxiliary_router.should_route_to_auxiliary(request)
-        ):
+        )
+
+        # First, resolve the default target. When we already know this is an
+        # auxiliary request, skip static_route to avoid clobbering the auxiliary
+        # backend before the reroute pass.
+        target = await _resolve_target_with_optional_static_route_skip(
+            request, skip_static_route=should_route_auxiliary
+        )
+
+        # Check if this is an auxiliary request that should be routed differently
+        if should_route_auxiliary and self._auxiliary_router:
             auxiliary_backend = self._auxiliary_router.get_auxiliary_backend()
             auxiliary_model = self._auxiliary_router.get_auxiliary_model()
             original_backend = target.backend
@@ -108,8 +154,9 @@ class BackendRequestPreparer(IBackendRequestPreparer):
                     ),
                 }
             )
-            target = await self._backend_model_resolver.resolve_target(
-                auxiliary_request, context
+            target = await _resolve_target_with_optional_static_route_skip(
+                auxiliary_request,
+                skip_static_route=True,
             )
 
             if logger.isEnabledFor(logging.INFO):
@@ -155,7 +202,7 @@ class BackendRequestPreparer(IBackendRequestPreparer):
                     )
                 context.extensions["auxiliary_request"] = True
                 context.extensions["auxiliary_original_backend"] = cast(
-                    JsonValue, target.backend
+                    JsonValue, original_backend
                 )
                 context.extensions["auxiliary_original_model"] = cast(
                     JsonValue, original_model

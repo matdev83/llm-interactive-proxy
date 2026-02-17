@@ -5,6 +5,7 @@ from importlib import metadata
 import pytest
 from src.core.common.backend_discovery_state import (
     clear_plugin_post_build_hooks,
+    filter_oauth_style_backend_names,
     get_extracted_backend_names,
     get_extracted_connector_module_names,
     get_oauth_install_command,
@@ -26,6 +27,14 @@ def test_get_extracted_connector_module_names_are_underscore_form() -> None:
     module_names = get_extracted_connector_module_names()
     assert module_names == sorted(module_names)
     assert all("-" not in name for name in module_names)
+
+
+def test_filter_oauth_style_backend_names_uses_pattern_only_no_hardcoding() -> None:
+    """OAuth list derived from input; any *-oauth or *-oauth-* name included."""
+    result = filter_oauth_style_backend_names(
+        ["openai", "anthropic-oauth", "custom_oauth_bar", "gemini-oauth-auto", "x"]
+    )
+    assert result == ["anthropic-oauth", "custom_oauth_bar", "gemini-oauth-auto"]
 
 
 def test_normalize_backend_name_normalizes_instance_and_case() -> None:

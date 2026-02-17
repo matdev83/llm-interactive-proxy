@@ -317,6 +317,7 @@ class StreamingExecutor:
         session_factory: Any | None = None,
         read_timeout: float | None = None,
         yield_interval: int = 100,
+        max_rate_limit_retry_seconds: float | None = None,
     ) -> None:
         """Initialize the executor.
 
@@ -331,6 +332,8 @@ class StreamingExecutor:
             session_factory: Legacy hook retained for compatibility (unused).
             read_timeout: Optional read timeout override.
             yield_interval: Number of chunks to batch before yielding to event loop.
+            max_rate_limit_retry_seconds: Optional local wait ceiling for a single
+                connector-level 429 retry before surfacing upstream.
         """
         self._translation_service = translation_service
         self._token_estimator = token_estimator or get_default_token_estimator()
@@ -342,6 +345,13 @@ class StreamingExecutor:
         self._session_factory = session_factory
         self._read_timeout = read_timeout or DEFAULT_READ_TIMEOUT
         self._yield_interval = yield_interval
+        if (
+            isinstance(max_rate_limit_retry_seconds, int | float)
+            and max_rate_limit_retry_seconds > 0
+        ):
+            self._max_rate_limit_retry_seconds = float(max_rate_limit_retry_seconds)
+        else:
+            self._max_rate_limit_retry_seconds = self.MAX_RATE_LIMIT_RETRY_SECONDS
 
     def _mark_retry_attempt(self, context: IRetryContext | None) -> None:
         if context is None:
@@ -407,18 +417,85 @@ class StreamingExecutor:
             return strategy_from_selector
         return None
 
+    @staticmethod
+    def _get_oauth_auto_available_account_count(
+        token_refresher: ITokenRefresher | None,
+    ) -> int | None:
+        if token_refresher is None:
+            return None
+
+        selector = getattr(token_refresher, "_account_selector", None)
+        getter = getattr(selector, "get_available_count", None)
+        if callable(getter):
+            try:
+                count = getter()
+                if isinstance(count, int):
+                    return count
+            except Exception:
+                return None
+
+        count_attr = getattr(token_refresher, "available_account_count", None)
+        if isinstance(count_attr, int):
+            return count_attr
+        return None
+
     def _should_wait_same_account_on_rate_limit(
         self,
         *,
         token_refresher: ITokenRefresher | None,
         sleep_seconds: float,
+        retry_after_seconds: float | None,
     ) -> bool:
-        if sleep_seconds > self.MAX_RATE_LIMIT_RETRY_SECONDS:
+        if sleep_seconds > self._max_rate_limit_retry_seconds:
             return False
         if not self._is_oauth_auto_refresher(token_refresher):
             return True
         strategy = self._get_oauth_auto_selection_strategy(token_refresher)
-        return strategy == "session-affinity"
+        if strategy != "session-affinity":
+            return False
+        if retry_after_seconds is None or retry_after_seconds <= 0:
+            return False
+
+        available_count = self._get_oauth_auto_available_account_count(token_refresher)
+        if available_count is not None and available_count > 1:
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Bypassing session-affinity wait on 429 (available oauth-auto accounts=%d)",
+                    available_count,
+                )
+            return False
+
+        return True
+
+    def _compute_rate_limit_retry_sleep_seconds(
+        self,
+        *,
+        suggested_sleep_seconds: float,
+        retry_after_seconds: float | None,
+        preserve_affinity_wait: bool,
+        rotated_credentials: bool,
+    ) -> float:
+        """Compute local sleep for a single 429 retry attempt.
+
+        Rules:
+        - Rotated credentials retry immediately to minimize end-user latency.
+        - Session-affinity + explicit positive retry hint uses a low (1s) floor.
+        - Otherwise preserve conservative guardrails to prevent hot retry loops.
+        """
+        if rotated_credentials:
+            return 0.0
+
+        if (
+            preserve_affinity_wait
+            and retry_after_seconds is not None
+            and retry_after_seconds > 0
+        ):
+            return max(suggested_sleep_seconds, 1.0)
+
+        if suggested_sleep_seconds <= 0:
+            return self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+
+        return max(suggested_sleep_seconds, self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS)
 
     @staticmethod
     def _apply_refreshed_auth_header(
@@ -1312,6 +1389,7 @@ class StreamingExecutor:
                         self._should_wait_same_account_on_rate_limit(
                             token_refresher=token_refresher,
                             sleep_seconds=sleep_seconds,
+                            retry_after_seconds=retry_after,
                         )
                     )
                     rotated_credentials = False
@@ -1319,7 +1397,7 @@ class StreamingExecutor:
                     # Do not perform very long connector-local waits. Either rotate to
                     # another oauth-auto account or surface the retryable error so the
                     # failure strategy can fail over.
-                    if sleep_seconds > self.MAX_RATE_LIMIT_RETRY_SECONDS:
+                    if sleep_seconds > self._max_rate_limit_retry_seconds:
                         if is_oauth_auto:
                             rotated_credentials = (
                                 await self._try_rotate_oauth_auto_account(
@@ -1329,14 +1407,12 @@ class StreamingExecutor:
                                     log_context="Account rotation on 429 (early path)",
                                 )
                             )
-                            if rotated_credentials:
-                                sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
-                            else:
+                            if not rotated_credentials:
                                 logger.info(
                                     "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
                                     "surfacing retryable error for upstream failover",
                                     sleep_seconds,
-                                    self.MAX_RATE_LIMIT_RETRY_SECONDS,
+                                    self._max_rate_limit_retry_seconds,
                                 )
                                 raise
                         else:
@@ -1344,7 +1420,7 @@ class StreamingExecutor:
                                 "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
                                 "surfacing retryable error for upstream failover",
                                 sleep_seconds,
-                                self.MAX_RATE_LIMIT_RETRY_SECONDS,
+                                self._max_rate_limit_retry_seconds,
                             )
                             raise
 
@@ -1360,13 +1436,12 @@ class StreamingExecutor:
                             retry_after_seconds=retry_after,
                             log_context="Account rotation on 429 (early path)",
                         )
-                    if rotated_credentials:
-                        sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
-                    else:
-                        sleep_seconds = max(
-                            sleep_seconds,
-                            self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
-                        )
+                    sleep_seconds = self._compute_rate_limit_retry_sleep_seconds(
+                        suggested_sleep_seconds=sleep_seconds,
+                        retry_after_seconds=retry_after,
+                        preserve_affinity_wait=preserve_affinity_wait,
+                        rotated_credentials=rotated_credentials,
+                    )
 
                     if logger.isEnabledFor(logging.INFO):
                         logger.info(
@@ -1704,12 +1779,13 @@ class StreamingExecutor:
                 preserve_affinity_wait = self._should_wait_same_account_on_rate_limit(
                     token_refresher=token_refresher,
                     sleep_seconds=sleep_seconds,
+                    retry_after_seconds=retry_after,
                 )
 
                 # Do not perform very long connector-local waits. Either rotate to
                 # another oauth-auto account or surface the retryable error so the
                 # outer failure strategy can fail over.
-                if sleep_seconds > self.MAX_RATE_LIMIT_RETRY_SECONDS:
+                if sleep_seconds > self._max_rate_limit_retry_seconds:
                     if is_oauth_auto:
                         rotated_credentials = await self._try_rotate_oauth_auto_account(
                             token_refresher=token_refresher,
@@ -1717,14 +1793,12 @@ class StreamingExecutor:
                             retry_after_seconds=retry_after,
                             log_context="Account rotation on 429 (late path)",
                         )
-                        if rotated_credentials:
-                            sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
-                        else:
+                        if not rotated_credentials:
                             logger.info(
                                 "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
                                 "surfacing retryable error for upstream failover",
                                 sleep_seconds,
-                                self.MAX_RATE_LIMIT_RETRY_SECONDS,
+                                self._max_rate_limit_retry_seconds,
                             )
                             raise backend_error
                     else:
@@ -1732,7 +1806,7 @@ class StreamingExecutor:
                             "Rate limit window %.2fs exceeds local wait ceiling %.2fs; "
                             "surfacing retryable error for upstream failover",
                             sleep_seconds,
-                            self.MAX_RATE_LIMIT_RETRY_SECONDS,
+                            self._max_rate_limit_retry_seconds,
                         )
                         raise backend_error
 
@@ -1750,13 +1824,12 @@ class StreamingExecutor:
                         log_context="Account rotation on 429 (late path)",
                     )
 
-                if rotated_credentials:
-                    sleep_seconds = self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
-                else:
-                    sleep_seconds = max(
-                        sleep_seconds,
-                        self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
-                    )
+                sleep_seconds = self._compute_rate_limit_retry_sleep_seconds(
+                    suggested_sleep_seconds=sleep_seconds,
+                    retry_after_seconds=retry_after,
+                    preserve_affinity_wait=preserve_affinity_wait,
+                    rotated_credentials=rotated_credentials,
+                )
 
                 logger.info(
                     "Retrying streaming request after %.2fs due to rate limit (attempt=%s)",

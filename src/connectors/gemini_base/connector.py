@@ -609,6 +609,14 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
             # If not configured or invalid, let StreamingExecutor use its default
             if not isinstance(read_timeout, int | float):
                 read_timeout = None
+            failure_handling_config = getattr(self.config, "failure_handling", None)
+            max_silent_wait = (
+                getattr(failure_handling_config, "max_silent_wait", None)
+                if failure_handling_config is not None
+                else None
+            )
+            if not isinstance(max_silent_wait, int | float):
+                max_silent_wait = None
 
             self._streaming_executor_instance = StreamingExecutor(
                 translation_service=self.translation_service,
@@ -620,6 +628,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
                 backend_type=self.backend_type,
                 read_timeout=read_timeout,
                 yield_interval=self.config.streaming_yield_interval,
+                max_rate_limit_retry_seconds=max_silent_wait,
             )
         return self._streaming_executor_instance
 

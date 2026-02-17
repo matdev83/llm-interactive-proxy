@@ -231,15 +231,23 @@ class TestBackendRequestPreparer:
             auxiliary_router=auxiliary_router,
         )
 
+        observed_skip_flags: list[object] = []
+
+        async def _resolve_target_side_effect(request_obj, context_obj):
+            assert context_obj is context
+            observed_skip_flags.append(
+                context_obj.extensions.get("skip_static_route", False)
+            )
+            if len(observed_skip_flags) == 1:
+                return ResolvedTarget(backend="openai", model="gpt-4", uri_params={})
+            return ResolvedTarget(
+                backend="openrouter.1",
+                model="openai/gpt-4o-mini",
+                uri_params={"temperature": "0.2"},
+            )
+
         backend_model_resolver.resolve_target = AsyncMock(
-            side_effect=[
-                ResolvedTarget(backend="openai", model="gpt-4", uri_params={}),
-                ResolvedTarget(
-                    backend="openrouter.1",
-                    model="openai/gpt-4o-mini",
-                    uri_params={"temperature": "0.2"},
-                ),
-            ]
+            side_effect=_resolve_target_side_effect
         )
 
         request = CanonicalChatRequest(
@@ -270,3 +278,10 @@ class TestBackendRequestPreparer:
         assert second_call_request.extra_body is not None
         assert "backend_type" not in second_call_request.extra_body
         assert second_call_request.extra_body["x"] == "y"
+        assert observed_skip_flags == [True, True]
+        assert "skip_static_route" not in context.extensions
+        assert context.extensions["auxiliary_request"] is True
+        assert context.extensions["auxiliary_original_backend"] == "openai"
+        assert context.extensions["auxiliary_original_model"] == "gpt-4"
+        assert context.extensions["auxiliary_backend"] == "openrouter.1"
+        assert context.extensions["auxiliary_model"] == "openai/gpt-4o-mini"

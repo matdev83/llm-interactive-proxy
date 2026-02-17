@@ -92,9 +92,8 @@ async def test_streaming_executor_rotates_oauth_auto_on_429_before_retry(
     # Token rotation should update the auth header for the retry attempt.
     assert prepared.auth_session.headers["Authorization"] == "Bearer NEW"
 
-    # We should not sleep the full retry-after window when rotation succeeds.
-    assert sleep_mock.await_args is not None
-    assert sleep_mock.await_args.args[0] == executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+    # Rotation should retry immediately without connector-local wait.
+    assert sleep_mock.await_count == 0
 
     assert any(chunk.content == "ok" for chunk in chunks)
 
@@ -147,6 +146,8 @@ async def test_streaming_executor_preserves_affinity_on_short_429(
     token_refresher = MagicMock()
     token_refresher.backend_type = "gemini-oauth-auto"
     token_refresher.selection_strategy = "session-affinity"
+    token_refresher._account_selector = MagicMock()
+    token_refresher._account_selector.get_available_count = MagicMock(return_value=1)
     token_refresher._oauth_credentials = {"access_token": "NEW"}
     token_refresher.refresh_token_if_needed = AsyncMock(return_value=True)
 
@@ -164,6 +165,77 @@ async def test_streaming_executor_preserves_affinity_on_short_429(
 
     token_refresher.refresh_token_if_needed.assert_not_called()
     assert prepared.auth_session.headers["Authorization"] == "Bearer OLD"
+    assert any(chunk.content == "ok" for chunk in chunks)
+
+
+@pytest.mark.asyncio
+async def test_streaming_executor_rotates_on_session_affinity_when_multiple_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.connectors.gemini_base import streaming_executor as module_under_test
+
+    sleep_mock = AsyncMock()
+    monkeypatch.setattr(module_under_test.asyncio, "sleep", sleep_mock)
+
+    prepared = PreparedChatRequest(
+        auth_session=MagicMock(),
+        project_id="p",
+        canonical_request=None,
+        code_assist_request={},
+        prompt_tokens_estimate=0,
+        effective_model="google/gemini-3-pro-high",
+        session_id="sess-affinity-rotate",
+        signature_session_id="sess-affinity-rotate",
+        build_request_body=dict,
+    )
+    prepared.auth_session.headers = {"Authorization": "Bearer OLD"}
+
+    executor = StreamingExecutor(translation_service=MagicMock())
+
+    async def _fake_stream_generator(**_kwargs):
+        yield ProcessedResponse(content="ok", metadata={})
+
+    executor._stream_generator = _fake_stream_generator  # type: ignore[assignment]
+
+    processor = SSELineProcessor(
+        translation_service=MagicMock(),
+        effective_model=prepared.effective_model,
+        retry_delay_extractor=None,
+        backend_type="gemini-oauth-auto",
+    )
+
+    response = requests.Response()
+    response.status_code = 429
+    response._content = (
+        b'{"error":{"status":"RESOURCE_EXHAUSTED","message":"Rate limited"}}'
+    )
+    response.headers = CaseInsensitiveDict({"Retry-After": "5"})
+
+    retry_policy = _RetryPolicyStub(sleep_seconds=5.0)
+
+    token_refresher = MagicMock()
+    token_refresher.backend_type = "gemini-oauth-auto"
+    token_refresher.selection_strategy = "session-affinity"
+    token_refresher._account_selector = MagicMock()
+    token_refresher._account_selector.get_available_count = MagicMock(return_value=2)
+    token_refresher._oauth_credentials = {"access_token": "NEW"}
+    token_refresher.refresh_token_if_needed = AsyncMock(return_value=True)
+
+    chunks: list[ProcessedResponse] = []
+    async for chunk in executor._handle_error_response(
+        response=response,
+        processor=processor,
+        prepared=prepared,
+        url="https://example.invalid",
+        prompt_tokens=0,
+        retry_policy=retry_policy,
+        token_refresher=token_refresher,
+    ):
+        chunks.append(chunk)
+
+    token_refresher.refresh_token_if_needed.assert_awaited_once()
+    assert prepared.auth_session.headers["Authorization"] == "Bearer NEW"
+    assert sleep_mock.await_count == 0
     assert any(chunk.content == "ok" for chunk in chunks)
 
 

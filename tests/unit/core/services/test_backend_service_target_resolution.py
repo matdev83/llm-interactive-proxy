@@ -12,6 +12,7 @@ from src.core.common.exceptions import ConfigurationError, RoutingError
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.configuration.backend_config import BackendConfiguration
+from src.core.domain.request_context import RequestContext
 from src.core.domain.session import Session, SessionState
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.session_service_interface import ISessionService
@@ -439,6 +440,68 @@ class TestStaticRouteOverride:
             await service._resolve_backend_and_model(request)
         assert exc_info.value.details is not None
         assert exc_info.value.details.get("error_code") == "invalid_static_route_format"
+
+    @pytest.mark.asyncio
+    async def test_static_route_can_be_skipped_with_context_flag(self, mock_dependencies):
+        """Per-request context flag should bypass static_route overrides."""
+        mock_dependencies["config"].backends.static_route = "gemini:gemini-2.0-flash"
+
+        from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
+        from src.core.services.backend_model_resolver import BackendModelResolver
+        from src.core.services.model_alias_resolver import ModelAliasResolver
+        from src.core.services.planning_phase_manager import PlanningPhaseManager
+
+        from tests.unit.fixtures.backend_service_builder import (
+            create_backend_service_with_mocks,
+        )
+
+        model_alias_resolver = ModelAliasResolver(config=mock_dependencies["config"])
+        planning_phase_manager = PlanningPhaseManager(
+            session_service=mock_dependencies["session_service"]
+        )
+        backend_lifecycle_manager = BackendLifecycleManager(
+            factory=mock_dependencies["factory"],
+            config=mock_dependencies["config"],
+            backend_config_provider=Mock(),
+            per_session_limit=32,
+        )
+        backend_model_resolver = BackendModelResolver(
+            session_service=mock_dependencies["session_service"],
+            model_alias_resolver=model_alias_resolver,
+            planning_phase_manager=planning_phase_manager,
+            backend_lifecycle_manager=backend_lifecycle_manager,
+            config=mock_dependencies["config"],
+            routing_service=mock_dependencies["routing_service"],
+        )
+        mock_dependencies["model_alias_resolver"] = model_alias_resolver
+        mock_dependencies["planning_phase_manager"] = planning_phase_manager
+        mock_dependencies["backend_lifecycle_manager"] = backend_lifecycle_manager
+        mock_dependencies["backend_model_resolver"] = backend_model_resolver
+
+        service = create_backend_service_with_mocks(
+            use_real_completion_flow=True, **mock_dependencies
+        )
+
+        request = ChatRequest(
+            model="openrouter:nvidia/nemotron-3-nano-30b-a3b:free",
+            messages=[ChatMessage(role="user", content="generate title")],
+        )
+        context = RequestContext(
+            headers={},
+            cookies={},
+            state={},
+            app_state=None,
+            request_id="req-skip-static-route",
+            session_id="aux-session",
+        )
+        context.extensions["skip_static_route"] = True
+
+        target = await service._backend_model_resolver.resolve_target(
+            request=request, context=context
+        )
+
+        assert target.backend == "openrouter"
+        assert target.model == "nvidia/nemotron-3-nano-30b-a3b:free"
 
 
 class TestSessionBackendResolution:

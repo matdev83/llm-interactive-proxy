@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import lru_cache
 from threading import Lock
@@ -52,6 +53,14 @@ def normalize_backend_name(raw_name: str) -> str:
 def _looks_like_oauth_backend(raw_name: str) -> bool:
     normalized = normalize_backend_name(raw_name)
     return normalized.endswith("-oauth") or "-oauth-" in normalized
+
+
+def filter_oauth_style_backend_names(backend_names: Iterable[str]) -> list[str]:
+    """Return backend names that follow the OAuth connector naming convention.
+
+    Uses structural pattern only (no hardcoded names). Convention: *-oauth or *-oauth-*
+    """
+    return sorted(name for name in backend_names if _looks_like_oauth_backend(name))
 
 
 def _load_entry_points(group: str) -> list[Any]:

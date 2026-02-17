@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 _RESOLVED_URI_PARAMS_CONTEXT_KEY = "resolved_uri_params"
 _RESOLVED_URI_PARAMS_EXTRA_BODY_KEY = "_resolved_uri_params"
+_SKIP_STATIC_ROUTE_CONTEXT_KEY = "skip_static_route"
 
 
 class BackendModelResolver(IBackendModelResolver):
@@ -227,9 +228,20 @@ class BackendModelResolver(IBackendModelResolver):
                     ),
                 )
 
-        # Apply static_route override if configured
+        skip_static_route = False
+        if context is not None:
+            extensions = getattr(context, "extensions", None)
+            if isinstance(extensions, dict):
+                skip_static_route = bool(
+                    extensions.get(_SKIP_STATIC_ROUTE_CONTEXT_KEY, False)
+                )
+
+        # Apply static_route override if configured.
+        # Auxiliary request routing can set a context flag to bypass this global
+        # override for explicitly rerouted requests.
         if (
-            hasattr(app_config, "backends")
+            not skip_static_route
+            and hasattr(app_config, "backends")
             and hasattr(app_config.backends, "static_route")
             and app_config.backends.static_route
         ):
@@ -264,6 +276,10 @@ class BackendModelResolver(IBackendModelResolver):
                 if parsed_static.uri_params:
                     # Static-route parameters override request-provided URI params.
                     uri_params = {**uri_params, **parsed_static.uri_params}
+        elif skip_static_route and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Skipping static_route override due to request context flag"
+            )
 
         self._persist_uri_params_in_context(context, uri_params)
 
