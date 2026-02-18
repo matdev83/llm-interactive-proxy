@@ -5,7 +5,7 @@ Tests ensure that:
 - Empty tools/toolConfig are stripped from the final request body.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from src.connectors.gemini_base.chat_request_preparer import ChatRequestPreparer
@@ -55,11 +55,14 @@ class MockMessageConverter(IMessageConverter):
 
 
 class MockPromptLimiter(IPromptLimiter):
+    def __init__(self):
+        self.last_enforced_tokens: int | None = None
+
     def _estimate_prompt_tokens(self, code_assist_request):
         return 100
 
     def _enforce_prompt_limit(self, prompt_tokens, effective_model, *, request_id=None):
-        pass
+        self.last_enforced_tokens = prompt_tokens
 
 
 class MockRequestBodyBuilder(IRequestBodyBuilder):
@@ -104,3 +107,37 @@ async def test_prepare_strips_empty_tools_safety_net() -> None:
     code_assist_req = final_body["request"]
     assert "tools" not in code_assist_req
     assert "toolConfig" not in code_assist_req
+
+
+@pytest.mark.asyncio
+async def test_prepare_uses_higher_fallback_prompt_estimate() -> None:
+    """Enforce prompt limit with the larger fallback estimate when needed."""
+    context = MockConnectorContext()
+    converter = MockMessageConverter()
+    limiter = MockPromptLimiter()
+    builder = MockRequestBodyBuilder()
+
+    translation_service = MagicMock()
+    preparer = ChatRequestPreparer(
+        connector_context=context,
+        message_converter=converter,
+        prompt_limiter=limiter,
+        request_body_builder=builder,
+        translation_service=translation_service,
+    )
+
+    translation_service.from_domain_to_gemini_request = MagicMock(
+        return_value={"contents": [{"parts": [{"text": "small"}]}]}
+    )
+
+    request_data = MagicMock()
+    request_data.session_id = "test-session"
+
+    with patch(
+        "src.connectors.gemini_base.chat_request_preparer.calculate_outbound_tokens",
+        return_value=4321,
+    ):
+        prepared = await preparer.prepare(request_data, "gemini-2.5-flash")
+
+    assert prepared.prompt_tokens_estimate == 4321
+    assert limiter.last_enforced_tokens == 4321

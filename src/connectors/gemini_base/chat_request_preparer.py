@@ -19,6 +19,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from requests.adapters import HTTPAdapter  # type: ignore[import-untyped]
+
 from src.connectors.gemini_base.connector_context import (
     IConnectorContext,
     IMessageConverter,
@@ -38,12 +40,20 @@ from src.connectors.gemini_base.thought_signature_service import (
 from src.core.common.exceptions import AuthenticationError
 from src.core.domain.chat_history_utils import stringify_tool_calls_and_results
 from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
+from src.core.utils.usage_recalculation import calculate_outbound_tokens
 
 if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
 
 
 logger = logging.getLogger(__name__)
+
+# Module-level shared connection pool for Code Assist API.
+# Kept outside any class so the pool survives backend connector
+# re-initialisation (which happens on every cache-miss in the
+# BackendLifecycleManager).  This matches the keep-alive behaviour
+# of the native gemini-cli (gaxios/Node.js default keep-alive).
+_SHARED_CODE_ASSIST_ADAPTER = HTTPAdapter(pool_connections=2, pool_maxsize=8)
 
 
 @dataclass
@@ -164,6 +174,10 @@ class ChatRequestPreparer:
             thought_signature_service or get_default_thought_signature_service()
         )
 
+        # Reference the module-level adapter so the connection pool
+        # survives connector re-initialisation across requests.
+        self._shared_https_adapter = _SHARED_CODE_ASSIST_ADAPTER
+
     async def prepare(
         self,
         request_data: Any,
@@ -225,6 +239,9 @@ class ChatRequestPreparer:
         auth_session = self._google_auth_provider.create_authorized_session(
             _StaticTokenCreds(access_token)
         )
+        # Mount shared connection pool so TCP+TLS connections are reused
+        # across sequential requests instead of opening a fresh socket each time.
+        auth_session.mount("https://", self._shared_https_adapter)
         auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
 
         # Apply custom headers (e.g., User-Agent for Antigravity)
@@ -433,9 +450,20 @@ class ChatRequestPreparer:
             if not tool_config_val:  # Handles None, [], {}
                 del code_assist_request["toolConfig"]
 
-        # Use IPromptLimiter interface for token estimation and limit enforcement
-        prompt_tokens_estimate = self._prompt_limiter._estimate_prompt_tokens(
+        # Use IPromptLimiter interface for Code Assist request token estimation.
+        code_assist_prompt_tokens_estimate = self._prompt_limiter._estimate_prompt_tokens(
             code_assist_request
+        )
+        # Safety net: in some tool-heavy sessions, Code Assist-part serialization can
+        # undercount relative to the canonical outbound request shape.
+        fallback_prompt_tokens_estimate = calculate_outbound_tokens(
+            request_data,
+            model=effective_model,
+            label="prompt_estimation_fallback",
+        )
+        prompt_tokens_estimate = max(
+            code_assist_prompt_tokens_estimate or 0,
+            fallback_prompt_tokens_estimate or 0,
         )
         self._prompt_limiter._enforce_prompt_limit(
             prompt_tokens_estimate,
@@ -470,6 +498,8 @@ class ChatRequestPreparer:
                 f"Code Assist request: first message size={first_msg_size} chars, "
                 f"contents count={len(contents_list)}, "
                 f"estimated tokens={prompt_tokens_estimate}"
+                f" (code_assist={code_assist_prompt_tokens_estimate}, "
+                f"fallback={fallback_prompt_tokens_estimate})"
             )
 
         return PreparedChatRequest(

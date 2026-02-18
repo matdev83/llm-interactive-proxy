@@ -113,6 +113,16 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             if backend is not None:
                 self._per_session_backends.move_to_end(cache_key)
                 return backend
+
+            # Fallback: reuse a globally-cached instance for this backend_type
+            # rather than creating a redundant duplicate.  OAuth-based backends
+            # share their account pool and token storage across sessions, so
+            # per-session isolation provides no benefit while losing connection-
+            # pool, rate-limit cooldown, and session-affinity state.
+            global_backend = self._backends.get(backend_type)
+            if global_backend is not None:
+                self._backends.move_to_end(backend_type)
+                return global_backend
         else:
             backend = self._backends.get(cache_key)
             if backend is not None:
@@ -155,14 +165,14 @@ class BackendLifecycleManager(IBackendLifecycleManager):
             created_backend: LLMBackend = await self._factory.ensure_backend(
                 backend_type, app_config, provider_backend_config
             )
-            if self._is_per_session_cache_key(cache_key, backend_type):
-                self._per_session_backends[cache_key] = created_backend
-                self._per_session_backends.move_to_end(cache_key)
-                await self._enforce_per_session_backend_limit()
-            else:
-                self._backends[cache_key] = created_backend
-                self._backends.move_to_end(cache_key)
-                await self._enforce_global_backend_limit()
+
+            # Always store in the global cache so the instance is reused
+            # across sessions.  This preserves connection pools, rate-limit
+            # cooldowns and session-affinity state that would otherwise be
+            # lost when every request gets a unique per-session cache key.
+            self._backends[backend_type] = created_backend
+            self._backends.move_to_end(backend_type)
+            await self._enforce_global_backend_limit()
             return created_backend
         except LLMProxyError:
             # Preserve domain errors (for example RoutingError unknown_model)

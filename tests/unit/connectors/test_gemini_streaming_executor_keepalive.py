@@ -267,8 +267,9 @@ async def test_streaming_executor_session_affinity_short_retry_after_not_clamped
     token_refresher.refresh_token_if_needed.assert_not_called()
     sleep_mock.assert_awaited()
     assert sleep_mock.await_args is not None
+    # Server hint of 2 s is honoured directly (above the 0.5 s floor).
     assert sleep_mock.await_args.args[0] == 2.0
-    assert sleep_mock.await_args.args[0] < executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+    assert sleep_mock.await_args.args[0] >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
     assert any(chunk.content == "ok" for chunk in chunks)
 
 

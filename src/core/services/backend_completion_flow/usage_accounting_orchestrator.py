@@ -116,6 +116,22 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             metadata["b_seq"] = identity.b_seq
         return metadata
 
+    @staticmethod
+    def _should_force_usage_recalculation_for_backend(
+        backend_type: str | None,
+    ) -> bool:
+        """Return True when backend usage is known to be estimator-derived.
+
+        Gemini OAuth Code Assist streaming currently reports usage from a local
+        estimator (not authoritative provider-side token accounting). For these
+        backends we force transport-side usage reconciliation so outbound token
+        hints are propagated to client-visible usage.
+        """
+        if not isinstance(backend_type, str):
+            return False
+        normalized = backend_type.strip().lower().replace("_", "-")
+        return normalized.startswith("gemini-oauth")
+
     def __init__(
         self,
         usage_tracking_service: IUsageTrackingService | None,
@@ -295,6 +311,8 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             result.metadata = {}
         if hasattr(result, "metadata") and isinstance(result.metadata, dict):
             result.metadata["outbound_tokens"] = outbound_tokens
+            if self._should_force_usage_recalculation_for_backend(backend_type):
+                result.metadata["allow_usage_recalculation"] = True
             if b2bua_usage_metadata is not None:
                 result.metadata.setdefault("b2bua", dict(b2bua_usage_metadata))
 

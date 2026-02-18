@@ -61,7 +61,11 @@ class TestBackendCacheLRUProperty:
     async def test_lru_eviction_on_limit(
         self, num_sessions: int, cache_limit: int
     ) -> None:
-        """When exceeding cache limit, LRU backend should be evicted."""
+        """Session requests share a global backend instance.
+
+        Since backends are now stored globally (not per-session), multiple
+        session requests for the same backend_type create only one instance.
+        """
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
         factory = MockBackendFactory()
@@ -70,20 +74,16 @@ class TestBackendCacheLRUProperty:
             per_session_limit=cache_limit,
         )
 
-        # Create backends for multiple sessions
+        # Create backends for multiple sessions - all reuse the same global instance
         created_backends: list[MockLLMBackend] = []
         for i in range(num_sessions):
             backend = await manager.get_or_create("openai", session_id=f"session-{i}")
             created_backends.append(backend)  # type: ignore
 
-        # Cache should not exceed limit
-        assert len(manager._per_session_backends) <= cache_limit
-
-        # The most recent backends should be in cache
-        expected_sessions = [f"openai:session-{i}" for i in range(num_sessions)]
-        expected_in_cache = set(expected_sessions[-cache_limit:])
-        actual_in_cache = set(manager._per_session_backends.keys())
-        assert actual_in_cache == expected_in_cache
+        # All session requests share one global instance
+        assert "openai" in manager._backends
+        assert len(manager._per_session_backends) == 0
+        assert all(b is created_backends[0] for b in created_backends)
 
     @given(
         access_pattern=st.lists(
@@ -92,10 +92,10 @@ class TestBackendCacheLRUProperty:
     )
     @settings(max_examples=50, deadline=None)
     @pytest.mark.asyncio
-    async def test_lru_order_maintained_on_access(
+    async def test_global_backend_reused_across_access_patterns(
         self, access_pattern: list[int]
     ) -> None:
-        """Accessing a cached backend should move it to MRU position."""
+        """Multiple session accesses should always return the same global instance."""
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
         factory = MockBackendFactory()
@@ -105,41 +105,38 @@ class TestBackendCacheLRUProperty:
             per_session_limit=cache_limit,
         )
 
-        # Create initial backends
-        for i in range(cache_limit):
-            await manager.get_or_create("openai", session_id=f"session-{i}")
+        # Create initial backends - all share one global instance
+        first_backend = await manager.get_or_create("openai", session_id="session-0")
 
         # Access backends in given pattern
         for session_idx in access_pattern:
             session_id = f"session-{session_idx % cache_limit}"
-            await manager.get_or_create("openai", session_id=session_id)
+            backend = await manager.get_or_create("openai", session_id=session_id)
+            assert backend is first_backend
 
-        # Cache should still be within limit
-        assert len(manager._per_session_backends) <= cache_limit
+        # Only one global entry, no per-session entries
+        assert "openai" in manager._backends
+        assert len(manager._per_session_backends) == 0
 
     @pytest.mark.asyncio
-    async def test_evicted_backends_are_shutdown(self) -> None:
-        """Evicted backends should have their shutdown method called."""
+    async def test_global_backend_eviction_triggers_shutdown(self) -> None:
+        """Evicted global backends should have their shutdown method called."""
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
         factory = MockBackendFactory()
-        cache_limit = 2
         manager = BackendLifecycleManager(
             factory=factory,  # type: ignore
-            per_session_limit=cache_limit,
+            global_backend_limit=2,
         )
 
-        # Create backends that will be evicted
-        backend1 = await manager.get_or_create("openai", session_id="session-1")
-        backend2 = await manager.get_or_create("openai", session_id="session-2")
+        # Create backends of different types to fill the global cache
+        backend1 = await manager.get_or_create("openai")
+        await manager.get_or_create("anthropic")
 
-        # These should cause eviction
-        await manager.get_or_create("openai", session_id="session-3")
-        await manager.get_or_create("openai", session_id="session-4")
+        # Adding a third type should evict the LRU (openai)
+        await manager.get_or_create("gemini")
 
-        # First backends should have been evicted and shutdown
         assert backend1.shutdown_called  # type: ignore
-        assert backend2.shutdown_called  # type: ignore
 
     @pytest.mark.asyncio
     async def test_global_backends_not_subject_to_lru(self) -> None:
@@ -213,8 +210,8 @@ class TestCacheKeyRules:
     """Test cache key generation rules."""
 
     @pytest.mark.asyncio
-    async def test_session_id_creates_per_session_key(self) -> None:
-        """With session_id, backend should be in per-session cache."""
+    async def test_session_id_stores_in_global_cache(self) -> None:
+        """With session_id, backend should be stored in global cache (not per-session)."""
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
         factory = MockBackendFactory()
@@ -222,8 +219,8 @@ class TestCacheKeyRules:
 
         await manager.get_or_create("openai", session_id="test-session")
 
-        assert "openai:test-session" in manager._per_session_backends
-        assert "openai" not in manager._backends
+        assert "openai" in manager._backends
+        assert len(manager._per_session_backends) == 0
 
     @pytest.mark.asyncio
     async def test_no_session_id_creates_global_key(self) -> None:
@@ -244,7 +241,7 @@ class TestGetActiveBackends:
 
     @pytest.mark.asyncio
     async def test_returns_all_backends(self) -> None:
-        """get_active_backends should return both global and per-session backends."""
+        """get_active_backends should return global backend instances."""
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
         factory = MockBackendFactory()
@@ -252,16 +249,15 @@ class TestGetActiveBackends:
 
         await manager.get_or_create("openai")
         await manager.get_or_create("anthropic")
+        # Session requests reuse the existing global 'openai' instance
         await manager.get_or_create("openai", session_id="session-1")
         await manager.get_or_create("openai", session_id="session-2")
 
         active = manager.get_active_backends()
 
-        assert len(active) == 4
+        assert len(active) == 2
         assert "openai" in active
         assert "anthropic" in active
-        assert "openai:session-1" in active
-        assert "openai:session-2" in active
 
 
 class TestBackendShutdown:
@@ -334,22 +330,25 @@ class TestDiscardBackend:
         assert manager.is_disabled("openai")
 
     @pytest.mark.asyncio
-    async def test_discard_removes_per_session_variants(self) -> None:
-        """discard without session_id should remove all per-session variants."""
+    async def test_discard_removes_global_instance_created_by_session_requests(
+        self,
+    ) -> None:
+        """discard should remove the global instance even when created via session requests."""
         from src.core.services.backend_lifecycle_manager import BackendLifecycleManager
 
         factory = MockBackendFactory()
-        manager = BackendLifecycleManager(factory=factory, per_session_limit=10)  # type: ignore
+        manager = BackendLifecycleManager(factory=factory)  # type: ignore
 
         await manager.get_or_create("openai", session_id="session-1")
         await manager.get_or_create("openai", session_id="session-2")
-        await manager.get_or_create("openai", session_id="session-3")
 
-        assert len(manager._per_session_backends) == 3
+        # All stored as one global entry
+        assert "openai" in manager._backends
 
         manager.discard("openai", None, "test reason")
 
-        assert len(manager._per_session_backends) == 0
+        assert "openai" not in manager._backends
+        assert manager.is_disabled("openai")
 
     @pytest.mark.asyncio
     async def test_discard_with_session_id_purges_all_variants(self) -> None:

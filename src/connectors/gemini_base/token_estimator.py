@@ -10,6 +10,10 @@ import threading
 from functools import lru_cache
 from typing import Any, Protocol, runtime_checkable
 
+from src.connectors.gemini_base.prompt_limiter import (
+    estimate_prompt_tokens as estimate_prompt_tokens_for_request,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,8 +98,8 @@ class TiktokenEstimator:
     def estimate_prompt_tokens(self, code_assist_request: dict[str, Any]) -> int | None:
         """Estimate prompt tokens from a Code Assist request.
 
-        Extracts text from systemInstruction and contents fields,
-        concatenates them, and counts tokens.
+        Uses the shared prompt-limiter serializer so non-text parts
+        (e.g. function calls/responses and tool payloads) are counted too.
 
         Args:
             code_assist_request: The prepared Code Assist request body.
@@ -104,26 +108,9 @@ class TiktokenEstimator:
             Estimated prompt token count, or None if estimation fails.
         """
         try:
-            prompt_text_parts: list[str] = []
-
-            # Extract system instruction text
-            system_instruction = code_assist_request.get("systemInstruction")
-            if system_instruction:
-                for part in system_instruction.get("parts", []):
-                    if "text" in part:
-                        prompt_text_parts.append(part["text"])
-
-            # Extract content text
-            for content in code_assist_request.get("contents", []):
-                for part in content.get("parts", []):
-                    if "text" in part:
-                        prompt_text_parts.append(part["text"])
-
-            if not prompt_text_parts:
-                return None
-
-            full_prompt = "\n".join(prompt_text_parts)
-            return self.estimate_tokens(full_prompt)
+            return estimate_prompt_tokens_for_request(
+                code_assist_request, self.encoding
+            )
 
         except Exception as e:
             logger.warning("Could not calculate prompt tokens: %s", e, exc_info=True)

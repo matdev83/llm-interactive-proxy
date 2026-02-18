@@ -227,6 +227,46 @@ class TestUsageAccountingOrchestrator:
         usage_tracking_wrapper.wrap_stream_for_usage.assert_called_once()
 
     @pytest.mark.asyncio
+    async def test_wrap_response_for_usage_marks_gemini_oauth_for_recalculation(
+        self, orchestrator, usage_tracking_wrapper
+    ):
+        stream = Mock()
+        response = StreamingResponseEnvelope(content=stream)
+        usage_tracking_wrapper.wrap_stream_for_usage.return_value = "wrapped_stream"
+
+        result = await orchestrator.wrap_response_for_usage(
+            result=response,
+            outbound_tokens=321,
+            ctp_record_id="rec_ctp",
+            ptb_record_id="rec_ptb",
+            start_time=1000.0,
+            backend_type="gemini-oauth-auto",
+        )
+
+        assert result.metadata["outbound_tokens"] == 321
+        assert result.metadata["allow_usage_recalculation"] is True
+
+    @pytest.mark.asyncio
+    async def test_wrap_response_for_usage_does_not_mark_openai_for_recalculation(
+        self, orchestrator, usage_tracking_wrapper
+    ):
+        stream = Mock()
+        response = StreamingResponseEnvelope(content=stream)
+        usage_tracking_wrapper.wrap_stream_for_usage.return_value = "wrapped_stream"
+
+        result = await orchestrator.wrap_response_for_usage(
+            result=response,
+            outbound_tokens=111,
+            ctp_record_id="rec_ctp",
+            ptb_record_id="rec_ptb",
+            start_time=1000.0,
+            backend_type="openai",
+        )
+
+        assert result.metadata["outbound_tokens"] == 111
+        assert "allow_usage_recalculation" not in result.metadata
+
+    @pytest.mark.asyncio
     async def test_handle_streaming_response_success(
         self,
         orchestrator,

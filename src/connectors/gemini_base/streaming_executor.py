@@ -15,6 +15,21 @@ import uuid
 from collections.abc import AsyncGenerator, Callable, Iterable
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
+# ---------------------------------------------------------------------------
+# Module-level backend cooldown state
+#
+# The Code Assist backend applies IP-based (not per-account) rate limits.
+# When *any* account on this proxy receives a 429, the entire backend
+# is in a cooldown period.  All subsequent requests -- including those
+# from different accounts -- must wait until the cooldown expires before
+# dispatching a new HTTP request.
+#
+# This prevents the cascading 429 pattern where immediate retries or
+# concurrent requests exhaust the rate-limit window.
+# ---------------------------------------------------------------------------
+_backend_cooldown_until: float = 0.0  # monotonic time
+_backend_cooldown_lock = threading.Lock()
+
 import pydantic
 import requests  # type: ignore[import-untyped]
 from pydantic.types import JsonValue
@@ -298,10 +313,13 @@ class StreamingExecutor:
 
     MAX_ERROR_JSON_SIZE = 32 * 1024  # 32KB limit for error JSON detection
     MAX_RATE_LIMIT_RETRY_SECONDS = 60.0
-    # Guardrail: avoid hammering the backend when the server reports a retry window
-    # of 0s (this happens in practice with some Gemini RESOURCE_EXHAUSTED responses).
-    # We still want to retry, but never in a hot loop.
-    MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS = 5.0
+    # Small floor to prevent a zero-delay hot loop when the server reports
+    # retryDelay: "0s" (common with RESOURCE_EXHAUSTED).  Kept low so that
+    # short server-specified windows (e.g. 1-2 s) are honoured faithfully,
+    # matching the gemini-cli behaviour of respecting Retry-After verbatim.
+    MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS = 0.5
+    # Default backoff when the server provides *no* retry-after hint at all.
+    DEFAULT_RATE_LIMIT_BACKOFF_SECONDS = 2.0
     STREAMING_KEEPALIVE_INTERVAL_SECONDS = 8.0
 
     def __init__(
@@ -363,6 +381,29 @@ class StreamingExecutor:
         else:
             extensions["retry_attempt"] = 1
         extensions["is_retry"] = True
+
+    # ------------------------------------------------------------------
+    # Backend-wide cooldown helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _get_backend_cooldown_remaining() -> float:
+        """Return seconds remaining in the backend-wide cooldown, or 0."""
+        with _backend_cooldown_lock:
+            remaining = _backend_cooldown_until - time.monotonic()
+        return max(remaining, 0.0)
+
+    @staticmethod
+    def _set_backend_cooldown(seconds: float) -> None:
+        """Extend the backend-wide cooldown to at least *seconds* from now.
+
+        Thread-safe; only moves the cooldown forward, never backward.
+        """
+        global _backend_cooldown_until
+        new_until = time.monotonic() + seconds
+        with _backend_cooldown_lock:
+            if new_until > _backend_cooldown_until:
+                _backend_cooldown_until = new_until
 
     def _extract_retry_after_seconds(self, error: BackendError) -> float | None:
         details = getattr(error, "details", None)
@@ -453,19 +494,11 @@ class StreamingExecutor:
         strategy = self._get_oauth_auto_selection_strategy(token_refresher)
         if strategy != "session-affinity":
             return False
-        if retry_after_seconds is None or retry_after_seconds <= 0:
-            return False
-
-        available_count = self._get_oauth_auto_available_account_count(token_refresher)
-        if available_count is not None and available_count > 1:
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Bypassing session-affinity wait on 429 (available oauth-auto accounts=%d)",
-                    available_count,
-                )
-            return False
-
-        return True
+        # Code Assist rate limits are observed as endpoint/IP-scoped.
+        # When the server provides a positive Retry-After, preserve the
+        # current account and wait; rotating credentials does not bypass
+        # the same upstream bucket and only increases churn.
+        return retry_after_seconds is not None and retry_after_seconds > 0
 
     def _compute_rate_limit_retry_sleep_seconds(
         self,
@@ -477,25 +510,41 @@ class StreamingExecutor:
     ) -> float:
         """Compute local sleep for a single 429 retry attempt.
 
-        Rules:
-        - Rotated credentials retry immediately to minimize end-user latency.
-        - Session-affinity + explicit positive retry hint uses a low (1s) floor.
-        - Otherwise preserve conservative guardrails to prevent hot retry loops.
+        Rules (aligned with gemini-cli Retry-After semantics):
+        - When the server provides an explicit retry-after value, honour it
+          with only a small floor (MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS) to
+          prevent a zero-delay hot loop.
+        - Account rotation does NOT bypass the server hint.  The Code Assist
+          backend applies IP-based rate limits, so rotating credentials does
+          not clear the rate-limit window.  A short 0.5 s retry after rotation
+          just exhausts both accounts and cascades into repeated 429s.
+        - When no server hint is available, use a moderate default backoff
+          (DEFAULT_RATE_LIMIT_BACKOFF_SECONDS).
         """
-        if rotated_credentials:
-            return 0.0
+        has_server_hint = (
+            retry_after_seconds is not None and retry_after_seconds >= 0
+        )
 
-        if (
-            preserve_affinity_wait
-            and retry_after_seconds is not None
-            and retry_after_seconds > 0
-        ):
-            return max(suggested_sleep_seconds, 1.0)
+        if has_server_hint:
+            # Server told us how long to wait - honour it regardless of
+            # whether credentials were rotated.  IP-based rate limits mean
+            # the window applies to all accounts on this host.
+            return max(
+                suggested_sleep_seconds,
+                self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
+            )
+
+        # No server hint.
+        if rotated_credentials:
+            return self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
 
         if suggested_sleep_seconds <= 0:
-            return self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+            return self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
 
-        return max(suggested_sleep_seconds, self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS)
+        return max(
+            suggested_sleep_seconds,
+            self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
+        )
 
     @staticmethod
     def _apply_refreshed_auth_header(
@@ -685,6 +734,19 @@ class StreamingExecutor:
                             "stream_id": prepared.session_id,
                         },
                     )
+
+                # Respect backend-wide cooldown before dispatching.
+                # When a recent 429 was received (from any account), the
+                # cooldown prevents this request from hitting the same
+                # IP-based rate-limit window.
+                cooldown_remaining = self._get_backend_cooldown_remaining()
+                if cooldown_remaining > 0:
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Backend cooldown: waiting %.1fs before dispatch",
+                            cooldown_remaining,
+                        )
+                    await asyncio.sleep(cooldown_remaining)
 
                 request_task = asyncio.create_task(
                     asyncio.to_thread(
@@ -1350,10 +1412,17 @@ class StreamingExecutor:
                 with contextlib.suppress(AttributeError, TypeError):
                     cast(Any, err).__rate_limit_recorded__ = True
 
+                retry_after_early = self._extract_retry_after_seconds(err)
                 await self._record_rate_limit(
                     token_refresher,
-                    retry_after_seconds=self._extract_retry_after_seconds(err),
+                    retry_after_seconds=retry_after_early,
                 )
+                # Backend-wide cooldown (early path)
+                cooldown_early = max(
+                    retry_after_early or 0,
+                    self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
+                )
+                self._set_backend_cooldown(cooldown_early)
 
             # Handle quota_exceeded errors by yielding error chunk with code 503
             if hasattr(err, "code") and err.code == "quota_exceeded":
@@ -1667,6 +1736,17 @@ class StreamingExecutor:
                 backend_error
             )
             await self._record_rate_limit(token_refresher, retry_after)
+
+            # Set backend-wide cooldown so that concurrent or subsequent
+            # requests from other sessions/accounts also wait.  Use at
+            # least DEFAULT_RATE_LIMIT_BACKOFF_SECONDS even when the
+            # server hint is shorter, because the effective rate-limit
+            # window is typically longer than the Retry-After value.
+            cooldown = max(
+                retry_after or 0,
+                self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
+            )
+            self._set_backend_cooldown(cooldown)
 
         auth_policy = auth_refresh_policy or self._auth_refresh_policy
         auth_attempt = 1 if _auth_retry_attempted else 0
