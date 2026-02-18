@@ -7,6 +7,7 @@ explicitly document their behavior.
 """
 
 import logging
+import random
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
@@ -56,14 +57,22 @@ class IAuthRefreshPolicy(Protocol):
 
 
 class RateLimitRetryPolicy(IRetryPolicy):
-    """Retry policy that handles rate limit style errors."""
+    """Retry policy that handles rate limit style errors.
+
+    Aligned with gemini-cli retry semantics: up to ``max_attempts`` retries
+    with the server-provided delay (if any) plus ±30 % jitter so that
+    concurrent clients don't stampede at the same instant.
+    """
+
+    # ±30 % jitter band, matching gemini-cli's JITTER_FACTOR
+    JITTER_FACTOR = 0.30
 
     def __init__(
         self,
         *,
         retry_delay_extractor: Callable[[BackendError], float | None] | None = None,
         is_rate_limit_like: Callable[[BackendError], bool] | None = None,
-        max_attempts: int = 1,
+        max_attempts: int = 3,
     ) -> None:
         self._retry_delay_extractor = retry_delay_extractor
         self._is_rate_limit_like = is_rate_limit_like or self._default_is_rate_limit
@@ -72,6 +81,12 @@ class RateLimitRetryPolicy(IRetryPolicy):
     @staticmethod
     def _default_is_rate_limit(error: BackendError) -> bool:
         return getattr(error, "status_code", None) == 429
+
+    @staticmethod
+    def _apply_jitter(delay: float) -> float:
+        """Apply ±30 % jitter to a delay value (matching gemini-cli)."""
+        jitter = delay * RateLimitRetryPolicy.JITTER_FACTOR
+        return max(0.0, delay + random.uniform(-jitter, jitter))
 
     def should_retry(
         self, error: BackendError, attempt: int, *, is_streaming: bool = False
@@ -86,7 +101,6 @@ class RateLimitRetryPolicy(IRetryPolicy):
         if self._retry_delay_extractor is not None:
             delay = self._retry_delay_extractor(error)
             if delay is not None and delay >= 0:
-                # Treat 0s as a valid immediate retry window.
                 delay_value = delay
 
         if delay_value is None:
@@ -98,17 +112,20 @@ class RateLimitRetryPolicy(IRetryPolicy):
                 )
             return RetryDecision(False, reason="no_retry_after")
 
+        jittered = self._apply_jitter(delay_value)
+
         decision = RetryDecision(
             should_retry=True,
-            sleep_seconds=delay_value,
+            sleep_seconds=jittered,
             reason="rate_limit",
         )
 
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
-                "RateLimitRetryPolicy: attempt=%s, streaming=%s, delay=%s",
+                "RateLimitRetryPolicy: attempt=%s, streaming=%s, delay=%.2f (base=%.2f)",
                 attempt,
                 is_streaming,
+                jittered,
                 delay_value,
             )
 

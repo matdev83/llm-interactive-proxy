@@ -39,7 +39,6 @@ from src.connectors.gemini_base.thought_signature_service import (
 )
 from src.core.common.exceptions import AuthenticationError
 from src.core.domain.chat_history_utils import stringify_tool_calls_and_results
-from src.core.security.loop_prevention import LOOP_GUARD_HEADER, LOOP_GUARD_VALUE
 from src.core.utils.usage_recalculation import calculate_outbound_tokens
 
 if TYPE_CHECKING:
@@ -242,7 +241,6 @@ class ChatRequestPreparer:
         # Mount shared connection pool so TCP+TLS connections are reused
         # across sequential requests instead of opening a fresh socket each time.
         auth_session.mount("https://", self._shared_https_adapter)
-        auth_session.headers.setdefault(LOOP_GUARD_HEADER, LOOP_GUARD_VALUE)
 
         # Apply custom headers (e.g., User-Agent for Antigravity)
         # Uses IConnectorContext interface

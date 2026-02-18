@@ -95,11 +95,10 @@ async def test_streaming_executor_rotates_oauth_auto_on_429_before_retry(
 
     # After rotation, the server's retry-after hint is honoured (IP-based
     # rate limits apply across all accounts, rotation does not help).
+    # Jitter (±30 %) may push the delay slightly below the nominal floor.
     assert sleep_mock.await_count >= 1
-    assert (
-        sleep_mock.await_args.args[0]
-        >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
-    )
+    jitter_lower = executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS * 0.69
+    assert sleep_mock.await_args.args[0] >= jitter_lower
 
     assert any(chunk.content == "ok" for chunk in chunks)
 
@@ -243,11 +242,10 @@ async def test_streaming_executor_preserves_affinity_when_retry_after_present(
     token_refresher.refresh_token_if_needed.assert_not_called()
     assert prepared.auth_session.headers["Authorization"] == "Bearer OLD"
     # The server hint is still honoured for the wait duration.
+    # Jitter (±30 %) may push the delay slightly below the nominal floor.
     assert sleep_mock.await_count >= 1
-    assert (
-        sleep_mock.await_args.args[0]
-        >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
-    )
+    jitter_lower = executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS * 0.69
+    assert sleep_mock.await_args.args[0] >= jitter_lower
     assert any(chunk.content == "ok" for chunk in chunks)
 
 

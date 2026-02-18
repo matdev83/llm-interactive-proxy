@@ -500,6 +500,14 @@ class StreamingExecutor:
         # the same upstream bucket and only increases churn.
         return retry_after_seconds is not None and retry_after_seconds > 0
 
+    @staticmethod
+    def _apply_jitter(delay: float, factor: float = 0.30) -> float:
+        """Apply ±``factor`` jitter to a delay (matching gemini-cli)."""
+        import random as _rnd
+
+        jitter = delay * factor
+        return max(0.0, delay + _rnd.uniform(-jitter, jitter))
+
     def _compute_rate_limit_retry_sleep_seconds(
         self,
         *,
@@ -520,31 +528,32 @@ class StreamingExecutor:
           just exhausts both accounts and cascades into repeated 429s.
         - When no server hint is available, use a moderate default backoff
           (DEFAULT_RATE_LIMIT_BACKOFF_SECONDS).
+        - All computed delays are jittered ±30 % so concurrent clients
+          don't all retry at the exact same instant.
         """
         has_server_hint = (
             retry_after_seconds is not None and retry_after_seconds >= 0
         )
 
         if has_server_hint:
-            # Server told us how long to wait - honour it regardless of
-            # whether credentials were rotated.  IP-based rate limits mean
-            # the window applies to all accounts on this host.
-            return max(
+            base = max(
                 suggested_sleep_seconds,
                 self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
             )
+            return self._apply_jitter(base)
 
         # No server hint.
         if rotated_credentials:
-            return self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+            return self._apply_jitter(self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS)
 
         if suggested_sleep_seconds <= 0:
-            return self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+            return self._apply_jitter(self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS)
 
-        return max(
+        base = max(
             suggested_sleep_seconds,
             self.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS,
         )
+        return self._apply_jitter(base)
 
     @staticmethod
     def _apply_refreshed_auth_header(

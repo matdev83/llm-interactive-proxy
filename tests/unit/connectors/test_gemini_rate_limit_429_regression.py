@@ -241,7 +241,8 @@ class TestRotatedCredentialsRetryDelay:
         )
 
     def test_rotated_credentials_at_least_min_floor(self) -> None:
-        """Delay after rotation must be >= MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS."""
+        """Delay after rotation must be approximately >= MIN (jitter may
+        push it slightly below the nominal floor)."""
         executor = self._make_executor()
         delay = executor._compute_rate_limit_retry_sleep_seconds(
             suggested_sleep_seconds=0.0,
@@ -249,13 +250,15 @@ class TestRotatedCredentialsRetryDelay:
             preserve_affinity_wait=False,
             rotated_credentials=True,
         )
-        assert delay >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+        jitter_lower = executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS * 0.69
+        assert delay >= jitter_lower
 
     # -- Rotation honours server hint (IP-based rate limits) -----------
 
     def test_rotated_credentials_honours_server_hint(self) -> None:
-        """After rotation the server's retry-after must be honoured,
-        because IP-based rate limits are not cleared by rotation."""
+        """After rotation the server's retry-after must be honoured
+        (within ±30 % jitter), because IP-based rate limits are not
+        cleared by rotation."""
         executor = self._make_executor()
         delay = executor._compute_rate_limit_retry_sleep_seconds(
             suggested_sleep_seconds=5.0,
@@ -263,11 +266,11 @@ class TestRotatedCredentialsRetryDelay:
             preserve_affinity_wait=False,
             rotated_credentials=True,
         )
-        assert delay == 5.0
+        assert delay == pytest.approx(5.0, rel=0.31)
 
     def test_rotated_credentials_with_no_server_hint(self) -> None:
         """When there is no server retry-after AND credentials rotated,
-        the default backoff must apply."""
+        the default backoff must apply (within jitter)."""
         executor = self._make_executor()
         delay = executor._compute_rate_limit_retry_sleep_seconds(
             suggested_sleep_seconds=0.0,
@@ -275,7 +278,9 @@ class TestRotatedCredentialsRetryDelay:
             preserve_affinity_wait=False,
             rotated_credentials=True,
         )
-        assert delay == executor.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+        assert delay == pytest.approx(
+            executor.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS, rel=0.31
+        )
 
     def test_rotated_credentials_with_large_server_hint(self) -> None:
         """A large server-provided retry-after must be honoured even
@@ -287,7 +292,7 @@ class TestRotatedCredentialsRetryDelay:
             preserve_affinity_wait=False,
             rotated_credentials=True,
         )
-        assert delay == 42.0
+        assert delay == pytest.approx(42.0, rel=0.31)
 
     def test_rotated_credentials_with_zero_server_hint(self) -> None:
         """Server hint of 0 s + rotation must still produce a non-zero
@@ -299,12 +304,13 @@ class TestRotatedCredentialsRetryDelay:
             preserve_affinity_wait=True,
             rotated_credentials=True,
         )
-        assert delay >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+        jitter_lower = executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS * 0.69
+        assert delay >= jitter_lower
 
     # -- Non-rotation paths should remain unchanged --------------------
 
     def test_non_rotated_with_server_hint_honours_hint(self) -> None:
-        """Without rotation, a server hint must be honoured (>= floor)."""
+        """Without rotation, a server hint must be honoured (within jitter)."""
         executor = self._make_executor()
         delay = executor._compute_rate_limit_retry_sleep_seconds(
             suggested_sleep_seconds=3.0,
@@ -312,10 +318,10 @@ class TestRotatedCredentialsRetryDelay:
             preserve_affinity_wait=False,
             rotated_credentials=False,
         )
-        assert delay == 3.0
+        assert delay == pytest.approx(3.0, rel=0.31)
 
     def test_non_rotated_without_hint_uses_default_backoff(self) -> None:
-        """Without rotation or server hint, the default backoff applies."""
+        """Without rotation or server hint, the default backoff applies (within jitter)."""
         executor = self._make_executor()
         delay = executor._compute_rate_limit_retry_sleep_seconds(
             suggested_sleep_seconds=0.0,
@@ -323,10 +329,13 @@ class TestRotatedCredentialsRetryDelay:
             preserve_affinity_wait=False,
             rotated_credentials=False,
         )
-        assert delay == executor.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS
+        assert delay == pytest.approx(
+            executor.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS, rel=0.31
+        )
 
     def test_non_rotated_with_small_hint_uses_floor(self) -> None:
-        """A server hint smaller than the floor must be clamped up."""
+        """A server hint smaller than the floor must be clamped up
+        (within jitter)."""
         executor = self._make_executor()
         delay = executor._compute_rate_limit_retry_sleep_seconds(
             suggested_sleep_seconds=0.1,
@@ -334,7 +343,9 @@ class TestRotatedCredentialsRetryDelay:
             preserve_affinity_wait=False,
             rotated_credentials=False,
         )
-        assert delay == executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+        assert delay == pytest.approx(
+            executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS, rel=0.31
+        )
 
 
 # ===================================================================
@@ -508,7 +519,6 @@ class TestEndToEndRateLimitRetryPath:
             "asyncio.sleep was called with 0 delay before retry; "
             "the per-IP rate limiter would reject the instant retry"
         )
-        assert (
-            sleep_mock.await_args.args[0]
-            >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
-        )
+        # Jitter (±30 %) may push the delay slightly below the nominal floor.
+        jitter_lower = executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS * 0.69
+        assert sleep_mock.await_args.args[0] >= jitter_lower

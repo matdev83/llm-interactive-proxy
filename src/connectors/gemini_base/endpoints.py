@@ -6,6 +6,7 @@ This module provides different endpoint configurations:
 - AntigravitySandboxEndpoint: Antigravity daily sandbox endpoint
 """
 
+import platform
 from typing import Any
 
 # Standard Code Assist API endpoint
@@ -16,6 +17,14 @@ ANTIGRAVITY_SANDBOX_ENDPOINT = "https://daily-cloudcode-pa.sandbox.googleapis.co
 
 # Antigravity-specific User-Agent
 ANTIGRAVITY_USER_AGENT = "antigravity/1.11.5 windows/amd64"
+
+# GeminiCLI-compatible User-Agent for standard Code Assist requests.
+# The backend uses this to identify known clients and assign appropriate
+# rate-limit tiers; the default python-requests UA gets a much more
+# restrictive bucket.
+CODE_ASSIST_USER_AGENT = (
+    f"GeminiCLI/0.11.0 ({platform.system().lower()}; {platform.machine().lower()})"
+)
 
 
 class StandardCodeAssistEndpoint:
@@ -47,21 +56,22 @@ class StandardCodeAssistEndpoint:
             credentials: Optional credentials dictionary for Authorization header.
 
         Returns:
-            Dictionary of HTTP headers.
+            Dictionary of HTTP headers with GeminiCLI-compatible User-Agent.
         """
         headers: dict[str, str] = {}
         if credentials and credentials.get("access_token"):
             headers["Authorization"] = f"Bearer {credentials['access_token']}"
         headers["Content-Type"] = "application/json"
+        headers["User-Agent"] = CODE_ASSIST_USER_AGENT
         return headers
 
     def get_session_headers(self) -> dict[str, str]:
         """Get headers for AuthorizedSession requests (used with requests library).
 
         Returns:
-            Dictionary of HTTP headers (empty for standard endpoint).
+            Dictionary of HTTP headers with GeminiCLI-compatible User-Agent.
         """
-        return {}
+        return {"User-Agent": CODE_ASSIST_USER_AGENT}
 
 
 class AntigravitySandboxEndpoint:
@@ -118,5 +128,6 @@ __all__ = [
     "ANTIGRAVITY_USER_AGENT",
     "AntigravitySandboxEndpoint",
     "CODE_ASSIST_ENDPOINT",
+    "CODE_ASSIST_USER_AGENT",
     "StandardCodeAssistEndpoint",
 ]

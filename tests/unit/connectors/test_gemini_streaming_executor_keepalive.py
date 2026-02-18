@@ -267,9 +267,10 @@ async def test_streaming_executor_session_affinity_short_retry_after_not_clamped
     token_refresher.refresh_token_if_needed.assert_not_called()
     sleep_mock.assert_awaited()
     assert sleep_mock.await_args is not None
-    # Server hint of 2 s is honoured directly (above the 0.5 s floor).
-    assert sleep_mock.await_args.args[0] == 2.0
-    assert sleep_mock.await_args.args[0] >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+    # Server hint of 2 s is honoured (within ±30 % jitter, above the floor).
+    assert sleep_mock.await_args.args[0] == pytest.approx(2.0, rel=0.31)
+    jitter_lower = executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS * 0.69
+    assert sleep_mock.await_args.args[0] >= jitter_lower
     assert any(chunk.content == "ok" for chunk in chunks)
 
 
@@ -429,10 +430,12 @@ async def test_streaming_executor_retries_on_zero_retry_after(
         chunks.append(chunk)
 
     # Zero retry-after windows must not result in a hot retry loop.
+    # Jitter (±30 %) may push the delay slightly below the nominal floor.
     sleep_mock.assert_awaited()
     assert sleep_mock.await_args is not None
     sleep_args = sleep_mock.await_args.args
-    assert sleep_args[0] >= executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS
+    jitter_lower = executor.MIN_RATE_LIMIT_RETRY_SLEEP_SECONDS * 0.69
+    assert sleep_args[0] >= jitter_lower
 
     assert any(chunk.content == "ok" for chunk in chunks)
 

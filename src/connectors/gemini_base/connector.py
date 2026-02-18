@@ -350,7 +350,7 @@ class GeminiOAuthBaseConnector(GeminiBackend, GeminiCodeAssistMixin, abc.ABC):
         self._retry_policy: IRetryPolicy = retry_policy or RateLimitRetryPolicy(
             retry_delay_extractor=self._extract_retry_delay,
             is_rate_limit_like=self._is_rate_limit_like_error,
-            max_attempts=1,
+            max_attempts=3,
         )
         self._auth_refresh_policy: IAuthRefreshPolicy = (
             auth_refresh_policy or AuthRefreshPolicy()
