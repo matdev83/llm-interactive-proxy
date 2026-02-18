@@ -620,6 +620,15 @@ class StreamingContentConverter:
 
                     prompt_hint = self._resolve_prompt_hint(metadata, envelope_metadata)
 
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Streaming final usage: prompt_hint=%s, "
+                            "force_recalc=%s, best_usage_prompt=%s",
+                            prompt_hint,
+                            force_usage_recalc,
+                            best_usage.get("prompt_tokens") if isinstance(best_usage, dict) else None,
+                        )
+
                     # Recalculate usage via service
                     try:
                         from src.core.services.usage_calculation_service import (
@@ -744,21 +753,49 @@ class StreamingContentConverter:
                                 exc_info=True,
                             )
 
-                    # If is_done and no usage yet, synthesize from outbound_tokens if available
+                    # Ensure outbound_tokens prompt hint is applied to
+                    # best_usage regardless of whether the try block
+                    # succeeded or raised.  The try block applies the hint
+                    # when recalculation succeeds; this guard covers the
+                    # exception path and the synthesis-from-scratch path.
+                    # Only override when usage recalculation is requested
+                    # (gemini-oauth backends) — authoritative backends keep
+                    # their provider-reported prompt_tokens.
+                    requires_recalc = bool(
+                        metadata.get("allow_usage_recalculation")
+                        or envelope_metadata.get("allow_usage_recalculation")
+                    )
+                    prompt_hint_final = self._resolve_prompt_hint(
+                        metadata, envelope_metadata
+                    )
                     if is_done and best_usage is None:
-                        prompt_hint = self._resolve_prompt_hint(
-                            metadata, envelope_metadata
-                        )
-                        if prompt_hint > 0:
-                            # Synthesize minimal usage from outbound_tokens
+                        if prompt_hint_final > 0:
                             best_usage = {
-                                "prompt_tokens": prompt_hint,
+                                "prompt_tokens": prompt_hint_final,
                                 "completion_tokens": 0,
-                                "total_tokens": prompt_hint,
+                                "total_tokens": prompt_hint_final,
                             }
-                            # Apply to enriched payload
                             if isinstance(enriched, dict):
                                 enriched["usage"] = best_usage
+                    elif (
+                        is_done
+                        and requires_recalc
+                        and isinstance(best_usage, dict)
+                        and prompt_hint_final > 0
+                    ):
+                        current_prompt = best_usage.get("prompt_tokens", 0) or 0
+                        if prompt_hint_final > current_prompt:
+                            best_usage["prompt_tokens"] = prompt_hint_final
+                            completion_val = best_usage.get("completion_tokens", 0) or 0
+                            best_usage["total_tokens"] = prompt_hint_final + completion_val
+                            if isinstance(enriched, dict):
+                                enriched["usage"] = best_usage
+                            if logger.isEnabledFor(logging.DEBUG):
+                                logger.debug(
+                                    "Outbound tokens override: prompt_tokens %d -> %d",
+                                    current_prompt,
+                                    prompt_hint_final,
+                                )
 
                 # Create StreamingContent
                 from src.core.domain.usage_summary import UsageSummary

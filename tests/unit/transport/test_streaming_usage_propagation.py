@@ -197,6 +197,58 @@ async def test_streaming_usage_respects_outbound_token_hint_for_tool_calls() -> 
 
 
 @pytest.mark.asyncio
+async def test_outbound_tokens_overrides_connector_estimate_for_recalc_backends() -> None:
+    """When allow_usage_recalculation is set (gemini-oauth), outbound_tokens
+    must replace the connector's lower prompt_tokens estimate."""
+
+    async def stream():
+        yield ProcessedResponse(
+            content={
+                "id": "chatcmpl-gemini-recalc",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "gemini-3-flash-preview",
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                "usage": {
+                    "prompt_tokens": 34631,
+                    "completion_tokens": 200,
+                    "total_tokens": 34831,
+                },
+            },
+            metadata={"stream_id": "stream-gemini"},
+        )
+
+    envelope = StreamingResponseEnvelope(
+        content=stream(),
+        metadata={
+            "outbound_tokens": 42861,
+            "allow_usage_recalculation": True,
+        },
+    )
+
+    response = to_fastapi_streaming_response(envelope)
+    body = await _collect_streaming_body(response)
+
+    data_lines = [
+        line[len("data: ") :]
+        for line in body.splitlines()
+        if line.startswith("data: ")
+        and line.strip() not in {"data: [DONE]", 'data: ["DONE"]'}
+    ]
+    payloads = [
+        json.loads(line)
+        for line in data_lines
+        if line.strip() not in {"[DONE]", '["DONE"]'}
+    ]
+    final_payload = payloads[-1]
+
+    assert "usage" in final_payload
+    usage = final_payload["usage"]
+    assert usage["prompt_tokens"] == 42861
+    assert usage["total_tokens"] == usage["prompt_tokens"] + usage["completion_tokens"]
+
+
+@pytest.mark.asyncio
 async def test_streaming_backend_usage_not_overridden_by_prompt_hint() -> None:
     """When backend usage exists, outbound hint must not replace provider values."""
 
