@@ -26,11 +26,13 @@ _EXTRACTED_OAUTH_CONNECTORS: set[str] = set(get_extracted_backend_names())
 
 # Known OAuth connectors (explicit list for clarity and documentation).
 # Module names use underscores, but logical connector names use dashes.
+# Backends that don't follow the -oauth naming convention must be listed
+# explicitly so they are treated as OAuth during Multi User Mode filtering.
 KNOWN_OAUTH_CONNECTORS: set[str] = _EXTRACTED_OAUTH_CONNECTORS.union(
     {
-        "kiro-oauth-auto",
         "openai-codex",  # Uses OAuth via auth.json (special case)
-        "opencode-zen",  # Check has_static_credentials property
+        "opencode-zen",  # Extracted plugin; name doesn't follow -oauth convention
+        "cline",  # Extracted plugin; uses OAuth-style token management
     }
 )
 

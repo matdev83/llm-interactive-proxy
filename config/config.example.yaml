@@ -189,6 +189,9 @@ compaction:
 # Logging
 logging:
   level: "INFO"  # TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL
+  # Standardize where console logs go.
+  # "stderr" is the Python default; "stdout" can be more convenient when piping.
+  console_stream: "stderr"  # stdout|stderr
   request_logging: false
   response_logging: false
   log_file: null  # Optional log file path (e.g., "var/logs/proxy.log")

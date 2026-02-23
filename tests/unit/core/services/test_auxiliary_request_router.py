@@ -157,6 +157,25 @@ class TestAuxiliaryRequestDetector:
 
         assert detector.is_auxiliary_request(request) is False
 
+    def test_does_not_override_explicit_backend_selector(self) -> None:
+        """Requests with explicit backend selectors must not be rerouted."""
+
+        config = AuxiliaryRoutingConfig(enabled=True, backend="aux-backend")
+        detector = AuxiliaryRequestDetector(config)
+
+        request = ChatRequest(
+            model="gemini-oauth-auto:google/gemini-3-flash-preview",
+            messages=[
+                ChatMessage(role="system", content="You are a title generator."),
+                ChatMessage(
+                    role="user", content="Generate a title for this conversation:"
+                ),
+                ChatMessage(role="user", content="Some topic"),
+            ],
+        )
+
+        assert detector.is_auxiliary_request(request) is False
+
 
 class TestAuxiliaryRequestRouter:
     """Tests for AuxiliaryRequestRouter."""
@@ -203,7 +222,9 @@ class TestAuxiliaryRequestRouter:
         router = AuxiliaryRequestRouter(config)
 
         assert router.get_auxiliary_backend() == ""
-        assert router.get_auxiliary_model() == "openrouter/anthropic/claude-3-haiku:free"
+        assert (
+            router.get_auxiliary_model() == "openrouter/anthropic/claude-3-haiku:free"
+        )
 
     def test_stats_tracking(self) -> None:
         """Router tracks request statistics."""

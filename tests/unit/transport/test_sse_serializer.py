@@ -159,10 +159,10 @@ class TestSSESerializerCancellationChunks:
         json_line = lines[0][6:]
         payload = json.loads(json_line)
 
-        # Cancellation chunks have finish_reason at top level
+        # Cancellation chunks should be OpenAI-shaped
         assert "choices" in payload
         assert len(payload["choices"]) > 0
-        assert payload["finish_reason"] == "cancelled"
+        assert payload["choices"][0]["finish_reason"] == "cancelled"
         assert payload["choices"][0]["delta"]["content"] == "Request cancelled by user"
         assert payload["id"] == "chatcmpl-cancel-123"
 
@@ -413,6 +413,11 @@ class TestSSESerializerNormalChunks:
         json_line = result_str.strip().split("\n\n")[0][6:]
         payload = json.loads(json_line)
 
+        # OpenAI-compatible envelope fields
+        assert payload["object"] == "chat.completion.chunk"
+        assert payload["choices"][0]["index"] == 0
+        assert payload["choices"][0]["finish_reason"] is None
+
         assert payload["choices"][0]["delta"]["content"] == "Hello world"
         assert payload["choices"][0]["delta"]["role"] == "assistant"
 
@@ -433,6 +438,103 @@ class TestSSESerializerNormalChunks:
 
         assert "reasoning_content" in result_str
         assert "Let me think..." in result_str
+
+    def test_suppress_reasoning_fields_omits_reasoning_content(self) -> None:
+        serializer = SSESerializer()
+        chunk = StreamingContent(
+            content="Answer",
+            metadata={
+                "provider": "anthropic",
+                "reasoning_content": "Let me think...",
+                "_suppress_reasoning_fields": True,
+            },
+            is_done=False,
+        )
+
+        result_str = serializer.serialize(chunk).decode("utf-8")
+
+        assert "reasoning_content" not in result_str
+        assert "Let me think..." not in result_str
+
+    def test_suppress_reasoning_fields_coerces_reasoning_delta_to_content(self) -> None:
+        serializer = SSESerializer()
+        openai_chunk: dict[str, Any] = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "reasoning_content": "I'll check...",
+                        "thinking": "I'll check...",
+                        "thought": "I'll check...",
+                        "content": "",
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+        chunk = StreamingContent(
+            content=openai_chunk,
+            metadata={"_suppress_reasoning_fields": True},
+            is_done=False,
+        )
+
+        result_str = serializer.serialize(chunk).decode("utf-8")
+        json_line = result_str.strip().split("\n\n")[0][6:]
+        payload = json.loads(json_line)
+        delta = payload["choices"][0]["delta"]
+
+        assert delta["content"] == "I'll check..."
+        assert "reasoning_content" not in delta
+        assert "thinking" not in delta
+        assert "thought" not in delta
+
+    def test_suppress_reasoning_fields_keep_reasoning_content_preserves_canonical_field(
+        self,
+    ) -> None:
+        """opencode-compatible mode keeps reasoning_content without duplicating in content."""
+        serializer = SSESerializer()
+        openai_chunk: dict[str, Any] = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "reasoning_content": "I'll check...",
+                        "thinking": "I'll check...",
+                        "thought": "I'll check...",
+                        "content": "",
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+        chunk = StreamingContent(
+            content=openai_chunk,
+            metadata={
+                "_suppress_reasoning_fields": True,
+                "_keep_reasoning_content": True,
+            },
+            is_done=False,
+        )
+
+        result_str = serializer.serialize(chunk).decode("utf-8")
+        json_line = result_str.strip().split("\n\n")[0][6:]
+        payload = json.loads(json_line)
+        delta = payload["choices"][0]["delta"]
+
+        assert delta["content"] == ""
+        assert delta["reasoning_content"] == "I'll check..."
+        assert "thinking" not in delta
+        assert "thought" not in delta
 
     def test_normal_chunk_with_finish_reason(self) -> None:
         """Normal chunks with finish_reason should include it."""

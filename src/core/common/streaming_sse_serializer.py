@@ -28,6 +28,76 @@ logger = logging.getLogger(__name__)
 class SSESerializer:
     """Serializer for converting StreamingContent to SSE bytes."""
 
+    _REASONING_DELTA_KEYS: tuple[str, ...] = (
+        "reasoning_content",
+        "reasoning",
+        "thinking",
+        "thought",
+    )
+
+    @classmethod
+    def _coerce_and_strip_reasoning_fields_in_container(
+        cls,
+        container: dict[str, Any],
+        *,
+        keep_reasoning_content: bool,
+    ) -> None:
+        """Handle non-standard reasoning keys in OpenAI delta/message containers.
+
+        Behavior depends on the caller:
+        - When keep_reasoning_content=False: strip all reasoning keys after optionally
+          copying the first available reasoning field into `content`.
+        - When keep_reasoning_content=True: normalize to the canonical
+          `reasoning_content` key, strip only aliases, and still mirror into `content`
+          when `content` is empty.
+        """
+        content_val = container.get("content")
+        has_content = content_val is not None and str(content_val) != ""
+
+        reasoning_val = None
+        canonical_reasoning = container.get("reasoning_content")
+        if isinstance(canonical_reasoning, str) and canonical_reasoning:
+            reasoning_val = canonical_reasoning
+        else:
+            for k in ("reasoning", "thinking", "thought"):
+                v = container.get(k)
+                if isinstance(v, str) and v:
+                    reasoning_val = v
+                    break
+
+        if keep_reasoning_content:
+            if isinstance(reasoning_val, str) and reasoning_val:
+                container.setdefault("reasoning_content", reasoning_val)
+            # Strip aliases only.
+            for k in ("reasoning", "thinking", "thought"):
+                container.pop(k, None)
+        else:
+            if not has_content and isinstance(reasoning_val, str) and reasoning_val:
+                # Coerce reasoning output into standard `content`.
+                container["content"] = reasoning_val
+            for k in cls._REASONING_DELTA_KEYS:
+                container.pop(k, None)
+
+    @classmethod
+    def _sanitize_reasoning_fields_in_openai_payload(
+        cls,
+        payload: dict[str, Any],
+        *,
+        keep_reasoning_content: bool,
+    ) -> None:
+        choices = payload.get("choices")
+        if not isinstance(choices, list):
+            return
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            for container_key in ("delta", "message"):
+                container = choice.get(container_key)
+                if isinstance(container, dict):
+                    cls._coerce_and_strip_reasoning_fields_in_container(
+                        container, keep_reasoning_content=keep_reasoning_content
+                    )
+
     @staticmethod
     def _ensure_openai_finish_reason_for_terminal_usage(
         content_copy: dict[str, Any], chunk: StreamingChunk
@@ -85,13 +155,12 @@ class SSESerializer:
         if chunk.metadata.finish_reason == "error" and (
             chunk.metadata.error is not None or "error" in content.metadata
         ):
-            error_dict: dict[str, Any] = (
+            error_dict: Any = (
                 chunk.metadata.error.model_dump(exclude_none=True)
                 if chunk.metadata.error is not None
                 else content.metadata.get("error", {})
             )
-            if not isinstance(error_dict, dict):
-                error_dict = {}
+            # Pydantic error payloads are always dict-like here.
             created = (
                 content.metadata.get("created")
                 if isinstance(content.metadata.get("created"), int)
@@ -134,13 +203,34 @@ class SSESerializer:
     ) -> bytes | None:
         """Serialize cancellation chunk to SSE bytes. Returns None if not cancellation."""
         if chunk.is_cancellation and chunk.payload.kind != "empty":
+            created = (
+                content.metadata.get("created")
+                if isinstance(content.metadata.get("created"), int)
+                else int(time.time())
+            )
+            model = (
+                content.metadata.get("model")
+                if isinstance(content.metadata.get("model"), str)
+                else "unknown"
+            )
+            chunk_id = (
+                content.metadata.get("id")
+                if isinstance(content.metadata.get("id"), str)
+                else f"chatcmpl-cancel-{created}"
+            )
             data: dict[str, Any] = {
-                "choices": [{"delta": {"content": str(content.content)}}],
-                "finish_reason": "cancelled",
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": str(content.content)},
+                        "finish_reason": "cancelled",
+                    }
+                ],
             }
-            for key in ("id", "model", "created"):
-                if key in content.metadata:
-                    data[key] = content.metadata[key]
             return f"data: {json.dumps(data)}\n\ndata: [DONE]\n\n".encode()
         return None
 
@@ -246,6 +336,14 @@ class SSESerializer:
             )
         )
 
+        if content.metadata.get("_suppress_reasoning_fields"):
+            self._sanitize_reasoning_fields_in_openai_payload(
+                content_copy,
+                keep_reasoning_content=bool(
+                    content.metadata.get("_keep_reasoning_content")
+                ),
+            )
+
         # Sanitize existing tool_calls in delta/message
         existing_choices = content_copy.get("choices", [])
         if isinstance(existing_choices, list) and existing_choices:
@@ -269,16 +367,16 @@ class SSESerializer:
                                 choice_modified = True
                         elif isinstance(tc_list, list) and tc_list:
                             sanitized_calls: list[dict[str, Any]] = []
-                            for idx, tc in enumerate(tc_list):
-                                if not isinstance(tc, dict):
+                            for idx, tc_any in enumerate(cast(list[Any], tc_list)):
+                                if not isinstance(tc_any, dict):
                                     continue
-                                sanitized_tc = {
-                                    k: v
-                                    for k, v in tc.items()
-                                    if isinstance(k, str)
-                                    and not k.startswith("_")
-                                    and k != "extra_content"
-                                }
+                                sanitized_tc: dict[str, Any] = {}
+                                for k, v in tc_any.items():
+                                    if not isinstance(k, str):
+                                        continue
+                                    if k.startswith("_") or k == "extra_content":
+                                        continue
+                                    sanitized_tc[k] = v
                                 # Ensure index is present (required by OpenAI streaming spec)
                                 if "index" not in sanitized_tc:
                                     sanitized_tc["index"] = idx
@@ -302,19 +400,18 @@ class SSESerializer:
         if tool_calls:
             sanitized_calls = []
             for idx, tc in enumerate(tool_calls):
-                if hasattr(tc, "model_dump"):
-                    tc_dict = tc.model_dump(exclude_none=True)
-                elif isinstance(tc, dict):
-                    tc_dict = tc
-                else:
+                if not hasattr(tc, "model_dump"):
                     continue
-                sanitized_dict: dict[str, Any] = {
-                    k: v
-                    for k, v in tc_dict.items()
-                    if isinstance(k, str)
-                    and not k.startswith("_")
-                    and k != "extra_content"
-                }
+                tc_dict_any: Any = tc.model_dump(exclude_none=True)
+                if not isinstance(tc_dict_any, dict):
+                    continue
+                sanitized_dict: dict[str, Any] = {}
+                for k, v in tc_dict_any.items():
+                    if not isinstance(k, str):
+                        continue
+                    if k.startswith("_") or k == "extra_content":
+                        continue
+                    sanitized_dict[k] = v
                 # Ensure index is present (required by OpenAI streaming spec)
                 if "index" not in sanitized_dict:
                     sanitized_dict["index"] = idx
@@ -338,12 +435,10 @@ class SSESerializer:
         """Sanitize tool_calls by removing internal markers and ensuring index is present."""
         result = []
         for idx, tc in enumerate(tool_calls):
-            if not isinstance(tc, dict):
-                continue
             sanitized = {
                 k: v
                 for k, v in tc.items()
-                if isinstance(k, str) and not k.startswith("_") and k != "extra_content"
+                if not k.startswith("_") and k != "extra_content"
             }
             # Ensure index is present (required by OpenAI streaming spec)
             if "index" not in sanitized:
@@ -373,17 +468,10 @@ class SSESerializer:
         if not reasoning:
             return
 
-        # Standard field (DeepSeek, etc.)
+        # Non-standard field. Inject only the canonical name to reduce the
+        # chance of breaking strict OpenAI-compatible clients.
         if "reasoning_content" not in delta:
             delta["reasoning_content"] = reasoning
-
-        # Common aliases for compatibility with various clients
-        if "reasoning" not in delta:
-            delta["reasoning"] = reasoning
-        if "thinking" not in delta:
-            delta["thinking"] = reasoning
-        if "thought" not in delta:
-            delta["thought"] = reasoning
 
     def _inject_tool_calls(
         self, delta: dict[str, Any], tool_calls: list[Any] | None
@@ -408,9 +496,18 @@ class SSESerializer:
     ) -> bytes:
         """Serialize an OpenAI-formatted dict chunk."""
         is_virtual_tc = content.metadata.get("_virtual_tool_calls", False)
+        suppress_reasoning = bool(content.metadata.get("_suppress_reasoning_fields"))
         content_copy = dict(
             self._normalize_openai_chat_completion_to_stream_chunk(working_content)
         )
+
+        if suppress_reasoning:
+            self._sanitize_reasoning_fields_in_openai_payload(
+                content_copy,
+                keep_reasoning_content=bool(
+                    content.metadata.get("_keep_reasoning_content")
+                ),
+            )
         self._sanitize_chunk_tool_calls_in_place(content_copy)
         delta = get_first_delta(content_copy)
 
@@ -424,7 +521,8 @@ class SSESerializer:
             else:
                 self._inject_tool_calls(delta, chunk.metadata.tool_calls)
 
-            self._inject_reasoning_content(delta, chunk.metadata.reasoning_content)
+            if not suppress_reasoning:
+                self._inject_reasoning_content(delta, chunk.metadata.reasoning_content)
 
             # Ensure the modified delta is reflected in content_copy
             if content_copy.get("choices") and isinstance(
@@ -453,7 +551,8 @@ class SSESerializer:
         if not is_virtual:
             self._inject_tool_calls(delta, chunk.metadata.tool_calls)
 
-        self._inject_reasoning_content(delta, chunk.metadata.reasoning_content)
+        if not content.metadata.get("_suppress_reasoning_fields"):
+            self._inject_reasoning_content(delta, chunk.metadata.reasoning_content)
 
     def _serialize_normal_chunk(
         self, chunk: StreamingChunk, content: StreamingContent
@@ -471,29 +570,49 @@ class SSESerializer:
             and not content.metadata.get("tool_call_id")
             and not content.metadata.get("_virtual_tool_calls")
         ):
-            parts = ['{"choices": [{"delta": {']
+            created = (
+                content.metadata.get("created")
+                if isinstance(content.metadata.get("created"), int)
+                else int(time.time())
+            )
+            model = (
+                content.metadata.get("model")
+                if isinstance(content.metadata.get("model"), str)
+                else "unknown"
+            )
+            chunk_id = (
+                content.metadata.get("id")
+                if isinstance(content.metadata.get("id"), str)
+                else f"chatcmpl-{created}"
+            )
+            index = (
+                content.metadata.get("index")
+                if isinstance(content.metadata.get("index"), int)
+                else 0
+            )
 
-            # Add role if present
+            delta_fast: dict[str, Any] = {}
             if chunk.metadata.role:
-                parts.append('"role": ')
-                parts.append(json.dumps(chunk.metadata.role))
-                parts.append(", ")
+                delta_fast["role"] = chunk.metadata.role
+            delta_fast["content"] = chunk.payload.text
 
-            parts.append('"content": ')
-            parts.append(json.dumps(chunk.payload.text))
-            parts.append("}}]")
-            # Add metadata fields
-            for key in ("id", "model", "created"):
-                val = content.metadata.get(key)
-                if val is not None:
-                    parts.append(f', "{key}": ')
-                    parts.append(json.dumps(val))
+            choice_fast: dict[str, Any] = {
+                "index": index,
+                "delta": delta_fast,
+                "finish_reason": None,
+            }
+            response_data_fast: dict[str, Any] = {
+                "id": chunk_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": model,
+                "choices": [choice_fast],
+            }
 
-            parts.append("}")
-            sse_data = f"data: {''.join(parts)}\n\n"
+            parts = [f"data: {json.dumps(response_data_fast)}\n\n"]
             if chunk.is_done:
-                sse_data += "data: [DONE]\n\n"
-            return sse_data.encode()
+                parts.append("data: [DONE]\n\n")
+            return "".join(parts).encode()
 
         # Build delta object
         delta: dict[str, Any] = {}
@@ -508,20 +627,17 @@ class SSESerializer:
             chunk.payload.kind == "opaque_json_dict" and chunk.payload.opaque_json_dict
         ):
             parsed_content = chunk.payload.opaque_json_dict
-            if isinstance(parsed_content, dict):  # type: ignore[misc]
-                # Check if OpenAI-formatted chunk
-                if "choices" in parsed_content or "usage" in parsed_content:
-                    return self._serialize_openai_formatted_dict(
-                        parsed_content, chunk, content
-                    )
+            # Check if OpenAI-formatted chunk
+            if "choices" in parsed_content or "usage" in parsed_content:
+                return self._serialize_openai_formatted_dict(
+                    parsed_content, chunk, content
+                )
 
-                # Check for StopChunkWithUsage misuse
-                if isinstance(content.content, StopChunkWithUsage):
-                    raise UsageChunkLeakError(chunk_id=parsed_content.get("id"))
+            # Check for StopChunkWithUsage misuse
+            if isinstance(content.content, StopChunkWithUsage):
+                raise UsageChunkLeakError(chunk_id=parsed_content.get("id"))
 
-                delta["content"] = json.dumps(parsed_content)
-            else:
-                delta["content"] = json.dumps(parsed_content)
+            delta["content"] = json.dumps(parsed_content)
         elif chunk.payload.kind == "opaque_json" and chunk.payload.opaque_json:
             json_str = chunk.payload.opaque_json
             is_potential_openai = '"choices"' in json_str or '"usage"' in json_str
@@ -531,23 +647,17 @@ class SSESerializer:
                 delta["content"] = json_str
             else:
                 try:
-                    parsed_content = json.loads(json_str)
-                    if isinstance(parsed_content, dict):
-                        if "choices" in parsed_content or "usage" in parsed_content:
+                    parsed_json: Any = json.loads(json_str)
+                    if isinstance(parsed_json, dict):
+                        if "choices" in parsed_json or "usage" in parsed_json:
                             return self._serialize_openai_formatted_dict(
-                                parsed_content, chunk, content
+                                parsed_json, chunk, content
                             )
                         if is_leak_check_needed:
-                            raise UsageChunkLeakError(
-                                chunk_id=(
-                                    parsed_content.get("id")
-                                    if isinstance(parsed_content, dict)
-                                    else None
-                                )
-                            )
-                        delta["content"] = json.dumps(parsed_content)
+                            raise UsageChunkLeakError(chunk_id=parsed_json.get("id"))
+                        delta["content"] = json.dumps(parsed_json)
                     else:
-                        delta["content"] = json.dumps(parsed_content)
+                        delta["content"] = json.dumps(parsed_json)
                 except json.JSONDecodeError:
                     delta["content"] = json_str
 
@@ -573,14 +683,43 @@ class SSESerializer:
         else:
             delta["content"] = ""
 
-        # Build response data
-        response_data: dict[str, Any] = {"choices": [{"delta": delta}]}
+        created = (
+            content.metadata.get("created")
+            if isinstance(content.metadata.get("created"), int)
+            else int(time.time())
+        )
+        model = (
+            content.metadata.get("model")
+            if isinstance(content.metadata.get("model"), str)
+            else "unknown"
+        )
+        chunk_id = (
+            content.metadata.get("id")
+            if isinstance(content.metadata.get("id"), str)
+            else f"chatcmpl-{created}"
+        )
+        index = (
+            content.metadata.get("index")
+            if isinstance(content.metadata.get("index"), int)
+            else 0
+        )
+
+        # Build response data (OpenAI-compatible envelope)
+        choice: dict[str, Any] = {
+            "index": index,
+            "delta": delta,
+            "finish_reason": None,
+        }
+        response_data: dict[str, Any] = {
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "created": created,
+            "model": model,
+            "choices": [choice],
+        }
 
         if chunk.metadata.finish_reason:
-            response_data["choices"][0]["finish_reason"] = chunk.metadata.finish_reason  # type: ignore[index]
-        for key in ("id", "model", "created"):
-            if key in content.metadata:
-                response_data[key] = content.metadata[key]
+            response_data["choices"][0]["finish_reason"] = chunk.metadata.finish_reason
         if chunk.metadata.usage:
             response_data["usage"] = chunk.metadata.usage.model_dump(exclude_none=True)
         elif content.usage:

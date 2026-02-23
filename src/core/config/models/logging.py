@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 
 from src.core.interfaces.model_bases import DomainModel
 
@@ -25,6 +25,10 @@ class LoggingConfig(DomainModel):
 
     level: LogLevel = LogLevel.INFO
     use_colors: bool = False
+    # Console stream for logs. Standard Python logging defaults to stderr,
+    # but many tools only capture stdout. This allows users to standardize
+    # where logs appear.
+    console_stream: str = "stderr"  # stdout|stderr
     request_logging: bool = False
     response_logging: bool = False
     log_file: str | None = None
@@ -62,3 +66,11 @@ class LoggingConfig(DomainModel):
     cbor_capture_session_id: str | None = None
     # How often to flush CBOR capture buffer to disk (seconds). Default 1.0 second.
     cbor_capture_flush_interval: float = 1.0
+
+    @field_validator("console_stream")
+    @classmethod
+    def _validate_console_stream(cls, value: str) -> str:
+        raw = str(value or "").strip().lower()
+        if raw in {"stdout", "stderr"}:
+            return raw
+        return "stderr"

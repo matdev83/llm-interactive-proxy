@@ -528,6 +528,7 @@ def configure_logging_with_environment_tagging(
     log_format: str | None = None,
     log_file: str | None = None,
     use_colors: bool = False,
+    console_stream: str = "stderr",
 ) -> None:
     """Configure logging with environment tagging.
 
@@ -549,8 +550,11 @@ def configure_logging_with_environment_tagging(
 
     # Console handler
     console_handler: logging.Handler
+    stream_name = str(console_stream or "stderr").strip().lower()
+    use_stdout = stream_name == "stdout"
     if use_colors:
         try:
+            from rich.console import Console
             from rich.logging import RichHandler
 
             # Use RichHandler for colored output
@@ -566,15 +570,20 @@ def configure_logging_with_environment_tagging(
                 show_level=True,
                 show_path=False,  # We include path in the message format
                 log_time_format="[%Y-%m-%d %H:%M:%S]",
+                console=Console(stderr=not use_stdout),
             )
             console_handler.setFormatter(rich_formatter)
         except ImportError:
             # Fallback to standard stream handler if rich is not installed
-            console_handler = logging.StreamHandler()
+            console_handler = logging.StreamHandler(
+                stream=(sys.stdout if use_stdout else sys.stderr)
+            )
             console_handler.setFormatter(formatter)
     else:
         # Standard stream handler for plain text
-        console_handler = logging.StreamHandler()
+        console_handler = logging.StreamHandler(
+            stream=(sys.stdout if use_stdout else sys.stderr)
+        )
         console_handler.setFormatter(formatter)
 
     handlers.append(console_handler)

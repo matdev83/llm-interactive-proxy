@@ -53,6 +53,7 @@ class LoggingApplicator:
 
         self._apply_log_file(args, logging_overrides, resolution)
         self._apply_log_level(args, logging_overrides, resolution)
+        self._apply_log_stream(args, logging_overrides, resolution)
         self._apply_log_colors(args, logging_overrides, resolution)
         self._apply_capture_file(args, logging_overrides, resolution)
         self._apply_capture_settings(args, logging_overrides, resolution)
@@ -91,6 +92,25 @@ class LoggingApplicator:
                 LogLevel[args.log_level].value,
                 ParameterSource.CLI,
                 origin="--log-level",
+            )
+
+    def _apply_log_stream(
+        self,
+        args: CliArgs,
+        logging_overrides: dict[str, Any],
+        resolution: ParameterResolution,
+    ) -> None:
+        """Apply log_stream argument."""
+        if getattr(args, "log_stream", None) is not None:
+            stream = str(args.log_stream).strip().lower()
+            if stream not in {"stdout", "stderr"}:
+                stream = "stderr"
+            logging_overrides["console_stream"] = stream
+            resolution.record(
+                "logging.console_stream",
+                stream,
+                ParameterSource.CLI,
+                origin="--log-stream",
             )
 
     def _apply_log_colors(

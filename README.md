@@ -196,7 +196,7 @@ See [Front-End APIs Overview](docs/user_guide/backends/overview.md#front-end-api
 - **[InternLM](docs/user_guide/backends/internlm.md)** (InternLM AI models with API key rotation)
 - **[ZenMux](docs/user_guide/backends/zenmux.md)** (Unified model aggregator)
 - **[Moonshot AI](docs/user_guide/backends/kimi-code.md)** (Kimi models, including Kimi Code for coding)
-- **[Cline](docs/user_guide/backends/cline.md)** (Specialized debugging backend)
+- **[Cline](docs/user_guide/backends/cline.md)** (Specialized debugging backend; requires `llm-proxy-oauth-connectors` plugin)
 - **[Hybrid](docs/user_guide/features/hybrid-backend.md)** (Virtual backend for two-phase reasoning)
 - **[Antigravity](docs/user_guide/backends/antigravity-oauth.md)** (Internal debugging backends for Gemini/Claude)
 
@@ -209,7 +209,7 @@ The proxy supports two operational modes to enforce appropriate security boundar
 
 For OAuth-oriented Single User Mode backends, install the optional package via `pip install llm-interactive-proxy[oauth]`; extracted OAuth implementations are owned by that package and discovered through entry points.
 
-Currently extracted OAuth backends are: `anthropic-oauth`, `antigravity-oauth`, `gemini-oauth-auto`, `gemini-oauth-free`, `gemini-oauth-plan`, `kiro-oauth-auto`, and `qwen-oauth`.
+Currently extracted OAuth backends are: `anthropic-oauth`, `antigravity-oauth`, `gemini-oauth-auto`, `gemini-oauth-free`, `gemini-oauth-plan`, `kiro-oauth-auto`, `opencode-zen`, and `qwen-oauth`.
 
 If configuration references an extracted OAuth backend that is not installed, startup now emits actionable install guidance and continues only when at least one configured registered backend path remains. Request-time routing for missing extracted backends returns deterministic `unknown_model` errors with `pip install llm-interactive-proxy[oauth]` guidance.
 

@@ -523,6 +523,13 @@ class ArgumentParserBuilder:
             help="Set the logging level (default: use config or INFO)",
         )
         parser.add_argument(
+            "--log-stream",
+            dest="log_stream",
+            choices=["stdout", "stderr"],
+            default=None,
+            help="Write console logs to stdout or stderr (default: stderr)",
+        )
+        parser.add_argument(
             "--log-colors",
             dest="log_use_colors",
             action="store_true",

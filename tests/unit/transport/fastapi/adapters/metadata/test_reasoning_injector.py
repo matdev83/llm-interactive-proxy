@@ -42,6 +42,29 @@ class TestReasoningInjector:
         )
         assert result["choices"][0]["delta"]["content"] == "Hello"
 
+    def test_suppress_reasoning_fields_skips_injection(self) -> None:
+        injector = ReasoningInjector()
+        content = {
+            "choices": [
+                {
+                    "delta": {
+                        "content": "Hello",
+                        "role": "assistant",
+                    }
+                }
+            ]
+        }
+        metadata = {
+            "reasoning_content": "Hidden",
+            "_suppress_reasoning_fields": True,
+        }
+
+        result = injector.inject_reasoning(content, metadata, streaming=True)
+
+        assert isinstance(result, dict)
+        assert "reasoning_content" not in result["choices"][0]["delta"]
+        assert "reasoning" not in result["choices"][0]["delta"]
+
     def test_inject_reasoning_into_message_non_streaming(self) -> None:
         """Test reasoning injection into message for non-streaming responses."""
         injector = ReasoningInjector()
@@ -94,6 +117,11 @@ class TestReasoningInjector:
             result["choices"][0]["delta"]["reasoning_content"] == "Existing reasoning"
         )
         assert result["choices"][0]["delta"]["reasoning"] == "Existing reasoning"
+
+        # Strict OpenAI clients may reject non-standard top-level `metadata` fields.
+        # When reasoning already exists in delta, the injector should not add
+        # a top-level `metadata` fallback.
+        assert "metadata" not in result
 
     def test_build_streaming_payload_for_non_dict_content(self) -> None:
         """Test OpenAI envelope building for non-dict content."""
@@ -208,7 +236,7 @@ class TestReasoningInjector:
 
         injector = ReasoningInjector()
         stop_chunk = StopChunkWithUsage({"usage": {"total_tokens": 100}})
-        metadata = {}
+        metadata: dict[str, object] = {}
 
         result = injector.inject_reasoning(stop_chunk, metadata, streaming=True)
 

@@ -64,6 +64,16 @@ _STREAM_RECOVERY_PROMPT = "The previous response was empty, please try again."
 _MAX_EMPTY_STREAM_RETRIES = 1
 
 
+_MEANINGFUL_FINISH_REASONS: frozenset[str] = frozenset(
+    {
+        "error",
+        "cancelled",
+        "security_limit",
+        "tool_calls",
+    }
+)
+
+
 @dataclass
 class RetryState:
     """Retry state extracted from request."""
@@ -142,18 +152,143 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             return json.dumps(dict(content))
         return str(content) if content is not None else ""
 
-    def _chunk_has_meaningful_output(self, chunk: ProcessedResponse) -> bool:
-        """Check whether a streamed chunk carries user-visible output."""
-        metadata = getattr(chunk, "metadata", {}) or {}
-        content = getattr(chunk, "content", None)
+    @staticmethod
+    def _is_sse_done_only(text: str) -> bool:
+        """Return True if the payload is only an SSE done marker."""
+        if not text:
+            return False
 
-        # Check for error in metadata
+        normalized = text.replace("\r\n", "\n")
+        stripped = normalized.strip()
+        if stripped in {"[DONE]", "data: [DONE]", "data:[DONE]", 'data: ["DONE"]'}:
+            return True
+
+        if "data:" not in normalized:
+            return False
+
+        data_lines: list[str] = []
+        for line in normalized.splitlines():
+            line_s = line.strip()
+            if not line_s.startswith("data:"):
+                continue
+            val = line_s[5:].lstrip()
+            if val:
+                data_lines.append(val)
+
+        return bool(data_lines) and all(
+            v.strip() in {"[DONE]", '["DONE"]'} for v in data_lines
+        )
+
+    @staticmethod
+    def _is_sse_comment_only(text: str) -> bool:
+        """Return True for SSE comment/keepalive payloads (": ...")."""
+        stripped = text.strip()
+        return bool(stripped) and stripped.startswith(":")
+
+    @staticmethod
+    def _try_parse_openai_sse_payloads(text: str) -> list[dict[str, Any]]:
+        """Best-effort parse of SSE `data: {json}` into OpenAI chunk dict(s)."""
+        if not text:
+            return []
+        normalized = text.replace("\r\n", "\n")
+
+        payloads: list[dict[str, Any]] = []
+        if "data:" in normalized:
+            for block in normalized.split("\n\n"):
+                for line in block.splitlines():
+                    line = line.strip()
+                    if not line.startswith("data:"):
+                        continue
+                    data_part = line[5:].lstrip()
+                    if not data_part or data_part == "[DONE]":
+                        continue
+                    try:
+                        obj = json.loads(data_part)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(obj, dict):
+                        payloads.append(obj)
+            return payloads
+
+        stripped = normalized.strip()
+        if not stripped:
+            return []
+        if stripped.startswith("{"):
+            try:
+                obj = json.loads(stripped)
+            except json.JSONDecodeError:
+                return []
+            if isinstance(obj, dict):
+                return [obj]
+        return []
+
+    @staticmethod
+    def _openai_dict_has_user_visible_output(payload: dict[str, Any]) -> bool:
+        # Top-level error payload
+        if payload.get("error"):
+            return True
+
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return False
+
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            finish = choice.get("finish_reason")
+            if isinstance(finish, str) and finish in _MEANINGFUL_FINISH_REASONS:
+                return True
+
+            delta = choice.get("delta") or choice.get("message")
+            if not isinstance(delta, dict):
+                continue
+            if delta.get("tool_calls"):
+                return True
+            content_val = delta.get("content")
+            if content_val is not None and str(content_val).strip():
+                return True
+
+        return False
+
+    @staticmethod
+    def _openai_dict_has_reasoning_output(payload: dict[str, Any]) -> bool:
+        """Return True when an OpenAI-shaped payload carries reasoning text.
+
+        This is intentionally separate from _openai_dict_has_user_visible_output.
+        Reasoning is *not* treated as user-visible by default, but some strict
+        clients require it to be mirrored into content (see _suppress_reasoning_fields)
+        which makes reasoning effectively user-visible.
+        """
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return False
+
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta") or choice.get("message")
+            if not isinstance(delta, dict):
+                continue
+
+            reasoning_val = (
+                delta.get("reasoning_content")
+                or delta.get("reasoning")
+                or delta.get("thinking")
+                or delta.get("thought")
+            )
+            if isinstance(reasoning_val, str) and reasoning_val.strip():
+                return True
+
+        return False
+
+    def _metadata_has_meaningful_output(self, metadata: dict[str, Any]) -> bool:
         if metadata.get("error"):
             return True
 
         accumulated_content = metadata.get("accumulated_content")
         if isinstance(accumulated_content, str) and accumulated_content.strip():
             return True
+
         accumulated_reasoning = metadata.get("accumulated_reasoning")
         if (
             metadata.get("reasoning_is_output")
@@ -161,108 +296,118 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
             and accumulated_reasoning.strip()
         ):
             return True
-        metadata_reasoning = (
-            metadata.get("reasoning_content")
-            or metadata.get("reasoning")
-            or metadata.get("thinking")
-            or metadata.get("thought")
-        )
-        if isinstance(metadata_reasoning, str) and metadata_reasoning.strip():
-            return True
 
-        # Check for finish_reason in metadata (error/cancelled/terminal cases)
+        # IMPORTANT: reasoning-only output is not considered user-visible by default.
+        if metadata.get("reasoning_is_output"):
+            metadata_reasoning = (
+                metadata.get("reasoning_content")
+                or metadata.get("reasoning")
+                or metadata.get("thinking")
+                or metadata.get("thought")
+            )
+            if isinstance(metadata_reasoning, str) and metadata_reasoning.strip():
+                return True
+
         finish_reason = metadata.get("finish_reason")
-        if isinstance(finish_reason, str) and finish_reason in {
-            "error",
-            "cancelled",
-            "security_limit",
-            "tool_calls",
-        }:
+        if (
+            isinstance(finish_reason, str)
+            and finish_reason in _MEANINGFUL_FINISH_REASONS
+        ):
             return True
 
-        # Treat explicit terminal markers as meaningful
         if metadata.get("is_cancellation") is True:
             return True
         if metadata.get("loop_detected") is True:
             return True
 
-        # Check for error in content dict
-        if isinstance(content, dict) and content.get("error"):
-            return True
+        return bool(
+            metadata.get("tool_call_swallowed")
+            or metadata.get("tool_call_reactor_retry_failed")
+        )
 
-        # Check for error in content string
-        if isinstance(content, str) and '"error"' in content:
-            return True
+    def _text_payload_has_meaningful_output(self, text: str) -> bool:
+        if self._is_sse_done_only(text) or self._is_sse_comment_only(text):
+            return False
+        parsed = self._try_parse_openai_sse_payloads(text)
+        if parsed:
+            return any(self._openai_dict_has_user_visible_output(p) for p in parsed)
+        return bool(text.strip())
 
-        if metadata.get("tool_call_swallowed") or metadata.get(
-            "tool_call_reactor_retry_failed"
-        ):
-            return True
+    def _content_has_meaningful_output(self, content: Any) -> bool:
+        if isinstance(content, dict):
+            if content.get("error"):
+                return True
+
+            # A dict without "choices" is meaningful unless it's just usage/metadata.
+            if content and "choices" not in content:
+                return not set(content.keys()) <= {
+                    "usage",
+                    "model",
+                    "id",
+                    "object",
+                    "created",
+                }
+
+            return self._openai_dict_has_user_visible_output(content)
 
         if isinstance(content, str):
-            if content.strip():
+            if '"error"' in content:
                 return True
-        elif isinstance(content, bytes | bytearray):
+            return self._text_payload_has_meaningful_output(content)
+
+        if isinstance(content, bytes | bytearray):
             try:
                 decoded = content.decode("utf-8")
             except UnicodeDecodeError:
                 decoded = content.decode("utf-8", errors="ignore")
-            if decoded.strip():
-                return True
+            return self._text_payload_has_meaningful_output(decoded)
 
-        # A dict without "choices" is meaningful unless it's just usage/metadata
-        if isinstance(content, dict) and content and "choices" not in content:
-            # Usage-only chunks are not meaningful
-            return not set(content.keys()) <= {
-                "usage",
-                "model",
-                "id",
-                "object",
-                "created",
-            }
+        return False
 
-        # Check for tool calls or reasoning content in delta
-        if isinstance(content, dict):
-            choices = content.get("choices", [])
-            if choices and isinstance(choices, list):
-                for choice in choices:
-                    if isinstance(choice, dict):
+    def _chunk_has_meaningful_output(self, chunk: ProcessedResponse) -> bool:
+        """Check whether a streamed chunk carries user-visible output."""
+        metadata = getattr(chunk, "metadata", {}) or {}
+        content = getattr(chunk, "content", None)
 
-                        def _has_reasoning_text(payload: Any) -> bool:
-                            if not isinstance(payload, dict):
-                                return False
-                            for key in (
-                                "reasoning_content",
-                                "reasoning",
-                                "thinking",
-                                "thought",
-                            ):
-                                value = payload.get(key)
-                                if isinstance(value, str) and value.strip():
-                                    return True
-                            return False
+        # Reasoning-only streams are meaningful only when the client can render them.
+        if metadata.get("_client_supports_reasoning_fields"):
+            if isinstance(content, dict):
+                if self._openai_dict_has_reasoning_output(content):
+                    return True
+            elif isinstance(content, str):
+                parsed = self._try_parse_openai_sse_payloads(content)
+                if parsed and any(
+                    self._openai_dict_has_reasoning_output(p) for p in parsed
+                ):
+                    return True
+            elif isinstance(content, bytes | bytearray):
+                try:
+                    decoded = content.decode("utf-8")
+                except UnicodeDecodeError:
+                    decoded = content.decode("utf-8", errors="ignore")
+                parsed = self._try_parse_openai_sse_payloads(decoded)
+                if parsed and any(
+                    self._openai_dict_has_reasoning_output(p) for p in parsed
+                ):
+                    return True
 
-                        delta = choice.get("delta", {})
-                        message = choice.get("message")
-                        if _has_reasoning_text(delta) or _has_reasoning_text(message):
-                            return True
-                        finish = choice.get("finish_reason")
-                        if isinstance(finish, str) and finish in {
-                            "error",
-                            "cancelled",
-                            "security_limit",
-                            "tool_calls",
-                        }:
-                            return True
-                        if delta.get("tool_calls"):
-                            return True
-                        # PERFORMANCE: Check for content directly to avoid expensive serialization
-                        content_val = delta.get("content")
-                        if content_val and str(content_val).strip():
-                            return True
+        if self._metadata_has_meaningful_output(metadata):
+            return True
+
+        if self._content_has_meaningful_output(content):
+            return True
+
+        # Avoid treating OpenAI-shaped dict chunks as meaningful via JSON serialization.
+        if isinstance(content, dict) and "choices" in content:
+            return False
+
+        # For textual/SSE payloads, the content check above is authoritative.
+        # Do not fall back to generic extraction (which would treat any non-empty
+        # SSE envelope as "meaningful" even when it's reasoning-only or [DONE]-only).
+        if isinstance(content, str | bytes | bytearray):
+            return False
 
         text = self._extract_text_from_chunk(chunk)
-
         return bool(text and text.strip())
 
     async def _create_retry_request(
@@ -964,6 +1109,39 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     processed_metadata.setdefault(
                         "client_os", cast(JsonValue, processing_context.client_os)
                     )
+
+                # Mark clients that can render provider-specific reasoning fields.
+                #
+                # Some providers stream large stretches via non-standard keys like
+                # `delta.reasoning_content` / `delta.thinking` with empty `delta.content`.
+                # For clients that can display these fields (e.g. opencode), reasoning-only
+                # chunks should count as meaningful output (avoid empty-stream retries).
+                try:
+                    agent_val = getattr(request, "agent", None)
+                    if isinstance(agent_val, str) and "opencode" in agent_val.lower():
+                        processed_metadata.setdefault(
+                            "_client_supports_reasoning_fields", True
+                        )
+                    else:
+                        ua = None
+                        headers = getattr(context, "headers", None) or {}
+                        if isinstance(headers, dict):
+                            ua_val = headers.get("user-agent") or headers.get(
+                                "User-Agent"
+                            )
+                            if isinstance(ua_val, str):
+                                ua = ua_val
+                        if ua and "opencode" in ua.lower():
+                            processed_metadata.setdefault(
+                                "_client_supports_reasoning_fields", True
+                            )
+                except Exception:
+                    # Best-effort only.
+                    pass
+
+                # NOTE: Do not suppress provider-specific reasoning fields for opencode.
+                # opencode uses these fields to render thinking output; suppressing them
+                # makes the stream look "silent" even though SSE is active.
                 # Create new ProcessedResponse instance with updated metadata (copy-on-write)
                 yield ProcessedResponse(
                     content=chunk.content,
@@ -973,23 +1151,54 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
 
         # Gate empty stream
         async def gate_empty_stream() -> AsyncIterator[ProcessedResponse]:
-            buffered: list[ProcessedResponse] = []
             seen_meaningful = False
+
+            pending_terminal: list[ProcessedResponse] = []
+
+            def _is_terminal_chunk(ch: ProcessedResponse) -> bool:
+                md = getattr(ch, "metadata", {}) or {}
+                if md.get("is_done") is True:
+                    return True
+
+                fr = md.get("finish_reason")
+                if isinstance(fr, str) and fr in {
+                    "stop",
+                    "length",
+                    "tool_calls",
+                    "error",
+                    "cancelled",
+                    "security_limit",
+                }:
+                    return True
+
+                c = getattr(ch, "content", None)
+                if isinstance(c, str):
+                    return "data: [DONE]" in c or c.strip() == "[DONE]"
+                if isinstance(c, bytes | bytearray):
+                    try:
+                        decoded = c.decode("utf-8")
+                    except UnicodeDecodeError:
+                        decoded = c.decode("utf-8", errors="ignore")
+                    return "data: [DONE]" in decoded or decoded.strip() == "[DONE]"
+
+                return False
 
             async for chunk in attach_metadata_stream():
                 meaningful = self._chunk_has_meaningful_output(chunk)
-                if not seen_meaningful:
-                    if meaningful:
-                        seen_meaningful = True
-                        if buffered:
-                            for buffered_chunk in buffered:
-                                yield buffered_chunk
-                        yield chunk
-                    else:
-                        buffered.append(chunk)
-                        continue
-                else:
+
+                if meaningful:
+                    seen_meaningful = True
                     yield chunk
+                    continue
+
+                # To avoid long periods of silence (client timeouts) we stream
+                # non-meaningful chunks through, but we hold back terminal
+                # markers until we decide whether an empty-stream retry is needed.
+                if not seen_meaningful and _is_terminal_chunk(chunk):
+                    pending_terminal.append(chunk)
+                    continue
+
+                yield chunk
 
             if not seen_meaningful:
                 # Use retry_depth + 1 to match middleware's retry_count tracking
@@ -1000,6 +1209,10 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     retry_count=retry_depth + 1,
                     original_request=request,
                 )
+
+            if pending_terminal:
+                for terminal_chunk in pending_terminal:
+                    yield terminal_chunk
 
         # Handle empty stream recovery
         async def stream_with_empty_recovery() -> AsyncIterator[ProcessedResponse]:
@@ -1021,10 +1234,29 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                             exc.retry_count,
                             exc,
                         )
-                    self._raise_empty_stream_error(
-                        session_id=processing_context.session_id,
-                        reason="empty_stream_after_retries",
+                    # Do not raise an exception from inside the streaming generator.
+                    # Instead, emit a terminal, OpenAI-compatible *assistant message*
+                    # so strict clients don't treat the response as a connection drop
+                    # and clients that bail on `finish_reason="error"` can continue.
+                    yield ProcessedResponse(
+                        content=(
+                            "[Proxy] Upstream model returned no user-visible content after retries. "
+                            "Try a different model, disable strict reasoning-only behavior, or set reasoning_is_output if your client supports it."
+                        ),
+                        metadata={
+                            "session_id": processing_context.session_id,
+                            # Keep this as a normal terminal stop so OpenAI-compatible
+                            # clients treat it as a completed turn.
+                            "finish_reason": "stop",
+                            # Preserve structured details for logging/diagnostics.
+                            "proxy_warning": {
+                                "message": "empty_stream_after_retries",
+                                "type": "empty_stream_after_retries",
+                            },
+                            "is_done": True,
+                        },
                     )
+                    return
 
                 if logger.isEnabledFor(logging.INFO):
                     logger.info(

@@ -124,6 +124,14 @@ class AuxiliaryRequestDetector:
         if not messages:
             return False
 
+        # If the client explicitly selected a backend (e.g. "gemini-oauth-auto:..."),
+        # respect that choice and do not override routing.
+        model_selector = getattr(request, "model", None)
+        if isinstance(model_selector, str) and has_explicit_backend_selector(
+            model_selector
+        ):
+            return False
+
         # Check message count threshold
         if len(messages) > self._config.max_message_count:
             return False

@@ -481,6 +481,16 @@ class StreamingContentConverter:
             accumulated_text_parts: list[str] = []
             best_usage: dict[str, Any] | None = None
 
+            # opencode compatibility: some auxiliary requests (e.g. title generation)
+            # can stream only reasoning_content for a long time before emitting
+            # any delta.content. The opencode client can treat that as a stall.
+            # If a stream is marked as opencode-compatible (keep reasoning_content
+            # but suppress other reasoning aliases), emit a single whitespace
+            # delta.content placeholder on the first reasoning chunk.
+            opencode_placeholder_sent = False
+            opencode_saw_reasoning = False
+            opencode_saw_nonempty_content = False
+
             async for chunk in source:
                 chunk_count += 1
                 if logger.isEnabledFor(TRACE_LEVEL):
@@ -539,6 +549,37 @@ class StreamingContentConverter:
                     decoded_payload, metadata, streaming=True
                 )
 
+                # opencode stall prevention: inject a minimal content delta early
+                # when only reasoning_content is streaming.
+                try:
+                    opencode_compat = bool(
+                        metadata.get("_suppress_reasoning_fields")
+                        and metadata.get("_keep_reasoning_content")
+                    )
+                    if opencode_compat and isinstance(enriched, dict):
+                        delta = self._extract_delta_from_payload(enriched)
+                        if isinstance(delta, dict):
+                            reasoning_val = delta.get("reasoning_content")
+                            if isinstance(reasoning_val, str) and reasoning_val.strip():
+                                opencode_saw_reasoning = True
+
+                            content_val = delta.get("content")
+                            if isinstance(content_val, str) and content_val.strip():
+                                opencode_saw_nonempty_content = True
+
+                            if (
+                                opencode_saw_reasoning
+                                and not opencode_saw_nonempty_content
+                                and not opencode_placeholder_sent
+                            ):
+                                existing = delta.get("content")
+                                if not (isinstance(existing, str) and existing.strip()):
+                                    delta["content"] = " "
+                                    opencode_placeholder_sent = True
+                except Exception:
+                    # Best-effort only; never break streaming.
+                    pass
+
                 # Extract and merge usage
                 # Priority: ProcessedResponse.usage > payload usage > metadata usage
                 computed_usage = None
@@ -574,6 +615,30 @@ class StreamingContentConverter:
 
                 # Check if chunk signals completion
                 is_done = forced_done or self._chunk_signals_done(enriched, metadata)
+
+                # If the stream terminates without ever emitting non-whitespace content,
+                # keep OpenAI-compatible clients happy by ensuring the terminal chunk
+                # still contains a minimal content delta.
+                try:
+                    opencode_compat = bool(
+                        metadata.get("_suppress_reasoning_fields")
+                        and metadata.get("_keep_reasoning_content")
+                    )
+                    if (
+                        is_done
+                        and opencode_compat
+                        and opencode_saw_reasoning
+                        and not opencode_saw_nonempty_content
+                        and isinstance(enriched, dict)
+                    ):
+                        delta = self._extract_delta_from_payload(enriched)
+                        if delta is not None:
+                            existing = delta.get("content")
+                            if not (isinstance(existing, str) and existing.strip()):
+                                delta["content"] = " "
+                except Exception:
+                    # Best-effort only; never break streaming.
+                    pass
 
                 if is_done:
                     # Flush pending tool blocks
@@ -626,7 +691,11 @@ class StreamingContentConverter:
                             "force_recalc=%s, best_usage_prompt=%s",
                             prompt_hint,
                             force_usage_recalc,
-                            best_usage.get("prompt_tokens") if isinstance(best_usage, dict) else None,
+                            (
+                                best_usage.get("prompt_tokens")
+                                if isinstance(best_usage, dict)
+                                else None
+                            ),
                         )
 
                     # Recalculate usage via service
@@ -787,7 +856,9 @@ class StreamingContentConverter:
                         if prompt_hint_final > current_prompt:
                             best_usage["prompt_tokens"] = prompt_hint_final
                             completion_val = best_usage.get("completion_tokens", 0) or 0
-                            best_usage["total_tokens"] = prompt_hint_final + completion_val
+                            best_usage["total_tokens"] = (
+                                prompt_hint_final + completion_val
+                            )
                             if isinstance(enriched, dict):
                                 enriched["usage"] = best_usage
                             if logger.isEnabledFor(logging.DEBUG):

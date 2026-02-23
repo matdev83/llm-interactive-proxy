@@ -79,6 +79,7 @@ class LoggingConfigurator:
             level=getattr(logging, config.logging.level.value),
             log_file=log_file,
             use_colors=config.logging.use_colors,
+            console_stream=getattr(config.logging, "console_stream", "stderr"),
         )
 
     def apply_timestamp_suffix(self, path: str | None) -> str | None:

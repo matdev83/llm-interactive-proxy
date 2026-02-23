@@ -7,6 +7,7 @@ with the new streaming pipeline orchestrator.
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import AsyncIterator
 from typing import cast
@@ -22,7 +23,10 @@ from src.core.ports.streaming_orchestrator import (
 from src.core.ports.streaming_processors import (
     LoopDetectionProcessor as PortsLoopDetectionProcessor,
 )
-from src.core.ports.streaming_processors import ThinkTagsProcessor
+from src.core.ports.streaming_processors import (
+    ThinkTagsProcessor,
+    ToolCallDeltaStabilizerProcessor,
+)
 from src.core.ports.streaming_processors import (
     ToolCallRepairProcessor as PortsToolCallRepairProcessor,
 )
@@ -38,6 +42,61 @@ from src.core.services.streaming.vtc_preprocessor import VTCPreProcessor
 from src.core.services.tool_call_repair_service import ToolCallRepairService
 
 logger = logging.getLogger(__name__)
+
+
+def _try_extract_http_status_from_first_sse_chunk(first_chunk: bytes) -> int | None:
+    """Best-effort: extract HTTP-like status from an SSE error chunk.
+
+    We want to surface early backend errors as a non-200 HTTP status on the streaming
+    response when possible. Many clients (including OpenAI-compatible SDKs) treat
+    non-200 as a hard failure and will stop retry loops.
+
+    Expected formats:
+    - data: {"choices": [...], "error": {"status_code": 404, ...}}
+    - data: {"choices": [{"finish_reason": "error"}], ...}
+    """
+    try:
+        text = first_chunk.decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+
+    # Consider only the first SSE data line.
+    # (Some serializers emit multiple frames; we only need a hint.)
+    for block in text.replace("\r\n", "\n").split("\n\n"):
+        stripped = block.strip()
+        if not stripped.startswith("data:"):
+            continue
+        data_part = stripped[5:].strip()
+        if not data_part or data_part == "[DONE]":
+            continue
+        try:
+            obj = json.loads(data_part)
+        except Exception:
+            return None
+        if not isinstance(obj, dict):
+            return None
+        # Prefer explicit error.status_code
+        err = obj.get("error")
+        if isinstance(err, dict):
+            sc = err.get("status_code")
+            if isinstance(sc, int):
+                return sc
+            if isinstance(sc, float) and sc.is_integer():
+                return int(sc)
+            # Some providers encode code as integer.
+            code = err.get("code")
+            if isinstance(code, int):
+                return code
+            if isinstance(code, float) and code.is_integer():
+                return int(code)
+        # Fallback: if it looks like an OpenAI error chunk, treat as 500.
+        choices = obj.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0]
+            if isinstance(first, dict) and first.get("finish_reason") == "error":
+                return 500
+        return None
+    return None
 
 
 async def integrate_streaming_pipeline(
@@ -128,6 +187,10 @@ async def integrate_streaming_pipeline(
     # Ports-based tool call repair processor - stateless, can be created directly
     if enable_tool_call_repair:
         processors.append(PortsToolCallRepairProcessor())
+
+    # Stabilize tool_call deltas (fill missing id/name on continuation chunks)
+    if enable_tool_call_repair:
+        processors.append(ToolCallDeltaStabilizerProcessor())
 
     # Think tags processor - stateless, can be created directly
     if enable_think_tags:
@@ -227,22 +290,70 @@ async def integrate_streaming_pipeline(
             headers=headers or {},
         )
 
-    # Process stream through pipeline
+    # Build the pipeline output iterator and prefetch the first chunk.
+    # This allows us to:
+    # - delay sending response headers until we have something to send
+    # - surface early backend errors as non-200 HTTP status codes when possible
+    output_iter = pipeline.process_stream(
+        raw_stream,
+        provider=provider,
+        stream_id=stream_id,
+        output_format="sse",
+    )
+
+    first_bytes: bytes | None = None
+    status_code: int | None = None
+    try:
+        first_bytes = await anext(output_iter)
+        status_code = _try_extract_http_status_from_first_sse_chunk(first_bytes)
+    except StopAsyncIteration:
+        # An empty stream is treated as an error; emit a terminal error chunk.
+        err = ValueError("Upstream stream ended without any chunks")
+        error_chunk = await handle_streaming_error(err, stream_id, provider)
+        first_bytes = error_chunk.to_bytes()
+        status_code = 204
+    except Exception as e:
+        # Error before any output: map to a terminal error chunk and surface status code.
+        error_chunk = await handle_streaming_error(e, stream_id, provider)
+        first_bytes = error_chunk.to_bytes()
+        # Prefer status_code from mapped error contract if present.
+        try:
+            meta = getattr(error_chunk, "metadata", {}) or {}
+            err_meta = meta.get("error") if isinstance(meta, dict) else None
+            if isinstance(err_meta, dict):
+                sc = err_meta.get("status_code")
+                if isinstance(sc, int):
+                    status_code = sc
+                elif isinstance(sc, float) and sc.is_integer():
+                    status_code = int(sc)
+        except Exception:
+            status_code = None
+        if status_code is None:
+            sc2 = getattr(e, "status_code", None)
+            if isinstance(sc2, int):
+                status_code = sc2
+            elif isinstance(sc2, float) and sc2.is_integer():
+                status_code = int(sc2)
+        if status_code is None:
+            status_code = 500
+
     async def processed_stream() -> AsyncIterator[ProcessedResponse]:
         """Wrap pipeline output in ProcessedResponse for backward compatibility."""
+        emitted_any = False
         try:
-            async for sse_bytes in pipeline.process_stream(
-                raw_stream,
-                provider=provider,
-                stream_id=stream_id,
-                output_format="sse",
-            ):
-                # Normalize SSE bytes to ProcessedChunkContent before wrapping
-                normalized_content = normalize_to_processed_chunk_content(sse_bytes)
-                # Wrap normalized content in ProcessedResponse for compatibility
-                # The response adapter will handle these correctly
-                yield ProcessedResponse(content=normalized_content)
+            if first_bytes is not None:
+                emitted_any = True
+                yield ProcessedResponse(
+                    content=normalize_to_processed_chunk_content(first_bytes)
+                )
+            async for sse_bytes in output_iter:
+                emitted_any = True
+                yield ProcessedResponse(
+                    content=normalize_to_processed_chunk_content(sse_bytes)
+                )
         except Exception as e:
+            # If the stream already started, we can't change the HTTP status.
+            # Emit a structured terminal error chunk so clients can stop waiting.
             logger.error(
                 "Error in streaming pipeline",
                 exc_info=True,
@@ -250,13 +361,13 @@ async def integrate_streaming_pipeline(
                     "provider": provider,
                     "stream_id": stream_id,
                     "error": str(e),
+                    "emitted_any": emitted_any,
                 },
             )
             error_chunk = await handle_streaming_error(e, stream_id, provider)
-            normalized_content = normalize_to_processed_chunk_content(
-                error_chunk.to_bytes()
+            yield ProcessedResponse(
+                content=normalize_to_processed_chunk_content(error_chunk.to_bytes())
             )
-            yield ProcessedResponse(content=normalized_content)
             return
 
     async def cancel_callback() -> None:
@@ -268,4 +379,5 @@ async def integrate_streaming_pipeline(
         media_type="text/event-stream",
         headers=headers or {},
         cancel_callback=cancel_callback,
+        status_code=status_code if isinstance(status_code, int) else 200,
     )

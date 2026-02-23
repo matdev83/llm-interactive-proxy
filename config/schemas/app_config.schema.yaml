@@ -110,6 +110,7 @@ properties:
       level: { type: string, enum: [TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL] }
       request_logging: { type: boolean }
       response_logging: { type: boolean }
+      console_stream: { type: string, enum: [stdout, stderr] }
       log_file: { type: ["string", "null"] }
       capture_file: { type: ["string", "null"] }
       capture_max_bytes: { type: ["integer", "null"], minimum: 0 }

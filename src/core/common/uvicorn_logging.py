@@ -51,6 +51,7 @@ def get_uvicorn_logging_config(
     *,
     log_level: str = "INFO",
     log_file: str | None = None,
+    console_stream: str = "stderr",
 ) -> dict[str, Any]:
     """
     Generate Uvicorn logging configuration.
@@ -78,6 +79,9 @@ def get_uvicorn_logging_config(
     level_text = str(log_level).upper()
     valid_levels = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG", "NOTSET"}
     level = level_text if level_text in valid_levels else "INFO"
+    stream_name = str(console_stream or "stderr").strip().lower()
+    use_stdout = stream_name == "stdout"
+
     config: dict[str, Any] = {
         "version": 1,
         "disable_existing_loggers": False,
@@ -97,12 +101,12 @@ def get_uvicorn_logging_config(
             "default": {
                 "formatter": "default",
                 "class": "logging.StreamHandler",
-                "stream": "ext://sys.stderr",
+                "stream": "ext://sys.stdout" if use_stdout else "ext://sys.stderr",
             },
             "access": {
                 "formatter": "access",
                 "class": "logging.StreamHandler",
-                "stream": "ext://sys.stdout",
+                "stream": "ext://sys.stdout" if use_stdout else "ext://sys.stderr",
             },
         },
         "loggers": {

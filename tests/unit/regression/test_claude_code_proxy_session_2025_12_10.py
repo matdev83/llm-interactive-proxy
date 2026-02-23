@@ -316,7 +316,11 @@ class TestBug3ClineDataEnvelopeWrapping:
         This was discovered when Claude Code used the cline backend with
         non-streaming requests (stream=false).
         """
-        from src.connectors.cline import ClineConnector
+        cline_mod = pytest.importorskip(
+            "llm_proxy_oauth_connectors.cline",
+            reason="Cline connector plugin not installed",
+        )
+        ClineConnector = cline_mod.ClineConnector
 
         connector = ClineConnector(mock_http_client, config, translation_service)
 
@@ -368,7 +372,11 @@ class TestBug3ClineDataEnvelopeWrapping:
         translation_service: TranslationService,
     ) -> None:
         """Verify standard responses (without 'data' wrapper) pass through unchanged."""
-        from src.connectors.cline import ClineConnector
+        cline_mod = pytest.importorskip(
+            "llm_proxy_oauth_connectors.cline",
+            reason="Cline connector plugin not installed",
+        )
+        ClineConnector = cline_mod.ClineConnector
 
         connector = ClineConnector(mock_http_client, config, translation_service)
 
@@ -402,7 +410,11 @@ class TestBug3ClineDataEnvelopeWrapping:
 
         For example, embedding responses have 'data' key but it's not a wrapper.
         """
-        from src.connectors.cline import ClineConnector
+        cline_mod = pytest.importorskip(
+            "llm_proxy_oauth_connectors.cline",
+            reason="Cline connector plugin not installed",
+        )
+        ClineConnector = cline_mod.ClineConnector
 
         connector = ClineConnector(mock_http_client, config, translation_service)
 
@@ -605,7 +617,11 @@ class TestCombinedBugScenario:
         # Step 2: ClineConnector unwraps (Fix for Bug #3)
         from unittest.mock import AsyncMock
 
-        from src.connectors.cline import ClineConnector
+        cline_mod = pytest.importorskip(
+            "llm_proxy_oauth_connectors.cline",
+            reason="Cline connector plugin not installed",
+        )
+        ClineConnector = cline_mod.ClineConnector
 
         connector = ClineConnector(AsyncMock(), AppConfig(), TranslationService())
         unwrapped = connector._unwrap_cline_data_envelope(cline_raw_response)

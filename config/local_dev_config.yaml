@@ -13,6 +13,7 @@ auth:
 # Logging
 logging:
   level: "DEBUG"
+  console_stream: "stdout"
   request_logging: true
   response_logging: true
   log_file: "var/logs/proxy-debug.log"

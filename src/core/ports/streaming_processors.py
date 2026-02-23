@@ -409,6 +409,143 @@ class ToolCallRepairProcessor(IStreamProcessor):
                         )
 
 
+class ToolCallDeltaStabilizerProcessor(IStreamProcessor):
+    """Stabilize streamed `tool_calls` deltas for OpenAI-compatible clients.
+
+    Some upstream providers omit `tool_calls[].id` and/or `tool_calls[].function.name`
+    on continuation chunks and only stream `function.arguments` fragments.
+
+    Many OpenAI-compatible SDKs expect `id` and `name` to be present on every
+    `tool_calls` delta. This processor fills missing fields using the most
+    recently observed values per (stream_id, tool_call.index).
+
+    It only mutates `content.metadata["tool_calls"]` (structured/native tool calls)
+    and does not parse or interpret textual pseudo-tool-calls.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_session_states: int = _MAX_SESSION_STATES,
+        session_ttl_seconds: int = _SESSION_STATE_TTL_SECONDS,
+    ) -> None:
+        self._logger = logging.getLogger(__name__)
+        self._max_session_states = max_session_states
+        self._session_ttl_seconds = session_ttl_seconds
+
+        # stream_id -> {index -> {"id": str, "name": str, "type": str}}
+        self._tool_call_state: dict[str, dict[int, dict[str, str]]] = {}
+        self._last_access: dict[str, float] = {}
+
+    async def process(self, content: StreamingContent) -> StreamingContent:
+        # Clear per-stream state on terminal chunks.
+        if content.is_done or content.is_cancellation:
+            stream_id = content.stream_id or content.metadata.get("stream_id")
+            if isinstance(stream_id, str) and stream_id:
+                self._cleanup_stream(stream_id)
+            return content
+
+        tool_calls_raw = content.metadata.get("tool_calls")
+        if not isinstance(tool_calls_raw, list) or not tool_calls_raw:
+            return content
+
+        stream_id = content.stream_id or content.metadata.get("stream_id")
+        if not isinstance(stream_id, str) or not stream_id:
+            return content
+
+        self._maybe_cleanup_stale_streams()
+        self._last_access[stream_id] = time.time()
+
+        state_for_stream = self._tool_call_state.setdefault(stream_id, {})
+        changed = False
+        stabilized: list[Any] = []
+
+        for position, raw_tool_call in enumerate(tool_calls_raw):
+            if not isinstance(raw_tool_call, dict):
+                stabilized.append(raw_tool_call)
+                continue
+
+            # Prefer explicit index; fall back to position in list.
+            idx_val = raw_tool_call.get("index")
+            index = idx_val if isinstance(idx_val, int) else position
+
+            signature = state_for_stream.setdefault(index, {})
+
+            # Learn from this chunk.
+            call_id = raw_tool_call.get("id")
+            if isinstance(call_id, str) and call_id:
+                signature["id"] = call_id
+            call_type = raw_tool_call.get("type")
+            if isinstance(call_type, str) and call_type:
+                signature["type"] = call_type
+
+            fn = raw_tool_call.get("function")
+            if isinstance(fn, dict):
+                name = fn.get("name")
+                if isinstance(name, str) and name:
+                    signature["name"] = name
+
+            # Apply stabilization.
+            repaired: dict[str, Any] = dict(raw_tool_call)
+            if "id" not in repaired and "id" in signature:
+                repaired["id"] = signature["id"]
+                changed = True
+            if "type" not in repaired and "type" in signature:
+                repaired["type"] = signature["type"]
+                changed = True
+
+            repaired_fn = repaired.get("function")
+            if not isinstance(repaired_fn, dict):
+                repaired_fn = {}
+                if "name" in signature:
+                    repaired_fn["name"] = signature["name"]
+                    repaired["function"] = repaired_fn
+                    changed = True
+            else:
+                if "name" not in repaired_fn and "name" in signature:
+                    repaired_fn = dict(repaired_fn)
+                    repaired_fn["name"] = signature["name"]
+                    repaired["function"] = repaired_fn
+                    changed = True
+
+            stabilized.append(repaired)
+
+        if changed:
+            content.metadata["tool_calls"] = stabilized
+            # Track middleware mutation
+            metrics = get_metrics_instance()
+            metrics.increment_middleware_mutations(stream_id)
+
+        return content
+
+    def reset(self) -> None:
+        self._tool_call_state.clear()
+        self._last_access.clear()
+        if self._logger.isEnabledFor(logging.DEBUG):
+            self._logger.debug("Tool call delta stabilizer state reset")
+
+    def _cleanup_stream(self, stream_id: str) -> None:
+        self._tool_call_state.pop(stream_id, None)
+        self._last_access.pop(stream_id, None)
+
+    def _maybe_cleanup_stale_streams(self) -> None:
+        now = time.time()
+        stale_ids = [
+            sid
+            for sid, last in self._last_access.items()
+            if (now - last) > self._session_ttl_seconds
+        ]
+        for sid in stale_ids:
+            self._cleanup_stream(sid)
+
+        # If still above cap, evict least recently accessed.
+        if len(self._tool_call_state) > self._max_session_states:
+            ordered = sorted(self._last_access.items(), key=lambda kv: kv[1])
+            to_evict = len(self._tool_call_state) - self._max_session_states
+            for sid, _ in ordered[: max(0, to_evict)]:
+                self._cleanup_stream(sid)
+
+
 class ThinkTagsProcessor(IStreamProcessor):
     """Processor for fixing improperly formatted <think> tags.
 

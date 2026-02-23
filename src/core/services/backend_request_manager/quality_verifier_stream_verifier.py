@@ -458,6 +458,18 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     request, freq_int
                 )
 
+        if should_run and logger.isEnabledFor(logging.INFO):
+            session_id = str(context.get("session_id") or "")
+            stream_id = str(context.get("stream_id") or "")
+            logger.info(
+                "Quality Verifier scheduled (session=%s stream=%s eligible_turn=%s frequency=%s model=%s)",
+                session_id or "unknown",
+                stream_id or "unknown",
+                eligible_turn_count,
+                quality_verifier_frequency,
+                quality_verifier_model_spec,
+            )
+
         if should_run:
             try:
                 from src.core.interfaces.notification_service_interface import (
@@ -608,6 +620,17 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
             ) -> str | None:
                 try:
                     _ensure_quality_verifier_not_cancelled()
+
+                    if logger.isEnabledFor(logging.INFO):
+                        session_id = str(context.get("session_id") or "")
+                        stream_id = str(context.get("stream_id") or "")
+                        logger.info(
+                            "Quality Verifier calling backend (session=%s stream=%s model=%s)",
+                            session_id or "unknown",
+                            stream_id or "unknown",
+                            quality_verifier_model_spec,
+                        )
+
                     quality_verifier_response = await backend_service.chat_completions(
                         quality_verifier_request,
                         stream=True,
@@ -688,6 +711,25 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 )
             )
             if not is_valid_format:
+                _session_id = str(context.get("session_id") or "unknown")
+                if logger.isEnabledFor(logging.DEBUG):
+                    snippet = (
+                        quality_verifier_text[:500]
+                        if quality_verifier_text
+                        else "(empty)"
+                    )
+                    logger.debug(
+                        "Quality Verifier response format invalid (session=%s reason=%s): %s",
+                        _session_id,
+                        invalid_reason or "unknown",
+                        snippet,
+                    )
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Quality Verifier retrying due to invalid format (session=%s reason=%s)",
+                        _session_id,
+                        invalid_reason or "unknown",
+                    )
                 retry_request = quality_verifier_service_instance.build_invalid_format_retry_request(
                     verification_request,
                     quality_verifier_text,
@@ -719,6 +761,15 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 quality_verifier_text
             )
             steering_msg = (decision.steering_message or "").strip()
+
+            _session_id = str(context.get("session_id") or "unknown")
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Quality Verifier decision: %s (session=%s has_steering_message=%s)",
+                    decision.decision,
+                    _session_id,
+                    bool(steering_msg),
+                )
 
             # If no steering needed, pass through original chunks
             if decision.decision != "steer" or not steering_msg:
@@ -800,6 +851,14 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     self._cancellation_coordinator.ensure_not_cancelled(session_key)
 
             try:
+                if logger.isEnabledFor(logging.INFO):
+                    session_id = str(context.get("session_id") or "")
+                    stream_id = str(context.get("stream_id") or "")
+                    logger.info(
+                        "Quality Verifier requesting correction (session=%s stream=%s)",
+                        session_id or "unknown",
+                        stream_id or "unknown",
+                    )
                 corrected_response = await backend_service.chat_completions(
                     correction_request,
                     stream=False,
@@ -838,6 +897,14 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 for buffered in buffered_chunks:
                     yield buffered
                 return
+
+            if logger.isEnabledFor(logging.INFO):
+                _session_id = str(context.get("session_id") or "unknown")
+                logger.info(
+                    "Quality Verifier steering applied (session=%s corrected_length=%d)",
+                    _session_id,
+                    len(cleaned),
+                )
 
             # Yield corrected output with steering replacement marker
             yield ProcessedResponse(

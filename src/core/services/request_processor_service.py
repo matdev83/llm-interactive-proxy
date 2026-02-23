@@ -211,6 +211,28 @@ class RequestProcessor(IRequestProcessor):
         if isinstance(auth_scope_id, str) and auth_scope_id.strip():
             return f"b2bua-scope:{auth_scope_id.strip()}"
 
+        # Fallback for unauthenticated + sessionless clients.
+        #
+        # Some clients do not provide a stable session identifier and may also run
+        # with authentication disabled (local dev / single-user). In these cases the
+        # A-leg session id can rotate per request and Quality Verifier frequency
+        # counters would never progress beyond 1.
+        #
+        # Derive a stable, non-sensitive continuity key from connection identity.
+        try:
+            agent = getattr(context, "agent", None)
+            client_host = getattr(context, "client_host", None)
+            agent_text = str(agent).strip() if agent is not None else ""
+            host_text = str(client_host).strip() if client_host is not None else ""
+            if agent_text or host_text:
+                digest = hashlib.sha256(
+                    f"{agent_text}|{host_text}".encode("utf-8", errors="ignore")
+                ).hexdigest()[:16]
+                return f"b2bua-fallback:{digest}"
+        except Exception:
+            # Fail-open: keep behavior identical to previous versions.
+            pass
+
         return session_id
 
     def _get_quality_verifier_turn_count(self, session_key: str) -> int:
@@ -681,6 +703,23 @@ class RequestProcessor(IRequestProcessor):
             context.extensions["quality_verifier_eligible_turn_count"] = int(
                 current_eligible_turn_count
             )
+
+            if logger.isEnabledFor(logging.DEBUG):
+                try:
+                    freq_int = max(1, int(quality_verifier_frequency))
+                except (TypeError, ValueError):
+                    freq_int = 10
+                should_run_next = (
+                    current_eligible_turn_count > 0
+                    and (current_eligible_turn_count % freq_int) == 0
+                )
+                logger.debug(
+                    "Quality Verifier scheduling: effective_session=%s eligible_turn=%s frequency=%s run_now=%s",
+                    quality_verifier_session_id,
+                    current_eligible_turn_count,
+                    freq_int,
+                    should_run_next,
+                )
 
         # Execute backend and perform persistence side effects
         try:

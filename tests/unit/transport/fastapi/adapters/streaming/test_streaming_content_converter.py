@@ -106,6 +106,44 @@ class TestStreamingContentConverter:
         assert len(results) == 1
 
     @pytest.mark.asyncio
+    async def test_non_opencode_reasoning_only_stream_does_not_get_placeholder(
+        self,
+    ) -> None:
+        from src.core.transport.fastapi.adapters.sse.models import DecodedSSE
+
+        mock_decoder = MagicMock(spec=ISSEDecoder)
+        mock_decoder.decode_payload.return_value = DecodedSSE(
+            content={
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"reasoning_content": "thinking", "content": ""},
+                        "finish_reason": None,
+                    }
+                ]
+            },
+            metadata={},
+            is_done=False,
+        )
+
+        converter = StreamingContentConverter(sse_decoder=mock_decoder)
+
+        async def raw_stream() -> AsyncIterator[ProcessedResponse]:
+            yield ProcessedResponse(
+                content=b"data: {}\n\n",
+                metadata={"provider": "openai"},
+            )
+
+        results: list[StreamingContent] = []
+        async for content in converter.convert_stream(raw_stream(), {}):
+            results.append(content)
+
+        assert len(results) == 1
+        assert isinstance(results[0].content, dict)
+        delta = results[0].content["choices"][0]["delta"]
+        assert delta["content"] == ""
+
+    @pytest.mark.asyncio
     async def test_metadata_merging(self) -> None:
         """Test metadata merging from decoded content."""
         converter = StreamingContentConverter()

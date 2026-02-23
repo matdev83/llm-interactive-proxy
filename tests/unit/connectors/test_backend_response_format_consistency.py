@@ -112,7 +112,6 @@ class TestBackendResponseFormatDiscovery:
 
         # Verify we discover key connectors
         assert any("openai" in m for m in modules), "openai connector not found"
-        assert any("cline" in m for m in modules), "cline connector not found"
         assert any("anthropic" in m for m in modules), "anthropic connector not found"
 
 
@@ -280,7 +279,8 @@ class TestAllConnectorsResponseFormat:
     def test_all_backends_are_discovered(self, all_backends: list[str]) -> None:
         """Verify all backends are discovered."""
         # These are core backends that must always be present
-        core_backends = {"openai", "cline", "anthropic", "gemini"}
+        # Note: "cline" is now an extracted OAuth plugin backend
+        core_backends = {"openai", "anthropic", "gemini"}
         discovered_set = set(all_backends)
 
         missing = core_backends - discovered_set
@@ -361,7 +361,11 @@ class TestClineSpecificDataEnvelopeHandling:
         The Cline API returns responses wrapped in a 'data' key for non-streaming
         requests. This test verifies the connector unwraps it correctly.
         """
-        from src.connectors.cline import ClineConnector
+        cline_mod = pytest.importorskip(
+            "llm_proxy_oauth_connectors.cline",
+            reason="Cline connector plugin not installed",
+        )
+        ClineConnector = cline_mod.ClineConnector
 
         connector = ClineConnector(mock_http_client, config, translation_service)
 
@@ -416,7 +420,11 @@ class TestClineSpecificDataEnvelopeHandling:
         If the response is already in standard format (no 'data' wrapper),
         it should pass through unchanged.
         """
-        from src.connectors.cline import ClineConnector
+        cline_mod = pytest.importorskip(
+            "llm_proxy_oauth_connectors.cline",
+            reason="Cline connector plugin not installed",
+        )
+        ClineConnector = cline_mod.ClineConnector
 
         connector = ClineConnector(mock_http_client, config, translation_service)
 

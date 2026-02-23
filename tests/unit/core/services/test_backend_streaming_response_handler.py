@@ -22,7 +22,6 @@ from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from src.core.common.exceptions import BackendError
 from src.core.domain.backend_request_manager.context_models import (
     ResponseProcessingContext,
 )
@@ -185,7 +184,7 @@ class TestMiddlewareWrapping:
         )
 
         # Mock Angel verifier to pass through (return the stream directly, not consume it)
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -325,7 +324,7 @@ class TestEmptyStreamRecovery:
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -397,7 +396,7 @@ class TestEmptyStreamRecovery:
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -418,11 +417,12 @@ class TestEmptyStreamRecovery:
             result_chunks.append(chunk)
 
         mock_backend_processor.process_backend_request.assert_called_once()
-        assert len(result_chunks) == 1
-        assert result_chunks[0].content == "Retry response"
+        assert len(result_chunks) == 2
+        assert result_chunks[0].content == reasoning_chunk.content
+        assert result_chunks[1].content == "Retry response"
 
     @pytest.mark.asyncio
-    async def test_treats_thinking_delta_as_meaningful_output(
+    async def test_retries_reasoning_only_sse_stream(
         self,
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
@@ -433,7 +433,335 @@ class TestEmptyStreamRecovery:
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
     ) -> None:
-        """Handler should not retry when delta contains thinking content."""
+        """Handler should treat OpenAI-shaped SSE reasoning-only as empty for retry."""
+        reasoning_sse = (
+            b'data: {"id":"resp-sse-1","object":"chat.completion.chunk","choices":'
+            b'[{"delta":{"content":"","reasoning_content":"internal"},"finish_reason":null}]}'
+            b"\n\n"
+        )
+        reasoning_chunk = ProcessedResponse(content=reasoning_sse, metadata={})
+
+        input_stream = async_chunk_iterator([reasoning_chunk])
+        stream_envelope = StreamingResponseEnvelope(content=input_stream)
+
+        processed_stream = async_chunk_iterator([reasoning_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        retry_chunks = [ProcessedResponse(content="Retry response", metadata={})]
+        retry_stream = async_chunk_iterator(retry_chunks)
+        retry_envelope = StreamingResponseEnvelope(content=retry_stream)
+        mock_backend_processor.process_backend_request.return_value = retry_envelope
+
+        processed_retry_stream = async_chunk_iterator(retry_chunks)
+        mock_response_processor.process_streaming_response.side_effect = [
+            processed_stream,
+            processed_retry_stream,
+        ]
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result is not None
+        assert result.content is not None
+
+        result_chunks = []
+        async for chunk in result.content:
+            result_chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_called_once()
+        assert len(result_chunks) == 2
+        assert result_chunks[0].content == reasoning_chunk.content
+        assert result_chunks[1].content == "Retry response"
+
+    @pytest.mark.asyncio
+    async def test_retries_openai_reasoning_content_delta_dict(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Handler should treat delta.reasoning_content-only OpenAI chunks as empty for retry."""
+        reasoning_chunk = ProcessedResponse(
+            content={
+                "id": "resp-rc-1",
+                "object": "chat.completion.chunk",
+                "choices": [
+                    {
+                        "delta": {"content": "", "reasoning_content": "internal"},
+                        "finish_reason": None,
+                    }
+                ],
+            },
+            metadata={},
+        )
+
+        input_stream = async_chunk_iterator([reasoning_chunk])
+        stream_envelope = StreamingResponseEnvelope(content=input_stream)
+
+        processed_stream = async_chunk_iterator([reasoning_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        retry_chunks = [ProcessedResponse(content="Retry response", metadata={})]
+        retry_stream = async_chunk_iterator(retry_chunks)
+        retry_envelope = StreamingResponseEnvelope(content=retry_stream)
+        mock_backend_processor.process_backend_request.return_value = retry_envelope
+
+        processed_retry_stream = async_chunk_iterator(retry_chunks)
+        mock_response_processor.process_streaming_response.side_effect = [
+            processed_stream,
+            processed_retry_stream,
+        ]
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result is not None
+        assert result.content is not None
+
+        result_chunks = []
+        async for chunk in result.content:
+            result_chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_called_once()
+        assert len(result_chunks) == 2
+        assert result_chunks[0].content == reasoning_chunk.content
+        assert result_chunks[1].content == "Retry response"
+
+    @pytest.mark.asyncio
+    async def test_opencode_reasoning_only_sse_does_not_trigger_empty_retry(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Reasoning-only SSE should be treated as meaningful output.
+
+        Some providers emit long stretches of `delta.reasoning_content` with empty
+        `delta.content`. The empty-stream retry gate must treat this as meaningful
+        to avoid pointless retries.
+        """
+        reasoning_sse = (
+            b'data: {"id":"resp-sse-opencode","object":"chat.completion.chunk","choices":'
+            b'[{"delta":{"content":"","reasoning_content":"internal"},"finish_reason":null}]}'
+            b"\n\n"
+        )
+        reasoning_chunk = ProcessedResponse(content=reasoning_sse, metadata={})
+
+        input_stream = async_chunk_iterator([reasoning_chunk])
+        stream_envelope = StreamingResponseEnvelope(content=input_stream)
+
+        processed_stream = async_chunk_iterator([reasoning_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        opencode_request = base_request.model_copy(update={"agent": "opencode/1.2.10"})
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=opencode_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result is not None
+        assert result.content is not None
+
+        result_chunks = []
+        async for chunk in result.content:
+            result_chunks.append(chunk)
+
+        assert len(result_chunks) == 1
+        assert result_chunks[0].content == reasoning_chunk.content
+        assert (
+            result_chunks[0].metadata.get("_client_supports_reasoning_fields") is True
+        )
+        assert result_chunks[0].metadata.get("_suppress_reasoning_fields") is not True
+        assert result_chunks[0].metadata.get("_keep_reasoning_content") is None
+        mock_backend_processor.process_backend_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_openai_sse_content_prevents_retry(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Handler should not retry when OpenAI-shaped SSE contains delta.content."""
+        content_sse = (
+            'data: {"id":"resp-sse-2","object":"chat.completion.chunk","choices":'
+            '[{"delta":{"content":"Hi"},"finish_reason":null}]}'
+            "\n\n"
+        )
+        content_chunk = ProcessedResponse(content=content_sse, metadata={})
+        input_stream = async_chunk_iterator([content_chunk])
+        stream_envelope = StreamingResponseEnvelope(content=input_stream)
+
+        processed_stream = async_chunk_iterator([content_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result is not None
+        assert result.content is not None
+
+        result_chunks = []
+        async for chunk in result.content:
+            result_chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_not_called()
+        assert len(result_chunks) == 1
+        assert result_chunks[0].content == content_sse
+
+    @pytest.mark.asyncio
+    async def test_done_only_stream_triggers_retry(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """A lone `data: [DONE]` must not bypass empty-stream recovery."""
+        done_chunk = ProcessedResponse(content=b"data: [DONE]\n\n", metadata={})
+        input_stream = async_chunk_iterator([done_chunk])
+        stream_envelope = StreamingResponseEnvelope(content=input_stream)
+
+        processed_stream = async_chunk_iterator([done_chunk])
+        mock_response_processor.process_streaming_response.return_value = (
+            processed_stream
+        )
+
+        retry_chunks = [ProcessedResponse(content="Retry response", metadata={})]
+        retry_stream = async_chunk_iterator(retry_chunks)
+        retry_envelope = StreamingResponseEnvelope(content=retry_stream)
+        mock_backend_processor.process_backend_request.return_value = retry_envelope
+
+        processed_retry_stream = async_chunk_iterator(retry_chunks)
+        mock_response_processor.process_streaming_response.side_effect = [
+            processed_stream,
+            processed_retry_stream,
+        ]
+
+        mock_loop_detector = MagicMock(spec=ILoopDetector)
+        mock_loop_detector.process_chunk.return_value = None
+        mock_loop_detector_factory.create.return_value = mock_loop_detector
+
+        async def passthrough_stream(request, stream, context, **_kwargs):
+            async for chunk in stream:
+                yield chunk
+
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
+
+        result = await handler.handle(
+            stream=stream_envelope,
+            request=base_request,
+            context=request_context,
+            processing_context=processing_context,
+        )
+
+        assert result is not None
+        assert result.content is not None
+
+        result_chunks = []
+        async for chunk in result.content:
+            result_chunks.append(chunk)
+
+        mock_backend_processor.process_backend_request.assert_called_once()
+        # Terminal markers are buffered; only the retry output is returned.
+        assert len(result_chunks) == 1
+        assert result_chunks[0].content == "Retry response"
+
+    @pytest.mark.asyncio
+    async def test_treats_thinking_delta_as_empty_for_retry(
+        self,
+        handler: IStreamingBackendResponseHandler,
+        mock_response_processor: AsyncMock,
+        mock_backend_processor: AsyncMock,
+        mock_loop_detector_factory: MagicMock,
+        mock_quality_verifier_stream_verifier: AsyncMock,
+        base_request: ChatRequest,
+        request_context: RequestContext,
+        processing_context: ResponseProcessingContext,
+    ) -> None:
+        """Handler should treat thinking-only delta as empty for retry."""
         thinking_chunk = ProcessedResponse(
             content={
                 "id": "resp-2",
@@ -454,11 +782,22 @@ class TestEmptyStreamRecovery:
             processed_stream
         )
 
+        retry_chunks = [ProcessedResponse(content="Retry response", metadata={})]
+        retry_stream = async_chunk_iterator(retry_chunks)
+        retry_envelope = StreamingResponseEnvelope(content=retry_stream)
+        mock_backend_processor.process_backend_request.return_value = retry_envelope
+
+        processed_retry_stream = async_chunk_iterator(retry_chunks)
+        mock_response_processor.process_streaming_response.side_effect = [
+            processed_stream,
+            processed_retry_stream,
+        ]
+
         mock_loop_detector = MagicMock(spec=ILoopDetector)
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -478,12 +817,13 @@ class TestEmptyStreamRecovery:
         async for chunk in result.content:
             result_chunks.append(chunk)
 
-        mock_backend_processor.process_backend_request.assert_not_called()
-        assert len(result_chunks) == 1
+        mock_backend_processor.process_backend_request.assert_called_once()
+        assert len(result_chunks) == 2
         assert result_chunks[0].content == thinking_chunk.content
+        assert result_chunks[1].content == "Retry response"
 
     @pytest.mark.asyncio
-    async def test_treats_reasoning_metadata_as_meaningful_output(
+    async def test_treats_reasoning_metadata_as_empty_for_retry(
         self,
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
@@ -494,7 +834,7 @@ class TestEmptyStreamRecovery:
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
     ) -> None:
-        """Handler should not retry when reasoning metadata is present."""
+        """Handler should treat reasoning-only metadata as empty for retry."""
         reasoning_chunk = ProcessedResponse(
             content="",
             metadata={"reasoning_content": "Working through the steps."},
@@ -507,11 +847,22 @@ class TestEmptyStreamRecovery:
             processed_stream
         )
 
+        retry_chunks = [ProcessedResponse(content="Retry response", metadata={})]
+        retry_stream = async_chunk_iterator(retry_chunks)
+        retry_envelope = StreamingResponseEnvelope(content=retry_stream)
+        mock_backend_processor.process_backend_request.return_value = retry_envelope
+
+        processed_retry_stream = async_chunk_iterator(retry_chunks)
+        mock_response_processor.process_streaming_response.side_effect = [
+            processed_stream,
+            processed_retry_stream,
+        ]
+
         mock_loop_detector = MagicMock(spec=ILoopDetector)
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -531,12 +882,10 @@ class TestEmptyStreamRecovery:
         async for chunk in result.content:
             result_chunks.append(chunk)
 
-        mock_backend_processor.process_backend_request.assert_not_called()
-        assert len(result_chunks) == 1
-        assert (
-            result_chunks[0].metadata["reasoning_content"]
-            == "Working through the steps."
-        )
+        mock_backend_processor.process_backend_request.assert_called_once()
+        assert len(result_chunks) == 2
+        assert result_chunks[0].content == reasoning_chunk.content
+        assert result_chunks[1].content == "Retry response"
 
     @pytest.mark.asyncio
     async def test_terminal_chunk_skips_empty_stream_retry(
@@ -584,7 +933,7 @@ class TestEmptyStreamRecovery:
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -610,7 +959,7 @@ class TestEmptyStreamRecovery:
         mock_backend_processor.process_backend_request.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_raises_backend_error_when_empty_stream_retry_limit_exceeded(
+    async def test_emits_terminal_stop_chunk_when_empty_stream_retry_limit_exceeded(
         self,
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
@@ -621,7 +970,7 @@ class TestEmptyStreamRecovery:
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
     ) -> None:
-        """Handler should raise BackendError when empty stream retry limit exceeded."""
+        """Handler emits a terminal stop chunk when empty stream retry limit exceeded."""
         # Arrange
         # Empty stream (no chunks) should trigger retry exhaustion
         empty_chunks: list[ProcessedResponse] = []
@@ -649,7 +998,7 @@ class TestEmptyStreamRecovery:
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -663,14 +1012,24 @@ class TestEmptyStreamRecovery:
             processing_context=processing_context,
         )
 
-        with pytest.raises(BackendError) as exc_info:
-            assert result.content is not None
-            async for _ in result.content:
-                pass
+        assert result.content is not None
+        chunks: list[ProcessedResponse] = []
+        async for chunk in result.content:
+            chunks.append(chunk)
 
-        assert "test-session-123" in str(
-            exc_info.value.details
-        ) or "empty_stream" in str(exc_info.value.details)
+        assert chunks
+        terminal = chunks[-1]
+        assert isinstance(terminal.content, str)
+        assert terminal.content.strip()
+        assert terminal.metadata.get("finish_reason") == "stop"
+        assert terminal.metadata.get("is_done") is True
+        assert terminal.metadata.get("session_id") == "test-session-123"
+        warn = terminal.metadata.get("proxy_warning")
+        assert isinstance(warn, dict)
+        warn_dict = cast(dict, warn)
+        assert warn_dict.get("type") == "empty_stream_after_retries"
+
+        mock_backend_processor.process_backend_request.assert_called_once()
 
 
 class TestToolCallRetryHandling:
@@ -725,7 +1084,7 @@ class TestToolCallRetryHandling:
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -810,7 +1169,7 @@ class TestToolCallRetryHandling:
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -880,7 +1239,7 @@ class TestLoopDetectionCancellation:
         mock_loop_detector.process_chunk.side_effect = [None, loop_event]
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -951,7 +1310,7 @@ class TestLoopDetectionCancellation:
         mock_loop_detector.process_chunk.return_value = loop_event
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -1001,7 +1360,7 @@ class TestAngelVerification:
         )
 
         # Angel verifier returns original stream (pass-through)
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -1065,7 +1424,9 @@ class TestAngelVerification:
             async for chunk in corrected_stream:
                 yield chunk
 
-        mock_quality_verifier_stream_verifier.verify_or_passthrough = corrected_stream_gen
+        mock_quality_verifier_stream_verifier.verify_or_passthrough = (
+            corrected_stream_gen
+        )
 
         # Mock loop detector
         mock_loop_detector = MagicMock(spec=ILoopDetector)
@@ -1122,7 +1483,7 @@ class TestMetadataAttachment:
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -1173,7 +1534,7 @@ class TestMetadataAttachment:
         mock_loop_detector.process_chunk.return_value = None
         mock_loop_detector_factory.create.return_value = mock_loop_detector
 
-        async def passthrough_stream(request, stream, context):
+        async def passthrough_stream(request, stream, context, **_kwargs):
             async for chunk in stream:
                 yield chunk
 
@@ -1356,8 +1717,8 @@ class TestFailOpenBehavior:
         )
 
         # Angel verifier raises exception
-        mock_quality_verifier_stream_verifier.verify_or_passthrough.side_effect = Exception(
-            "Quality Verifier failed"
+        mock_quality_verifier_stream_verifier.verify_or_passthrough.side_effect = (
+            Exception("Quality Verifier failed")
         )
 
         # Act

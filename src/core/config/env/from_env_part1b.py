@@ -327,6 +327,20 @@ def apply_config_part1b(
             resolution=resolution,
             transform=_optional_int,
         ),
+        "quality_verifier_max_consecutive_failures": _env_to_int(
+            "QUALITY_VERIFIER_MAX_CONSECUTIVE_FAILURES",
+            5,
+            env,
+            path="session.quality_verifier_max_consecutive_failures",
+            resolution=resolution,
+        ),
+        "quality_verifier_cooldown_seconds": _env_to_int(
+            "QUALITY_VERIFIER_COOLDOWN_SECONDS",
+            300,
+            env,
+            path="session.quality_verifier_cooldown_seconds",
+            resolution=resolution,
+        ),
         "quality_verifier_ttft_timeout_seconds": _env_to_float(
             "QUALITY_VERIFIER_TTFT_TIMEOUT_SECONDS",
             30.0,
@@ -389,6 +403,14 @@ def apply_config_part1b(
             env,
             path="logging.use_colors",
             resolution=resolution,
+        ),
+        "console_stream": _get_env_value(
+            env,
+            "LOG_STREAM",
+            "stderr",
+            path="logging.console_stream",
+            resolution=resolution,
+            transform=lambda value: str(value or "").strip().lower(),
         ),
         "request_logging": _env_to_bool(
             "REQUEST_LOGGING",

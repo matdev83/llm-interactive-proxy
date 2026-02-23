@@ -37,7 +37,13 @@ class ReasoningInjector:
         """
         normalized_content = self._normalize_content(content)
 
-        if not metadata or not isinstance(metadata, dict):
+        if not metadata:
+            return normalized_content
+
+        # Some strict OpenAI clients crash/disconnect when non-standard delta fields
+        # (reasoning_content/thinking/etc.) are present. When the streaming pipeline
+        # marks a response as strict, skip injecting reasoning entirely.
+        if metadata.get("_suppress_reasoning_fields"):
             return normalized_content
 
         # Infer streaming mode if not provided
@@ -52,8 +58,10 @@ class ReasoningInjector:
             ):
                 return normalized_content
 
-            # If we couldn't place reasoning inside choices, surface it via metadata
-            if reasoning_text:
+            # If we couldn't place reasoning inside choices, surface it via metadata.
+            # IMPORTANT: for OpenAI-style streaming responses, adding a top-level
+            # `metadata` field breaks strict OpenAI client schemas.
+            if reasoning_text and not streaming:
                 metadata_block = normalized_content.get("metadata")
                 reasoning_payload = {
                     "reasoning_content": reasoning_text,
@@ -192,6 +200,9 @@ class ReasoningInjector:
                 choice[target_key] = target
 
             if target.get("reasoning_content"):
+                # Reasoning already present: treat as successfully assigned so we
+                # don't fall back to non-standard top-level `metadata` injection.
+                assigned = True
                 continue
 
             if streaming:
@@ -231,11 +242,15 @@ class ReasoningInjector:
         created_raw = metadata.get("created")
         if isinstance(created_raw, int):
             created = created_raw
-        else:
+        elif isinstance(created_raw, float) and created_raw.is_integer():
+            created = int(created_raw)
+        elif isinstance(created_raw, str) and created_raw.strip():
             try:
-                created = int(created_raw)  # type: ignore[arg-type]
+                created = int(created_raw)
             except (TypeError, ValueError):
                 created = int(time.time())
+        else:
+            created = int(time.time())
 
         model_name = metadata.get("model") or "unknown"
         object_type = metadata.get("object")

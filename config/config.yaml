@@ -183,6 +183,7 @@ compaction:
 # Logging
 logging:
   level: "INFO"  # TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL
+  console_stream: "stderr"  # stdout|stderr
   request_logging: false
   response_logging: false
   log_file: null  # Optional log file path (e.g., "var/logs/proxy.log")
