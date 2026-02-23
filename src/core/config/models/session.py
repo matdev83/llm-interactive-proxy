@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Literal
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -189,6 +190,53 @@ class StreamingSamplerConfig(DomainModel):
     """Maximum number of samples to retain in memory."""
 
 
+ReasoningMode = Literal[
+    "passthrough",
+    "coerce_to_content",
+    "drop",
+]
+
+
+class ClientCompatibilityRule(DomainModel):
+    """User-Agent based default compatibility overrides.
+
+    These rules provide sane defaults for known clients without hard-coding
+    client-specific behavior into streaming services.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    enabled: bool = True
+    user_agent_regex: str
+
+    reasoning_mode: ReasoningMode = "passthrough"
+    reasoning_counts_as_meaningful: bool = False
+
+    @field_validator("user_agent_regex")
+    @classmethod
+    def _validate_user_agent_regex(cls, value: str) -> str:
+        pattern = value.strip()
+        if not pattern:
+            raise ValueError("user_agent_regex cannot be empty")
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ValueError(f"Invalid user_agent_regex: {exc}") from exc
+        return pattern
+
+
+class ClientCompatibilityConfig(DomainModel):
+    """Client capability overrides used by the proxy compatibility layer."""
+
+    model_config = ConfigDict(frozen=True)
+
+    reasoning_mode_header: str = "x-llmproxy-reasoning-mode"
+    reasoning_meaningful_header: str = "x-llmproxy-reasoning-meaningful"
+
+    user_agent_rules: list[ClientCompatibilityRule] = Field(default_factory=list)
+
+
 class SessionConfig(DomainModel):
     """Session management configuration."""
 
@@ -233,6 +281,10 @@ class SessionConfig(DomainModel):
         default_factory=SessionContinuityConfig
     )
     b2bua: B2BUAConfig = Field(default_factory=B2BUAConfig)
+
+    client_compatibility: ClientCompatibilityConfig = Field(
+        default_factory=ClientCompatibilityConfig
+    )
     tool_access_global_overrides: dict[str, Any] | None = None
     force_reprocess_tool_calls: bool = False
     log_skipped_tool_calls: bool = False
@@ -339,7 +391,9 @@ class SessionConfig(DomainModel):
         values["tool_call_reactor"] = reactor_config_dict
 
         quality_verifier_model = values.get("quality_verifier_model")
-        if quality_verifier_model is not None and not isinstance(quality_verifier_model, str):
+        if quality_verifier_model is not None and not isinstance(
+            quality_verifier_model, str
+        ):
             try:
                 values["quality_verifier_model"] = str(quality_verifier_model)
             except (MemoryError, RecursionError):

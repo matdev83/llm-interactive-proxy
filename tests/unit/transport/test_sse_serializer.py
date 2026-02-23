@@ -493,6 +493,42 @@ class TestSSESerializerNormalChunks:
         assert "thinking" not in delta
         assert "thought" not in delta
 
+    def test_suppress_reasoning_fields_drop_mode_does_not_coerce(self) -> None:
+        serializer = SSESerializer()
+        openai_chunk: dict[str, Any] = {
+            "id": "chatcmpl-test",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "role": "assistant",
+                        "reasoning_content": "secret reasoning",
+                        "content": "",
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+        chunk = StreamingContent(
+            content=openai_chunk,
+            metadata={
+                "_suppress_reasoning_fields": True,
+                "_coerce_reasoning_into_content": False,
+            },
+            is_done=False,
+        )
+
+        result_str = serializer.serialize(chunk).decode("utf-8")
+        json_line = result_str.strip().split("\n\n")[0][6:]
+        payload = json.loads(json_line)
+        delta = payload["choices"][0]["delta"]
+
+        assert delta["content"] == ""
+        assert "reasoning_content" not in delta
+
     def test_suppress_reasoning_fields_keep_reasoning_content_preserves_canonical_field(
         self,
     ) -> None:

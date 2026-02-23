@@ -41,6 +41,7 @@ class SSESerializer:
         container: dict[str, Any],
         *,
         keep_reasoning_content: bool,
+        coerce_reasoning_into_content: bool,
     ) -> None:
         """Handle non-standard reasoning keys in OpenAI delta/message containers.
 
@@ -72,7 +73,12 @@ class SSESerializer:
             for k in ("reasoning", "thinking", "thought"):
                 container.pop(k, None)
         else:
-            if not has_content and isinstance(reasoning_val, str) and reasoning_val:
+            if (
+                coerce_reasoning_into_content
+                and not has_content
+                and isinstance(reasoning_val, str)
+                and reasoning_val
+            ):
                 # Coerce reasoning output into standard `content`.
                 container["content"] = reasoning_val
             for k in cls._REASONING_DELTA_KEYS:
@@ -84,6 +90,7 @@ class SSESerializer:
         payload: dict[str, Any],
         *,
         keep_reasoning_content: bool,
+        coerce_reasoning_into_content: bool,
     ) -> None:
         choices = payload.get("choices")
         if not isinstance(choices, list):
@@ -95,7 +102,9 @@ class SSESerializer:
                 container = choice.get(container_key)
                 if isinstance(container, dict):
                     cls._coerce_and_strip_reasoning_fields_in_container(
-                        container, keep_reasoning_content=keep_reasoning_content
+                        container,
+                        keep_reasoning_content=keep_reasoning_content,
+                        coerce_reasoning_into_content=coerce_reasoning_into_content,
                     )
 
     @staticmethod
@@ -342,6 +351,9 @@ class SSESerializer:
                 keep_reasoning_content=bool(
                     content.metadata.get("_keep_reasoning_content")
                 ),
+                coerce_reasoning_into_content=bool(
+                    content.metadata.get("_coerce_reasoning_into_content", True)
+                ),
             )
 
         # Sanitize existing tool_calls in delta/message
@@ -506,6 +518,9 @@ class SSESerializer:
                 content_copy,
                 keep_reasoning_content=bool(
                     content.metadata.get("_keep_reasoning_content")
+                ),
+                coerce_reasoning_into_content=bool(
+                    content.metadata.get("_coerce_reasoning_into_content", True)
                 ),
             )
         self._sanitize_chunk_tool_calls_in_place(content_copy)

@@ -565,7 +565,7 @@ class TestEmptyStreamRecovery:
         assert result_chunks[1].content == "Retry response"
 
     @pytest.mark.asyncio
-    async def test_opencode_reasoning_only_sse_does_not_trigger_empty_retry(
+    async def test_reasoning_only_sse_does_not_trigger_empty_retry_when_client_opt_in(
         self,
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
@@ -607,12 +607,22 @@ class TestEmptyStreamRecovery:
 
         mock_quality_verifier_stream_verifier.verify_or_passthrough = passthrough_stream
 
-        opencode_request = base_request.model_copy(update={"agent": "opencode/1.2.10"})
+        opt_in_context = RequestContext(
+            headers={
+                "x-llmproxy-reasoning-mode": "passthrough",
+                "x-llmproxy-reasoning-meaningful": "true",
+            },
+            cookies=request_context.cookies,
+            state=request_context.state,
+            app_state=request_context.app_state,
+            session_id=request_context.session_id,
+            processing_context=request_context.processing_context,
+        )
 
         result = await handler.handle(
             stream=stream_envelope,
-            request=opencode_request,
-            context=request_context,
+            request=base_request,
+            context=opt_in_context,
             processing_context=processing_context,
         )
 

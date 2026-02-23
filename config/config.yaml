@@ -61,6 +61,23 @@ session:
     # Disabled by default. Enable only if you understand the trade-offs.
     enable_topic_similarity_matching: false
 
+  # Client compatibility (frontend-facing behavior)
+  #
+  # Prefer explicit headers from the client when possible:
+  #   - x-llmproxy-reasoning-mode: passthrough | coerce_to_content | drop
+  #   - x-llmproxy-reasoning-meaningful: true | false
+  #
+  # If the client cannot set headers, you can configure UA-based defaults here.
+  client_compatibility:
+    reasoning_mode_header: x-llmproxy-reasoning-mode
+    reasoning_meaningful_header: x-llmproxy-reasoning-meaningful
+    user_agent_rules:
+      - name: opencode-defaults
+        enabled: true
+        user_agent_regex: "opencode/"
+        reasoning_mode: passthrough
+        reasoning_counts_as_meaningful: true
+
   max_age: 86400  # 1 day
   default_interactive_mode: true
   force_set_project: false

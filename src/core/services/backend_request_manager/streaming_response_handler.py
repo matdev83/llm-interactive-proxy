@@ -1110,38 +1110,69 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                         "client_os", cast(JsonValue, processing_context.client_os)
                     )
 
-                # Mark clients that can render provider-specific reasoning fields.
-                #
-                # Some providers stream large stretches via non-standard keys like
-                # `delta.reasoning_content` / `delta.thinking` with empty `delta.content`.
-                # For clients that can display these fields (e.g. opencode), reasoning-only
-                # chunks should count as meaningful output (avoid empty-stream retries).
+                # Resolve client capabilities using explicit headers and config-driven rules.
                 try:
-                    agent_val = getattr(request, "agent", None)
-                    if isinstance(agent_val, str) and "opencode" in agent_val.lower():
+                    from collections.abc import Mapping
+
+                    from src.core.common.client_compatibility import (
+                        resolve_client_reasoning_policy,
+                    )
+                    from src.core.interfaces.configuration_interface import IConfig
+
+                    cfg: IConfig | None = None
+                    app_state = getattr(context, "app_state", None)
+                    if app_state is not None:
+                        for attr in ("config", "app_config"):
+                            candidate = getattr(app_state, attr, None)
+                            # Avoid isinstance() on abstract/protocol config types.
+                            if candidate is not None and hasattr(candidate, "session"):
+                                cfg = cast(IConfig, candidate)
+                                break
+                    if cfg is None:
+                        try:
+                            from src.core.di.services import get_service_provider
+
+                            provider = get_service_provider()
+                            cfg_any = provider.get_service(cast(type[Any], IConfig))
+                            cfg = cast(IConfig | None, cfg_any)
+                        except Exception:
+                            cfg = None
+
+                    headers = getattr(context, "headers", None)
+                    ua_val = None
+                    if isinstance(headers, Mapping):
+                        ua_val = headers.get("user-agent") or headers.get("User-Agent")
+                    ua = ua_val if isinstance(ua_val, str) else None
+
+                    client_cfg = (
+                        getattr(
+                            getattr(cfg, "session", None), "client_compatibility", None
+                        )
+                        if cfg is not None
+                        else None
+                    )
+                    policy = resolve_client_reasoning_policy(
+                        headers=headers,
+                        client_config=client_cfg,
+                        user_agent=ua,
+                    )
+
+                    if policy.reasoning_counts_as_meaningful:
                         processed_metadata.setdefault(
                             "_client_supports_reasoning_fields", True
                         )
-                    else:
-                        ua = None
-                        headers = getattr(context, "headers", None) or {}
-                        if isinstance(headers, dict):
-                            ua_val = headers.get("user-agent") or headers.get(
-                                "User-Agent"
-                            )
-                            if isinstance(ua_val, str):
-                                ua = ua_val
-                        if ua and "opencode" in ua.lower():
+
+                    if policy.reasoning_mode != "passthrough":
+                        processed_metadata.setdefault(
+                            "_suppress_reasoning_fields", True
+                        )
+                        if policy.reasoning_mode == "drop":
                             processed_metadata.setdefault(
-                                "_client_supports_reasoning_fields", True
+                                "_coerce_reasoning_into_content", False
                             )
                 except Exception:
                     # Best-effort only.
                     pass
-
-                # NOTE: Do not suppress provider-specific reasoning fields for opencode.
-                # opencode uses these fields to render thinking output; suppressing them
-                # makes the stream look "silent" even though SSE is active.
                 # Create new ProcessedResponse instance with updated metadata (copy-on-write)
                 yield ProcessedResponse(
                     content=chunk.content,

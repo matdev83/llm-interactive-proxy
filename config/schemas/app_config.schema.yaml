@@ -254,6 +254,25 @@ properties:
           echo_header_name: { type: string, minLength: 1 }
           enable_unsafe_heuristic_session_inference: { type: boolean }
           deployment_mode: { type: string, enum: ["single-process", "multi-worker"] }
+      client_compatibility:
+        type: object
+        additionalProperties: false
+        properties:
+          reasoning_mode_header: { type: string }
+          reasoning_meaningful_header: { type: string }
+          user_agent_rules:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, minLength: 1 }
+                enabled: { type: boolean }
+                user_agent_regex: { type: string, minLength: 1 }
+                reasoning_mode:
+                  type: string
+                  enum: ["passthrough", "coerce_to_content", "drop"]
+                reasoning_counts_as_meaningful: { type: boolean }
       planning_phase:
         type: object
         additionalProperties: false
