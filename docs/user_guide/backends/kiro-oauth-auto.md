@@ -36,10 +36,20 @@ backends:
       origin: AI_EDITOR                     # or CLI
 ```
 
-## 3) Run with this backend
+## 3) Enable the backend (debugging override)
+
+The Kiro OAuth Auto backend is restricted and requires an explicit debugging override flag to enable:
 
 ```powershell
-./.venv/Scripts/python.exe -m src.core.cli --default-backend kiro-oauth-auto
+./.venv/Scripts/python.exe -m src.core.cli --enable-kiro-oauth-auto-backend-debugging-override
+```
+
+This flag is required because the backend is reserved for internal development and debugging purposes.
+
+## 4) Run with this backend
+
+```powershell
+./.venv/Scripts/python.exe -m src.core.cli --default-backend kiro-oauth-auto --enable-kiro-oauth-auto-backend-debugging-override
 ```
 
 ## Model names

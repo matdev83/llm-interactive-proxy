@@ -367,6 +367,7 @@ class TestBackendDebuggingFlags:
             "--enable-qwen-oauth-backend-debugging-override",
             "--enable-openai-codex-backend-debugging-override",
             "--enable-anthropic-oauth-backend-debugging-override",
+            "--enable-kiro-oauth-auto-backend-debugging-override",
             "--enable-droid-path-fix",
         ],
     )

@@ -899,6 +899,12 @@ class ArgumentParserBuilder:
             help="Enable the Opencode Zen backend connector for debugging. Reserved for internal development.",
         )
         debugging_overrides_group.add_argument(
+            "--enable-kiro-oauth-auto-backend-debugging-override",
+            action="store_true",
+            default=False,
+            help="Enable the Kiro OAuth Auto backend connector for debugging. Reserved for internal development.",
+        )
+        debugging_overrides_group.add_argument(
             "--enable-droid-path-fix",
             action="store_true",
             dest="droid_path_fix_enabled",

@@ -81,6 +81,7 @@ class TestAccessModeValidatorDIRegistration:
             enable_anthropic_oauth_backend_debugging_override=False,
             enable_openai_codex_backend_debugging_override=False,
             enable_opencode_zen_backend_debugging_override=False,
+            enable_kiro_oauth_auto_backend_debugging_override=False,
         )
 
         # Act & Assert - should not raise for default localhost config

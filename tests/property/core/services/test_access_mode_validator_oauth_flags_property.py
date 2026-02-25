@@ -31,6 +31,7 @@ OAUTH_FLAGS = [
     "enable_anthropic_oauth_backend_debugging_override",
     "enable_openai_codex_backend_debugging_override",
     "enable_opencode_zen_backend_debugging_override",
+    "enable_kiro_oauth_auto_backend_debugging_override",
 ]
 
 # Strategy for selecting an OAuth flag

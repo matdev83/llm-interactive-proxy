@@ -74,19 +74,20 @@ def initialize_feature_parity_registry(provider: IServiceProvider) -> None:
                 MiddlewareApplicationManager,
             )
 
-            manager = provider.get_required_service(MiddlewareApplicationManager)
-            for mw in manager._middleware:  # type: ignore[attr-defined]
-                if isinstance(mw, IResponseFeature):
-                    registry.register_feature(mw)
-                else:
-                    # After checking IResponseFeature, remaining items are IResponseMiddleware
-                    mw_name = type(mw).__name__
-                    # All updated middleware now support both paths
-                    registry.register_middleware(
-                        mw,
-                        declared_capability=FeatureCapability.BOTH,
-                        name=mw_name,
-                    )
+            manager = provider.get_service(MiddlewareApplicationManager)
+            if manager is not None:
+                for mw in manager._middleware:  # type: ignore[attr-defined]
+                    if isinstance(mw, IResponseFeature):
+                        registry.register_feature(mw)
+                    else:
+                        # After checking IResponseFeature, remaining items are IResponseMiddleware
+                        mw_name = type(mw).__name__
+                        # All updated middleware now support both paths
+                        registry.register_middleware(
+                            mw,
+                            declared_capability=FeatureCapability.BOTH,
+                            name=mw_name,
+                        )
         except (ImportError, AttributeError, RuntimeError) as e:
             # Log at WARNING level since this is on a critical path for DI initialization
             if logger.isEnabledFor(logging.WARNING):

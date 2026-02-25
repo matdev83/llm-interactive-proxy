@@ -323,6 +323,10 @@ class BackendApplicator:
                 "enable_opencode_zen_backend_debugging_override",
                 "opencode_zen",
             ),
+            (
+                "enable_kiro_oauth_auto_backend_debugging_override",
+                "kiro_oauth_auto",
+            ),
         ]
 
         for flag_name, backend_name in debug_flags:
