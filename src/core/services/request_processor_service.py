@@ -99,7 +99,7 @@ class RequestProcessor(IRequestProcessor):
         self._backend_executor = backend_executor
         self._app_state = app_state
         self._replacement_service = replacement_service
-        self._quality_verifier_turn_counts: OrderedDict[str, int] = OrderedDict()
+        self._quality_verifier_turn_counts: OrderedDict[str, float] = OrderedDict()
 
     @staticmethod
     def _is_tool_result_followup_request(request: ChatRequest) -> bool:
@@ -236,16 +236,16 @@ class RequestProcessor(IRequestProcessor):
 
         return session_id
 
-    def _get_quality_verifier_turn_count(self, session_key: str) -> int:
+    def _get_quality_verifier_turn_count(self, session_key: str) -> float:
         """Return in-memory Quality Verifier turn count for a continuity key."""
-        count = self._quality_verifier_turn_counts.get(session_key, 0)
+        count = self._quality_verifier_turn_counts.get(session_key, 0.0)
         if session_key in self._quality_verifier_turn_counts:
             self._quality_verifier_turn_counts.move_to_end(session_key, last=True)
-        return max(0, int(count))
+        return max(0.0, float(count))
 
-    def _set_quality_verifier_turn_count(self, session_key: str, count: int) -> None:
+    def _set_quality_verifier_turn_count(self, session_key: str, count: float) -> None:
         """Persist in-memory Quality Verifier turn count with bounded LRU size."""
-        self._quality_verifier_turn_counts[session_key] = max(0, int(count))
+        self._quality_verifier_turn_counts[session_key] = max(0.0, float(count))
         self._quality_verifier_turn_counts.move_to_end(session_key, last=True)
         while (
             len(self._quality_verifier_turn_counts) > MAX_QUALITY_VERIFIER_TURN_STATES
@@ -424,6 +424,7 @@ class RequestProcessor(IRequestProcessor):
         quality_verifier_max_consecutive_failures: int = 5
         quality_verifier_cooldown_seconds: int = 300
         quality_verifier_ttft_timeout_seconds: float = 30.0
+        quality_verifier_tool_followup_weight: float = 0.1
 
         try:
             if self._app_state is not None:
@@ -466,6 +467,20 @@ class RequestProcessor(IRequestProcessor):
                     quality_verifier_ttft_timeout_seconds = 30.0
                 if quality_verifier_ttft_timeout_seconds <= 0:
                     quality_verifier_ttft_timeout_seconds = 30.0
+
+                raw_tool_followup_weight = getattr(
+                    session_cfg, "quality_verifier_tool_followup_weight", 0.1
+                )
+                try:
+                    quality_verifier_tool_followup_weight = float(
+                        raw_tool_followup_weight
+                    )
+                except (TypeError, ValueError):
+                    quality_verifier_tool_followup_weight = 0.1
+                # Clamp between 0.0 and 1.0
+                quality_verifier_tool_followup_weight = max(
+                    0.0, min(1.0, quality_verifier_tool_followup_weight)
+                )
         except Exception:
             quality_verifier_model_spec = None
             quality_verifier_frequency = 10
@@ -473,6 +488,7 @@ class RequestProcessor(IRequestProcessor):
             quality_verifier_max_consecutive_failures = 5
             quality_verifier_cooldown_seconds = 300
             quality_verifier_ttft_timeout_seconds = 30.0
+            quality_verifier_tool_followup_weight = 0.1
 
         quality_verifier_enabled = bool(quality_verifier_model_spec)
         if quality_verifier_enabled:
@@ -505,22 +521,28 @@ class RequestProcessor(IRequestProcessor):
             context.extensions["quality_verifier_skip_verification"] = True
 
         quality_verifier_turn_incremented = False
-        current_eligible_turn_count = 0
+        current_eligible_turn_count = 0.0
         in_memory_eligible_turn_count = self._get_quality_verifier_turn_count(
             quality_verifier_session_id
         )
         try:
             state_dict = session.state.to_dict() if hasattr(session, "state") else {}
             raw_count = state_dict.get("quality_verifier_eligible_turn_count", 0)
-            if isinstance(raw_count, int):
-                current_eligible_turn_count = raw_count
-            elif isinstance(raw_count, float | str):
-                current_eligible_turn_count = int(raw_count)
+            if isinstance(raw_count, int | float):
+                current_eligible_turn_count = float(raw_count)
+            elif isinstance(raw_count, str):
+                try:
+                    current_eligible_turn_count = float(raw_count)
+                except (TypeError, ValueError):
+                    current_eligible_turn_count = 0.0
         except Exception:
-            current_eligible_turn_count = 0
+            current_eligible_turn_count = 0.0
+        # Use the maximum of session state and in-memory count
         current_eligible_turn_count = max(
-            0,
-            int(max(current_eligible_turn_count, in_memory_eligible_turn_count)),
+            0.0,
+            max(
+                float(current_eligible_turn_count), float(in_memory_eligible_turn_count)
+            ),
         )
 
         # Apply model replacement if enabled
@@ -595,8 +617,11 @@ class RequestProcessor(IRequestProcessor):
                     freq = max(1, int(quality_verifier_frequency))
                 except (TypeError, ValueError):
                     freq = 10
-                next_eligible = max(0, int(current_eligible_turn_count)) + 1
-                if freq > 0 and (next_eligible % freq) == 0:
+                # Calculate next turn considering fractional increments
+                # Use worst case (full turn) to determine if we should suppress replacement
+                next_eligible = max(0.0, float(current_eligible_turn_count)) + 1.0
+                next_eligible_floor = int(next_eligible)
+                if freq > 0 and (next_eligible_floor % freq) == 0:
                     suppress_replacement_for_quality_verifier = True
                     context.extensions[
                         "replacement_suppressed_for_quality_verifier"
@@ -661,6 +686,7 @@ class RequestProcessor(IRequestProcessor):
 
             nonlocal quality_verifier_turn_incremented
             nonlocal current_eligible_turn_count
+            nonlocal quality_verifier_tool_followup_weight
 
             # Make replacement status explicit for the verifier.
             context.extensions["model_replacement_active"] = bool(replacement_active)
@@ -669,14 +695,12 @@ class RequestProcessor(IRequestProcessor):
             skip = bool(is_tool_followup or replacement_active)
             context.extensions["quality_verifier_skip_verification"] = skip
 
-            if skip:
+            # When replacement is active, don't increment turn counter at all
+            if replacement_active:
                 context.extensions.pop("quality_verifier_eligible_turn_count", None)
                 if logger.isEnabledFor(logging.DEBUG):
-                    skip_reason = (
-                        "tool_followup" if is_tool_followup else "replacement_active"
-                    )
                     logger.debug(
-                        f"Quality verifier SKIPPED: reason={skip_reason}, "
+                        f"Quality verifier SKIPPED: reason=replacement_active, "
                         f"session={quality_verifier_session_id}, "
                         f"replacement={replacement_active}"
                     )
@@ -687,8 +711,17 @@ class RequestProcessor(IRequestProcessor):
                 return
 
             # Increment eligible counter exactly once per client request.
+            # Tool followups count as fractional turns (default 0.1) to ensure
+            # Quality Verifier eventually runs in tool-heavy coding sessions.
             if not quality_verifier_turn_incremented:
-                new_count = max(0, int(current_eligible_turn_count)) + 1
+                if is_tool_followup:
+                    # Tool followup: increment by fractional weight (e.g., 0.1)
+                    increment = quality_verifier_tool_followup_weight
+                else:
+                    # Regular user turn: increment by 1.0
+                    increment = 1.0
+
+                new_count = max(0.0, float(current_eligible_turn_count)) + increment
                 try:
                     new_state = session.state.with_multiple_updates(
                         quality_verifier_eligible_turn_count=new_count
@@ -704,7 +737,14 @@ class RequestProcessor(IRequestProcessor):
                 current_eligible_turn_count = new_count
                 quality_verifier_turn_incremented = True
 
-            context.extensions["quality_verifier_eligible_turn_count"] = int(
+                # Log fractional increments for debugging
+                if logger.isEnabledFor(logging.DEBUG) and is_tool_followup:
+                    logger.debug(
+                        f"Quality Verifier turn count: session={quality_verifier_session_id}, "
+                        f"count={new_count:.2f} (tool followup +{increment:.2f})"
+                    )
+
+            context.extensions["quality_verifier_eligible_turn_count"] = float(
                 current_eligible_turn_count
             )
 
@@ -713,12 +753,13 @@ class RequestProcessor(IRequestProcessor):
                     freq_int = max(1, int(quality_verifier_frequency))
                 except (TypeError, ValueError):
                     freq_int = 10
+                # Use integer floor for checking frequency trigger
+                current_turn_floor = int(current_eligible_turn_count)
                 should_run_next = (
-                    current_eligible_turn_count > 0
-                    and (current_eligible_turn_count % freq_int) == 0
+                    current_turn_floor > 0 and (current_turn_floor % freq_int) == 0
                 )
                 logger.debug(
-                    "Quality Verifier scheduling: effective_session=%s eligible_turn=%s frequency=%s run_now=%s",
+                    "Quality Verifier scheduling: effective_session=%s eligible_turn=%.2f frequency=%s run_now=%s",
                     quality_verifier_session_id,
                     current_eligible_turn_count,
                     freq_int,

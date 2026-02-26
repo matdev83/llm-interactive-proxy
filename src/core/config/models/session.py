@@ -293,6 +293,13 @@ class SessionConfig(DomainModel):
     # Default intentionally conservative to limit latency/cost.
     quality_verifier_frequency: int = 10
 
+    # Tool followup turn weight for Quality Verifier turn counting.
+    # Tool followup requests (requests with tool role messages after the last user message)
+    # are counted as fractional turns to ensure Quality Verifier eventually runs even in
+    # tool-heavy coding sessions. A weight of 0.1 means 10 tool followups = 1 turn.
+    # Set to 0.0 to exclude tool followups entirely from turn counting.
+    quality_verifier_tool_followup_weight: float = 0.1
+
     # Optional history truncation for Quality Verifier.
     # Note: This is separate from model context-window settings and is applied only
     # for the Quality Verifier request payload.
@@ -318,6 +325,16 @@ class SessionConfig(DomainModel):
         except (TypeError, ValueError):
             return 10
         return freq if freq > 0 else 1
+
+    @field_validator("quality_verifier_tool_followup_weight")
+    @classmethod
+    def _validate_quality_verifier_tool_followup_weight(cls, value: float) -> float:
+        try:
+            weight = float(value)
+        except (TypeError, ValueError):
+            return 0.1
+        # Clamp between 0.0 and 1.0
+        return max(0.0, min(1.0, weight))
 
     @field_validator("quality_verifier_ttft_timeout_seconds")
     @classmethod
