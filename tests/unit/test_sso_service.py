@@ -9,6 +9,29 @@ from src.core.auth.sso.exceptions import AuthenticationError, ConfigurationError
 from src.core.auth.sso.sso_service import SSOService
 
 
+@pytest.fixture(autouse=True)
+def mock_sso_discovery_api(respx_mock):
+    """Global mock for OIDC discovery API calls."""
+    metadata = {
+        "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_endpoint": "https://oauth2.googleapis.com/token",
+        "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
+        "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
+        "issuer": "https://accounts.google.com",
+    }
+    respx_mock.get("https://accounts.google.com/.well-known/openid-configuration").mock(
+        return_value=httpx.Response(200, json=metadata)
+    )
+    # Also mock JWKS and Userinfo endpoints
+    respx_mock.get("https://www.googleapis.com/oauth2/v3/certs").mock(
+        return_value=httpx.Response(200, json={"keys": []})
+    )
+    respx_mock.get("https://openidconnect.googleapis.com/v1/userinfo").mock(
+        return_value=httpx.Response(200, json={"sub": "user123", "email": "user@example.com"})
+    )
+    return respx_mock
+
+
 @pytest.fixture
 def google_provider_config():
     """Google OAuth2 provider configuration."""
@@ -87,9 +110,7 @@ class TestOAuth2AuthorizationURL:
     @pytest.mark.asyncio
     async def test_create_authorization_url_with_discovery(self, sso_service):
         """Test creating authorization URL with OIDC discovery."""
-        with patch(
-            "src.core.auth.sso.sso_service.AsyncOAuth2Client"
-        ) as mock_client_class:
+        with patch("src.core.auth.sso.sso_service.AsyncOAuth2Client") as mock_client_class:
             # Mock the OAuth2 client
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
@@ -111,7 +132,6 @@ class TestOAuth2AuthorizationURL:
 
             # Verify
             assert url.startswith("https://accounts.google.com/o/oauth2/v2/auth")
-            # Note: We now fetch discovery metadata directly with httpx, not via client.load_server_metadata
             mock_client.create_authorization_url.assert_called_once()
 
     @pytest.mark.asyncio
@@ -197,19 +217,10 @@ class TestOAuth2Callback:
     @pytest.mark.asyncio
     async def test_handle_callback_with_id_token(self, sso_service):
         """Test handling callback with OIDC ID token."""
-        with patch(
-            "src.core.auth.sso.sso_service.AsyncOAuth2Client"
-        ) as mock_client_class:
+        with patch("src.core.auth.sso.sso_service.AsyncOAuth2Client") as mock_client_class:
             # Mock the OAuth2 client
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
-
-            # Mock metadata
-            mock_client.metadata = {
-                "token_endpoint": "https://oauth2.googleapis.com/token",
-                "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
-            }
-            mock_client.load_server_metadata = AsyncMock()
 
             # Mock token exchange
             mock_client.fetch_token = AsyncMock(
@@ -244,19 +255,10 @@ class TestOAuth2Callback:
     @pytest.mark.asyncio
     async def test_handle_callback_with_userinfo(self, sso_service):
         """Test handling callback with userinfo endpoint."""
-        with patch(
-            "src.core.auth.sso.sso_service.AsyncOAuth2Client"
-        ) as mock_client_class:
+        with patch("src.core.auth.sso.sso_service.AsyncOAuth2Client") as mock_client_class:
             # Mock the OAuth2 client
             mock_client = AsyncMock()
             mock_client_class.return_value = mock_client
-
-            # Mock metadata
-            mock_client.metadata = {
-                "token_endpoint": "https://oauth2.googleapis.com/token",
-                "userinfo_endpoint": "https://openidconnect.googleapis.com/v1/userinfo",
-            }
-            mock_client.load_server_metadata = AsyncMock()
 
             # Mock token exchange (no ID token)
             mock_client.fetch_token = AsyncMock(
@@ -266,12 +268,13 @@ class TestOAuth2Callback:
             )
 
             # Mock userinfo request
-            mock_userinfo_resp = AsyncMock()
-            mock_userinfo_resp.raise_for_status = MagicMock()
-            mock_userinfo_resp.json = MagicMock(
-                return_value={"sub": "user123", "email": "user@example.com"}
+            mock_client.get = AsyncMock(
+                return_value=httpx.Response(
+                    200, 
+                    json={"sub": "user123", "email": "user@example.com"},
+                    request=httpx.Request("GET", "https://openidconnect.googleapis.com/v1/userinfo")
+                )
             )
-            mock_client.get = AsyncMock(return_value=mock_userinfo_resp)
 
             # Test
             result = await sso_service.handle_callback(
@@ -305,16 +308,17 @@ class TestOAuth2Callback:
             )
 
             # Mock GitHub user API
-            mock_user_resp = AsyncMock()
-            mock_user_resp.raise_for_status = MagicMock()
-            mock_user_resp.json = MagicMock(
-                return_value={
-                    "id": 12345,
-                    "login": "testuser",
-                    "email": "test@github.com",
-                }
+            mock_client.get = AsyncMock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "id": 12345,
+                        "login": "testuser",
+                        "email": "test@github.com",
+                    },
+                    request=httpx.Request("GET", "https://api.github.com/user")
+                )
             )
-            mock_client.get = AsyncMock(return_value=mock_user_resp)
 
             # Test
             result = await sso_service.handle_callback(

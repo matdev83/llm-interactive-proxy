@@ -9,6 +9,7 @@ This demonstrates the desktop-notifier package sending a native OS notification.
 """
 
 import asyncio
+
 from desktop_notifier import DesktopNotifier
 
 

@@ -1,8 +1,8 @@
 """Analyze CBOR capture for error responses."""
+import json
 import sys
 import zlib
-import json
-from pathlib import Path
+
 sys.path.insert(0, '.')
 
 import cbor2
@@ -83,7 +83,7 @@ for idx, (i, entry, data_str) in enumerate(error_entries[:5]):
     # Try to parse SSE
     events = parse_all_sse_events(entry.get("data", b""))
     if events:
-        print(f'    Parsed SSE events:')
+        print('    Parsed SSE events:')
         for ev in events:
             if 'error' in ev:
                 print(f'      ERROR: {json.dumps(ev["error"], indent=2)[:500]}')

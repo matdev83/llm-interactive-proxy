@@ -162,7 +162,7 @@ async def test_streaming_usage_respects_outbound_token_hint_for_tool_calls() -> 
                             "content": "<tool_call/>",
                             "tool_calls": [],
                         },
-                        "finish_reason": "tool_calls",
+                        "finish_reason": "stop",
                     }
                 ],
             },

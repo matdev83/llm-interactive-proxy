@@ -167,7 +167,7 @@ async def demo_internlm_backend() -> int:
 
         # Try alternative models if the error suggests model is unavailable
         if "404" in error_msg or "下架" in error_msg or "offline" in error_msg.lower():
-            print(f"     Model appears to be unavailable. Trying alternative models...")
+            print("     Model appears to be unavailable. Trying alternative models...")
             alternative_models = [m for m in models if m != model]
             success = False
             for alt_model in alternative_models[:3]:  # Try up to 3 alternatives
@@ -299,7 +299,7 @@ async def demo_internlm_backend() -> int:
                         f"[WARN] Streaming completed ({chunk_count} chunks) but no content extracted"
                     )
                     print(
-                        f"       This may indicate the API response format differs from expected"
+                        "       This may indicate the API response format differs from expected"
                     )
             else:
                 print("[WARN] Streaming completed but no chunks received")

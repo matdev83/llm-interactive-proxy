@@ -250,6 +250,7 @@ class TestConfigure:
         config.logging.level = MagicMock()
         config.logging.level.value = "DEBUG"
         config.logging.use_colors = True
+        config.logging.console_stream = "stderr"
         return config
 
     def test_configure_calls_logging_setup(
@@ -269,6 +270,7 @@ class TestConfigure:
                 level=logging.DEBUG,
                 log_file="var/logs/proxy.log",
                 use_colors=True,
+                console_stream="stderr",
             )
 
     def test_configure_respects_log_level(
@@ -291,6 +293,7 @@ class TestConfigure:
                 level=logging.INFO,
                 log_file="var/logs/proxy.log",
                 use_colors=True,
+                console_stream="stderr",
             )
 
     def test_configure_respects_colors_disabled(
@@ -312,6 +315,7 @@ class TestConfigure:
                 level=logging.DEBUG,
                 log_file="var/logs/proxy.log",
                 use_colors=False,
+                console_stream="stderr",
             )
 
     def test_configure_with_no_log_file(
@@ -333,6 +337,7 @@ class TestConfigure:
                 level=logging.DEBUG,
                 log_file=None,
                 use_colors=True,
+                console_stream="stderr",
             )
 
 

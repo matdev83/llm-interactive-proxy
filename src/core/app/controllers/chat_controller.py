@@ -1038,7 +1038,28 @@ class ChatController:
 
         except LLMProxyError as e:
             # Map domain exceptions to HTTP exceptions
-            raise map_domain_exception_to_http_exception(e, request=request)
+            http_exc = map_domain_exception_to_http_exception(e, request=request)
+
+            # For streaming requests, return error as SSE if requested by client (Requirement 1.9 compatibility)
+            if getattr(request_data, "stream", False):
+                from fastapi.responses import StreamingResponse
+
+                from src.core.transport.fastapi.adapters.sse.formatter import (
+                    SSEFormatter,
+                )
+
+                async def _error_stream_generator():
+                    yield SSEFormatter().format_chunk(http_exc.detail)
+                    yield b"data: [DONE]\n\n"
+
+                return StreamingResponse(
+                    _error_stream_generator(),
+                    status_code=http_exc.status_code,
+                    media_type="text/event-stream",
+                    headers=getattr(http_exc, "headers", None),
+                )
+
+            raise http_exc
         except HTTPException:
             # Re-raise HTTP exceptions
             raise

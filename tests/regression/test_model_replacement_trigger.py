@@ -122,6 +122,7 @@ async def test_replacement_resolves_backend_from_model_prefix():
     (e.g. 'openai:gpt-4') for replacement checking even if context.backend is None.
     """
     mock_replacement = MagicMock(spec=IModelReplacementService)
+    mock_replacement.get_state.return_value = MagicMock(active=False)
     mock_replacement.should_replace.return_value = (
         False  # Don't actually replace, just check call args
     )

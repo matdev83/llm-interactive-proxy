@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 # type: ignore[unreachable]
+import json
 import logging
-from collections.abc import Mapping
+import time
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from starlette.exceptions import HTTPException
 
 from src.core.common.exceptions import LLMProxyError
@@ -19,6 +21,83 @@ from src.core.constants import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _is_streaming_request(request: Request) -> bool:
+    """Detect if this is a streaming request expecting SSE format.
+
+    Args:
+        request: The FastAPI request object
+
+    Returns:
+        True if the request expects streaming SSE response, False otherwise
+    """
+    # Check Accept header for text/event-stream
+    accept = request.headers.get("accept", "")
+    if "text/event-stream" in accept:
+        return True
+
+    # Check if this is a chat completions endpoint
+    # Most clients don't send Accept header, so we need to check the endpoint
+    if not request.url.path.endswith("/chat/completions"):
+        return False
+
+    # For chat completions, check if there's any indication of streaming
+    # Note: The request body might already be consumed at this point,
+    # so we check the state that might have been set earlier
+    if hasattr(request.state, "is_streaming"):
+        return bool(request.state.is_streaming)
+
+    # Fallback: assume non-streaming for chat completions unless proven otherwise
+    # The Accept header is the most reliable indicator
+    return False
+
+
+async def _generate_streaming_error_response(
+    error_message: str,
+    error_type: str,
+    status_code: int,
+    details: Any | None = None,
+) -> AsyncIterator[bytes]:
+    """Generate SSE-formatted error response for streaming requests.
+
+    Args:
+        error_message: The error message
+        error_type: The error type/class name
+        status_code: HTTP status code
+        details: Optional additional error details
+
+    Yields:
+        SSE-formatted error chunks as bytes
+    """
+    created = int(time.time())
+    error_data = {
+        "id": f"chatcmpl-error-{created}",
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": "error",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "error",
+            }
+        ],
+        "error": {
+            "message": error_message,
+            "type": error_type,
+            "code": "unknown",
+            "retryable": False,
+            "status_code": status_code,
+            **({"details": details} if details else {}),
+        },
+    }
+
+    # Yield error chunk as proper SSE event
+    yield f"data: {json.dumps(error_data)}\n\n".encode()
+
+    # Yield [DONE] sentinel as separate SSE event
+    yield b"data: [DONE]\n\n"
 
 
 async def validation_exception_handler(
@@ -140,17 +219,40 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> Respon
         exc: The HTTP exception
 
     Returns:
-        JSON response with error details
+        JSON or SSE streaming response with error details
     """
     if logger.isEnabledFor(logging.WARNING):
         logger.warning("HTTP error %s: %s", exc.status_code, exc.detail, exc_info=True)
+
+    # Check if this is a streaming request
+    is_streaming = _is_streaming_request(request)
+
+    # Extract error information
+    message, error_type, extra_details = _normalize_http_exception_detail(exc.detail)
+
+    # Return SSE-formatted error for streaming requests
+    if is_streaming:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Returning SSE-formatted error response for streaming request: %s",
+                message,
+            )
+        return StreamingResponse(
+            _generate_streaming_error_response(
+                error_message=message,
+                error_type=error_type,
+                status_code=exc.status_code,
+                details=extra_details,
+            ),
+            media_type="text/event-stream",
+            status_code=exc.status_code,
+            headers=getattr(exc, "headers", None),
+        )
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False
     if request.url.path.endswith("/chat/completions"):
         is_chat_completions = True
-
-    message, error_type, extra_details = _normalize_http_exception_detail(exc.detail)
 
     error_payload: dict[str, Any] = {
         "message": message,
@@ -208,7 +310,7 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
         exc: The LLMProxyError exception
 
     Returns:
-        A JSON response with error details
+        A JSON or SSE streaming response with error details
     """
     # Be defensive: exc may not be a ProxyError here (we register this
     # handler for Exception as well). Safely extract fields when present.
@@ -223,6 +325,9 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
     else:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning("%s: %s", exc_name, exc_message, exc_info=True)
+
+    # Check if this is a streaming request
+    is_streaming = _is_streaming_request(request)
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False
@@ -243,6 +348,24 @@ async def proxy_exception_handler(request: Request, exc: LLMProxyError) -> Respo
             if getattr(exc, "message", None) == "all backends failed"
             else exc.status_code
         )
+
+        # Return SSE-formatted error for streaming requests
+        if is_streaming:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Returning SSE-formatted error response for streaming request: %s",
+                    exc_message,
+                )
+            return StreamingResponse(
+                _generate_streaming_error_response(
+                    error_message=exc_message,
+                    error_type=exc_name,
+                    status_code=status_code,
+                    details=getattr(exc, "details", None),
+                ),
+                media_type="text/event-stream",
+                status_code=status_code,
+            )
 
         if is_chat_completions:
             # Return OpenAI-compatible error response with choices for chat completions
@@ -320,7 +443,7 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
         exc: The exception
 
     Returns:
-        JSON response with error details
+        JSON or SSE streaming response with error details
     """
     # Starlette calls exception handlers after it has already unwound the stack,
     # so `sys.exc_info()` no longer contains the traceback for `exc`. Passing the
@@ -335,6 +458,26 @@ async def general_exception_handler(request: Request, exc: Exception) -> Respons
         "Unhandled exception",
         exc_info=(type(exc), exc, getattr(exc, "__traceback__", None)),
     )
+
+    # Check if this is a streaming request
+    is_streaming = _is_streaming_request(request)
+
+    # Return SSE-formatted error for streaming requests
+    if is_streaming:
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Returning SSE-formatted error response for streaming unhandled exception"
+            )
+        return StreamingResponse(
+            _generate_streaming_error_response(
+                error_message=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE,
+                error_type="InternalError",
+                status_code=500,
+                details=None,
+            ),
+            media_type="text/event-stream",
+            status_code=500,
+        )
 
     # Check if this is a chat completions endpoint request
     is_chat_completions = False

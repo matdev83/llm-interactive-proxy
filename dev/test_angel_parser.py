@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 
+
 @dataclass
 class AngelDecision:
     decision: str

@@ -212,11 +212,17 @@ class ChatRequestPreparer:
 
         # Ensure token is refreshed before making the API call
         # Uses IConnectorContext interface
-        if not await self._connector_context._refresh_token_if_needed(
+        refresh_result = await self._connector_context._refresh_token_if_needed(
             session_id=session_id
-        ):
+        )
+        if not refresh_result:
+            # Token refresh failed - could be temporary unavailability or permanent auth failure
+            # The connector should have logged details; raise to trigger fallback logic
+            backend_name = getattr(self._connector_context, "backend_type", "unknown")
             raise AuthenticationError(
-                f"Failed to refresh OAuth token for {'streaming ' if is_streaming else ''}API call"
+                f"OAuth token unavailable for {backend_name} "
+                f"({'streaming' if is_streaming else 'non-streaming'} API call). "
+                f"This may be due to rate limiting, expired tokens, or other auth issues."
             )
 
         # Increment request counter if available (offload to thread to avoid blocking)
@@ -449,8 +455,8 @@ class ChatRequestPreparer:
                 del code_assist_request["toolConfig"]
 
         # Use IPromptLimiter interface for Code Assist request token estimation.
-        code_assist_prompt_tokens_estimate = self._prompt_limiter._estimate_prompt_tokens(
-            code_assist_request
+        code_assist_prompt_tokens_estimate = (
+            self._prompt_limiter._estimate_prompt_tokens(code_assist_request)
         )
         # Safety net: in some tool-heavy sessions, Code Assist-part serialization can
         # undercount relative to the canonical outbound request shape.

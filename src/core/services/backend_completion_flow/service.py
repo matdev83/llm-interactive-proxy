@@ -1401,7 +1401,16 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                 usage=getattr(terminal_chunk, "usage", None),
             )
 
-        return StreamingResponseEnvelope(content=_iterator(), status_code=status_code)
+        return StreamingResponseEnvelope(
+            content=_iterator(),
+            status_code=status_code,
+            metadata={
+                "error_type": type(normalized_error).__name__,
+                "error_message": str(normalized_error),
+                "error_code": error_code,
+                "error_details": routing_details,
+            },
+        )
 
     async def cleanup(self) -> None:
         """Clean up pending cancellation tasks to prevent resource leaks.

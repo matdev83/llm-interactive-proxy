@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pydantic.types import JsonValue
-from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -203,19 +202,21 @@ async def test_empty_stream_retry_respects_max_limit() -> None:
         StreamingResponseEnvelope(content=retry_empty_stream()),
     ]
 
-    # Use public API - empty stream will trigger retry, then hit limit and raise BackendError
-    with pytest.raises(BackendError):
-        envelope = await manager.process_backend_request(
-            original_request,
-            "session-empty-max",
-            _make_context(),
-        )
-        # If no error raised, consume stream to trigger error
-        if isinstance(envelope, StreamingResponseEnvelope) and envelope.content:
-            async for _ in envelope.content:
-                pass
-
+    # Use public API - empty stream will trigger retry, then hit limit and return a warning message
+    envelope = await manager.process_backend_request(
+        original_request,
+        "session-empty-max",
+        _make_context(),
+    )
+    
+    assert isinstance(envelope, StreamingResponseEnvelope)
+    assert envelope.content is not None
+    chunks = [chunk async for chunk in envelope.content]
+    
+    # Should have retried
     assert backend_processor.process_backend_request.await_count >= 1
+    # Should contain proxy warning message
+    assert any("[Proxy] Upstream model returned no user-visible content" in str(chunk.content) for chunk in chunks)
 
 
 @pytest.mark.asyncio

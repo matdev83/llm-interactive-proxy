@@ -6,6 +6,7 @@ Tests the FastAPI endpoints for SSO authentication flow.
 
 import re
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -25,6 +26,21 @@ from src.core.auth.sso.rate_limit_service import RateLimitService
 from src.core.auth.sso.sso_service import SSOService
 from src.core.auth.sso.token_service import TokenService
 from src.core.auth.sso.web_interface import create_sso_router
+
+
+@pytest.fixture(autouse=True)
+def mock_sso_discovery_network(respx_mock):
+    """Global mock for OIDC discovery network calls."""
+    metadata = {
+        "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_endpoint": "https://oauth2.googleapis.com/token",
+        "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
+        "issuer": "https://accounts.google.com",
+    }
+    respx_mock.get("https://accounts.google.com/.well-known/openid-configuration").mock(
+        return_value=httpx.Response(200, json=metadata)
+    )
+    yield respx_mock
 
 
 @pytest.fixture

@@ -332,7 +332,7 @@ async def test_auxiliary_routing_rewrites_model_and_isolates_session(
     )
 
     request = ChatRequest(
-        model="gemini-oauth-auto:google/gemini-3-flash-preview",
+        model="google/gemini-3-flash-preview",
         messages=[
             ChatMessage(role="system", content="You are a title generator."),
             ChatMessage(role="user", content="Generate a title for the session"),

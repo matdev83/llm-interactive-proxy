@@ -26,7 +26,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-import requests  # noqa: E402
+import requests
 
 OAUTH_CLIENT_ID = "".join(
     ["681255809395-", "oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com"]
@@ -218,7 +218,7 @@ def main() -> None:
         print(f"Project  : {project} (from loadCodeAssist)\n")
 
     body = _build_request_body(MODEL, project, session_id)
-    print(f"Request body (shared):")
+    print("Request body (shared):")
     sanitised = {**body}
     print(f"  {json.dumps(sanitised, indent=2)[:400]}\n")
 

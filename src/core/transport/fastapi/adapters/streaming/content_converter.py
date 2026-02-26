@@ -736,8 +736,22 @@ class StreamingContentConverter:
                             normalized_usage if normalized_usage else best_usage
                         )
 
-                        # Apply usage to enriched payload
-                        if isinstance(best_usage, dict) and isinstance(enriched, dict):
+                        # Determine finish_reason before applying usage
+                        # Do NOT apply usage for tool_calls as it signals session completion
+                        finish_reason_for_usage = None
+                        if isinstance(metadata, dict):
+                            finish_reason_for_usage = metadata.get("finish_reason")
+                        if finish_reason_for_usage is None and isinstance(
+                            enriched, dict
+                        ):
+                            finish_reason_for_usage = enriched.get("finish_reason")
+
+                        # Apply usage to enriched payload only if not a tool call
+                        if (
+                            isinstance(best_usage, dict)
+                            and isinstance(enriched, dict)
+                            and finish_reason_for_usage != "tool_calls"
+                        ):
                             try:
                                 enriched["usage"] = best_usage
                             except Exception as e:
@@ -749,6 +763,13 @@ class StreamingContentConverter:
                                     )
                                 enriched = dict(enriched)
                                 enriched["usage"] = best_usage
+                        elif (
+                            finish_reason_for_usage == "tool_calls"
+                            and logger.isEnabledFor(logging.DEBUG)
+                        ):
+                            logger.debug(
+                                "Excluding usage data from tool_calls chunk to prevent premature session termination"
+                            )
                     except Exception as e:
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
@@ -772,7 +793,24 @@ class StreamingContentConverter:
                     prompt_hint_final = self._resolve_prompt_hint(
                         metadata, envelope_metadata
                     )
-                    if is_done and best_usage is None:
+
+                    # Determine finish_reason to decide whether to include usage data
+                    # Do NOT include usage for tool_calls as it signals session completion to many agents
+                    finish_reason = None
+                    if isinstance(metadata, dict):
+                        finish_reason = metadata.get("finish_reason")
+                    if finish_reason is None and isinstance(enriched, dict):
+                        finish_reason = enriched.get("finish_reason")
+
+                    # Only include usage data for truly final responses (not tool_calls)
+                    should_include_usage = finish_reason != "tool_calls"
+
+                    if not should_include_usage and logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Excluding usage data from tool_calls response to prevent premature session termination"
+                        )
+
+                    if is_done and best_usage is None and should_include_usage:
                         if prompt_hint_final > 0:
                             best_usage = {
                                 "prompt_tokens": prompt_hint_final,
@@ -783,6 +821,7 @@ class StreamingContentConverter:
                                 enriched["usage"] = best_usage
                     elif (
                         is_done
+                        and should_include_usage
                         and requires_recalc
                         and isinstance(best_usage, dict)
                         and prompt_hint_final > 0

@@ -11,6 +11,7 @@ import contextlib
 import hashlib
 import logging
 from collections import OrderedDict
+from typing import Any
 
 from src.core.domain.chat import ChatRequest
 from src.core.domain.model_utils import (
@@ -326,7 +327,7 @@ class RequestProcessor(IRequestProcessor):
                 logger.debug("Auxiliary routing failed; continuing", exc_info=True)
             return request_data
 
-    async def process_request(
+    async def process_request(  # noqa: C901
         self,
         context: RequestContext,
         request_data: ChatRequest,
@@ -582,6 +583,7 @@ class RequestProcessor(IRequestProcessor):
             self._replacement_service is not None
             and original_backend
             and original_model
+            and not context.extensions.get("auxiliary_request")
         ):
             # Avoid initiating a replacement on turns that are scheduled for Quality Verifier
             # verification. This prevents the replacement model from being implicated
@@ -599,6 +601,11 @@ class RequestProcessor(IRequestProcessor):
                     context.extensions[
                         "replacement_suppressed_for_quality_verifier"
                     ] = True
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Replacement suppressed for quality verifier on turn {next_eligible} "
+                            f"(frequency={freq}, session={replacement_session_id})"
+                        )
 
             should_replace = False
             if not suppress_replacement_for_quality_verifier:
@@ -606,12 +613,18 @@ class RequestProcessor(IRequestProcessor):
                     replacement_session_id, context, original_backend, original_model
                 )
 
-            if should_replace:
+            if should_replace or state.active:
                 # Activate replacement if not already active
-                if not state.active:
+                if should_replace and not state.active:
                     await self._replacement_service.activate_replacement(
                         replacement_session_id, original_backend, original_model
                     )
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            f"Replacement activated: {original_backend}:{original_model} -> "
+                            f"{state.replacement_backend}:{state.replacement_model} "
+                            f"for session {replacement_session_id}"
+                        )
 
                 # Get effective backend:model
                 effective_backend, effective_model = (
@@ -629,32 +642,14 @@ class RequestProcessor(IRequestProcessor):
                 )
                 replacement_active_for_request = True
 
+                if logger.isEnabledFor(logging.DEBUG) and quality_verifier_enabled:
+                    logger.debug(
+                        f"Quality verifier will be SKIPPED this turn due to active replacement "
+                        f"(session={replacement_session_id}, turn={current_eligible_turn_count})"
+                    )
+
         # Prepare and validate backend request
-
-        backend_request = await self._backend_preparer.prepare(
-            context, session_id, request_data, command_result
-        )
-        if backend_request is None:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    f"Backend call skipped for session {session_id}; recording command interaction if applicable"
-                )
-            # Backend should be skipped; command result is already the final result
-            # Record command execution in session history if one was executed
-            if command_result.command_executed:
-                await self._session_manager.record_command_in_session(
-                    request_data, session_id
-                )
-            return await self._response_manager.process_command_result(
-                command_result, session
-            )
-
-        # Apply request transformations using pipeline
-        # Note: transform() always returns ChatRequest (never None) per IRequestTransformPipeline contract
-        backend_request = await self._transform_pipeline.transform(
-            context, session, session_id, backend_request
-        )
-
+        # Define helper function before try block for use in fallback logic
         def _prepare_quality_verifier_extensions_for_backend_call(
             *, replacement_active: bool
         ) -> None:
@@ -676,6 +671,15 @@ class RequestProcessor(IRequestProcessor):
 
             if skip:
                 context.extensions.pop("quality_verifier_eligible_turn_count", None)
+                if logger.isEnabledFor(logging.DEBUG):
+                    skip_reason = (
+                        "tool_followup" if is_tool_followup else "replacement_active"
+                    )
+                    logger.debug(
+                        f"Quality verifier SKIPPED: reason={skip_reason}, "
+                        f"session={quality_verifier_session_id}, "
+                        f"replacement={replacement_active}"
+                    )
                 return
 
             if not quality_verifier_enabled:
@@ -721,18 +725,105 @@ class RequestProcessor(IRequestProcessor):
                     should_run_next,
                 )
 
-        # Execute backend and perform persistence side effects
+        # Execute backend with fallback support for replacement model failures
+        # This try-catch covers both preparation and execution phases to ensure
+        # replacement model errors (including OAuth token refresh failures) trigger
+        # automatic fallback to the original model (B2BUA-aware fallback pattern).
+        fallback_attempted = False
         try:
+            backend_request = await self._backend_preparer.prepare(
+                context, session_id, request_data, command_result
+            )
+            if backend_request is None:
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Backend call skipped for session {session_id}; recording command interaction if applicable"
+                    )
+                # Backend should be skipped; command result is already the final result
+                # Record command execution in session history if one was executed
+                if command_result.command_executed:
+                    await self._session_manager.record_command_in_session(
+                        request_data, session_id
+                    )
+                return await self._response_manager.process_command_result(
+                    command_result, session
+                )
+
+            # Apply request transformations using pipeline
+            # Note: transform() always returns ChatRequest (never None) per IRequestTransformPipeline contract
+            backend_request = await self._transform_pipeline.transform(
+                context, session, session_id, backend_request
+            )
+
             _prepare_quality_verifier_extensions_for_backend_call(
                 replacement_active=replacement_active_for_request
             )
-            return await self._backend_executor.execute(
+            result = await self._backend_executor.execute(
                 context, session, session_id, backend_request, request_data
             )
+
+            # Check if result is an error response (for streaming requests)
+            # Streaming requests return error envelopes instead of raising exceptions
+            is_error_response = False
+            if hasattr(result, "status_code") and isinstance(result.status_code, int):
+                is_error_response = result.status_code >= 400
+
+            if is_error_response:
+                # Extract original error details from metadata if available
+                orig_message: str | None = None
+                orig_type: str | None = None
+                orig_code: str | None = None
+
+                orig_details: dict[str, Any] | None = None
+
+                metadata = getattr(result, "metadata", None)
+                if isinstance(metadata, dict):
+                    orig_message = str(metadata.get("error_message") or "")
+                    orig_type = str(metadata.get("error_type") or "")
+                    orig_code = str(metadata.get("error_code") or "")
+                    orig_details = metadata.get("error_details")  # type: ignore[assignment]
+
+                # ALWAYS raise for error status codes to satisfy Requirements 10.4 (errors propagate)
+                # and legacy regression tests. Fallback logic handles re-try if appropriate.
+                from src.core.common.exceptions import (
+                    AuthenticationError,
+                    BackendError,
+                    RoutingError,
+                )
+
+                # Determine which exception to raise, preserving original info if possible
+                error_message = (
+                    orig_message or f"Backend returned {result.status_code} error"
+                )
+                error_details = orig_details or {}
+                if orig_code and "code" not in error_details:
+                    error_details["code"] = orig_code
+
+                if result.status_code == 401:
+                    raise AuthenticationError(
+                        error_message or "Backend returned 401 error"
+                    )
+                elif result.status_code == 404 or orig_type == "RoutingError":
+                    raise RoutingError(
+                        message=error_message,
+                        details=error_details,
+                        code=orig_code or "unknown_model",
+                    )
+                else:
+                    raise BackendError(
+                        message=error_message,
+                        status_code=result.status_code,
+                        details=error_details,
+                        code=orig_code,
+                    )
+
+            return result
         except Exception as e:
             # Check if this failure happened while using a replacement model
+            # Fallback to original model if replacement fails during preparation or execution
             if (
-                self._replacement_service is not None
+                not fallback_attempted
+                and self._replacement_service is not None
                 and context.backend
                 and context.effective_model
             ):
@@ -751,6 +842,7 @@ class RequestProcessor(IRequestProcessor):
                         )
 
                     # Deactivate replacement immediately due to failure
+                    fallback_attempted = True
                     state.deactivate()
 
                     # Revert context to original backend
@@ -765,7 +857,8 @@ class RequestProcessor(IRequestProcessor):
                     )
 
                     # Prepare new backend request for fallback
-                    # We need to re-prepare because backend-specific logic might differ
+                    # This triggers a NEW B2BUA identity allocation for the fallback attempt,
+                    # ensuring proper session isolation per the B2BUA pattern
                     fallback_backend_request = await self._backend_preparer.prepare(
                         context, session_id, request_data_fallback, command_result
                     )
@@ -785,16 +878,40 @@ class RequestProcessor(IRequestProcessor):
                             )
 
                         # Retry execution with original model
+                        # IMPORTANT: This execute() call flows through BackendCompletionFlowService
+                        # which allocates a NEW B2BUA attempt identity (different b_session_id and b_seq)
+                        # This ensures proper session isolation between the failed replacement
+                        # attempt and the successful fallback attempt
                         _prepare_quality_verifier_extensions_for_backend_call(
                             replacement_active=False
                         )
-                        return await self._backend_executor.execute(
+                        fallback_result = await self._backend_executor.execute(
                             context,
                             session,
                             session_id,
                             fallback_backend_request,
                             request_data_fallback,
                         )
+
+                        # CRITICAL: Also check fallback result for error status
+                        # If fallback also fails, we need to raise the error (no infinite retries)
+                        if (
+                            hasattr(fallback_result, "status_code")
+                            and isinstance(fallback_result.status_code, int)
+                            and fallback_result.status_code >= 400
+                        ):
+                            from src.core.common.exceptions import AuthenticationError
+
+                            if fallback_result.status_code == 401:
+                                raise AuthenticationError(
+                                    "Both replacement and original models failed with 401 error"
+                                )
+                            else:
+                                raise Exception(
+                                    f"Both models failed, fallback returned status: {fallback_result.status_code}"
+                                )
+
+                        return fallback_result
 
             # If we can't handle it or it wasn't a replacement failure, re-raise
             raise

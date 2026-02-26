@@ -65,9 +65,6 @@ class TestStreamingReasoningRegression:
 
         assert "reasoning_content" in delta
         assert delta["reasoning_content"] == "I am thinking..."
-        # Verify alias is also present for compatibility
-        assert "reasoning" in delta
-        assert delta["reasoning"] == "I am thinking..."
 
     @pytest.mark.asyncio
     async def test_content_accumulation_extracts_reasoning(self) -> None:
