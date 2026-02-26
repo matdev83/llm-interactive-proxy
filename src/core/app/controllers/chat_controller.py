@@ -341,6 +341,11 @@ class ChatController:
                 logger.info(
                     f"Handling chat completion request: model={domain_request.model}, processor_type={type(self._processor).__name__}, processor_id={id(self._processor)}"
                 )
+
+            # Set streaming flag in request state so error handlers know if this is a streaming request
+            # This is critical for proper SSE error formatting in global exception handlers
+            request.state.is_streaming = getattr(request_data, "stream", False)
+
             if self._processor is None:
 
                 raise HTTPException(status_code=500, detail="Processor is None")
@@ -1052,6 +1057,11 @@ class ChatController:
                     yield SSEFormatter().format_chunk(http_exc.detail)
                     yield b"data: [DONE]\n\n"
 
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Returning streaming error response: {type(e).__name__} (status {http_exc.status_code}): {e.message if hasattr(e, 'message') else str(e)}"
+                    )
+
                 return StreamingResponse(
                     _error_stream_generator(),
                     status_code=http_exc.status_code,
@@ -1065,8 +1075,39 @@ class ChatController:
             raise
         except Exception as e:
             # Log and convert other exceptions to HTTP exceptions
+            # This handler should only catch truly unexpected exceptions (not LLMProxyError subclasses)
             if logger.isEnabledFor(logging.ERROR):
-                logger.error(f"Error handling chat completion: {e}", exc_info=True)
+                logger.error(
+                    f"Unexpected exception in chat completion (type: {type(e).__name__}): {e}",
+                    exc_info=True,
+                )
+
+            # For streaming requests, return error as SSE
+            if getattr(request_data, "stream", False):
+                from fastapi.responses import StreamingResponse
+
+                from src.core.transport.fastapi.adapters.sse.formatter import (
+                    SSEFormatter,
+                )
+
+                error_msg = str(e)
+                error_type = type(e).__name__
+
+                async def _generic_error_stream_generator():
+                    error_payload = {
+                        "message": error_msg,
+                        "type": error_type,
+                        "status_code": 500,
+                    }
+                    yield SSEFormatter().format_chunk(error_payload)
+                    yield b"data: [DONE]\n\n"
+
+                return StreamingResponse(
+                    _generic_error_stream_generator(),
+                    status_code=500,
+                    media_type="text/event-stream",
+                )
+
             raise HTTPException(
                 status_code=500,
                 detail={"error": {"message": str(e), "type": "server_error"}},

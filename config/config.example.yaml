@@ -305,6 +305,10 @@ backends:
     # These settings make the connector behave as a transparent proxy for third-party agents
     extra:
       codex:
+        # WebSocket transport (opportunistic support for ChatGPT backend API)
+        websocket:
+          enabled: false  # Set to true to enable WebSocket transport for Codex
+        
         default_capabilities:
           protocol: openai-chat
           codex_passthrough: false
@@ -409,8 +413,24 @@ reasoning_model_token_floor:
   #   stepfun/step-3.5-flash:free: 512
   #   kimi/kimi-for-coding: 512
 
-# Codebuff WebSocket server settings
+# OpenAI Responses API WebSocket support
+# Enables WebSocket transport for low-latency, persistent connections
+# optimized for tool-call-heavy workflows (up to 40% faster for 20+ tool calls)
+responses_api:
+  websocket:
+    # Enable WebSocket transport for client connections (client -> proxy)
+    frontend_enabled: false
+    # Enable WebSocket transport for backend connections (proxy -> OpenAI)
+    backend_enabled: false
+    # WebSocket endpoint path (default: /v1/responses)
+    frontend_path: "/v1/responses"
+    # Connection timeout in seconds (default: 3600 = 60 minutes per OpenAI limit)
+    connection_timeout: 3600
+    # Maximum concurrent WebSocket connections
+    max_connections: 100
 
+# Codebuff WebSocket server settings
+#
 # Enables WebSocket server implementing the Codebuff protocol for coding agents
 # See docs/user_guide/features/codebuff-backend.md for complete documentation
 codebuff:

@@ -6,7 +6,10 @@ The OpenAI Responses API frontend (`/v1/responses`) provides full compatibility 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/v1/responses` | Create a structured response |
+| POST | `/v1/responses` | Create a structured response (HTTP) |
+| WebSocket | `/v1/responses` | WebSocket endpoint for low-latency connections |
+
+**WebSocket Support**: The Responses API supports WebSocket transport for persistent, low-latency connections. See [WebSocket Transport Guide](../features/websocket-transport.md) for details.
 
 ## Supported Request Parameters
 

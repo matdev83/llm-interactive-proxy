@@ -941,15 +941,59 @@ class RequestProcessor(IRequestProcessor):
                             and isinstance(fallback_result.status_code, int)
                             and fallback_result.status_code >= 400
                         ):
-                            from src.core.common.exceptions import AuthenticationError
+
+                            from src.core.common.exceptions import (
+                                AuthenticationError,
+                                BackendError,
+                                RoutingError,
+                            )
+
+                            fallback_message: str | None = None
+                            fallback_type: str | None = None
+                            fallback_code: str | None = None
+                            fallback_details: dict[str, Any] | None = None
+
+                            metadata = getattr(fallback_result, "metadata", None)
+                            if isinstance(metadata, dict):
+                                fallback_message = str(metadata.get("error_message") or "")
+                                fallback_type = str(metadata.get("error_type") or "")
+                                fallback_code = str(metadata.get("error_code") or "")
+                                fallback_details = metadata.get("error_details")
+
+                            error_message = (
+                                fallback_message
+                                or f"Both models failed, fallback returned status: {fallback_result.status_code}"
+                            )
+                            error_details = fallback_details or {}
+                            if fallback_code and "code" not in error_details:
+                                error_details["code"] = fallback_code
+
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    f"Fallback attempt failed: replacement and original models both returned errors "
+                                    f"(status: {fallback_result.status_code}, session: {session_id})"
+                                )
 
                             if fallback_result.status_code == 401:
                                 raise AuthenticationError(
-                                    "Both replacement and original models failed with 401 error"
+                                    error_message
+                                    or "Both replacement and original models failed with 401 error"
+                                )
+                            elif (
+                                fallback_result.status_code == 404
+                                or fallback_type == "RoutingError"
+                            ):
+                                raise RoutingError(
+                                    message=error_message,
+                                    details=error_details,
+                                    code=fallback_code or "unknown_model",
                                 )
                             else:
-                                raise Exception(
-                                    f"Both models failed, fallback returned status: {fallback_result.status_code}"
+                                raise BackendError(
+                                    message=error_message,
+                                    status_code=fallback_result.status_code,
+                                    details=error_details,
+                                    code=fallback_code,
                                 )
 
                         return fallback_result

@@ -12,7 +12,7 @@ import os
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Any, cast
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, HTTPException, Request, WebSocket
 from starlette.responses import Response  # Added this line
 
 from src.anthropic_models import AnthropicMessagesRequest
@@ -291,6 +291,59 @@ async def get_responses_controller_if_available(
         raise HTTPException(
             status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
         )
+
+
+async def get_responses_controller_for_websocket(
+    websocket: WebSocket,
+) -> ResponsesController:
+    """Get a responses controller for WebSocket endpoints.
+
+    Args:
+        websocket: The FastAPI WebSocket object
+
+    Returns:
+        A configured responses controller
+
+    Raises:
+        HTTPException: If service provider or responses controller is not available.
+    """
+    service_provider = getattr(websocket.app.state, "service_provider", None)
+    if not service_provider:
+        if _get_strict_controller_errors():
+            raise ServiceResolutionError(
+                message="Service provider not available in app state",
+                service_name="IServiceProvider",
+            )
+        raise HTTPException(
+            status_code=503, detail=HTTP_503_SERVICE_UNAVAILABLE_MESSAGE
+        )
+
+    try:
+        responses_controller = service_provider.get_service(ResponsesController)
+        if responses_controller is not None:
+            logger.debug(
+                "Got ResponsesController from service provider (WebSocket): %s",
+                type(responses_controller).__name__,
+            )
+            return cast(ResponsesController, responses_controller)
+
+        logger.debug(
+            "ResponsesController not pre-registered; creating via factory (WebSocket)"
+        )
+        return cast(ResponsesController, get_responses_controller(service_provider))
+    except Exception as e:
+        logger.exception(
+            f"Failed to get ResponsesController from service provider (WebSocket): {e}",
+            exc_info=True,
+        )
+        if _get_strict_controller_errors():
+            raise ServiceResolutionError(
+                message="Failed to resolve ResponsesController",
+                service_name="ResponsesController",
+            ) from e
+        raise HTTPException(
+            status_code=500, detail=HTTP_500_INTERNAL_SERVER_ERROR_MESSAGE
+        ) from e
 
 
 def register_routes(app: FastAPI) -> None:
@@ -651,6 +704,21 @@ def register_versioned_endpoints(app: FastAPI) -> None:  # noqa: C901
         # Handle Responses API requests with structured output support
         # Having request_data in the signature ensures validation (e.g., 422 on bad input)
         return await controller.handle_responses_request(request, request_data)
+
+    # OpenAI Responses API WebSocket endpoint
+    @app.websocket("/v1/responses")
+    async def responses_v1_ws(
+        websocket: WebSocket,
+        controller: ResponsesController = Depends(
+            get_responses_controller_for_websocket
+        ),
+    ) -> None:
+        # Handle WebSocket connections for Responses API
+        # Extract request ID if available
+        request_id = None
+        if hasattr(websocket, "headers"):
+            request_id = websocket.headers.get("x-request-id")
+        await controller.handle_websocket_connection(websocket, request_id)
 
     # Anthropic compatibility endpoints (messages, models, health, info)
     _register_anthropic_endpoints(app, prefix="/anthropic")

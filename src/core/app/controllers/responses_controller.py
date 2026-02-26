@@ -6,12 +6,13 @@ import json
 import logging
 import re
 import sre_parse
+import time
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from sre_constants import MAXREPEAT
 from typing import Any, cast
 
-from fastapi import HTTPException, Request, Response
+from fastapi import HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
@@ -1654,6 +1655,343 @@ class ResponsesController:
                     return True
 
         return False
+
+    async def handle_websocket_connection(
+        self, websocket: WebSocket, request_id: str | None = None
+    ) -> None:
+        """Handle WebSocket connections for Responses API.
+
+        Args:
+            websocket: FastAPI WebSocket connection
+            request_id: Optional request ID for correlation
+        """
+        # Accept the connection
+        await websocket.accept()
+
+        if request_id is None:
+            request_id = f"ws-{int(time.time())}-{id(websocket)}"
+
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "WebSocket connection established - request_id=%s",
+                request_id,
+            )
+
+        # Connection-local cache for previous_response_id optimization
+        response_cache: dict[str, Any] = {}
+        connection_start_time = time.time()
+        connection_timeout = 3600  # 60 minutes per OpenAI spec
+
+        try:
+            while True:
+                # Check connection timeout
+                elapsed = time.time() - connection_start_time
+                if elapsed >= connection_timeout:
+                    error_event = {
+                        "type": "error",
+                        "error": {
+                            "type": "invalid_request_error",
+                            "code": "websocket_connection_limit_reached",
+                            "message": "Responses websocket connection limit reached (60 minutes). Create a new websocket connection to continue.",
+                        },
+                        "status": 400,
+                    }
+                    await websocket.send_json(error_event)
+                    break
+
+                # Receive message from client
+                try:
+                    message = await websocket.receive_text()
+                except WebSocketDisconnect:
+                    if logger.isEnabledFor(logging.INFO):
+                        logger.info(
+                            "WebSocket client disconnected - request_id=%s",
+                            request_id,
+                        )
+                    break
+
+                # Parse the message
+                try:
+                    event_data = json.loads(message)
+                except json.JSONDecodeError as e:
+                    error_event = {
+                        "type": "error",
+                        "error": {
+                            "type": "invalid_request_error",
+                            "code": "invalid_json",
+                            "message": f"Invalid JSON: {e}",
+                        },
+                        "status": 400,
+                    }
+                    await websocket.send_json(error_event)
+                    continue
+
+                event_type = event_data.get("type")
+
+                # Handle response.create events
+                if event_type == "response.create":
+                    await self._handle_websocket_response_create(
+                        websocket=websocket,
+                        event_data=event_data,
+                        request_id=request_id,
+                        response_cache=response_cache,
+                    )
+                else:
+                    # Unsupported event type
+                    error_event = {
+                        "type": "error",
+                        "error": {
+                            "type": "invalid_request_error",
+                            "code": "unsupported_event_type",
+                            "message": f"Unsupported event type: {event_type}",
+                        },
+                        "status": 400,
+                    }
+                    await websocket.send_json(error_event)
+
+        except Exception as e:
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Error in WebSocket handler - request_id=%s: %s",
+                    request_id,
+                    e,
+                    exc_info=True,
+                )
+            # Try to send error to client
+            try:
+                error_event = {
+                    "type": "error",
+                    "error": {
+                        "type": "internal_server_error",
+                        "code": "internal_error",
+                        "message": "An internal error occurred",
+                    },
+                    "status": 500,
+                }
+                await websocket.send_json(error_event)
+            except Exception:
+                pass
+        finally:
+            # Clean up
+            with contextlib.suppress(Exception):
+                await websocket.close()
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "WebSocket connection closed - request_id=%s",
+                    request_id,
+                )
+
+    async def _handle_websocket_response_create(
+        self,
+        websocket: WebSocket,
+        event_data: dict[str, Any],
+        request_id: str,
+        response_cache: dict[str, Any],
+    ) -> None:
+        """Handle response.create event from WebSocket client.
+
+        Args:
+            websocket: WebSocket connection
+            event_data: Event data from client
+            request_id: Request ID for correlation
+            response_cache: Connection-local response cache
+        """
+        # Capture inbound WebSocket event if wire capture is enabled
+        if self._wire_capture and self._wire_capture.enabled():
+            try:
+                await self._wire_capture.capture_inbound_request(
+                    context=None,
+                    session_id=None,
+                    request_payload=event_data,
+                    capture_metadata={
+                        "transport": "websocket",
+                        "event_type": "response.create",
+                        "request_id": request_id,
+                    },
+                )
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Failed to capture WebSocket inbound event: %s",
+                        e,
+                        exc_info=True,
+                    )
+
+        try:
+            # Check for previous_response_id
+            previous_response_id = event_data.get("previous_response_id")
+            if previous_response_id and previous_response_id not in response_cache:
+                # Cache miss - send error
+                error_event = {
+                    "type": "error",
+                    "status": 400,
+                    "error": {
+                        "code": "previous_response_not_found",
+                        "message": f"Previous response with id '{previous_response_id}' not found.",
+                        "param": "previous_response_id",
+                    },
+                }
+                await websocket.send_json(error_event)
+                return
+
+            # Convert event to ResponsesRequest
+            responses_request = self._parse_responses_request(event_data)
+
+            # Build request context (simulating HTTP request)
+            from src.core.domain.request_context import RequestContext
+
+            # Create minimal context for WebSocket (state/app_state are empty dicts for WS)
+            ctx = RequestContext(
+                request_id=request_id,
+                headers={},
+                cookies={},
+                client_host=None,
+                original_request=None,
+                state={},  # Empty state for WebSocket
+                app_state={},  # Empty app_state for WebSocket
+            )
+            ctx.extensions["protocol"] = "openai-responses-ws"
+
+            # Translate to domain request
+            translation_service = self._translation_service
+            domain_request = translation_service.to_domain_request(
+                responses_request, source_format="responses"
+            )
+
+            # Attach schema context if present
+            response_format = responses_request.response_format
+            if response_format and response_format.json_schema:
+                self._attach_schema_context(
+                    ctx=ctx,
+                    responses_request=responses_request,
+                    request_id=request_id,
+                    schema_name=getattr(response_format.json_schema, "name", "unnamed"),
+                )
+
+            # Process the request
+            response = await self._processor.process_request(ctx, domain_request)
+            if asyncio.iscoroutine(response):
+                response = await response
+
+            # Handle streaming response
+            if isinstance(response, StreamingResponseEnvelope):
+                if response.content is None:
+                    raise ValueError("StreamingResponseEnvelope has no content")
+                async for chunk in response.content:
+                    # Convert chunk to WebSocket event format
+                    if isinstance(chunk, ProcessedResponse):
+                        chunk_content = chunk.content
+                        chunk_metadata = chunk.metadata or {}
+
+                        # Check if this is a done event
+                        if chunk_metadata.get("done"):
+                            # Cache the response
+                            if isinstance(chunk_content, dict):
+                                response_id = chunk_content.get("id")
+                                if response_id and isinstance(response_id, str):
+                                    response_cache[response_id] = chunk_content
+
+                            # Send done event
+                            done_event = {
+                                "type": "response.done",
+                                "response": chunk_content,
+                            }
+                            await websocket.send_json(done_event)
+                            break
+                        else:
+                            # Send delta event
+                            if isinstance(chunk_content, dict):
+                                event_type = chunk_content.get("type", "response.delta")
+                                await websocket.send_json(
+                                    {"type": event_type, **chunk_content}
+                                )
+                            else:
+                                # Send as content delta
+                                delta_event = {
+                                    "type": "response.content_part.delta",
+                                    "delta": {"content": str(chunk_content)},
+                                }
+                                await websocket.send_json(delta_event)
+            else:
+                # Non-streaming response - send as single done event
+                content = response.content
+                if isinstance(content, dict):
+                    response_id = content.get("id")
+                    if response_id:
+                        response_cache[response_id] = content
+
+                    done_event = {
+                        "type": "response.done",
+                        "response": content,
+                    }
+                    await websocket.send_json(done_event)
+
+                    # Capture outbound WebSocket event if wire capture is enabled
+                    if self._wire_capture and self._wire_capture.enabled():
+                        try:
+                            await self._wire_capture.capture_outbound_response(
+                                context=ctx,
+                                session_id=None,
+                                backend=None,
+                                model=event_data.get("model"),
+                                key_name=None,
+                                response_content=content,
+                                capture_metadata={
+                                    "transport": "websocket",
+                                    "event_type": "response.done",
+                                    "request_id": request_id,
+                                },
+                            )
+                        except Exception as e:
+                            if logger.isEnabledFor(logging.WARNING):
+                                logger.warning(
+                                    "Failed to capture WebSocket outbound event: %s",
+                                    e,
+                                    exc_info=True,
+                                )
+
+        except ValidationError as exc:
+            # Validation error
+            error_event = {
+                "type": "error",
+                "status": 422,
+                "error": {
+                    "code": "invalid_request",
+                    "message": "Invalid request format",
+                    "details": exc.errors(),
+                },
+            }
+            await websocket.send_json(error_event)
+        except LLMProxyError as e:
+            # Domain exception
+            error_event = {
+                "type": "error",
+                "status": 500,
+                "error": {
+                    "code": "proxy_error",
+                    "message": str(e),
+                },
+            }
+            await websocket.send_json(error_event)
+        except Exception as e:
+            # Unexpected error
+            if logger.isEnabledFor(logging.ERROR):
+                logger.error(
+                    "Error processing WebSocket response.create - request_id=%s: %s",
+                    request_id,
+                    e,
+                    exc_info=True,
+                )
+            error_event = {
+                "type": "error",
+                "status": 500,
+                "error": {
+                    "code": "internal_error",
+                    "message": "An internal error occurred",
+                },
+            }
+            await websocket.send_json(error_event)
 
 
 def get_responses_controller(service_provider: IServiceProvider) -> ResponsesController:

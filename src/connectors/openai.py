@@ -91,6 +91,10 @@ class OpenAIConnector(LLMBackend):
         self.api_key: str | None = None
         self._api_base_url: str = "https://api.openai.com/v1"
 
+        # WebSocket client for Responses API (lazy initialized)
+        self._websocket_client: Any = None  # OpenAIWebSocketClient | None
+        self._use_websocket: bool = False
+
         # Health check attributes
         self._health_checked: bool = False
         import os
@@ -117,6 +121,34 @@ class OpenAIConnector(LLMBackend):
     def api_base_url(self, value: str) -> None:
         """Set the API base URL."""
         self._api_base_url = value
+
+    def enable_websocket(self, enabled: bool = True) -> None:
+        """Enable or disable WebSocket transport for Responses API.
+
+        Args:
+            enabled: Whether to use WebSocket transport (default: True)
+        """
+        self._use_websocket = enabled
+        if logger.isEnabledFor(logging.INFO):
+            logger.info(
+                "WebSocket transport %s for OpenAI Responses API",
+                "enabled" if enabled else "disabled",
+            )
+
+    async def close(self) -> None:
+        """Clean up resources including WebSocket connections."""
+        if self._websocket_client is not None:
+            try:
+                await self._websocket_client.disconnect()
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error closing WebSocket client: %s",
+                        e,
+                        exc_info=True,
+                    )
+            finally:
+                self._websocket_client = None
 
     @staticmethod
     def _resolve_translation_service() -> TranslationService:
@@ -1536,6 +1568,13 @@ class OpenAIConnector(LLMBackend):
 
         guarded_headers = ensure_loop_guard_header(headers)
 
+        # Check if WebSocket transport is enabled and requested
+        use_websocket = kwargs.get("use_websocket", self._use_websocket)
+        if use_websocket:
+            return await self._handle_websocket_response(
+                payload, guarded_headers, domain_request
+            )
+
         if domain_request.stream:
             # Return a domain-level streaming envelope
             try:
@@ -1559,6 +1598,80 @@ class OpenAIConnector(LLMBackend):
             return await self._handle_responses_non_streaming_response(
                 url, payload, guarded_headers, domain_request.session_id or ""
             )
+
+    async def _handle_websocket_response(
+        self,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None,
+        domain_request: Any,
+    ) -> StreamingResponseEnvelope:
+        """Handle Responses API request via WebSocket transport.
+
+        Args:
+            payload: Response API request payload
+            headers: Request headers
+            domain_request: Domain request object
+
+        Returns:
+            StreamingResponseEnvelope with WebSocket stream
+
+        Raises:
+            AuthenticationError: If authentication fails
+            ServiceUnavailableError: If WebSocket connection fails
+        """
+        if not headers or not headers.get("Authorization"):
+            raise AuthenticationError(message="No auth credentials found")
+
+        # Extract API key from headers
+        auth_header = headers.get("Authorization", "")
+        api_key = auth_header.replace("Bearer ", "") if auth_header else None
+        if not api_key:
+            raise AuthenticationError(message="No API key in authorization header")
+
+        # Initialize WebSocket client if needed
+        if self._websocket_client is None:
+            from src.connectors.openai_websocket_client import OpenAIWebSocketClient
+
+            # Convert HTTP URL to WebSocket URL
+            ws_base = self.api_base_url.replace("https://", "wss://").replace(
+                "http://", "ws://"
+            )
+            self._websocket_client = OpenAIWebSocketClient(
+                api_key=api_key,
+                api_base=ws_base,
+            )
+
+        # Extract previous_response_id if present
+        previous_response_id = payload.get("previous_response_id")
+
+        # Create async generator for streaming
+        async def _websocket_stream_generator():
+            try:
+                async for response_chunk in self._websocket_client.send_response_create(
+                    payload=payload,
+                    previous_response_id=previous_response_id,
+                ):
+                    yield response_chunk
+            except Exception as e:
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Error in WebSocket stream: %s",
+                        e,
+                        exc_info=True,
+                    )
+                raise
+
+        # Create cancel callback
+        async def _cancel_callback() -> None:
+            if self._websocket_client:
+                await self._websocket_client.disconnect()
+
+        return StreamingResponseEnvelope(
+            content=_websocket_stream_generator(),
+            media_type="text/event-stream",
+            headers=headers or {},
+            cancel_callback=_cancel_callback,
+        )
 
     async def _handle_responses_non_streaming_response(
         self,

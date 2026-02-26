@@ -142,6 +142,7 @@ class TestBackendAutoDiscovery:
             "gemini_oauth_base",
             "oauth_detector",
             "openai_codex_config",  # Configuration file, not a backend
+            "openai_websocket_client",  # WebSocket client utility, not a backend
             # Extracted OAuth connectors are loaded through plugin entry points.
             "anthropic_oauth",
             "antigravity_oauth",

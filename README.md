@@ -79,6 +79,7 @@ Zero changes to your client code. Just point it at the proxy and gain control.
 ### Universal Connectivity
 
 - **Protocol Translation** — Use OpenAI SDK with Anthropic, Claude client with Gemini, any combination
+- **WebSocket Support** — Low-latency WebSocket transport for Responses API (up to 40% faster for tool-heavy workflows)
 - **Subscription Consolidation** — Leverage all your premium LLM accounts through one endpoint
 - **Flexible Deployment** — Single-user mode for development, multi-user mode for production
 

@@ -408,6 +408,19 @@ properties:
       path_parameter_names:
         type: array
         items: { type: string }
+  responses_api:
+    type: object
+    additionalProperties: false
+    properties:
+      websocket:
+        type: object
+        additionalProperties: false
+        properties:
+          frontend_enabled: { type: boolean }
+          backend_enabled: { type: boolean }
+          frontend_path: { type: string }
+          connection_timeout: { type: integer, minimum: 60, maximum: 7200 }
+          max_connections: { type: integer, minimum: 1 }
   codebuff:
     type: object
     additionalProperties: false

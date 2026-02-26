@@ -47,10 +47,15 @@ if TYPE_CHECKING:
 
 
 class _CodexTransportAdapter:
-    """Adapter that wraps OpenAIConnector to implement ICodexTransport protocol."""
+    """Adapter that wraps OpenAIConnector to implement ICodexTransport protocol.
 
-    def __init__(self, connector: OpenAIConnector) -> None:
+    Supports both HTTP/SSE and WebSocket transport modes based on connector configuration.
+    """
+
+    def __init__(self, connector: OpenAIConnector, use_websocket: bool = False) -> None:
         self._connector = connector
+        self._use_websocket = use_websocket
+        self._websocket_client: Any = None  # OpenAIWebSocketClient | None
 
     async def initiate_streaming_request(
         self,
@@ -59,9 +64,102 @@ class _CodexTransportAdapter:
         headers: dict[str, str],
         session_id: str,
     ) -> StreamingResponseHandle:
+        # Opportunistically use WebSocket if enabled
+        if self._use_websocket:
+            return await self._initiate_websocket_streaming(
+                url, payload, headers, session_id
+            )
+
+        # Default to HTTP/SSE
         return await self._connector._handle_streaming_response(  # type: ignore[misc]
             url, payload, headers, session_id, "responses"
         )
+
+    async def _initiate_websocket_streaming(
+        self,
+        url: str,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+        session_id: str,
+    ) -> StreamingResponseHandle:
+        """Initiate WebSocket streaming request for Codex.
+
+        Args:
+            url: Codex API endpoint URL (HTTP)
+            payload: Request payload
+            headers: Request headers
+            session_id: Session identifier
+
+        Returns:
+            StreamingResponseHandle with WebSocket stream
+        """
+        # Convert HTTP URL to WebSocket URL
+        ws_url = url.replace("https://", "wss://").replace("http://", "ws://")
+
+        # Extract API key from headers
+        auth_header = headers.get("Authorization", "")
+        api_key = auth_header.replace("Bearer ", "") if auth_header else None
+        if not api_key:
+            raise AuthenticationError(message="No API key in authorization header")
+
+        # Initialize WebSocket client if needed
+        if self._websocket_client is None:
+            from src.connectors.openai_websocket_client import OpenAIWebSocketClient
+
+            # Extract base URL (everything except /responses)
+            if "/responses" in ws_url:
+                ws_base = ws_url.rsplit("/responses", 1)[0]
+            else:
+                ws_base = ws_url.rsplit("/", 1)[0]
+
+            self._websocket_client = OpenAIWebSocketClient(
+                api_key=api_key,
+                api_base=ws_base,
+            )
+
+        # Create async generator for streaming
+        async def _websocket_stream() -> AsyncIterator[ProcessedResponse]:
+            try:
+                async for response_chunk in self._websocket_client.send_response_create(
+                    payload=payload,
+                    previous_response_id=payload.get("previous_response_id"),
+                ):
+                    # Pass through ProcessedResponse from WebSocket client
+                    yield response_chunk
+            except Exception as e:
+                if logger.isEnabledFor(logging.ERROR):
+                    logger.error(
+                        "Error in Codex WebSocket stream: %s",
+                        e,
+                        exc_info=True,
+                    )
+                raise
+
+        # Create cancel callback
+        async def _cancel_callback() -> None:
+            if self._websocket_client:
+                await self._websocket_client.disconnect()
+
+        return StreamingResponseHandle(
+            iterator=_websocket_stream(),
+            headers=headers,
+            cancel_callback=_cancel_callback,
+        )
+
+    async def cleanup(self) -> None:
+        """Clean up WebSocket connections."""
+        if self._websocket_client is not None:
+            try:
+                await self._websocket_client.disconnect()
+            except Exception as e:
+                if logger.isEnabledFor(logging.WARNING):
+                    logger.warning(
+                        "Error disconnecting Codex WebSocket client: %s",
+                        e,
+                        exc_info=True,
+                    )
+            finally:
+                self._websocket_client = None
 
 
 logger = logging.getLogger(__name__)
@@ -85,6 +183,7 @@ class ResponseExecutor(IResponseExecutor):
         codex_url: str = "https://chatgpt.com/backend-api/codex/responses",
         compatibility_layer: ICompatibilityLayer | None = None,
         transport: ICodexTransport | None = None,
+        use_websocket: bool = False,
     ) -> None:
         """Initialize the response executor.
 
@@ -96,6 +195,7 @@ class ResponseExecutor(IResponseExecutor):
             codex_url: Codex API endpoint URL
             compatibility_layer: Optional compatibility layer for stream chunk translation
             transport: Optional transport interface for streaming HTTP requests
+            use_websocket: Whether to use WebSocket transport (default: False)
         """
         self._base_connector = base_connector
         self._credential_manager = credential_manager
@@ -103,10 +203,11 @@ class ResponseExecutor(IResponseExecutor):
         self._retry_backoff_seconds = retry_backoff_seconds
         self._codex_url = codex_url
         self._compatibility_layer = compatibility_layer
+        self._use_websocket = use_websocket
         self._transport = (
             transport
             if transport is not None
-            else _CodexTransportAdapter(base_connector)
+            else _CodexTransportAdapter(base_connector, use_websocket=use_websocket)
         )
 
     async def execute(

@@ -275,6 +275,10 @@ class OpenAICodexConnector(OpenAIConnector):
         backoff_seq = streaming_cfg.get("retry_backoff_seconds") or ()
         retry_backoff_seconds = tuple(backoff_seq) if backoff_seq else (0.5, 1.5, 3.0)
 
+        # Check if WebSocket is enabled via settings
+        websocket_cfg = self._connector_settings.get("websocket", {})
+        use_websocket = bool(websocket_cfg.get("enabled", False))
+
         self._response_executor = (
             self._dependencies.response_executor
             if self._dependencies and self._dependencies.response_executor is not None
@@ -284,6 +288,7 @@ class OpenAICodexConnector(OpenAIConnector):
                 max_retries=max_retries,
                 retry_backoff_seconds=retry_backoff_seconds,
                 compatibility_layer=self._compatibility_layer,
+                use_websocket=use_websocket,
             )
         )
 
@@ -1939,7 +1944,21 @@ class OpenAICodexConnector(OpenAIConnector):
         # 3. Stop local file watcher synchronously
         self._stop_file_watching()
 
-        # 4. Stop delegated credential manager
+        # 4. Clean up WebSocket connections in response executor
+        if self._response_executor and hasattr(self._response_executor, "_transport"):
+            transport = getattr(self._response_executor, "_transport", None)
+            if transport and hasattr(transport, "cleanup"):
+                try:
+                    await transport.cleanup()
+                except Exception as e:
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Error during WebSocket transport cleanup: %s",
+                            e,
+                            exc_info=True,
+                        )
+
+        # 5. Stop delegated credential manager
         if hasattr(self._credential_manager, "shutdown"):
             await self._credential_manager.shutdown()
 

@@ -364,40 +364,40 @@ class TestBackendWideCooldown:
 
         from src.connectors.gemini_base import streaming_executor as mod
 
-        old_val = mod._backend_cooldown_until
+        old_val = mod._model_cooldown_until.copy()
         try:
-            mod._backend_cooldown_until = 0.0
-            StreamingExecutor._set_backend_cooldown(5.0)
-            assert mod._backend_cooldown_until > 0.0
-            assert mod._backend_cooldown_until >= _time.monotonic()
+            mod._model_cooldown_until.clear()
+            StreamingExecutor._set_backend_cooldown("test_model", 5.0)
+            assert mod._model_cooldown_until.get("test_model", 0.0) > 0.0
+            assert mod._model_cooldown_until["test_model"] >= _time.monotonic()
         finally:
-            mod._backend_cooldown_until = old_val
+            mod._model_cooldown_until = old_val
 
     def test_set_backend_cooldown_never_moves_backward(self) -> None:
         """A shorter cooldown must not overwrite a longer one."""
         from src.connectors.gemini_base import streaming_executor as mod
 
-        old_val = mod._backend_cooldown_until
+        old_val = mod._model_cooldown_until.copy()
         try:
             import time as _time
 
             far_future = _time.monotonic() + 9999
-            mod._backend_cooldown_until = far_future
-            StreamingExecutor._set_backend_cooldown(1.0)
-            assert mod._backend_cooldown_until == far_future
+            mod._model_cooldown_until["test_model"] = far_future
+            StreamingExecutor._set_backend_cooldown("test_model", 1.0)
+            assert mod._model_cooldown_until["test_model"] == far_future
         finally:
-            mod._backend_cooldown_until = old_val
+            mod._model_cooldown_until = old_val
 
     def test_get_backend_cooldown_remaining_zero_when_no_cooldown(self) -> None:
         """When no cooldown is active, remaining must be 0."""
         from src.connectors.gemini_base import streaming_executor as mod
 
-        old_val = mod._backend_cooldown_until
+        old_val = mod._model_cooldown_until.copy()
         try:
-            mod._backend_cooldown_until = 0.0
-            assert StreamingExecutor._get_backend_cooldown_remaining() == 0.0
+            mod._model_cooldown_until.clear()
+            assert StreamingExecutor._get_backend_cooldown_remaining("test_model") == 0.0
         finally:
-            mod._backend_cooldown_until = old_val
+            mod._model_cooldown_until = old_val
 
     def test_get_backend_cooldown_remaining_positive_during_cooldown(self) -> None:
         """During an active cooldown, remaining must be > 0."""
@@ -405,13 +405,13 @@ class TestBackendWideCooldown:
 
         from src.connectors.gemini_base import streaming_executor as mod
 
-        old_val = mod._backend_cooldown_until
+        old_val = mod._model_cooldown_until.copy()
         try:
-            mod._backend_cooldown_until = _time.monotonic() + 60
-            remaining = StreamingExecutor._get_backend_cooldown_remaining()
+            mod._model_cooldown_until["test_model"] = _time.monotonic() + 60
+            remaining = StreamingExecutor._get_backend_cooldown_remaining("test_model")
             assert remaining > 0.0
         finally:
-            mod._backend_cooldown_until = old_val
+            mod._model_cooldown_until = old_val
 
 
 # ===================================================================

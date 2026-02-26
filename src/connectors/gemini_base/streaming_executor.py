@@ -27,8 +27,8 @@ from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 # This prevents the cascading 429 pattern where immediate retries or
 # concurrent requests exhaust the rate-limit window.
 # ---------------------------------------------------------------------------
-_backend_cooldown_until: float = 0.0  # monotonic time
-_backend_cooldown_lock = threading.Lock()
+_model_cooldown_until: dict[str, float] = {}  # monotonic time per model
+_model_cooldown_lock = threading.Lock()
 
 import pydantic
 import requests  # type: ignore[import-untyped]
@@ -387,23 +387,24 @@ class StreamingExecutor:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _get_backend_cooldown_remaining() -> float:
+    def _get_backend_cooldown_remaining(model: str) -> float:
         """Return seconds remaining in the backend-wide cooldown, or 0."""
-        with _backend_cooldown_lock:
-            remaining = _backend_cooldown_until - time.monotonic()
+        with _model_cooldown_lock:
+            remaining = _model_cooldown_until.get(model, 0.0) - time.monotonic()
         return max(remaining, 0.0)
 
     @staticmethod
-    def _set_backend_cooldown(seconds: float) -> None:
+    def _set_backend_cooldown(model: str, seconds: float) -> None:
         """Extend the backend-wide cooldown to at least *seconds* from now.
 
         Thread-safe; only moves the cooldown forward, never backward.
         """
-        global _backend_cooldown_until
+        global _model_cooldown_until
         new_until = time.monotonic() + seconds
-        with _backend_cooldown_lock:
-            if new_until > _backend_cooldown_until:
-                _backend_cooldown_until = new_until
+        with _model_cooldown_lock:
+            current = _model_cooldown_until.get(model, 0.0)
+            if new_until > current:
+                _model_cooldown_until[model] = new_until
 
     def _extract_retry_after_seconds(self, error: BackendError) -> float | None:
         details = getattr(error, "details", None)
@@ -748,7 +749,7 @@ class StreamingExecutor:
                 # When a recent 429 was received (from any account), the
                 # cooldown prevents this request from hitting the same
                 # IP-based rate-limit window.
-                cooldown_remaining = self._get_backend_cooldown_remaining()
+                cooldown_remaining = self._get_backend_cooldown_remaining(prepared.effective_model)
                 if cooldown_remaining > 0:
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
@@ -1431,7 +1432,7 @@ class StreamingExecutor:
                     retry_after_early or 0,
                     self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
                 )
-                self._set_backend_cooldown(cooldown_early)
+                self._set_backend_cooldown(prepared.effective_model, cooldown_early)
 
             # Handle quota_exceeded errors by yielding error chunk with code 503
             if hasattr(err, "code") and err.code == "quota_exceeded":
@@ -1755,7 +1756,7 @@ class StreamingExecutor:
                 retry_after or 0,
                 self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
             )
-            self._set_backend_cooldown(cooldown)
+            self._set_backend_cooldown(prepared.effective_model, cooldown)
 
         auth_policy = auth_refresh_policy or self._auth_refresh_policy
         auth_attempt = 1 if _auth_retry_attempted else 0

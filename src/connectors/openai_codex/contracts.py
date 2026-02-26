@@ -137,6 +137,7 @@ class CodexConnectorSettings(BaseModel):
     streaming: dict[str, Any]
     compatibility_layer: dict[str, Any]
     renderer: dict[str, Any]
+    websocket: dict[str, Any] = {"enabled": False}
 
 
 class CodexInitOptions(BaseModel):

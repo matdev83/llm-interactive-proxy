@@ -488,12 +488,33 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     notification_service=notification_service,
                 )
 
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Quality Verifier service created: instance=%s enabled=%s healthy=%s",
+                        quality_verifier_service_instance is not None,
+                        (
+                            quality_verifier_service_instance.is_enabled()
+                            if quality_verifier_service_instance
+                            else False
+                        ),
+                        (
+                            quality_verifier_service_instance.is_healthy()
+                            if quality_verifier_service_instance
+                            else False
+                        ),
+                    )
+
                 if (
                     quality_verifier_service_instance is not None
                     and quality_verifier_service_instance.is_enabled()
                     and quality_verifier_service_instance.is_healthy()
                 ):
                     should_buffer = True
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Quality Verifier buffering enabled for model %s",
+                            quality_verifier_model_spec,
+                        )
                 elif (
                     quality_verifier_service_instance
                     and not quality_verifier_service_instance.is_healthy()
@@ -523,11 +544,18 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
 
         # If Quality Verifier is not enabled, pass through original stream
         if not should_buffer:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Quality Verifier buffering NOT enabled (should_run=%s), passing through original stream",
+                    should_run,
+                )
             async for chunk in stream:
                 yield chunk
             return
 
         # Buffer chunks for verification
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Quality Verifier starting to buffer response chunks")
         buffered_chunks: list[ProcessedResponse] = []
         text_fragments: list[str] = []
         total_buffered_bytes = 0
@@ -555,16 +583,31 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 return
 
         if not buffered_chunks:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Quality Verifier: no chunks buffered, returning")
             return
 
         combined_text = "".join(text_fragments)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Quality Verifier buffered %d chunks (%d text bytes)",
+                len(buffered_chunks),
+                len(combined_text),
+            )
+
         if not combined_text.strip():
             # Empty text, just yield buffered chunks
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Quality Verifier: combined text empty, yielding buffered chunks"
+                )
             for buffered in buffered_chunks:
                 yield buffered
             return
 
         # Perform verification
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Quality Verifier: preparing verification request")
         try:
             backend_service: IBackendService = self._provider.get_required_service(
                 cast(type, IBackendService)
