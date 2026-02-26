@@ -426,48 +426,55 @@ class TestBackendWideCooldown:
         finally:
             mod._model_cooldown_until = old_val
 
-    def test_backend_cooldown_capped_at_max_retry_seconds(self) -> None:
-        """Backend cooldown must be capped at MAX_RATE_LIMIT_RETRY_SECONDS.
+    def test_backend_cooldown_fails_fast_on_large_delays(self) -> None:
+        """Backend cooldown should raise BackendError instead of sleeping for large delays."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
 
-        Regression test for bug where large retry-after values (e.g., 83911.3s = 23 hours)
-        were set as cooldown without any limit, causing absurd wait times.
-        """
-        import time as _time
+        from src.connectors.gemini_base.streaming_executor import StreamingExecutor
+        from src.core.common.exceptions import BackendError
 
-        from src.connectors.gemini_base import streaming_executor as mod
+        executor = StreamingExecutor(
+            translation_service=AsyncMock(),
+            token_estimator=AsyncMock(),
+        )
 
-        old_val = mod._model_cooldown_until.copy()
-        try:
-            mod._model_cooldown_until.clear()
+        prepared = MagicMock()
+        prepared.effective_model = "test_model"
+        prepared.session_id = "test_session"
+        prepared.auth_session.request = AsyncMock()
+        prepared.build_request_body.return_value = {"request": {}}
+        prepared.code_assist_request = {}
 
-            # Simulate setting a very large cooldown (e.g., from a misconfigured API response)
-            # The cooldown should be capped at MAX_RATE_LIMIT_RETRY_SECONDS (60.0)
-            absurd_cooldown = 83911.3  # 23 hours in seconds
+        processor = AsyncMock()
 
-            # Since _set_backend_cooldown doesn't cap (it's done by callers),
-            # we verify that callers apply the cap by checking the max value
-            # that would be set is reasonable
-            max_expected = StreamingExecutor.MAX_RATE_LIMIT_RETRY_SECONDS
-
-            # Set a large cooldown directly to test _get_backend_cooldown_remaining
-            StreamingExecutor._set_backend_cooldown(
-                "test_account", "test_model", absurd_cooldown
+        # Mock the cooldown check to return a huge value
+        with patch.object(
+            StreamingExecutor,
+            "_get_backend_cooldown_remaining",
+            return_value=83911.3,
+        ):
+            # This should raise BackendError immediately
+            generator = executor._stream_generator(
+                prepared=prepared,
+                url="https://test.com",
+                processor=processor,
+                prompt_tokens=10,
+                token_refresher=AsyncMock(),
             )
 
-            # The cooldown should be set to the absurd value (it's not capped in _set_backend_cooldown)
-            remaining = StreamingExecutor._get_backend_cooldown_remaining(
-                "test_account", "test_model"
-            )
-            assert remaining > max_expected, (
-                f"Test setup failed: cooldown should be set to {absurd_cooldown}s, "
-                f"but got {remaining}s"
-            )
+            # The async generator should raise the exception on the first anext()
+            import pytest
 
-            # The key point is that CALLERS of _set_backend_cooldown should cap the value
-            # before passing it in. This test documents that the capping logic exists
-            # in the caller code (streaming_executor lines 1457-1464 and 1794-1801).
-        finally:
-            mod._model_cooldown_until = old_val
+            with pytest.raises(BackendError) as exc_info:
+                # We need to run the async generator to trigger the exception
+                asyncio.run(generator.__anext__())
+
+            assert exc_info.value.status_code == 429
+            assert "Backend is on cooldown for another 83911.3s" in str(exc_info.value)
+
+            # Request should NOT be made
+            prepared.auth_session.request.assert_not_called()
 
 
 # ===================================================================

@@ -783,6 +783,20 @@ class StreamingExecutor:
                     account_id, prepared.effective_model
                 )
                 if cooldown_remaining > 0:
+                    if cooldown_remaining > self._max_rate_limit_retry_seconds:
+                        logger.warning(
+                            "Backend %s (account %s) in extended cooldown for %.1fs. Failing fast instead of waiting.",
+                            prepared.effective_model,
+                            account_id,
+                            cooldown_remaining,
+                        )
+                        raise BackendError(
+                            message=f"Backend is on cooldown for another {cooldown_remaining:.1f}s",
+                            status_code=429,
+                            details={"retry_after": cooldown_remaining},
+                            backend_name=self._backend_type,
+                        )
+
                     if logger.isEnabledFor(logging.DEBUG):
                         logger.debug(
                             "Backend cooldown: waiting %.1fs before dispatch",
@@ -1460,25 +1474,10 @@ class StreamingExecutor:
                     retry_after_seconds=retry_after_early,
                 )
                 # Backend-wide cooldown (early path)
-                # Cap at MAX_RATE_LIMIT_RETRY_SECONDS to prevent absurd wait times
-                uncapped_cooldown = max(
+                cooldown_early = max(
                     retry_after_early or 0,
                     self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
                 )
-                cooldown_early = min(
-                    uncapped_cooldown, self._max_rate_limit_retry_seconds
-                )
-
-                if uncapped_cooldown > cooldown_early and logger.isEnabledFor(
-                    logging.DEBUG
-                ):
-                    logger.debug(
-                        "Capping backend cooldown from %.1fs to %.1fs (max: %.1fs)",
-                        uncapped_cooldown,
-                        cooldown_early,
-                        self._max_rate_limit_retry_seconds,
-                    )
-
                 account_id = self._get_account_identifier(prepared, token_refresher)
                 self._set_backend_cooldown(
                     account_id, prepared.effective_model, cooldown_early
@@ -1802,21 +1801,10 @@ class StreamingExecutor:
             # least DEFAULT_RATE_LIMIT_BACKOFF_SECONDS even when the
             # server hint is shorter, because the effective rate-limit
             # window is typically longer than the Retry-After value.
-            # Cap at MAX_RATE_LIMIT_RETRY_SECONDS to prevent absurd wait times.
-            uncapped_cooldown = max(
+            cooldown = max(
                 retry_after or 0,
                 self.DEFAULT_RATE_LIMIT_BACKOFF_SECONDS,
             )
-            cooldown = min(uncapped_cooldown, self._max_rate_limit_retry_seconds)
-
-            if uncapped_cooldown > cooldown and logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Capping backend cooldown from %.1fs to %.1fs (max: %.1fs)",
-                    uncapped_cooldown,
-                    cooldown,
-                    self._max_rate_limit_retry_seconds,
-                )
-
             account_id = self._get_account_identifier(prepared, token_refresher)
             self._set_backend_cooldown(account_id, prepared.effective_model, cooldown)
 
