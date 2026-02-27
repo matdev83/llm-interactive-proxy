@@ -619,6 +619,9 @@ def configure_logging_with_environment_tagging(
     logging.getLogger("hpack.hpack").setLevel(logging.WARNING)
     # Also suppress parent httpcore logger to catch any other httpcore sub-loggers
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    # Suppress aiosqlite debug logs - very verbose operation-level logging
+    # (connection open/close, cursor operations, query execution details)
+    logging.getLogger("aiosqlite").setLevel(logging.INFO)
 
     # Install environment tagging filter
     install_environment_tagging()
