@@ -125,6 +125,9 @@ class AppLifecycle:
         # Close any remaining connections
         await self._close_connections()
 
+        # Dispose service provider to clean up singleton resources
+        await self._dispose_service_provider()
+
     async def _start_memory_services(self) -> None:
         """Start ProxyMem services (analysis worker, maintenance).
 
@@ -616,7 +619,6 @@ class AppLifecycle:
                 )
 
     async def _start_health_checks(self) -> None:
-
         """Start health check services if enabled."""
         provider = getattr(self.app.state, "service_provider", None)
         if not provider:
@@ -748,6 +750,27 @@ class AppLifecycle:
         if quota_status_service and hasattr(quota_status_service, "shutdown"):
             await quota_status_service.shutdown()
 
+    async def _dispose_service_provider(self) -> None:
+        """Dispose service provider to clean up singleton resources.
+
+        This ensures that singleton services with dispose() methods
+        (such as DatabaseEngine) are properly cleaned up, preventing
+        connection termination errors during shutdown.
+        """
+        provider: Any = getattr(self.app.state, "service_provider", None)
+        if not provider:
+            return
+
+        try:
+            if hasattr(provider, "dispose") and callable(provider.dispose):
+                # We use cast to Any to avoid pyright awaitability issues on object
+                from typing import cast
+                await cast(Any, provider).dispose()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("Service provider disposed successfully")
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Error disposing service provider: %s", e, exc_info=True)
 
     async def _shutdown_all_backends(self, provider: Any) -> None:
         """Shutdown all cached backends to prevent resource leaks.

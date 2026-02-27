@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
@@ -137,7 +136,8 @@ class BackendSettings(DomainModel):
     )
 
     def __init__(self, **data: Any) -> None:
-        known_fields = set(self.model_fields.keys())
+        # Access model_fields on the class (Pydantic >=2.11 deprecates instance access)
+        known_fields = set(type(self).model_fields.keys())
 
         init_data = {k: v for k, v in data.items() if k in known_fields}
         backend_data = {k: v for k, v in data.items() if k not in known_fields}
@@ -172,7 +172,7 @@ class BackendSettings(DomainModel):
         if (
             name in {"default_backend"}
             or name.startswith("_")
-            or name in self.model_fields
+            or name in type(self).model_fields
         ):
             super().__setattr__(name, value)
             return
@@ -283,12 +283,6 @@ class BackendSettings(DomainModel):
 
         backend_name, _ = model_id.split(":", 1)
         return backend_name in self.functional_backends
-
-
-class _BackendsConfigError(str, Enum):
-    """Reserved for future config error classifications."""
-
-    INVALID = "invalid"
 
 
 def normalize_credentials_path(path: str) -> str:

@@ -47,7 +47,6 @@ class TestDatabaseEngine:
         # Calling again returns same instance
         assert db_engine.session_factory is factory
 
-    @pytest.mark.asyncio
     async def test_initialize_creates_tables(
         self, in_memory_config: DatabaseConfig
     ) -> None:
@@ -79,7 +78,6 @@ class TestDatabaseEngine:
 
         await db_engine.close()
 
-    @pytest.mark.asyncio
     async def test_session_context_manager(
         self, in_memory_config: DatabaseConfig
     ) -> None:
@@ -95,7 +93,6 @@ class TestDatabaseEngine:
 
         await db_engine.close()
 
-    @pytest.mark.asyncio
     async def test_session_commits_on_success(
         self, in_memory_config: DatabaseConfig
     ) -> None:
@@ -118,7 +115,6 @@ class TestDatabaseEngine:
 
         await db_engine.close()
 
-    @pytest.mark.asyncio
     async def test_session_rollbacks_on_error(
         self, in_memory_config: DatabaseConfig
     ) -> None:
@@ -142,7 +138,6 @@ class TestDatabaseEngine:
 
         await db_engine.close()
 
-    @pytest.mark.asyncio
     async def test_close_disposes_engine(
         self, in_memory_config: DatabaseConfig
     ) -> None:
@@ -156,6 +151,25 @@ class TestDatabaseEngine:
         assert db_engine._session_factory is None
         assert db_engine._initialized is False
 
+    async def test_dispose_calls_close(
+        self, in_memory_config: DatabaseConfig
+    ) -> None:
+        """Test that dispose() properly closes the engine.
+
+        This ensures that the DI container can call dispose() during shutdown
+        to prevent connection termination errors.
+        """
+        db_engine = DatabaseEngine(in_memory_config)
+        await db_engine.initialize()
+
+        # Call dispose (what the DI container does during shutdown)
+        await db_engine.dispose()
+
+        # Verify engine is properly closed
+        assert db_engine._engine is None
+        assert db_engine._session_factory is None
+        assert db_engine._initialized is False
+
 
 class TestModuleFunctions:
     """Tests for module-level convenience functions."""
@@ -165,7 +179,6 @@ class TestModuleFunctions:
         """Create in-memory SQLite config for testing."""
         return DatabaseConfig(url="sqlite+aiosqlite:///:memory:")
 
-    @pytest.mark.asyncio
     async def test_init_database(self, in_memory_config: DatabaseConfig) -> None:
         """Test init_database function."""
         engine = await init_database(in_memory_config)
@@ -175,7 +188,6 @@ class TestModuleFunctions:
 
         await engine.close()
 
-    @pytest.mark.asyncio
     async def test_get_async_session(self, in_memory_config: DatabaseConfig) -> None:
         """Test get_async_session function."""
         engine = await init_database(in_memory_config)

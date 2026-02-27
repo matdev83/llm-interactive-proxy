@@ -1082,8 +1082,10 @@ class ChatController:
 
                     error_payload = {"error": error_dict}
 
+                    # For errors, emit a single SSE error event and DO NOT emit [DONE].
+                    # Some clients treat [DONE] as a successful completion marker and will
+                    # surface the error payload as a normal message (misleading).
                     yield f"data: {json.dumps(error_payload)}\n\n".encode()
-                    yield b"data: [DONE]\n\n"
 
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
@@ -1129,8 +1131,8 @@ class ChatController:
                             "status_code": 500,
                         }
                     }
+                    # For errors, emit a single SSE error event and DO NOT emit [DONE].
                     yield f"data: {json.dumps(error_payload)}\n\n".encode()
-                    yield b"data: [DONE]\n\n"
 
                 return StreamingResponse(
                     _generic_error_stream_generator(),

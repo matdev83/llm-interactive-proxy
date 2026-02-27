@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     pass
@@ -26,6 +26,8 @@ class StructuredOutputContext(BaseModel):
     response_schema: Any = Field(..., description="The JSON schema for validation")
     schema_name: str = Field(..., description="Name identifier for the schema")
     request_id: str = Field(..., description="Request identifier for correlation")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ResponseProcessingContext(BaseModel):
@@ -48,10 +50,7 @@ class ResponseProcessingContext(BaseModel):
         None, description="Structured output validation context if applicable"
     )
 
-    class Config:
-        """Pydantic configuration."""
-
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ToolCallRetryState(BaseModel):
@@ -68,3 +67,5 @@ class ToolCallRetryState(BaseModel):
     is_streaming: bool = Field(
         False, description="Whether this retry is for a streaming request"
     )
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)

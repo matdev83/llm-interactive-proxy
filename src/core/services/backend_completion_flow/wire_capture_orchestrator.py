@@ -4,15 +4,13 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from typing import cast
 
 from pydantic.types import JsonValue
 
 from src.core.config.app_config import AppConfig, BackendConfig
-from src.core.config.config_loader import (
-    _collect_api_keys,
-)
 from src.core.domain.chat import CanonicalChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.usage_canonical_record import CanonicalUsageRecord
@@ -25,6 +23,36 @@ from src.core.interfaces.domain_entities_interface import ISession
 from src.core.interfaces.wire_capture_interface import IWireCapture
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_api_keys_from_env(base_name: str) -> dict[str, str]:
+    """Collect API keys from environment.
+
+    Mirrors the legacy config_loader._collect_api_keys behavior without importing
+    the deprecated module (which emits DeprecationWarning).
+    """
+
+    single_key = os.getenv(base_name)
+    numbered_keys: dict[str, str] = {}
+    for i in range(1, 21):
+        key = os.getenv(f"{base_name}_{i}")
+        if key:
+            numbered_keys[f"{base_name}_{i}"] = key
+
+    if single_key and numbered_keys:
+        logger.warning(
+            "Both %s and %s_<n> environment variables are set. Prioritizing %s_<n> and ignoring %s.",
+            base_name,
+            base_name,
+            base_name,
+            base_name,
+        )
+        return numbered_keys
+
+    if single_key:
+        return {base_name: single_key}
+
+    return numbered_keys
 
 
 class WireCaptureOrchestrator(IWireCaptureOrchestrator):
@@ -166,7 +194,7 @@ class WireCaptureOrchestrator(IWireCaptureOrchestrator):
             }.get(backend_type)
             if not env_base:
                 return backend_type
-            mapping = _collect_api_keys(env_base)  # pyright: ignore[reportPrivateUsage]
+            mapping = _collect_api_keys_from_env(env_base)
             for name, value in mapping.items():
                 if value == api_key_value:
                     return name

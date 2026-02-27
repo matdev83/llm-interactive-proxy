@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from src.core.interfaces.model_bases import DomainModel
 
@@ -12,5 +12,4 @@ class FailoverRoute(DomainModel):
     policy: str = "k"
     elements: list[str] = Field(default_factory=list)
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ModelInfo(BaseModel):
@@ -11,13 +11,11 @@ class ModelInfo(BaseModel):
     owned_by: str | None = None
     context_window: int | None = None
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 class ModelsListingResponse(BaseModel):
     object: str = "list"
     data: list[ModelInfo]
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")

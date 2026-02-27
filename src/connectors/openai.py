@@ -692,7 +692,8 @@ class OpenAIConnector(LLMBackend):
         if inspect.isawaitable(payload):
             payload = await payload
         # Ensure the outbound payload uses the resolved model name without backend prefixes.
-        payload["model"] = effective_model
+        if effective_model:
+            payload["model"] = effective_model
         payload["stream"] = bool(getattr(request_data, "stream", False))
         if payload.get("stream"):
             stream_options = payload.get("stream_options") or {}
@@ -805,7 +806,8 @@ class OpenAIConnector(LLMBackend):
                     effective_model,
                     extra=log_extra_payload if log_extra_payload else None,
                 )
-            payload["model"] = effective_model
+                if effective_model:
+                    payload["model"] = effective_model
 
         # Convert reasoning_effort to reasoning: {'effort': ...} format for OpenAI/OpenRouter
         reasoning_effort = getattr(request_data, "reasoning_effort", None)

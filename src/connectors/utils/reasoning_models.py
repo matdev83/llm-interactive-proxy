@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 
@@ -16,8 +16,7 @@ class ReasoningDetectionMetadata(BaseModel):
     raw_chunks: list[ProcessedResponse] = Field(default_factory=list)
     error: str | None = None
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class ReasoningDetectionResult(BaseModel):
@@ -30,8 +29,12 @@ class ReasoningDetectionResult(BaseModel):
     is_detected: bool
     detected_value: str | None = None
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
 
 class ReasoningCaptureResult(BaseModel):
     reasoning_text: str
     reasoning_complete: bool
     metadata: ReasoningDetectionMetadata
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)

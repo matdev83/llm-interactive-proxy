@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlmodel import Field, SQLModel
+from sqlmodel._compat import SQLModelConfig
 
 
 def _get_timestamp() -> datetime:
     """Get current UTC timestamp, respecting time source override if active."""
-    # Check for time source override (used by tests)
-    from src.core.services.time_source_service import _OVERRIDE_TIME_SOURCE
+    # Use the TimeSource service so tests can override time safely.
+    from src.core.services.time_source_service import TimeSource
 
-    override = _OVERRIDE_TIME_SOURCE.get()
-    if override is not None:
-        return override.now_utc()
-    return datetime.now(timezone.utc)
+    return TimeSource().now_utc()
 
 
 class TimestampMixin(SQLModel):
@@ -34,8 +32,9 @@ class BaseModel(SQLModel):
     All database models should inherit from this class.
     """
 
-    class Config:  # type: ignore[misc]
-        """SQLModel configuration."""
-
-        # Allow arbitrary types for complex fields
-        arbitrary_types_allowed = True
+    # SQLModel uses a TypedDict-based config in Pydantic v2.
+    # Start from SQLModel's default v2 behavior (from_attributes/orm_mode analogue)
+    # and allow arbitrary types for connector/service objects stored on models.
+    model_config = SQLModelConfig()
+    model_config["from_attributes"] = True  # type: ignore[literal-required]
+    model_config["arbitrary_types_allowed"] = True  # type: ignore[literal-required]

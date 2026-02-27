@@ -116,6 +116,24 @@ class DatabaseEngine:
             )
         else:
             # SQLite-specific settings
+            # Use StaticPool for in-memory databases (tests) to maintain schema across operations
+            # Use NullPool for file-based databases to avoid connection termination issues
+            # during request cancellation. SQLite doesn't benefit from connection pooling
+            # like server databases do. This prevents "Exception terminating connection"
+            # errors when requests are cancelled.
+            is_in_memory = (
+                self._config.url.endswith(":memory:")
+                or ":memory:?" in self._config.url
+                or "/:memory:" in self._config.url
+            )
+            if is_in_memory:
+                from sqlalchemy.pool import StaticPool
+
+                engine_kwargs["poolclass"] = StaticPool
+            else:
+                from sqlalchemy.pool import NullPool
+
+                engine_kwargs["poolclass"] = NullPool
             engine_kwargs["connect_args"] = {"check_same_thread": False}
 
         logger.info("Creating async database engine for: %s", self._config.url)
@@ -158,6 +176,14 @@ class DatabaseEngine:
             self._session_factory = None
             self._initialized = False
             logger.info("Database engine closed")
+
+    async def dispose(self) -> None:
+        """Dispose the database engine (alias for close).
+
+        This method is called by the DI container during shutdown to ensure
+        proper cleanup of database connections and prevent cancellation errors.
+        """
+        await self.close()
 
     @asynccontextmanager
     async def session(self) -> AsyncGenerator[AsyncSession, None]:
