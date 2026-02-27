@@ -816,7 +816,7 @@ async def test_streaming_error_then_fallback_also_streaming_error_raises(
     # Should raise AuthenticationError after fallback also fails
     with pytest.raises(
         AuthenticationError,
-        match="Both replacement and original models failed with 401 error",
+        match="Both models failed, fallback returned status: 401",
     ):
         await request_processor_with_replacement.process_request(context, request_data)
 

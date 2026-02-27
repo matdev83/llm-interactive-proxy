@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import asdict, is_dataclass
 from typing import TYPE_CHECKING, Any
@@ -226,16 +225,18 @@ class JSONResponseBuilder:
         )
 
         # Create JSON response
-        if logger.isEnabledFor(logging.DEBUG):
-            try:
-                safe_content_for_log = json.dumps(
-                    safe_content,
-                    ensure_ascii=True,
-                    default=str,
-                )
-            except (TypeError, ValueError):
-                safe_content_for_log = repr(safe_content)
-            logger.debug("JSONResponse safe_content: %s", safe_content_for_log)
+        # NOTE: Full response content logging commented out - excessive even at DEBUG level.
+        # Full traffic is captured in CBOR wire captures (var/wire_captures_cbor/).
+        # if logger.isEnabledFor(logging.DEBUG):
+        #     try:
+        #         safe_content_for_log = json.dumps(
+        #             safe_content,
+        #             ensure_ascii=True,
+        #             default=str,
+        #         )
+        #     except (TypeError, ValueError):
+        #         safe_content_for_log = repr(safe_content)
+        #     logger.debug("JSONResponse safe_content: %s", safe_content_for_log)
         return self._create_json_response(safe_content, final_status_code, safe_headers)
 
     def _prepare_json_content(self, content: Any) -> Any:

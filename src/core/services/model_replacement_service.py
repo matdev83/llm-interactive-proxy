@@ -87,7 +87,6 @@ class ModelReplacementService:
             config.allow_oauth_auto_replacement
         )
 
-
         # Metrics tracking for monitoring and analysis
 
         self._metrics = ReplacementMetrics()
@@ -149,7 +148,6 @@ class ModelReplacementService:
                 f"allow_oauth_auto_replacement={self._cached_allow_oauth_auto_replacement}"
             )
 
-
     def should_replace(
         self,
         session_id: str,
@@ -206,7 +204,6 @@ class ModelReplacementService:
             self._metrics.record_opt_out(session_id, "backend")
             return False
 
-
         # Get state, but don't create it yet
         state = self._session_states.get(session_id)
 
@@ -251,6 +248,19 @@ class ModelReplacementService:
                     logger.debug(
                         f"No matching replacement rule for session {session_id}: "
                         f"{original_backend}:{original_model}. Skipping replacement."
+                    )
+                return False
+
+            # Skip replacement if the replacement model is the same as the original model
+            if (
+                matching_rule.to_backend == original_backend
+                and matching_rule.to_model == original_model
+            ):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Skipping replacement for session {session_id}: "
+                        f"replacement model {matching_rule.to_backend}:{matching_rule.to_model} "
+                        f"is the same as original model {original_backend}:{original_model}"
                     )
                 return False
 
@@ -369,6 +379,19 @@ class ModelReplacementService:
 
             replacement_backend = matching_rule.to_backend
             replacement_model = matching_rule.to_model
+
+            # Skip replacement if the replacement model is the same as the original model
+            if (
+                replacement_backend == original_backend
+                and replacement_model == original_model
+            ):
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        f"Skipping replacement activation for session {session_id}: "
+                        f"replacement model {replacement_backend}:{replacement_model} "
+                        f"is the same as original model {original_backend}:{original_model}"
+                    )
+                return
 
             state = self._session_states.get(session_id)
             if state is None:

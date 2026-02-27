@@ -27,10 +27,14 @@ class EndOfSessionStreamProcessor(IStreamProcessor):
 
     This processor observes StreamingContent for completion markers such as:
     - `[DONE]` sentinel in content
-    - `finish_reason` in metadata
+    - `finish_reason` in metadata (except "tool_calls")
     - `message_stop` in metadata
     - `response.completed` in metadata
-    - `is_done=True` flag
+    - `is_done=True` flag (except when finish_reason="tool_calls")
+
+    Note: finish_reason="tool_calls" indicates a mid-session pause for tool
+    execution, not session termination. The session continues after the client
+    sends tool results back.
 
     When a completion marker is detected, it emits an End-of-Session signal
     via the EndOfSessionService. The processor preserves content unchanged
@@ -129,8 +133,18 @@ class EndOfSessionStreamProcessor(IStreamProcessor):
         """
         metadata = content.metadata or {}
 
-        # Check for is_done flag
+        # Check for is_done flag, but skip tool_calls (mid-session pause, not termination)
         if content.is_done:
+            # Skip EoS emission for tool calls - session continues after tool execution
+            finish_reason = metadata.get("finish_reason")
+
+            # Also check finish_reason in content dict if present
+            if finish_reason is None and isinstance(content.content, dict):
+                finish_reason = content.content.get("finish_reason")
+
+            if finish_reason == "tool_calls":
+                return None
+
             return EndOfSessionSignal(
                 session_id=session_id,
                 signal_type=EndOfSessionSignalType.DONE_SENTINEL,
@@ -168,6 +182,10 @@ class EndOfSessionStreamProcessor(IStreamProcessor):
         # Check for finish_reason in metadata
         finish_reason = metadata.get("finish_reason")
         if finish_reason:
+            # Skip EoS emission for tool calls - session continues after tool execution
+            if finish_reason == "tool_calls":
+                return None
+
             return EndOfSessionSignal(
                 session_id=session_id,
                 signal_type=EndOfSessionSignalType.FINISH_REASON,

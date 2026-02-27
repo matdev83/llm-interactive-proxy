@@ -363,3 +363,137 @@ class TestMetadataExtraction:
         assert signal.protocol == "openai"
         assert signal.backend == "openai"
         assert signal.request_id == "req-456"
+
+
+class TestToolCallsSkipping:
+    """Test that tool_calls finish_reason does not trigger EoS emission."""
+
+    @pytest.mark.asyncio
+    async def test_is_done_with_tool_calls_finish_reason_skips_eos(
+        self,
+        processor: EndOfSessionStreamProcessor,
+        mock_eos_service: MagicMock,
+    ):
+        """Test that is_done=True with finish_reason=tool_calls does NOT emit EoS."""
+        content = StreamingContent(
+            content="test",
+            metadata={"session_id": "test-123", "finish_reason": "tool_calls"},
+            is_done=True,
+        )
+
+        result = await processor.process(content)
+
+        assert result is content
+        mock_eos_service.record_signal.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_tool_calls_in_metadata_skips_eos(
+        self,
+        processor: EndOfSessionStreamProcessor,
+        mock_eos_service: MagicMock,
+    ):
+        """Test that finish_reason=tool_calls in metadata does NOT emit EoS."""
+        content = StreamingContent(
+            content="test",
+            metadata={"session_id": "test-123", "finish_reason": "tool_calls"},
+            is_done=False,
+        )
+
+        result = await processor.process(content)
+
+        assert result is content
+        mock_eos_service.record_signal.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_finish_reason_tool_calls_in_content_dict_skips_eos(
+        self,
+        processor: EndOfSessionStreamProcessor,
+        mock_eos_service: MagicMock,
+    ):
+        """Test that finish_reason=tool_calls in content dict does NOT emit EoS."""
+        content = StreamingContent(
+            content={"finish_reason": "tool_calls", "choices": []},
+            metadata={"session_id": "test-123"},
+            is_done=True,
+        )
+
+        result = await processor.process(content)
+
+        assert result is content
+        mock_eos_service.record_signal.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_is_done_with_stop_finish_reason_emits_eos(
+        self,
+        processor: EndOfSessionStreamProcessor,
+        mock_eos_service: MagicMock,
+    ):
+        """Test that is_done=True with finish_reason=stop DOES emit EoS."""
+        content = StreamingContent(
+            content="test",
+            metadata={"session_id": "test-123", "finish_reason": "stop"},
+            is_done=True,
+        )
+
+        await processor.process(content)
+
+        mock_eos_service.record_signal.assert_awaited_once()
+        signal = mock_eos_service.record_signal.call_args[0][0]
+        assert signal.signal_type == EndOfSessionSignalType.DONE_SENTINEL
+
+    @pytest.mark.asyncio
+    async def test_is_done_with_length_finish_reason_emits_eos(
+        self,
+        processor: EndOfSessionStreamProcessor,
+        mock_eos_service: MagicMock,
+    ):
+        """Test that is_done=True with finish_reason=length DOES emit EoS."""
+        content = StreamingContent(
+            content="test",
+            metadata={"session_id": "test-123", "finish_reason": "length"},
+            is_done=True,
+        )
+
+        await processor.process(content)
+
+        mock_eos_service.record_signal.assert_awaited_once()
+        signal = mock_eos_service.record_signal.call_args[0][0]
+        assert signal.signal_type == EndOfSessionSignalType.DONE_SENTINEL
+
+    @pytest.mark.asyncio
+    async def test_is_done_with_error_finish_reason_emits_eos(
+        self,
+        processor: EndOfSessionStreamProcessor,
+        mock_eos_service: MagicMock,
+    ):
+        """Test that is_done=True with finish_reason=error DOES emit EoS."""
+        content = StreamingContent(
+            content="test",
+            metadata={"session_id": "test-123", "finish_reason": "error"},
+            is_done=True,
+        )
+
+        await processor.process(content)
+
+        mock_eos_service.record_signal.assert_awaited_once()
+        signal = mock_eos_service.record_signal.call_args[0][0]
+        assert signal.signal_type == EndOfSessionSignalType.DONE_SENTINEL
+
+    @pytest.mark.asyncio
+    async def test_is_done_without_finish_reason_emits_eos(
+        self,
+        processor: EndOfSessionStreamProcessor,
+        mock_eos_service: MagicMock,
+    ):
+        """Test that is_done=True without finish_reason DOES emit EoS."""
+        content = StreamingContent(
+            content="test",
+            metadata={"session_id": "test-123"},
+            is_done=True,
+        )
+
+        await processor.process(content)
+
+        mock_eos_service.record_signal.assert_awaited_once()
+        signal = mock_eos_service.record_signal.call_args[0][0]
+        assert signal.signal_type == EndOfSessionSignalType.DONE_SENTINEL

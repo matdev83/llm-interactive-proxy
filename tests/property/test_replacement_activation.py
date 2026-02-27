@@ -63,8 +63,9 @@ def test_property_11_turn_counter_initialization(
     """
     Property 11: Turn counter initialization.
 
-    When replacement is activated, the turn counter must be initialized to the
-    configured replacement_turn_count value.
+    When replacement is activated with a different model, the turn counter
+    must be initialized to the configured replacement_turn_count value.
+    When replacement model is the same as original, activation is skipped.
 
     Validates: Requirements 3.4
     """
@@ -85,6 +86,11 @@ def test_property_11_turn_counter_initialization(
     service = ModelReplacementService(config, registry)
     session_id = "test-session"
 
+    # Check if replacement would be same as original
+    is_same_model = (
+        original_backend == "test-backend" and original_model == "test-model"
+    )
+
     # Activate replacement
     import asyncio
 
@@ -94,11 +100,20 @@ def test_property_11_turn_counter_initialization(
 
     # Verify state
     state = service.get_state(session_id)
-    assert state.active is True, "State should be active after activation"
-    assert state.turns_remaining == turn_count, (
-        f"Turn counter should be initialized to {turn_count}, "
-        f"got {state.turns_remaining}"
-    )
+
+    if is_same_model:
+        # When models are the same, activation should be skipped
+        assert not state.active, "State should not be active when models are the same"
+        assert (
+            state.turns_remaining == 0
+        ), "Turns remaining should be 0 when models are the same"
+    else:
+        # When models are different, activation should proceed normally
+        assert state.active is True, "State should be active after activation"
+        assert state.turns_remaining == turn_count, (
+            f"Turn counter should be initialized to {turn_count}, "
+            f"got {state.turns_remaining}"
+        )
 
 
 @given(
@@ -133,8 +148,10 @@ async def test_property_21_activation_logging(
     """
     Property 21: Activation logging.
 
-    When replacement is activated, an INFO log message must be emitted
-    indicating the session_id, original model, replacement model, and turn count.
+    When replacement is activated with a different model, an INFO log message
+    must be emitted indicating the session_id, original model, replacement model,
+    and turn count. When replacement model is the same as original, no activation
+    occurs and no log is emitted.
 
     Validates: Requirements 6.1
     """
@@ -174,6 +191,13 @@ async def test_property_21_activation_logging(
     service = ModelReplacementService(config, registry)
     session_id = "test-session"
 
+    # Check if replacement would be same as original
+    replacement_parts = replacement_backend_model.split(":", 1)
+    is_same_model = (
+        replacement_parts[0] == original_backend
+        and replacement_parts[1] == original_model
+    )
+
     # Create a mock logger to capture log calls
     original_logger = logging.getLogger("src.core.services.model_replacement_service")
     original_info = original_logger.info
@@ -191,19 +215,38 @@ async def test_property_21_activation_logging(
         # Activate replacement (async test, no need for asyncio.run)
         await service.activate_replacement(session_id, original_backend, original_model)
 
-        # Verify INFO log was emitted
-        activation_logs = [log for log in log_calls if "Replacement activated" in log]
-        assert len(activation_logs) > 0, "No activation log emitted"
+        if is_same_model:
+            # When replacement model is same as original, no activation should occur
+            activation_logs = [
+                log for log in log_calls if "Replacement activated" in log
+            ]
+            assert (
+                len(activation_logs) == 0
+            ), "Activation log should not be emitted when replacement model is same as original"
 
-        log_message = activation_logs[0]
-        assert session_id in log_message, f"Log missing session_id: {log_message}"
-        assert (
-            f"{original_backend}:{original_model}" in log_message
-        ), f"Log missing original pair: {log_message}"
-        assert (
-            replacement_backend_model in log_message
-        ), f"Log missing replacement pair: {log_message}"
-        assert str(turn_count) in log_message, f"Log missing turn count: {log_message}"
+            # Verify state remains inactive
+            state = service.get_state(session_id)
+            assert (
+                not state.active
+            ), "State should not be active when models are the same"
+        else:
+            # When replacement model is different, activation should occur with log
+            activation_logs = [
+                log for log in log_calls if "Replacement activated" in log
+            ]
+            assert len(activation_logs) > 0, "No activation log emitted"
+
+            log_message = activation_logs[0]
+            assert session_id in log_message, f"Log missing session_id: {log_message}"
+            assert (
+                f"{original_backend}:{original_model}" in log_message
+            ), f"Log missing original pair: {log_message}"
+            assert (
+                replacement_backend_model in log_message
+            ), f"Log missing replacement pair: {log_message}"
+            assert (
+                str(turn_count) in log_message
+            ), f"Log missing turn count: {log_message}"
 
     finally:
         original_logger.info = original_info
