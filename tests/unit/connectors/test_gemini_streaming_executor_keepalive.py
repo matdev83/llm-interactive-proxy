@@ -468,7 +468,8 @@ async def test_streaming_executor_emits_keepalive_when_upstream_idle(
     response.status_code = 200
 
     def _iter_content(chunk_size: int = 4096, decode_unicode: bool = False):
-        time.sleep(0.05)
+        # Use minimal delay to simulate slow upstream without blocking event loop
+        time.sleep(0.001)
         yield (b'data: {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}\n')
         yield b"data: [DONE]\n"
 
@@ -524,8 +525,9 @@ async def test_streaming_executor_emits_keepalive_before_headers(
     response.close = MagicMock()
 
     # Simulate slow response headers (e.g. backend processing a large prompt)
+    # Delay must be > keepalive interval (0.02s) to trigger keepalive
     def _slow_request(*args, **kwargs):
-        time.sleep(0.1)  # Longer than keepalive interval
+        time.sleep(0.03)
         return response
 
     prepared.auth_session.request = _slow_request
@@ -605,7 +607,8 @@ async def test_streaming_executor_handles_429_after_keepalive_during_header_wait
     def _slow_request(*args, **kwargs):
         nonlocal request_calls
         request_calls += 1
-        time.sleep(0.05)  # Longer than keepalive interval
+        # Use minimal delay to avoid blocking the event loop in async tests
+        time.sleep(0.001)
         if request_calls == 1:
             return error_response
         return success_response

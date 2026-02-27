@@ -1049,12 +1049,28 @@ class ChatController:
             if getattr(request_data, "stream", False):
                 from fastapi.responses import StreamingResponse
 
-                from src.core.transport.fastapi.adapters.sse.formatter import (
-                    SSEFormatter,
-                )
 
-                async def _error_stream_generator():
-                    yield SSEFormatter().format_chunk(http_exc.detail)
+                async def _error_stream_generator(original_exc=e, final_exc=http_exc):
+                    # We must generate an SSE-compatible JSON payload that matches the format expected by clients
+                    # Since SSEFormatter().format_chunk() can be overly generic or serialize raw dicts unexpectedly,
+                    # we explicitly create a well-formed error chunk similar to what OpenAI would send.
+                    import json
+                    error_type = type(original_exc).__name__ if original_exc is not None else "Error"
+                    import contextlib
+                    with contextlib.suppress(Exception):
+                        error_type = type(final_exc.original_exception).__name__ if hasattr(final_exc, "original_exception") else type(original_exc).__name__
+                    error_payload = {
+                        "error": {
+                            "message": str(final_exc.detail.get("message", final_exc.detail) if isinstance(final_exc.detail, dict) else final_exc.detail),
+                            "type": str(final_exc.detail.get("type", error_type) if isinstance(final_exc.detail, dict) else error_type),
+                        }
+                    }
+                    if isinstance(final_exc.detail, dict) and "code" in final_exc.detail:
+                        if isinstance(error_payload.get("error"), dict):
+                            err_dict_typed = error_payload["error"]
+                            err_dict_typed["code"] = final_exc.detail.get("code")  # type: ignore[index, assignment]
+                    
+                    yield f"data: {json.dumps(error_payload)}\n\n".encode()
                     yield b"data: [DONE]\n\n"
 
                 if logger.isEnabledFor(logging.DEBUG):
@@ -1086,20 +1102,20 @@ class ChatController:
             if getattr(request_data, "stream", False):
                 from fastapi.responses import StreamingResponse
 
-                from src.core.transport.fastapi.adapters.sse.formatter import (
-                    SSEFormatter,
-                )
 
                 error_msg = str(e)
                 error_type = type(e).__name__
 
-                async def _generic_error_stream_generator():
+                async def _generic_error_stream_generator(original_msg=error_msg, original_type=error_type):
+                    import json
                     error_payload = {
-                        "message": error_msg,
-                        "type": error_type,
-                        "status_code": 500,
+                        "error": {
+                            "message": original_msg,
+                            "type": original_type,
+                            "status_code": 500,
+                        }
                     }
-                    yield SSEFormatter().format_chunk(error_payload)
+                    yield f"data: {json.dumps(error_payload)}\n\n".encode()
                     yield b"data: [DONE]\n\n"
 
                 return StreamingResponse(

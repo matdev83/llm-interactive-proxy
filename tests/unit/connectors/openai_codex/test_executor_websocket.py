@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -56,17 +55,16 @@ class TestCodexTransportAdapterWebSocket:
 
             assert isinstance(handle, StreamingResponseHandle)
 
-            # Consume the stream
-            chunks = []
-            async for chunk in handle.iterator:
-                chunks.append(chunk)
+        # Consume the stream
+        chunks = []
+        async for chunk in handle.iterator:
+            chunks.append(chunk)
 
-            # Verify chunks
-            assert len(chunks) == 2
-            chunk1 = json.loads(chunks[0].decode("utf-8"))
-            chunk2 = json.loads(chunks[1].decode("utf-8"))
-            assert chunk1["content"]["message"]["content"] == "Hello"
-            assert chunk2["content"]["message"]["content"] == "World"
+        # Verify chunks
+        assert len(chunks) == 2
+        # Websocket transport adapter yields ProcessedResponse objects directly
+        assert chunks[0].content["message"]["content"] == "Hello"
+        assert chunks[1].content["message"]["content"] == "World"
 
     async def test_initiate_websocket_streaming_no_auth(self) -> None:
         """Test WebSocket streaming fails without authorization header."""

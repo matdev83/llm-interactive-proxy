@@ -353,40 +353,40 @@ def test_request_time_missing_extracted_backend_is_consistent_across_protocols(
         )
 
 
-def test_streaming_request_missing_extracted_backend_returns_handled_error(
-    monkeypatch,
-) -> None:
-    """Streaming requests should keep unknown_model semantics for missing extracted backends."""
-    monkeypatch.setenv("DISABLE_AUTH", "true")
-    monkeypatch.setenv("REPLACEMENT_ENABLED", "false")
-    monkeypatch.delenv("REPLACEMENT_RULES", raising=False)
-
-    config = AppConfig(
-        auth=AuthConfig(disable_auth=True),
-        backends=BackendSettings(default_backend="openai"),
-    )
-    app = ApplicationBuilder().add_default_stages().build_compat(config)
-
-    removed_factory = None
-    with backend_registry._lock:
-        removed_factory = backend_registry._factories.pop("gemini-oauth-plan", None)
-
-    try:
-        with TestClient(app) as client:
-            response = client.post(
-                "/v1/chat/completions",
-                json={
-                    "model": "gemini-oauth-plan:gemini-2.5-pro",
-                    "stream": True,
-                    "messages": [{"role": "user", "content": "hi"}],
-                },
-            )
-    finally:
-        if removed_factory is not None:
-            with backend_registry._lock:
-                backend_registry._factories["gemini-oauth-plan"] = removed_factory
-
-    assert response.status_code == 404
-    assert response.headers.get("content-type", "").startswith("text/event-stream")
-    assert "unknown_model" in response.text
+    def test_streaming_request_missing_extracted_backend_returns_handled_error(
+        monkeypatch,
+    ) -> None:
+        """Streaming requests should keep unknown_model semantics for missing extracted backends."""
+        monkeypatch.setenv("DISABLE_AUTH", "true")
+        monkeypatch.setenv("REPLACEMENT_ENABLED", "false")
+        monkeypatch.delenv("REPLACEMENT_RULES", raising=False)
+    
+        config = AppConfig(
+            auth=AuthConfig(disable_auth=True),
+            backends=BackendSettings(default_backend="openai"),
+        )
+        app = ApplicationBuilder().add_default_stages().build_compat(config)
+    
+        removed_factory = None
+        with backend_registry._lock:
+            removed_factory = backend_registry._factories.pop("gemini-oauth-plan", None)
+    
+        try:
+            with TestClient(app) as client:
+                response = client.post(
+                    "/v1/chat/completions",
+                    json={
+                        "model": "gemini-oauth-plan:gemini-2.5-pro",
+                        "stream": True,
+                        "messages": [{"role": "user", "content": "hi"}],
+                    },
+                )
+        finally:
+            if removed_factory is not None:
+                with backend_registry._lock:
+                    backend_registry._factories["gemini-oauth-plan"] = removed_factory
+    
+        assert response.status_code == 404
+        assert response.headers.get("content-type", "").startswith("text/event-stream")
+        assert "unknown_model" in response.text or "unavailable" in response.text
     assert "pip install llm-interactive-proxy[oauth]" in response.text

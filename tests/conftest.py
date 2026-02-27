@@ -36,6 +36,7 @@ if _TESTMON_DATAFILE_ENV not in os.environ:
     testmon_dir.mkdir(parents=True, exist_ok=True)
     os.environ[_TESTMON_DATAFILE_ENV] = str(testmon_dir / ".testmondata")
 
+
 def _module_is_available(name: str) -> bool:
     """Return True if the optional module can be imported."""
 
@@ -542,6 +543,32 @@ def _close_tracked_test_clients() -> None:
     for client in list(_TEST_CLIENTS):
         with contextlib.suppress(Exception):
             client.close()
+
+
+@pytest.fixture(autouse=True)
+def _clear_backend_cooldown_state() -> Generator[None, None, None]:
+    """Clear global backend cooldown state before and after each test.
+
+    The StreamingExecutor maintains module-level cooldown state that can
+    pollute between tests if not cleared. This fixture ensures a clean slate.
+    """
+    # Clear before test
+    try:
+        from src.connectors.gemini_base import streaming_executor as mod
+
+        mod._model_cooldown_until.clear()
+    except (ImportError, AttributeError):
+        pass
+
+    yield
+
+    # Clear after test
+    try:
+        from src.connectors.gemini_base import streaming_executor as mod
+
+        mod._model_cooldown_until.clear()
+    except (ImportError, AttributeError):
+        pass
 
 
 def pytest_cmdline_main(config) -> None:  # type: ignore[no-untyped-def]
