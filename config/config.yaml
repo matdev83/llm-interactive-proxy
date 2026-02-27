@@ -257,7 +257,14 @@ backends:
 
   qwen_oauth:
     # API key set via environment variables (OAuth flow)
+    # Note: Only qwen3-coder models are available via OAuth free tier
     timeout: 120
+    models:
+      # Official CLI alias for latest Qwen3.5-plus (routes to latest model)
+      - "qwen/coder-model"
+      # Qwen3-Coder series (available via OAuth)
+      - "qwen/qwen3-coder-plus"
+      - "qwen/qwen3-coder-flash"
 
   zai:
     # API key set via ZAI_API_KEY environment variable
