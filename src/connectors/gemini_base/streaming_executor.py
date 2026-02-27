@@ -400,7 +400,7 @@ class StreamingExecutor:
                 if isinstance(creds, dict):
                     rt = creds.get("refresh_token")
                     if rt and isinstance(rt, str):
-                        return f"rt_{hashlib.md5(rt.encode()).hexdigest()[:8]}"
+                        return f"rt_{hashlib.md5(rt.encode(), usedforsecurity=False).hexdigest()[:8]}"
 
             if hasattr(prepared, "auth_session") and hasattr(
                 prepared.auth_session, "credentials"
@@ -408,7 +408,7 @@ class StreamingExecutor:
                 creds = prepared.auth_session.credentials
                 rt = getattr(creds, "refresh_token", None)
                 if rt and isinstance(rt, str):
-                    return f"rt_{hashlib.md5(rt.encode()).hexdigest()[:8]}"
+                    return f"rt_{hashlib.md5(rt.encode(), usedforsecurity=False).hexdigest()[:8]}"
         except Exception:
             pass
 

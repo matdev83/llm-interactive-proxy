@@ -37,7 +37,7 @@ from src.connectors.gemini_base.google_auth_adapter import (
 from src.connectors.gemini_base.thought_signature_service import (
     get_default_thought_signature_service,
 )
-from src.core.common.exceptions import AuthenticationError
+from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat_history_utils import stringify_tool_calls_and_results
 from src.core.utils.usage_recalculation import calculate_outbound_tokens
 
@@ -204,7 +204,8 @@ class ChatRequestPreparer:
             PreparedChatRequest with all necessary data for the API call.
 
         Raises:
-            AuthenticationError: If credentials are invalid or refresh fails.
+            ServiceUnavailableError: If token refresh fails (e.g., all accounts rate-limited).
+            AuthenticationError: If credentials are missing or invalid after refresh.
         """
         log_prefix = "[STREAMING] " if is_streaming else ""
 
@@ -216,13 +217,19 @@ class ChatRequestPreparer:
             session_id=session_id
         )
         if not refresh_result:
-            # Token refresh failed - could be temporary unavailability or permanent auth failure
-            # The connector should have logged details; raise to trigger fallback logic
+            # Token refresh failed - likely all accounts are rate-limited (temporary condition)
+            # Use ServiceUnavailableError (503) instead of AuthenticationError (401) to signal
+            # that this is a temporary backend unavailability, not a permanent auth failure.
+            # This allows proper fallback/retry logic instead of failing the client request.
             backend_name = getattr(self._connector_context, "backend_type", "unknown")
-            raise AuthenticationError(
-                f"OAuth token unavailable for {backend_name} "
-                f"({'streaming' if is_streaming else 'non-streaming'} API call). "
-                f"This may be due to rate limiting, expired tokens, or other auth issues."
+            raise ServiceUnavailableError(
+                message=(
+                    f"OAuth token unavailable for {backend_name} "
+                    f"({'streaming' if is_streaming else 'non-streaming'} API call). "
+                    f"All accounts may be rate-limited."
+                ),
+                backend_name=backend_name,
+                details={"reason": "all_accounts_rate_limited"},
             )
 
         # Increment request counter if available (offload to thread to avoid blocking)
