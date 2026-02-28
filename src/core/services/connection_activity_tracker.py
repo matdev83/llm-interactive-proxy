@@ -97,8 +97,8 @@ class ConnectionActivityTracker(IConnectionActivityTracker):
             # Enforce max connections limit to prevent unbounded growth
             if len(self._connections) >= _MAX_CONNECTIONS:
                 # Evict oldest stale connections first
-                self.cleanup_stale_connections()
-                
+                self._cleanup_stale_connections_locked()
+
                 # If still over limit, evict oldest by started_at
                 if len(self._connections) >= _MAX_CONNECTIONS:
                     oldest_key = min(
@@ -266,25 +266,17 @@ class ConnectionActivityTracker(IConnectionActivityTracker):
             total_bytes_tx=total_tx,
         )
 
-    def cleanup_stale_connections(self) -> int:
-        """Remove connections that have exceeded the stale timeout.
-
-        This can be called periodically to clean up orphaned connections
-        that were not properly closed (e.g., due to crashes).
-
-        Returns:
-            Number of connections removed.
-        """
+    def _cleanup_stale_connections_locked(self) -> int:
+        """Internal method to clean up stale connections when lock is already held."""
         now = time.time()
         stale_keys = []
 
-        with self._lock:
-            for key, conn in self._connections.items():
-                if now - conn.started_at > self._stale_timeout:
-                    stale_keys.append(key)
+        for key, conn in self._connections.items():
+            if now - conn.started_at > self._stale_timeout:
+                stale_keys.append(key)
 
-            for key in stale_keys:
-                del self._connections[key]
+        for key in stale_keys:
+            del self._connections[key]
 
         if stale_keys and logger.isEnabledFor(logging.WARNING):
             logger.warning(
@@ -294,6 +286,18 @@ class ConnectionActivityTracker(IConnectionActivityTracker):
             )
 
         return len(stale_keys)
+
+    def cleanup_stale_connections(self) -> int:
+        """Remove connections that have exceeded the stale timeout.
+
+        This can be called periodically to clean up orphaned connections
+        that were not properly closed (e.g., due to crashes).
+
+        Returns:
+            Number of connections removed.
+        """
+        with self._lock:
+            return self._cleanup_stale_connections_locked()
 
     def get_connection_count(self) -> int:
         """Get the total number of active connections.
