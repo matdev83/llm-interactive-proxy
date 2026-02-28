@@ -383,6 +383,56 @@ class TestConnectionActivityTracker:
             self.tracker.clear()
             assert self.tracker.get_connection_count() == 0
 
+    def test_max_connections_limit_eviction(self) -> None:
+        """Test that tracker enforces maximum connection limits."""
+        import src.core.services.connection_activity_tracker as cat_module
+        
+        # Temporarily lower the max limit for testing
+        original_max = cat_module._MAX_CONNECTIONS
+        cat_module._MAX_CONNECTIONS = 5
+        
+        try:
+            tracker = cat_module.ConnectionActivityTracker()
+            
+            # Add exactly MAX_CONNECTIONS
+            contexts = []
+            for i in range(cat_module._MAX_CONNECTIONS):
+                ctx = tracker.track_connection(
+                    session_id=f"sess-{i}",
+                    backend_name="test-be",
+                    connection_type=ConnectionType.STREAMING,
+                )
+                contexts.append(ctx)
+                ctx.__enter__()
+                # Small sleep to ensure different started_at times
+                time.sleep(0.01)
+                
+            assert tracker.get_connection_count() == 5
+            
+            # Add one more, should evict the oldest
+            with tracker.track_connection(
+                session_id="sess-overflow",
+                backend_name="test-be",
+                connection_type=ConnectionType.STREAMING,
+            ):
+                # The total count should remain at MAX_CONNECTIONS
+                assert tracker.get_connection_count() == 5
+                
+                # Verify 'sess-0' (the first one) was evicted
+                snapshot = tracker.get_backend_snapshot("test-be")
+                sessions = [c.session_id for c in snapshot.connections]
+                assert "sess-0" not in sessions
+                assert "sess-overflow" in sessions
+                
+            # Cleanup
+            for ctx in contexts:
+                try:
+                    ctx.__exit__(None, None, None)
+                except Exception:
+                    pass
+        finally:
+            cat_module._MAX_CONNECTIONS = original_max
+
 
 class TestGlobalTrackerSingleton:
     """Tests for global tracker singleton functions."""

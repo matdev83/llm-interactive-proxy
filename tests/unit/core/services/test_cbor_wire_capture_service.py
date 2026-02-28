@@ -6,6 +6,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 
+import time
 import cbor2
 import pytest
 from src.core.config.app_config import AppConfig
@@ -783,6 +784,59 @@ class TestCborWireCaptureService:
             received.append(chunk)
 
         assert received == [b"chunk1", b"chunk2"]
+
+    @pytest.mark.asyncio
+    async def test_request_timing_ttl_cleanup(self, capture_service, monkeypatch):
+        """Test that stale request timing entries are cleaned up."""
+        import src.core.services.cbor_wire_capture_service as cwcs_module
+        
+        # Override TTL for test
+        monkeypatch.setattr(cwcs_module, "_REQUEST_TIMING_TTL_SECONDS", 0.1)
+        
+        # We need to mock time.time so the cleanup actually sees the time advance
+        # without sleeping, since the cleanup uses time.time() directly.
+        current_time = [1000.0]
+        def mock_time():
+            return current_time[0]
+            
+        monkeypatch.setattr(time, "time", mock_time)
+        monkeypatch.setattr(cwcs_module.time, "time", mock_time)
+        
+        context1 = RequestContext(
+            headers={}, cookies={}, state=None, app_state=None, request_id="req-old"
+        )
+        context2 = RequestContext(
+            headers={}, cookies={}, state=None, app_state=None, request_id="req-new"
+        )
+        
+        # Start first request
+        await capture_service.capture_outbound_request(
+            context=context1,
+            session_id="test",
+            backend="be",
+            model="mod",
+            key_name=None,
+            request_payload=b"test1",
+        )
+        
+        assert "req-old" in capture_service._request_timings
+        
+        # Advance clock past TTL (0.1s)
+        current_time[0] += 0.2
+            
+        # Start second request (triggers cleanup)
+        await capture_service.capture_outbound_request(
+            context=context2,
+            session_id="test",
+            backend="be",
+            model="mod",
+            key_name=None,
+            request_payload=b"test2",
+        )
+        
+        # The old request timing should have been cleaned up
+        assert "req-old" not in capture_service._request_timings
+        assert "req-new" in capture_service._request_timings
 
 
 def _read_cbor_entries(file_path: Path):
