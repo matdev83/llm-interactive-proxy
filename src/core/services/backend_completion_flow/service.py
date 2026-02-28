@@ -182,12 +182,13 @@ class BackendCompletionFlow(IBackendCompletionFlow):
         self._resilience.record_failure(instance_id, effective_model, error)
 
     def _cancellation_tasks_lock_sync_discard(self, task: asyncio.Task[None]) -> None:
-        """Synchronous discard for task done callback - uses thread-unsafe dict access.
+        """Synchronous discard for task done callback.
 
-        This is safe because Python's GIL makes individual dict operations atomic,
-        and done callbacks run one at a time in the event loop.
+        Thread-safe: Uses the cancellation tasks lock to prevent races with
+        cleanup operations and other threads.
         """
-        self._cancellation_tasks.discard(task)
+        with self._cancellation_tasks_lock:
+            self._cancellation_tasks.discard(task)
 
     def _normalize_backend_exception(
         self, exc: Exception, backend_type: str
@@ -979,17 +980,17 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                         and result.cancel_callback is not None
                     ):
 
+                        outer = self
+
                         class StreamingCancellable:
                             """Cancellable wrapper for streaming backend work."""
 
                             def __init__(
                                 self,
                                 cancel_callback: Callable[[], Awaitable[None]],
-                                cancellation_tasks: set[asyncio.Task[None]],
                             ):
                                 self._cancel_callback = cancel_callback
                                 self._cancelled: bool = False
-                                self._cancellation_tasks = cancellation_tasks
 
                             def cancel(self) -> None:
                                 """Cancel streaming backend work."""
@@ -1012,15 +1013,15 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                                             coroutine
                                         )
                                         # Track task to prevent resource leaks
-                                        self._cancellation_tasks.add(task)
+                                        with outer._cancellation_tasks_lock:
+                                            outer._cancellation_tasks.add(task)
                                         # Remove task from set when done to prevent unbounded growth
                                         task.add_done_callback(
-                                            self._cancellation_tasks.discard
+                                            outer._cancellation_tasks_lock_sync_discard
                                         )
 
                         cancellable: ICancellable = StreamingCancellable(
                             result.cancel_callback,
-                            self._cancellation_tasks,
                         )
                         self._cancellation_coordinator.register_cancellable(
                             session_key, cancellable
@@ -1364,7 +1365,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
                     "unknown",
                 ):
                     error_payload["code"] = error_code
-                if isinstance(status_code, int) and "status_code" not in error_payload:
+                if "status_code" not in error_payload:
                     error_payload["status_code"] = status_code
                 metadata["error"] = error_payload
             else:

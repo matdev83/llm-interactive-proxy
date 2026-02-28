@@ -326,6 +326,27 @@ class AppLifecycle:
                     exc_info=True,
                 )
 
+        # Start RedactionCacheEosSubscriber
+        try:
+            from src.core.services.redaction_cache_eos_subscriber import (
+                RedactionCacheEosSubscriber,
+            )
+
+            subscriber = provider.get_service(RedactionCacheEosSubscriber)
+            if subscriber:
+                await subscriber.start()
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info("RedactionCacheEosSubscriber started")
+        except ImportError:
+            pass
+        except Exception as e:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning(
+                    "Failed to start RedactionCacheEosSubscriber: %s",
+                    e,
+                    exc_info=True,
+                )
+
     async def _stop_eos_subscribers(self) -> None:
         """Stop End-of-Session event subscribers.
 
@@ -422,6 +443,20 @@ class AppLifecycle:
             if subscriber:
                 subscribers_to_stop.append(
                     ("ModelReplacementEosSubscriber", subscriber)
+                )
+        except ImportError:
+            pass
+
+        # Collect RedactionCacheEosSubscriber
+        try:
+            from src.core.services.redaction_cache_eos_subscriber import (
+                RedactionCacheEosSubscriber,
+            )
+
+            subscriber = provider.get_service(RedactionCacheEosSubscriber)
+            if subscriber:
+                subscribers_to_stop.append(
+                    ("RedactionCacheEosSubscriber", subscriber)
                 )
         except ImportError:
             pass

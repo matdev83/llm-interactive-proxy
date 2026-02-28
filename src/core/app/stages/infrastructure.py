@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 from typing import TYPE_CHECKING
 
 from src.core.config.app_config import AppConfig
@@ -41,6 +42,7 @@ class InfrastructureStage(InitializationStage):
     def __init__(self) -> None:
         super().__init__()
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
+        self._cleanup_tasks_lock = threading.Lock()
         self._http_client: httpx.AsyncClient | None = None
 
     @property
@@ -128,9 +130,6 @@ class InfrastructureStage(InitializationStage):
                 limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
                 trust_env=False,
             )
-
-        if shared_httpx_client is None:
-            raise RuntimeError("Failed to create shared HTTP client")
 
         self._http_client = shared_httpx_client
 
@@ -248,7 +247,9 @@ class InfrastructureStage(InitializationStage):
             self._http_client = None
             self._schedule_http_client_cleanup(client)
 
-        pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+        with self._cleanup_tasks_lock:
+            pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+
         if pending_tasks:
             try:
                 await asyncio.wait_for(
@@ -272,7 +273,8 @@ class InfrastructureStage(InitializationStage):
                 with contextlib.suppress(Exception):
                     await asyncio.gather(*pending_tasks, return_exceptions=True)
 
-        self._cleanup_tasks.clear()
+        with self._cleanup_tasks_lock:
+            self._cleanup_tasks.clear()
 
     def _schedule_http_client_cleanup(self, client: httpx.AsyncClient) -> None:
         try:
@@ -297,5 +299,11 @@ class InfrastructureStage(InitializationStage):
             return
 
         cleanup_task = loop.create_task(client.aclose())
-        self._cleanup_tasks.add(cleanup_task)
-        cleanup_task.add_done_callback(self._cleanup_tasks.discard)
+        with self._cleanup_tasks_lock:
+            self._cleanup_tasks.add(cleanup_task)
+
+        def _discard(task: asyncio.Task[None]) -> None:
+            with self._cleanup_tasks_lock:
+                self._cleanup_tasks.discard(task)
+
+        cleanup_task.add_done_callback(_discard)

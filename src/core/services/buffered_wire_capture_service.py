@@ -16,6 +16,7 @@ import base64
 import contextlib
 import logging
 import os
+import threading
 import time
 from collections import defaultdict
 from collections.abc import AsyncIterator
@@ -254,6 +255,7 @@ class BufferedWireCapture(IWireCapture):
         self._active_flushes: set[asyncio.Task[Any]] = (
             set()
         )  # Track background flush tasks
+        self._tasks_lock = threading.Lock()
         self._flush_task: asyncio.Task[None] | None = None
         self._last_flush_time: float = time.time()
         self._total_bytes_written: int = 0
@@ -931,6 +933,10 @@ class BufferedWireCapture(IWireCapture):
         else:
             return payload
 
+    def _active_flushes_discard(self, task: asyncio.Task[Any]) -> None:
+        with self._tasks_lock:
+            self._active_flushes.discard(task)
+
     async def _buffer_entry(self, entry: WireCaptureEntry) -> None:
         """Add entry to buffer for eventual flushing.
 
@@ -964,8 +970,9 @@ class BufferedWireCapture(IWireCapture):
             try:
                 loop = asyncio.get_running_loop()
                 task = loop.create_task(self._flush_entries_async(entries_to_flush))
-                self._active_flushes.add(task)
-                task.add_done_callback(self._active_flushes.discard)
+                with self._tasks_lock:
+                    self._active_flushes.add(task)
+                task.add_done_callback(self._active_flushes_discard)
             except RuntimeError:
                 # No loop, do it sync
                 self._write_entries_sync(entries_to_flush)
@@ -1019,8 +1026,13 @@ class BufferedWireCapture(IWireCapture):
             await self._flush_entries_async(entries)
 
         # Wait for all background flushes to complete to ensure file consistency
-        if self._active_flushes:
-            await asyncio.gather(*self._active_flushes, return_exceptions=True)
+        flushes = []
+        with self._tasks_lock:
+            if self._active_flushes:
+                flushes = list(self._active_flushes)
+
+        if flushes:
+            await asyncio.gather(*flushes, return_exceptions=True)
 
     def _write_entries_sync(self, entries: list[WireCaptureEntry]) -> None:
         """Synchronously write entries to file."""

@@ -172,12 +172,9 @@ class BackendFactory(IBackendFactory):
                     normalize_backend_name(name)
                     for name in get_skipped_oauth_connectors()
                 }
-                if (
-                    configured_multi_user
-                    or (
-                        is_running_in_multi_user_mode()
-                        and normalized_backend in skipped_connectors
-                    )
+                if configured_multi_user or (
+                    is_running_in_multi_user_mode()
+                    and normalized_backend in skipped_connectors
                 ):
                     raise _build_multi_user_oauth_block_error(
                         normalized_backend,
@@ -302,11 +299,16 @@ class BackendFactory(IBackendFactory):
 
         if not current_api_key:
             env_key_mapping: dict[str, dict[str, str]] = {
+                "openai": {
+                    "api_key_env": "OPENAI_API_KEY",
+                    "api_base_url_env": "OPENAI_API_BASE_URL",
+                    "default_api_base_url": "https://api.openai.com/v1",
+                },
                 "minimax": {
                     "api_key_env": "MINIMAX_API_KEY",
                     "api_base_url_env": "MINIMAX_API_BASE_URL",
                     "default_api_base_url": "https://api.minimax.io/v1",
-                }
+                },
             }
             env_spec = env_key_mapping.get(connector_type)  # Use connector_type
             if env_spec:

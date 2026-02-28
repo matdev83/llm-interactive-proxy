@@ -335,6 +335,43 @@ class CoreServicesStage(InitializationStage):
         # Register quota status service
         self._register_quota_status_service(services)
 
+        # Register RedactionCache and its EoS subscriber
+        self._register_redaction_cache_services(services)
+
+    def _register_redaction_cache_services(self, services: ServiceCollection) -> None:
+        """Register RedactionCache and its EoS subscriber."""
+        from src.core.interfaces.event_bus_interface import IEventBus
+        from src.core.services.redaction_cache import (
+            RedactionCache,
+            get_global_redaction_cache,
+        )
+        from src.core.services.redaction_cache_eos_subscriber import (
+            RedactionCacheEosSubscriber,
+        )
+
+        services.add_singleton(
+            RedactionCache,
+            implementation_factory=lambda p: get_global_redaction_cache(),
+        )
+
+        def redaction_cache_eos_subscriber_factory(
+            provider: IServiceProvider,
+        ) -> RedactionCacheEosSubscriber:
+            event_bus = cast(
+                IEventBus,
+                provider.get_required_service(cast(type, IEventBus)),
+            )
+            cache = provider.get_required_service(RedactionCache)
+            return RedactionCacheEosSubscriber(event_bus, cache)
+
+        services.add_singleton(
+            RedactionCacheEosSubscriber,
+            implementation_factory=redaction_cache_eos_subscriber_factory,
+        )
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Registered RedactionCache and RedactionCacheEosSubscriber")
+
     def _register_quota_status_service(self, services: ServiceCollection) -> None:
         """Register quota status service for global quota tracking."""
         from src.core.database.repositories.backend_quota_repository import (

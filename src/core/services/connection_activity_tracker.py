@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of connections to track to prevent unbounded memory growth
+_MAX_CONNECTIONS = 10000
+
 
 class ConnectionActivityTracker(IConnectionActivityTracker):
     """Thread-safe tracker for active backend connections.
@@ -91,6 +94,25 @@ class ConnectionActivityTracker(IConnectionActivityTracker):
         )
 
         with self._lock:
+            # Enforce max connections limit to prevent unbounded growth
+            if len(self._connections) >= _MAX_CONNECTIONS:
+                # Evict oldest stale connections first
+                self.cleanup_stale_connections()
+                
+                # If still over limit, evict oldest by started_at
+                if len(self._connections) >= _MAX_CONNECTIONS:
+                    oldest_key = min(
+                        self._connections.items(),
+                        key=lambda item: item[1].started_at,
+                    )[0]
+                    self._connections.pop(oldest_key, None)
+                    if logger.isEnabledFor(logging.WARNING):
+                        logger.warning(
+                            "Evicted oldest connection %s to enforce limit (%d)",
+                            oldest_key,
+                            _MAX_CONNECTIONS,
+                        )
+
             self._connections[key] = activity
 
         if logger.isEnabledFor(logging.DEBUG):

@@ -94,6 +94,11 @@ class _StreamPassthroughWrapper:
         return getattr(self._stream, item)
 
 
+# TTL for request timing entries to prevent memory leaks when errors occur
+# Entries are removed after this time if not cleaned up normally
+_REQUEST_TIMING_TTL_SECONDS = 300.0  # 5 minutes
+
+
 class CborWireCaptureService(IWireCapture):
     """Byte-precise wire capture service using CBOR format.
 
@@ -132,7 +137,7 @@ class CborWireCaptureService(IWireCapture):
 
         # Buffer for entries to write
         self._buffer: list[CaptureEntry] = []
-        self._buffer_lock = asyncio.Lock()
+        self._buffer_lock = threading.Lock()
         # CRITICAL: writes must be serialized across executor threads to avoid
         # corrupting the CBOR stream (concurrent append interleaves objects).
         self._write_lock = threading.Lock()
@@ -263,6 +268,26 @@ class CborWireCaptureService(IWireCapture):
             seq = self._sequence_counter
             self._sequence_counter += 1
             return seq
+
+    def _cleanup_stale_request_timings_locked(self) -> None:
+        """Remove stale request timing entries to prevent memory leaks.
+
+        Must be called with _timing_lock held.
+        Entries that haven't been cleaned up within TTL are removed.
+        """
+        now = time.time()
+        stale_ids = [
+            req_id
+            for req_id, timing in self._request_timings.items()
+            if now - timing.request_ts > _REQUEST_TIMING_TTL_SECONDS
+        ]
+        for req_id in stale_ids:
+            self._request_timings.pop(req_id, None)
+        if stale_ids and logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Cleaned up %d stale request timing entries",
+                len(stale_ids),
+            )
 
     def _maybe_start_flush_task(self) -> None:
         """Start background flush task if not running."""
@@ -587,6 +612,8 @@ class CborWireCaptureService(IWireCapture):
 
         if metadata.request_id:
             async with self._timing_lock:
+                # Cleanup stale entries to prevent memory leaks on error paths
+                self._cleanup_stale_request_timings_locked()
                 self._request_timings[metadata.request_id] = _RequestTimingState(
                     _get_timestamp()
                 )
@@ -1050,7 +1077,7 @@ class CborWireCaptureService(IWireCapture):
         Does not block the caller for flushing unless explicitly requested
         via force_flush_sync().
         """
-        async with self._buffer_lock:
+        with self._buffer_lock:
             self._buffer.append(entry)
 
             # Flush if buffer is full
@@ -1076,7 +1103,7 @@ class CborWireCaptureService(IWireCapture):
             return
 
         entries_to_write: list[CaptureEntry] = []
-        async with self._buffer_lock:
+        with self._buffer_lock:
             if not self._buffer:
                 return
             # Take snapshot and clear buffer
@@ -1170,12 +1197,16 @@ class CborWireCaptureService(IWireCapture):
         self._enabled = False
 
         # Cancel background task
+        task_to_wait: asyncio.Task[None] | None = None
         with self._flush_start_lock:
             if self._flush_task and not self._flush_task.done():
-                self._flush_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
-                    await asyncio.wait_for(self._flush_task, timeout=2.0)
+                task_to_wait = self._flush_task
                 self._flush_task = None
+
+        if task_to_wait:
+            task_to_wait.cancel()
+            with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                await asyncio.wait_for(task_to_wait, timeout=2.0)
 
         # Final flush
         if self._buffer:
@@ -1194,8 +1225,11 @@ class CborWireCaptureService(IWireCapture):
 
     def force_flush_sync(self) -> None:
         """Synchronous flush for testing or cleanup."""
-        if not self._buffer or not self._file_path:
+        if not self._file_path:
             return
-        entries = self._buffer.copy()
-        self._buffer.clear()
+        with self._buffer_lock:
+            if not self._buffer:
+                return
+            entries = self._buffer.copy()
+            self._buffer.clear()
         self._write_entries_sync(entries)

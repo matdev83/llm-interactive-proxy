@@ -211,14 +211,14 @@ class TestAuthErrorHandler:
         assert handler.can_handle(MockError()) is True
 
     def test_can_handle_http_403(self) -> None:
-        """Should handle errors with status_code 403."""
+        """Should NOT treat generic 403 as authentication failure."""
         manager = RateLimitStateManager()
         handler = AuthErrorHandler(manager)
 
         class MockError(Exception):
             status_code = 403
 
-        assert handler.can_handle(MockError()) is True
+        assert handler.can_handle(MockError()) is False
 
     def test_cannot_handle_other_errors(self) -> None:
         """Should not handle non-auth errors."""
@@ -261,7 +261,7 @@ class TestAuthErrorHandler:
         assert manager.get_instance_status("backend.1") == InstanceStatus.ACTIVE
 
     def test_disables_scoped_personal_backend(self) -> None:
-        """Should disable scoped instances for personal OAuth backends."""
+        """Should not disable scoped instances for personal OAuth backends."""
         manager = RateLimitStateManager()
         handler = AuthErrorHandler(manager)
 
@@ -276,11 +276,10 @@ class TestAuthErrorHandler:
 
         action = handler.handle(context)
 
-        assert action.type == ActionType.DISABLE_INSTANCE
-        assert action.permanent is True
+        assert action.type == ActionType.PROCEED
         assert (
             manager.get_instance_status("backend.1:session-123")
-            == InstanceStatus.DISABLED
+            == InstanceStatus.ACTIVE
         )
 
     def test_skips_disable_for_oauth_auto_backend(self) -> None:

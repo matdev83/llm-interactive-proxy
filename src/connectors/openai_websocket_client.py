@@ -17,17 +17,6 @@ from typing import Any
 import websockets  # type: ignore[import-untyped]
 from websockets.exceptions import WebSocketException  # type: ignore[import-untyped]
 
-try:
-    from websockets.client import (
-        ClientProtocol,
-        WebSocketClientProtocol,  # type: ignore[import-untyped,attr-defined,no-redef]
-    )
-except (ImportError, AttributeError):
-    try:
-        from websockets.client import ClientProtocol as WebSocketClientProtocol  # type: ignore[import-untyped,attr-defined,no-redef]
-    except (ImportError, AttributeError):
-        WebSocketClientProtocol = None  # type: ignore[misc,assignment,no-redef]
-
 from src.core.common.exceptions import (
     AuthenticationError,
     InvalidRequestError,

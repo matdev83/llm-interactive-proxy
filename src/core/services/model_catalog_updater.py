@@ -54,6 +54,11 @@ class ModelCatalogUpdater:
         with suppress(asyncio.CancelledError):
             await self._task
         self._task = None
+
+        # Close HTTP client if we own it
+        if self._http_client is not None:
+            await self._http_client.aclose()
+
         logger.info("Model catalog updater stopped.")
 
     async def _update_loop(self) -> None:

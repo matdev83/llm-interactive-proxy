@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Protocol
@@ -118,7 +119,7 @@ class AsyncUsageWriteQueue:
         # In-memory cache for pending records (fast lookups before persistence)
         # Dict maintains insertion order (Python 3.7+) for FIFO eviction
         self._pending_records: dict[str, UsageRecord] = {}
-        self._pending_lock = asyncio.Lock()
+        self._pending_lock = threading.Lock()
 
         # Background task control
         self._background_task: asyncio.Task | None = None
@@ -204,8 +205,9 @@ class AsyncUsageWriteQueue:
             self._insert_queue.put_nowait(record)
             # Add to pending cache for fast lookups (sync since we're in non-async context)
             # Enforce size limit to prevent unbounded memory growth
-            self._enforce_pending_records_limit()
-            self._pending_records[record.id] = record
+            with self._pending_lock:
+                self._enforce_pending_records_limit()
+                self._pending_records[record.id] = record
             return True
         except asyncio.QueueFull:
             if logger.isEnabledFor(logging.WARNING):
@@ -230,8 +232,9 @@ class AsyncUsageWriteQueue:
             self._update_queue.put_nowait(record)
             # Update pending cache (sync since we're in non-async context)
             # Enforce size limit to prevent unbounded memory growth
-            self._enforce_pending_records_limit()
-            self._pending_records[record.id] = record
+            with self._pending_lock:
+                self._enforce_pending_records_limit()
+                self._pending_records[record.id] = record
             return True
         except asyncio.QueueFull:
             if logger.isEnabledFor(logging.WARNING):
@@ -254,12 +257,12 @@ class AsyncUsageWriteQueue:
         Returns:
             UsageRecord if found in pending cache, None otherwise
         """
-        async with self._pending_lock:
+        with self._pending_lock:
             return self._pending_records.get(record_id)
 
     async def _add_to_pending(self, record: UsageRecord) -> None:
         """Add a record to the pending cache."""
-        async with self._pending_lock:
+        with self._pending_lock:
             self._pending_records[record.id] = record
 
     def _enforce_pending_records_limit(self) -> None:
@@ -282,7 +285,7 @@ class AsyncUsageWriteQueue:
 
     async def _remove_from_pending(self, record_ids: list[str]) -> None:
         """Remove records from the pending cache."""
-        async with self._pending_lock:
+        with self._pending_lock:
             for record_id in record_ids:
                 self._pending_records.pop(record_id, None)
 

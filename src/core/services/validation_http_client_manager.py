@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 from typing import TYPE_CHECKING
 
 import httpx
@@ -36,6 +37,7 @@ class ValidationHttpClientManager:
         # Use regular set instead of WeakSet to prevent premature garbage collection
         # before tasks complete, which could lead to HTTP client leaks
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
+        self._cleanup_tasks_lock = threading.Lock()
 
     def get_or_create_client(self) -> httpx.AsyncClient:
         """Get or create a managed HTTP client instance.
@@ -108,7 +110,8 @@ class ValidationHttpClientManager:
                     if loop.is_running():
                         # Schedule cleanup task and track it to prevent resource leaks
                         cleanup_task = asyncio.create_task(client.aclose())
-                        self._cleanup_tasks.add(cleanup_task)
+                        with self._cleanup_tasks_lock:
+                            self._cleanup_tasks.add(cleanup_task)
                         if logger.isEnabledFor(logging.DEBUG):
                             logger.debug(
                                 "Scheduled cleanup task for client created but not assigned"
@@ -156,7 +159,9 @@ class ValidationHttpClientManager:
 
         # Wait for any pending cleanup tasks to complete
         # Ensure all tasks are properly awaited/cancelled even if cleanup fails
-        pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+        with self._cleanup_tasks_lock:
+            pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+
         if pending_tasks:
             try:
                 await asyncio.wait_for(
@@ -201,7 +206,8 @@ class ValidationHttpClientManager:
 
         # Clear the cleanup tasks set to prevent memory leaks
         # This ensures task references don't prevent garbage collection
-        self._cleanup_tasks.clear()
+        with self._cleanup_tasks_lock:
+            self._cleanup_tasks.clear()
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Cleared cleanup task references")
 

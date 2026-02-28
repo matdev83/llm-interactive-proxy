@@ -460,6 +460,37 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         key_name: str | None = None,
     ) -> StreamingResponseEnvelope:
         """Handle streaming response with session ID injection and phase updates."""
+        # If the connector returns an error envelope for a streaming request
+        # (status_code>=400), there is no stream lifecycle to observe.
+        # Record a failure for resilience/cooldown purposes and return as-is.
+        status_code = getattr(result, "status_code", 200)
+        if isinstance(status_code, int) and status_code >= 400 and self._resilience:
+            from src.core.common.exceptions import BackendError
+
+            instance_id = build_resilience_instance_id(backend_type, context)
+            # Best-effort: preserve upstream error info if available.
+            message = f"Backend returned {status_code} error"
+            details: dict[str, Any] = {}
+            meta = getattr(result, "metadata", None)
+            if isinstance(meta, dict):
+                err_message = meta.get("error_message")
+                if isinstance(err_message, str) and err_message.strip():
+                    message = err_message
+                err_details = meta.get("error_details")
+                if isinstance(err_details, dict):
+                    details = err_details
+
+            self._resilience.record_failure(
+                instance_id,
+                effective_model,
+                BackendError(
+                    message=message,
+                    status_code=status_code,
+                    details=details,
+                ),
+            )
+            return result
+
         # Get session_id from context for stream correlation
         session_id = getattr(context, "session_id", None)
         session_id = self._stream_session_id_resolver.resolve_stream_session_id(
@@ -472,6 +503,10 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
         # Wrap with session_id injection and canonical usage tracking
         original_content = result.content
         b2bua_usage_metadata = self._extract_b2bua_usage_metadata(context)
+
+        resilience_instance_id: str | None = None
+        if self._resilience:
+            resilience_instance_id = build_resilience_instance_id(backend_type, context)
 
         async def _inject_session_id_and_track_usage() -> Any:
             from src.core.domain.usage_canonical_record import (
@@ -488,6 +523,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             accumulated_usage = None
             completion_outcome: UsageCompletionOutcome | None = None
             error_classification: str | None = None
+            stream_error: Exception | None = None
 
             try:
                 if original_content:
@@ -536,8 +572,13 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                             usage=_to_usage_summary(chunk.usage),
                         )
 
-                # Stream completed successfully
-                completion_outcome = UsageCompletionOutcome.complete
+                # Stream completed. If we observed an explicit error chunk, treat the
+                # completion as incomplete for resilience/usage classification.
+                completion_outcome = (
+                    UsageCompletionOutcome.complete
+                    if error_classification is None
+                    else UsageCompletionOutcome.incomplete
+                )
             except GeneratorExit:
                 # Client disconnected - this is expected
                 completion_outcome = UsageCompletionOutcome.incomplete
@@ -550,6 +591,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
             except Exception as e:
                 # Stream error occurred
                 completion_outcome = UsageCompletionOutcome.incomplete
+                stream_error = e
                 # Classify error (only if not already classified from metadata)
                 if error_classification is None:
                     from src.core.common.exceptions import (
@@ -611,20 +653,17 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         if self._wire_capture_orchestrator is not None:
                             # Use create_task to avoid blocking the stream cleanup/closing for wire capture I/O
                             try:
-                                capture_metadata: dict[str, JsonValue] | None = None
-                                if context is not None:
-                                    capture_metadata = {}
-                                    for key in (
-                                        "account_id",
-                                        "retry_attempt",
-                                        "is_retry",
-                                    ):
-                                        if key in context.extensions:
-                                            capture_metadata[key] = context.extensions[
-                                                key
-                                            ]
-                                    if not capture_metadata:
-                                        capture_metadata = None
+                                capture_metadata: dict[str, JsonValue] = {}
+                                for key in (
+                                    "account_id",
+                                    "retry_attempt",
+                                    "is_retry",
+                                ):
+                                    if key in context.extensions:
+                                        capture_metadata[key] = context.extensions[key]
+                                capture_metadata_opt: dict[str, JsonValue] | None = (
+                                    capture_metadata or None
+                                )
 
                                 loop = asyncio.get_running_loop()
                                 capture_task = loop.create_task(
@@ -635,7 +674,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                                         effective_model=effective_model,
                                         key_name=key_name,
                                         canonical_usage=canonical_usage,
-                                        capture_metadata=capture_metadata,
+                                        capture_metadata=capture_metadata_opt,
                                     )
                                 )
                                 # Ensure task is not garbage collected and handle potential exceptions
@@ -653,15 +692,41 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                             exc_info=True,
                         )
 
+                # Record resilience outcome AFTER stream completion.
+                # Streaming failures can happen after the backend call returns.
+                if self._resilience and resilience_instance_id:
+                    if completion_outcome == UsageCompletionOutcome.complete:
+                        self._resilience.record_success(
+                            resilience_instance_id, effective_model
+                        )
+                    else:
+                        # Do not penalize the backend for client disconnect.
+                        if stream_error is None and error_classification is None:
+                            # No explicit error observed; treat as neutral.
+                            return
+
+                        if stream_error is None:
+                            from src.core.common.exceptions import BackendError
+
+                            stream_error = BackendError(
+                                message=(
+                                    "Streaming terminated with error chunk"
+                                    if error_classification
+                                    else "Streaming terminated incompletely"
+                                ),
+                                backend_name=backend_type,
+                            )
+
+                        self._resilience.record_failure(
+                            resilience_instance_id,
+                            effective_model,
+                            stream_error,
+                        )
+
             if session_id and self._planning_phase_manager:
                 await self._planning_phase_manager.update_counters(
                     session_id, ProcessedResponse(content="", metadata={})
                 )
-
-        # Record success for streaming response
-        if self._resilience:
-            instance_id = build_resilience_instance_id(backend_type, context)
-            self._resilience.record_success(instance_id, effective_model)
 
         # Modify the original result envelope's content and return it
         # This ensures canonical_usage set in the finally block is on the returned envelope

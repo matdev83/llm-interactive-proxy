@@ -408,6 +408,7 @@ class ServiceCollection(IServiceCollection):
         # Use regular set instead of WeakSet to prevent premature GC before tasks complete
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
         self._cleanup_lock = asyncio.Lock()
+        self._cleanup_tasks_lock = threading.Lock()
         self._disposed = False
         self._logger = logging.getLogger("llm.di")
 
@@ -528,10 +529,19 @@ class ServiceCollection(IServiceCollection):
             return
 
         cleanup_task = loop.create_task(client.aclose())
-        self._cleanup_tasks.add(cleanup_task)
+        # Track task with thread-safe lock to prevent races with dispose()
+        # and other concurrent additions/removals.
+        # Note: We use a simple threading.Lock for set operations to be safe
+        # across threads and during iteration.
+        if not hasattr(self, "_cleanup_tasks_lock"):
+            self._cleanup_tasks_lock = threading.Lock()
+
+        with self._cleanup_tasks_lock:
+            self._cleanup_tasks.add(cleanup_task)
 
         def _finalize(task: asyncio.Task[None]) -> None:
-            self._cleanup_tasks.discard(task)
+            with self._cleanup_tasks_lock:
+                self._cleanup_tasks.discard(task)
             with contextlib.suppress(asyncio.CancelledError):
                 task.exception()
 
@@ -587,7 +597,9 @@ class ServiceCollection(IServiceCollection):
 
         # Await all pending cleanup tasks to prevent resource leaks
         async with self._cleanup_lock:
-            pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+            with self._cleanup_tasks_lock:
+                pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+
             if pending_tasks:
                 try:
                     await asyncio.wait_for(
@@ -611,7 +623,8 @@ class ServiceCollection(IServiceCollection):
                         await asyncio.gather(*pending_tasks, return_exceptions=True)
 
             # Clear the cleanup tasks set to prevent memory leaks
-            self._cleanup_tasks.clear()
+            with self._cleanup_tasks_lock:
+                self._cleanup_tasks.clear()
 
     def register_app_services(self) -> None:
         """Register all application services via registrar orchestration.

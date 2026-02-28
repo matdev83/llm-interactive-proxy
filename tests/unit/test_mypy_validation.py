@@ -22,16 +22,34 @@ pytestmark = pytest.mark.xdist_group("mypy_validation")
 def _calculate_directory_hash(directory: Path) -> str:
     """Calculate a hash of all Python files in directory for cache invalidation.
 
-    Optimized to use directory-level modification time for faster hashing.
+    NOTE: Do NOT rely on directory mtime alone.
+
+    On Windows, updating files inside a directory does not reliably update the
+    directory's own mtime. That can lead to stale cached results and false
+    failures/passes in CI and local runs.
+
+    This hash uses (path, size, mtime_ns) for all .py files under the directory.
+    It's still cheap compared to running mypy itself, and it invalidates
+    correctly when code changes.
     """
     hasher = hashlib.md5()
 
-    # Use directory mtime as fast approximation
     try:
-        dir_stat = directory.stat()
-        hasher.update(f"{directory}:{dir_stat.st_mtime}".encode())
+        for path in sorted(directory.rglob("*.py")):
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+
+            rel = str(path.relative_to(directory)).replace("\\", "/")
+            hasher.update(rel.encode("utf-8"))
+            hasher.update(str(st.st_size).encode("ascii"))
+            hasher.update(
+                str(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))).encode("ascii")
+            )
     except OSError:
-        pass
+        # If traversal fails, fall back to the directory path.
+        hasher.update(str(directory).encode("utf-8"))
 
     return hasher.hexdigest()
 

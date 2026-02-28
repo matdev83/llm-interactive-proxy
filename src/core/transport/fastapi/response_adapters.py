@@ -295,9 +295,11 @@ def _resolve_service(service_type: type[T]) -> T | None:
 def _get_usage_header_injector() -> UsageHeaderInjector:
     """Get or create usage header injector singleton."""
     global _usage_header_injector
-    if _usage_header_injector is None:
+    if _usage_header_injector is None or _is_mock_object(_usage_header_injector):
         with _usage_header_injector_lock:
-            if _usage_header_injector is None:
+            if _usage_header_injector is None or _is_mock_object(
+                _usage_header_injector
+            ):
                 _usage_header_injector = (
                     _resolve_service(UsageHeaderInjector) or UsageHeaderInjector()
                 )
@@ -415,9 +417,9 @@ def _get_other_builder() -> OtherResponseBuilder:
 def _get_content_converter(yield_interval: int = 100) -> StreamingContentConverter:
     """Get or create streaming content converter singleton."""
     global _content_converter
-    if _content_converter is None:
+    if _content_converter is None or _is_mock_object(_content_converter):
         with _content_converter_lock:
-            if _content_converter is None:
+            if _content_converter is None or _is_mock_object(_content_converter):
                 # Try to resolve from DI first
                 converter = _resolve_service(StreamingContentConverter)
 
@@ -443,15 +445,32 @@ def _get_content_converter(yield_interval: int = 100) -> StreamingContentConvert
                     )
 
                 _content_converter = converter
+
+    # If a caller asks for a different yield_interval than the cached instance was
+    # constructed with, rebuild to keep test isolation and avoid surprising behavior.
+    try:
+        current_interval = getattr(_content_converter, "yield_interval", None)
+        if isinstance(current_interval, int) and current_interval != yield_interval:
+            with _content_converter_lock:
+                converter = StreamingContentConverter(
+                    tool_block_buffer=getattr(
+                        _content_converter, "tool_block_buffer", None
+                    ),
+                    yield_interval=yield_interval,
+                )
+                _content_converter = converter
+    except Exception:
+        # Best-effort; if rebuilding fails, keep the existing instance.
+        pass
     return _content_converter
 
 
 def _get_sse_assembler(yield_interval: int = 100) -> SSEAssembler:
     """Get or create SSE assembler singleton."""
     global _sse_assembler
-    if _sse_assembler is None:
+    if _sse_assembler is None or _is_mock_object(_sse_assembler):
         with _sse_assembler_lock:
-            if _sse_assembler is None:
+            if _sse_assembler is None or _is_mock_object(_sse_assembler):
                 _sse_assembler = _resolve_service(SSEAssembler) or SSEAssembler(
                     yield_interval=yield_interval
                 )

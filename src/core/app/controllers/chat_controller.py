@@ -1046,14 +1046,18 @@ class ChatController:
             # Map domain exceptions to HTTP exceptions
             http_exc = map_domain_exception_to_http_exception(e, request=request)
 
-            # For streaming requests, return error as SSE if requested by client (Requirement 1.9 compatibility)
-            if getattr(request_data, "stream", False):
+            # For streaming requests, prefer a standard JSON error response.
+            # Many OpenAI SDKs treat non-2xx streaming responses as regular JSON errors.
+            # Returning an SSE payload for errors can leave some clients waiting.
+            #
+            # If a client explicitly wants SSE-formatted errors, it can opt in via
+            # `x-llmproxy-error-format: sse`.
+            if getattr(request_data, "stream", False) and (
+                (request.headers.get("x-llmproxy-error-format") or "").lower() == "sse"
+            ):
                 from fastapi.responses import StreamingResponse
 
                 async def _error_stream_generator(original_exc=e, final_exc=http_exc):
-                    # We must generate an SSE-compatible JSON payload that matches the format expected by clients
-                    # Since SSEFormatter().format_chunk() can be overly generic or serialize raw dicts unexpectedly,
-                    # we explicitly create a well-formed error chunk similar to what OpenAI would send.
                     error_type = type(original_exc).__name__
                     with contextlib.suppress(Exception):
                         orig_exc = getattr(final_exc, "original_exception", None)
@@ -1081,22 +1085,13 @@ class ChatController:
                         error_dict["code"] = final_exc.detail.get("code")
 
                     error_payload = {"error": error_dict}
-
-                    # For errors, emit a single SSE error event and DO NOT emit [DONE].
-                    # Some clients treat [DONE] as a successful completion marker and will
-                    # surface the error payload as a normal message (misleading).
                     yield f"data: {json.dumps(error_payload)}\n\n".encode()
-
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        f"Returning streaming error response: {type(e).__name__} (status {http_exc.status_code}): {e.message if hasattr(e, 'message') else str(e)}"
-                    )
 
                 return StreamingResponse(
                     _error_stream_generator(),
                     status_code=http_exc.status_code,
                     media_type="text/event-stream",
-                    headers=getattr(http_exc, "headers", None),
+                    headers=getattr(http_exc, "headers", None) or {},
                 )
 
             raise http_exc

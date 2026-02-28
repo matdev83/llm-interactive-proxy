@@ -134,7 +134,7 @@ async def test_prepare_uses_higher_fallback_prompt_estimate() -> None:
     request_data.session_id = "test-session"
 
     with patch(
-        "src.connectors.gemini_base.chat_request_preparer.calculate_outbound_tokens",
+        "src.core.utils.usage_recalculation.calculate_outbound_tokens",
         return_value=4321,
     ):
         prepared = await preparer.prepare(request_data, "gemini-2.5-flash")

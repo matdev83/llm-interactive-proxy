@@ -39,7 +39,6 @@ from src.connectors.gemini_base.thought_signature_service import (
 )
 from src.core.common.exceptions import AuthenticationError, ServiceUnavailableError
 from src.core.domain.chat_history_utils import stringify_tool_calls_and_results
-from src.core.utils.usage_recalculation import calculate_outbound_tokens
 
 if TYPE_CHECKING:
     from src.core.services.translation_service import TranslationService
@@ -467,7 +466,11 @@ class ChatRequestPreparer:
         )
         # Safety net: in some tool-heavy sessions, Code Assist-part serialization can
         # undercount relative to the canonical outbound request shape.
-        fallback_prompt_tokens_estimate = calculate_outbound_tokens(
+        from src.core.utils.usage_recalculation import (
+            calculate_outbound_tokens as _calculate_outbound_tokens,
+        )
+
+        fallback_prompt_tokens_estimate = _calculate_outbound_tokens(
             request_data,
             model=effective_model,
             label="prompt_estimation_fallback",

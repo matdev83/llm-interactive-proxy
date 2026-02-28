@@ -275,7 +275,13 @@ class TestUsageAccountingOrchestrator:
         stream_session_id_resolver,
     ):
         # Arrange
-        response = StreamingResponseEnvelope(content=Mock())
+        from src.core.interfaces.response_processor_interface import ProcessedResponse
+
+        async def _ok_stream():
+            # Minimal well-formed chunk to exercise the wrapper.
+            yield ProcessedResponse(content=b"data: {}\n\n", metadata={})
+
+        response = StreamingResponseEnvelope(content=_ok_stream())
         stream_session_id_resolver.resolve_stream_session_id.return_value = "sess_1"
         context = None
 
@@ -291,10 +297,13 @@ class TestUsageAccountingOrchestrator:
 
         # Assert
         assert isinstance(result, StreamingResponseEnvelope)
+
+        # Success is recorded when the stream completes.
+        assert result.content is not None
+        async for _ in result.content:
+            pass
+
         resilience_coordinator.record_success.assert_called_with("openai", "gpt-4")
-        # Session ID injection wrapper is applied?
-        # The wrapper is internal to the method, hard to test without consuming stream.
-        # But we can check side effects.
 
     @pytest.mark.asyncio
     async def test_handle_non_streaming_response_success(

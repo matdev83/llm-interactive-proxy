@@ -4,7 +4,6 @@ This test verifies that DatabaseEngine.dispose() is properly called by the
 DI container during shutdown, preventing connection termination errors.
 """
 
-import pytest
 from src.core.database.config import DatabaseConfig
 from src.core.database.engine import DatabaseEngine
 from src.core.di.container import ServiceCollection

@@ -104,6 +104,17 @@ class EndpointRegistry:
             url = self._backend_to_url.pop(backend_name, None)
             if url:
                 self._url_to_backends[url].discard(backend_name)
+                if not self._url_to_backends[url]:
+                    # No more backends using this URL
+                    del self._url_to_backends[url]
+                    # Clean up health state to prevent memory leak
+                    self._health_states.pop(url, None)
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Cleaned up health state for URL %s (no backends remaining)",
+                            url,
+                        )
+
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "Backend %s unregistered from URL %s",

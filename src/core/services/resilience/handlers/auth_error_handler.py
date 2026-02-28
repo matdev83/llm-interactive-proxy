@@ -1,7 +1,7 @@
 """
 Authentication error handler for the resilience layer.
 
-Handles 401/403 errors by permanently disabling the backend instance
+Handles authentication errors by permanently disabling the backend instance
 until it is manually reactivated.
 """
 
@@ -23,8 +23,16 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# HTTP status codes indicating authentication/authorization failures
-AUTH_STATUS_CODES = frozenset([401, 403])
+# HTTP status codes indicating authentication failures.
+#
+# IMPORTANT: Do not treat generic 403 responses as authentication failures.
+# Many providers use 403 for policy blocks, temporary account restrictions,
+# or quota-related denial. Permanently disabling an instance on 403 can turn a
+# transient/semantic failure into persistent RoutingError 503s for clients.
+#
+# If a connector wants a 403 to be treated as auth, it should raise
+# AuthenticationError explicitly.
+AUTH_STATUS_CODES = frozenset([401])
 
 
 class AuthErrorHandler(BaseErrorHandler):
@@ -59,12 +67,12 @@ class AuthErrorHandler(BaseErrorHandler):
         if "To continue, validate" in error_msg:
             return True
 
-        # Check for HTTP 401/403 status code
+        # Check for HTTP 401 status code
         status_code = getattr(error, "status_code", None)
         if status_code in AUTH_STATUS_CODES:
             return True
 
-        # Check for httpx/requests response with 401/403
+        # Check for httpx/requests response with 401
         response = getattr(error, "response", None)
         if response is not None:
             resp_status = getattr(response, "status_code", None)
@@ -88,13 +96,15 @@ class AuthErrorHandler(BaseErrorHandler):
                 type=ActionType.PROCEED,
                 reason="OAuth auto backends manage auth failures per account",
             )
-        if (
-            context.extra.get("is_personal_backend") is True
-            and ":" not in context.instance_id
-        ):
+
+        # Personal backends (typically OAuth) are scoped per user/session.
+        # A 401 can be transient (expired token) and the connector can refresh.
+        # Permanently disabling even a scoped instance turns auth blips into
+        # persistent RoutingError 503s for that user.
+        if context.extra.get("is_personal_backend") is True or "oauth" in backend_type:
             return ResilienceAction(
                 type=ActionType.PROCEED,
-                reason="Auth errors for personal OAuth backends are not globally disabled",
+                reason="Auth errors for personal/OAuth backends are not permanently disabled",
             )
 
         # Build a descriptive reason

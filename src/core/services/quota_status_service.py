@@ -24,6 +24,11 @@ class QuotaStatusService:
         self._lock = threading.Lock()
         self._repository = repository
         self._pending_tasks: set[asyncio.Task[Any]] = set()
+        self._tasks_lock = threading.Lock()
+
+    def _pending_tasks_discard(self, task: asyncio.Task[Any]) -> None:
+        with self._tasks_lock:
+            self._pending_tasks.discard(task)
 
     def set_repository(self, repository: Any) -> None:
         """Set the repository for persistent storage and load existing quotas.
@@ -42,8 +47,9 @@ class QuotaStatusService:
                 # We need to load quotas but we are in a sync method
                 # Spawn a task to load them
                 task = loop.create_task(self._load_quotas())
-                self._pending_tasks.add(task)
-                task.add_done_callback(self._pending_tasks.discard)
+                with self._tasks_lock:
+                    self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks_discard)
         except RuntimeError:
             pass
 
@@ -115,8 +121,9 @@ class QuotaStatusService:
                         task = loop.create_task(
                             self._repository.upsert_quota(backend_type, current_quota)
                         )
-                        self._pending_tasks.add(task)
-                        task.add_done_callback(self._pending_tasks.discard)
+                        with self._tasks_lock:
+                            self._pending_tasks.add(task)
+                        task.add_done_callback(self._pending_tasks_discard)
                 except RuntimeError:
                     # No running loop, skip persistent update
                     pass

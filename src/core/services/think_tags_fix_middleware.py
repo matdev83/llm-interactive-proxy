@@ -8,6 +8,7 @@ This middleware detects and corrects such improperly marked reasoning streams.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -68,6 +69,7 @@ class ThinkTagsFixFeature(IResponseFeature):
         self._streaming_buffer_size = streaming_buffer_size
         self._per_model_config: dict[str, dict[str, Any]] = per_model_config or {}
         self._logger = logging.getLogger(__name__)
+        self._lock = asyncio.Lock()
         self._reasoning_ttl_seconds = reasoning_ttl_seconds
         self._max_reasoning_entries = max_reasoning_entries
 
@@ -382,7 +384,8 @@ class ThinkTagsFixFeature(IResponseFeature):
         context: dict[str, Any],
     ) -> Any:
         """Process non-streaming response for think tags."""
-        return self._process_response(response, session_id, context, is_streaming=False)
+        async with self._lock:
+            return self._process_response(response, session_id, context, is_streaming=False)
 
     async def process_streaming(
         self,
@@ -391,19 +394,21 @@ class ThinkTagsFixFeature(IResponseFeature):
         context: dict[str, Any],
     ) -> Any:
         """Process streaming chunk for think tags."""
-        return self._process_response(chunk, session_id, context, is_streaming=True)
+        async with self._lock:
+            return self._process_response(chunk, session_id, context, is_streaming=True)
 
-    def reset_session(self, session_id: str) -> None:
-        """Reset session-specific state."""
-        alias = self._session_aliases.pop(session_id, None)
-        if alias:
-            session_id = alias
-        self._streaming_buffers.pop(session_id, None)
-        self._stream_states.pop(session_id, None)
-        self._reasoning_extracted.pop(session_id, None)
+    async def reset_session(self, session_id: str) -> None:
+        """Reset streaming state for a session."""
+        async with self._lock:
+            alias = self._session_aliases.pop(session_id, None)
+            if alias:
+                session_id = alias
+            self._streaming_buffers.pop(session_id, None)
+            self._stream_states.pop(session_id, None)
+            self._reasoning_extracted.pop(session_id, None)
 
-        if self._logger.isEnabledFor(logging.DEBUG):
-            self._logger.debug("Reset think tags fix state for session %s", session_id)
+            if self._logger.isEnabledFor(logging.DEBUG):
+                self._logger.debug("Reset think tags fix state for session %s", session_id)
 
     def get_session_reasoning(self, session_id: str) -> dict[str, Any] | None:
         """Get extracted reasoning for a session."""

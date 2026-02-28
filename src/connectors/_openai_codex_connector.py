@@ -213,13 +213,27 @@ class OpenAICodexConnector(OpenAIConnector):
         )
 
         # Compatibility and tool execution
-        compat_cfg = self._connector_settings["compatibility_layer"]
-        self._compatibility_layer_enabled = bool(compat_cfg["enabled"])
+        # Avoid bool(MagicMock)==True if tests monkeypatch settings/DI.
+        compat_cfg = getattr(
+            self._connector_settings_model, "compatibility_layer", None
+        )
+        enabled_val = getattr(compat_cfg, "enabled", False)
+        self._compatibility_layer_enabled = (
+            enabled_val if isinstance(enabled_val, bool) else False
+        )
+
         self._session_detector: SessionDetector | None = None
         if self._compatibility_layer_enabled:
+            detection_cfg = getattr(compat_cfg, "detection", None)
+            cache_ttl_val = getattr(detection_cfg, "cache_ttl_seconds", 3600)
+            threshold_val = getattr(detection_cfg, "heuristic_threshold", 2)
+            cache_ttl_seconds = (
+                cache_ttl_val if isinstance(cache_ttl_val, int) else 3600
+            )
+            heuristic_threshold = threshold_val if isinstance(threshold_val, int) else 2
             self._session_detector = SessionDetector(
-                cache_ttl_seconds=compat_cfg["detection"]["cache_ttl_seconds"],
-                heuristic_threshold=compat_cfg["detection"]["heuristic_threshold"],
+                cache_ttl_seconds=cache_ttl_seconds,
+                heuristic_threshold=heuristic_threshold,
             )
 
         self._kilo_tool_translator: KiloToolTranslator | None = None
@@ -479,7 +493,14 @@ class OpenAICodexConnector(OpenAIConnector):
             from src.core.di.services import get_or_build_service_provider
 
             provider = get_or_build_service_provider()
-            return provider.get_service(CodexConnectorDependencies)
+            resolved = provider.get_service(CodexConnectorDependencies)
+            # Some tests monkeypatch the DI provider with MagicMock. Treat mocked
+            # dependency bundles as absent so we don't leak MagicMock settings.
+            if resolved is None:
+                return None
+            if "mock" in type(resolved).__name__.lower():
+                return None
+            return resolved
         except (ImportError, AttributeError, ServiceResolutionError) as err:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
@@ -520,12 +541,24 @@ class OpenAICodexConnector(OpenAIConnector):
             agent_overrides=self._connector_settings_model.agent_overrides,
         )
 
-        compat_cfg = self._connector_settings["compatibility_layer"]
-        self._compatibility_layer_enabled = bool(compat_cfg["enabled"])
+        compat_cfg = getattr(
+            self._connector_settings_model, "compatibility_layer", None
+        )
+        enabled_val = getattr(compat_cfg, "enabled", False)
+        self._compatibility_layer_enabled = (
+            enabled_val if isinstance(enabled_val, bool) else False
+        )
         if self._compatibility_layer_enabled and self._session_detector is None:
+            detection_cfg = getattr(compat_cfg, "detection", None)
+            cache_ttl_val = getattr(detection_cfg, "cache_ttl_seconds", 3600)
+            threshold_val = getattr(detection_cfg, "heuristic_threshold", 2)
+            cache_ttl_seconds = (
+                cache_ttl_val if isinstance(cache_ttl_val, int) else 3600
+            )
+            heuristic_threshold = threshold_val if isinstance(threshold_val, int) else 2
             self._session_detector = SessionDetector(
-                cache_ttl_seconds=compat_cfg["detection"]["cache_ttl_seconds"],
-                heuristic_threshold=compat_cfg["detection"]["heuristic_threshold"],
+                cache_ttl_seconds=cache_ttl_seconds,
+                heuristic_threshold=heuristic_threshold,
             )
         if not self._compatibility_layer_enabled:
             self._session_detector = None

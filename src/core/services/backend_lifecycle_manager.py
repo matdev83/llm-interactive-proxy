@@ -70,12 +70,13 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         self._shutdown_tasks_lock = threading.Lock()
 
     def _shutdown_tasks_lock_sync_discard(self, task: asyncio.Task[None]) -> None:
-        """Synchronous discard for task done callback - uses thread-unsafe dict access.
+        """Synchronous discard for task done callback.
 
-        This is safe because Python's GIL makes individual dict operations atomic,
-        and done callbacks run one at a time in the event loop.
+        Thread-safe: Uses the shutdown tasks lock to prevent races with
+        cleanup operations and other threads.
         """
-        self._shutdown_tasks.discard(task)
+        with self._shutdown_tasks_lock:
+            self._shutdown_tasks.discard(task)
 
     @staticmethod
     def _is_per_session_cache_key(cache_key: str, backend_type: str) -> bool:
@@ -88,10 +89,12 @@ class BackendLifecycleManager(IBackendLifecycleManager):
         """Get existing backend or create new one.
 
         Cache key rules:
-        - With session_id: `f"{backend_type}:{session_id}"`
-        - Otherwise: `backend_type`
+        - Always: `backend_type`
 
-        Per-session cache is LRU via OrderedDict; eviction shuts down backends.
+        Note: session_id is accepted for API compatibility and future extensions,
+        but does not affect backend instance caching.
+
+        Global cache is LRU via OrderedDict; eviction shuts down backends.
         Permanently disabled backends raise BackendError.
         """
         if backend_type in self._disabled_backends:
@@ -102,33 +105,12 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                 backend_name=backend_type,
             )
 
-        # Always use session-specific cache key if session_id is provided
-        if session_id:
-            cache_key = f"{backend_type}:{session_id}"
-        else:
-            cache_key = backend_type
-
-        if self._is_per_session_cache_key(cache_key, backend_type):
-            backend = self._per_session_backends.get(cache_key)
-            if backend is not None:
-                self._per_session_backends.move_to_end(cache_key)
-                return backend
-
-            # Fallback: reuse a globally-cached instance for this backend_type
-            # rather than creating a redundant duplicate.  OAuth-based backends
-            # share their account pool and token storage across sessions, so
-            # per-session isolation provides no benefit while losing connection-
-            # pool, rate-limit cooldown, and session-affinity state.
-            global_backend = self._backends.get(backend_type)
-            if global_backend is not None:
-                self._backends.move_to_end(backend_type)
-                return global_backend
-        else:
-            backend = self._backends.get(cache_key)
-            if backend is not None:
-                # Move to end for LRU behavior
-                self._backends.move_to_end(cache_key)
-                return backend
+        # Cache is global per backend_type (shared across sessions).
+        cache_key = backend_type
+        backend = self._backends.get(cache_key)
+        if backend is not None:
+            self._backends.move_to_end(cache_key)
+            return backend
 
         if not self._factory:
             raise BackendError(
@@ -166,10 +148,7 @@ class BackendLifecycleManager(IBackendLifecycleManager):
                 backend_type, app_config, provider_backend_config
             )
 
-            # Always store in the global cache so the instance is reused
-            # across sessions.  This preserves connection pools, rate-limit
-            # cooldowns and session-affinity state that would otherwise be
-            # lost when every request gets a unique per-session cache key.
+            # Store in global cache for reuse across sessions
             self._backends[backend_type] = created_backend
             self._backends.move_to_end(backend_type)
             await self._enforce_global_backend_limit()
