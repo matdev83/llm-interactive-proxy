@@ -19,7 +19,8 @@ class TestContextWindowLimits:
         sp = app.state.service_provider
         app_state = sp.get_required_service(IApplicationState)  # type: ignore[attr-defined]
         # Set model defaults
-        md = ModelDefaults(limits=limits)
+        # Use model_validate to avoid static typing issues around BaseModel __init__.
+        md = ModelDefaults.model_validate({"limits": limits})
         app_state.set_model_defaults({model_key: md, model_key.split(":", 1)[-1]: md})
         app_state.set_backend_type("openai")
         # Disable auth for tests (both DI and app.state fallbacks)
@@ -74,7 +75,7 @@ class TestContextWindowLimits:
             "messages": [{"role": "user", "content": "This should exceed one token."}],
         }
         resp = client.post("/v1/chat/completions", json=payload)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         body = resp.json()
         detail = body.get("detail", {})
         assert detail.get("code") == "input_limit_exceeded"
@@ -95,7 +96,7 @@ class TestContextWindowLimits:
             ],
         }
         resp = client.post("/v1/chat/completions", json=payload)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         body = resp.json()
         detail = body.get("detail", {})
         assert detail.get("code") == "input_limit_exceeded"
@@ -111,7 +112,7 @@ class TestContextWindowLimits:
 
         # Set model defaults with large context window
         large_limits = ModelLimits(context_window=100000, max_input_tokens=80000)
-        md = ModelDefaults(limits=large_limits)
+        md = ModelDefaults.model_validate({"limits": large_limits})
         app_state.set_model_defaults({"gpt-4": md})
         app_state.set_backend_type("openai")
 
@@ -142,7 +143,7 @@ class TestContextWindowLimits:
 
         # Set model defaults with very large context window
         large_limits = ModelLimits(context_window=100000, max_input_tokens=80000)
-        md = ModelDefaults(limits=large_limits)
+        md = ModelDefaults.model_validate({"limits": large_limits})
         app_state.set_model_defaults({"gpt-4": md})
         app_state.set_backend_type("openai")
 
@@ -164,7 +165,7 @@ class TestContextWindowLimits:
             "messages": [{"role": "user", "content": long_content}],
         }
         resp = client.post("/v1/chat/completions", json=payload)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         body = resp.json()
         detail = body.get("detail", {})
         assert detail.get("code") == "input_limit_exceeded"
@@ -202,7 +203,7 @@ class TestContextWindowLimits:
             "messages": [{"role": "user", "content": long_content}],
         }
         resp = client.post("/v1/chat/completions", json=payload)
-        assert resp.status_code == 400
+        assert resp.status_code == 413
         body = resp.json()
         detail = body.get("detail", {})
         assert detail.get("code") == "input_limit_exceeded"
@@ -211,8 +212,6 @@ class TestContextWindowLimits:
         # The limit should be the CLI override value (10)
         assert isinstance(details.get("limit"), int) and details["limit"] == 10
 
-
-import pytest
 
 pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"

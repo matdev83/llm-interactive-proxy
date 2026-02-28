@@ -4,7 +4,7 @@ Unit tests for NonForwardableMessageIdentityService.
 Tests coverage for:
 - Deterministic identity computation
 - Metadata exclusion
-- Tool result stability across compaction rewrites
+- Tool result stability across content rewrites
 - Content normalization (line endings)
 - Edge cases
 
@@ -91,9 +91,9 @@ class TestNonForwardableMessageIdentityService:
         assert identity1 == identity2
 
     def test_tool_result_identity_stable_across_content_rewrite(self) -> None:
-        """Tool result identity unchanged when content is rewritten (compaction scenario)."""
+        """Tool result identity unchanged when content is rewritten."""
         service = NonForwardableMessageIdentityService()
-        # Same tool_call_id, different content (simulating compaction rewrite)
+        # Same tool_call_id, different content (simulating truncation/rewrite)
         msg1 = ChatMessage(
             role="tool",
             tool_call_id="call_123",
@@ -102,7 +102,7 @@ class TestNonForwardableMessageIdentityService:
         msg2 = ChatMessage(
             role="tool",
             tool_call_id="call_123",
-            content="[Compacted: tool output replaced]",
+            content="[Tool output truncated]",
         )
         identity1 = service.compute_identity(msg1)
         identity2 = service.compute_identity(msg2)

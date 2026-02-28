@@ -886,7 +886,7 @@ class BackendCompletionFlow(IBackendCompletionFlow):
             original_canonical_request = canonical_request.model_copy()
 
             # Step 7.5: Apply non-forwardable message filtering
-            # This happens after history compaction (if enabled) and before wire capture
+            # This happens before wire capture
             # to ensure filtered messages are used for both capture and backend calls
             (
                 canonical_request,

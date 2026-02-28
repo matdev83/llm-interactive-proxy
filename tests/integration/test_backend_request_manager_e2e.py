@@ -4,7 +4,6 @@ End-to-end integration tests for BackendRequestManager refactored components.
 This module tests the complete request/response flows through BackendRequestManager
 with all refactored components, verifying:
 - Deduplication duplicate handling
-- Compaction fail-open behavior
 - Empty-response recovery
 - Empty-stream error behavior
 - Tool-call retry limits
@@ -20,8 +19,8 @@ Requirements: 1.2, 1.3, 1.4, 1.5, 2.4, 2.5, 3.2, 3.5, 3.6, 3.7, 4.2, 4.4, 4.5, 4
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from typing import Any, cast
+from unittest.mock import MagicMock
 
 import pytest
 from src.core.common.exceptions import BackendError, DuplicateRequestError
@@ -32,7 +31,10 @@ from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelop
 from src.core.interfaces.backend_processor_interface import (
     IBackendProcessor,
 )
-from src.core.interfaces.response_processor_interface import ProcessedResponse
+from src.core.interfaces.response_processor_interface import (
+    IResponseProcessor,
+    ProcessedResponse,
+)
 from src.core.services.backend_non_streaming_response_handler import (
     BackendNonStreamingResponseHandler,
 )
@@ -53,7 +55,7 @@ from tests.helpers.quality_verifier_factory_stub import QualityVerifierFactorySt
 class MockBackendProcessor(IBackendProcessor):
     """Mock backend processor for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._call_count = 0
         self._responses: list[ResponseEnvelope | StreamingResponseEnvelope] = []
         self._requests_received: list[ChatRequest] = []
@@ -69,7 +71,7 @@ class MockBackendProcessor(IBackendProcessor):
         self,
         request: ChatRequest,
         session_id: str,
-        context: dict[str, Any] | None = None,
+        context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Process backend request and return configured response."""
         self._call_count += 1
@@ -80,10 +82,10 @@ class MockBackendProcessor(IBackendProcessor):
         return ResponseEnvelope(content="Default response", metadata={})
 
 
-class MockResponseProcessor:
+class MockResponseProcessor(IResponseProcessor):
     """Mock response processor for testing."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._should_raise_empty = False
         self._empty_retry_count = 0
         self._max_empty_retries = 1
@@ -100,10 +102,34 @@ class MockResponseProcessor:
         self,
         response: Any,
         session_id: str,
-        context: dict[str, Any] | Any | None = None,
+        context: RequestContext | None = None,
     ) -> ProcessedResponse:
         """Process response and return ProcessedResponse."""
         if isinstance(response, str):
+            # Simulate empty response retry if configured
+            if (
+                self._should_raise_empty
+                and self._empty_retry_count < self._max_empty_retries
+                and not response.strip()
+            ):
+                self._empty_retry_count += 1
+                from src.core.services.empty_response_middleware import (
+                    EmptyResponseRetryError,
+                )
+
+                original_request = None
+                if context is not None:
+                    original_request = (
+                        context.original_request or context.domain_request
+                    )
+
+                raise EmptyResponseRetryError(
+                    recovery_prompt="Please provide a meaningful response.",
+                    session_id=session_id,
+                    retry_count=self._empty_retry_count,
+                    original_request=original_request,
+                )
+
             return ProcessedResponse(content=response, metadata={})
         elif isinstance(response, ProcessedResponse):
             return response
@@ -116,20 +142,16 @@ class MockResponseProcessor:
                 and self._empty_retry_count < self._max_empty_retries
             ):
                 self._empty_retry_count += 1
-                from src.core.domain.request_context import RequestContext
                 from src.core.services.empty_response_middleware import (
                     EmptyResponseRetryError,
                 )
 
-                # Extract original_request from context (can be dict or RequestContext)
+                # Extract original_request from context
                 original_request = None
                 if context:
-                    if isinstance(context, dict):
-                        original_request = context.get("original_request")
-                    elif isinstance(context, RequestContext):
-                        original_request = (
-                            context.original_request or context.domain_request
-                        )
+                    original_request = (
+                        context.original_request or context.domain_request
+                    )
 
                 raise EmptyResponseRetryError(
                     recovery_prompt="Please provide a meaningful response.",
@@ -143,15 +165,27 @@ class MockResponseProcessor:
             metadata = getattr(response, "metadata", {})
             return ProcessedResponse(content=content, metadata=metadata or {})
 
-    async def process_streaming_response(
+    def process_streaming_response(
         self,
-        stream: AsyncIterator[ProcessedResponse],
+        response_iterator: AsyncIterator[Any],
         session_id: str,
-        context: dict[str, Any] | None = None,
+        context: RequestContext | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
         """Process streaming response and return unchanged."""
-        async for chunk in stream:
-            yield chunk
+
+        async def _iter() -> AsyncIterator[ProcessedResponse]:
+            async for chunk in response_iterator:
+                if isinstance(chunk, ProcessedResponse):
+                    yield chunk
+                else:
+                    yield ProcessedResponse(content=chunk, metadata={})
+
+        _ = (session_id, context)
+        return _iter()
+
+    async def register_middleware(self, middleware: Any, priority: int = 0) -> None:
+        _ = (middleware, priority)
+        return None
 
 
 @pytest.fixture
@@ -180,9 +214,9 @@ def app_config() -> AppConfig:
 
 
 @pytest.fixture
-def request_preparation(app_config: AppConfig) -> BackendRequestPreparationService:
+def request_preparation() -> BackendRequestPreparationService:
     """Create request preparation service."""
-    return BackendRequestPreparationService(config=app_config)
+    return BackendRequestPreparationService()
 
 
 @pytest.fixture
@@ -369,65 +403,6 @@ class TestDeduplicationDuplicateHandling:
         assert mock_backend_processor._call_count == 2
 
 
-class TestCompactionFailOpen:
-    """Test compaction fail-open behavior."""
-
-    @pytest.mark.asyncio
-    async def test_compaction_error_does_not_break_processing(
-        self,
-        backend_request_manager: BackendRequestManager,
-        mock_backend_processor: MockBackendProcessor,
-    ):
-        """Test that compaction errors don't break request processing."""
-        from src.core.services.history_compaction_service import (
-            HistoryCompactionService,
-        )
-
-        # Create a compaction service that raises an error
-        compaction_service = MagicMock(spec=HistoryCompactionService)
-        compaction_service.compact_history = AsyncMock(
-            side_effect=RuntimeError("Compaction failed")
-        )
-
-        # Create request preparation with failing compaction
-        from src.core.services.backend_request_preparation_service import (
-            BackendRequestPreparationService,
-        )
-
-        request_prep = BackendRequestPreparationService(
-            history_compaction_service=compaction_service,
-            config=backend_request_manager._config,
-        )
-        backend_request_manager._request_preparation = request_prep
-
-        request = ChatRequest(
-            messages=[ChatMessage(role="user", content="Hello")],
-            model="test-model",
-        )
-
-        mock_backend_processor.set_responses(
-            [ResponseEnvelope(content="Response", metadata={})]
-        )
-
-        context = RequestContext(
-            headers={},
-            cookies={},
-            state={},
-            app_state=None,
-            session_id="test-session",
-        )
-
-        # Request should still process successfully despite compaction error
-        response = await backend_request_manager.process_backend_request(
-            backend_request=request,
-            session_id="test-session",
-            context=context,
-        )
-
-        assert isinstance(response, ResponseEnvelope)
-        assert response.content == "Response"
-
-
 class TestEmptyResponseRecovery:
     """Test empty-response recovery."""
 
@@ -445,28 +420,11 @@ class TestEmptyResponseRecovery:
             stream=False,
         )
 
-        # Configure response processor to raise empty response error on first call, then return valid response
-        call_count = {"value": 0}
-
-        async def process_response_side_effect(response, session_id, context):
-            call_count["value"] += 1
-            if call_count["value"] == 1:
-                # First call: raise empty response error
-                from src.core.services.empty_response_middleware import (
-                    EmptyResponseRetryError,
-                )
-
-                raise EmptyResponseRetryError(
-                    recovery_prompt="Please provide a meaningful response.",
-                    session_id=session_id,
-                    retry_count=1,
-                    original_request=request,
-                )
-            else:
-                # Retry call: return valid processed response
-                return ProcessedResponse(content="Valid response", metadata={})
-
-        mock_response_processor.process_response = process_response_side_effect
+        # Configure response processor to raise an EmptyResponseRetryError once.
+        mock_response_processor.set_empty_response_behavior(
+            should_raise=True,
+            max_retries=1,
+        )
 
         # First response is empty, second is valid
         mock_backend_processor.set_responses(
@@ -702,7 +660,9 @@ class TestToolCallRetryLimits:
         response_with_original = ResponseEnvelope(
             content="Test response",
             metadata={
-                "original_request": request,  # ChatRequest object should be filtered
+                # Ensure metadata stays JSON-serializable while still exercising
+                # the "original_request" filtering behavior.
+                "original_request": cast(Any, request.model_dump(mode="json")),
                 "session_id": "test-session",
                 "some_other_key": "value",
             },
@@ -855,9 +815,11 @@ class TestStreamingLoopDetection:
         )
 
         assert isinstance(response, StreamingResponseEnvelope)
+        content = response.content
+        assert content is not None
         # Consume stream and check for cancellation chunk
         chunks = []
-        async for chunk in response.content:
+        async for chunk in content:
             chunks.append(chunk)
             # Stop after reasonable number to avoid infinite loop
             if len(chunks) > 50:
@@ -912,8 +874,10 @@ class TestAngelVerification:
         )
 
         assert isinstance(response, StreamingResponseEnvelope)
+        content = response.content
+        assert content is not None
         chunks = []
-        async for chunk in response.content:
+        async for chunk in content:
             chunks.append(chunk)
             if len(chunks) >= 2:
                 break
@@ -969,8 +933,10 @@ class TestAngelVerification:
         )
 
         assert isinstance(response, StreamingResponseEnvelope)
+        content = response.content
+        assert content is not None
         chunks = []
-        async for chunk in response.content:
+        async for chunk in content:
             chunks.append(chunk)
             if len(chunks) >= 1:
                 break
@@ -1032,8 +998,10 @@ class TestStreamingMetadataContracts:
 
         # Verify StreamingResponseEnvelope is returned for streaming requests (Req 1.3)
         assert isinstance(response, StreamingResponseEnvelope)
+        content = response.content
+        assert content is not None
         chunks = []
-        async for chunk in response.content:
+        async for chunk in content:
             chunks.append(chunk)
             if len(chunks) >= 2:
                 break
@@ -1138,8 +1106,10 @@ class TestStreamingMetadataContracts:
         )
 
         assert isinstance(response, StreamingResponseEnvelope)
+        content = response.content
+        assert content is not None
         chunks = []
-        async for chunk in response.content:
+        async for chunk in content:
             chunks.append(chunk)
             if len(chunks) >= 1:
                 break

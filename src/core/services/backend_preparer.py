@@ -345,6 +345,7 @@ class BackendPreparer(IBackendPreparer):
                                     message="Input token limit exceeded",
                                     code="input_limit_exceeded",
                                     param="messages",
+                                    status_code=413,
                                     details={
                                         "model": requested_model or model_name,
                                         "limit": int(max_in),
@@ -383,6 +384,7 @@ class BackendPreparer(IBackendPreparer):
                                             message="Total token limit exceeded (input + max_tokens exceeds context window)",
                                             code="total_limit_exceeded",
                                             param="max_tokens",
+                                            status_code=413,
                                             details={
                                                 "model": requested_model or model_name,
                                                 "context_window": int(context_window),
@@ -413,6 +415,7 @@ class BackendPreparer(IBackendPreparer):
                                         message="Model capacity exceeded: input size leaves no room for maximum model output",
                                         code="model_capacity_exceeded",
                                         param="messages",
+                                        status_code=413,
                                         details={
                                             "model": requested_model or model_name,
                                             "context_window": int(context_window),

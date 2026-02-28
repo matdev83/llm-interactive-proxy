@@ -10,6 +10,7 @@ from __future__ import annotations
 # type: ignore[unreachable]
 import json
 import logging
+import threading
 from collections.abc import MutableMapping
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -66,6 +67,7 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
         self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry()
         # Keep track of background tasks to prevent GC
         self._background_tasks: set[Any] = set()
+        self._tasks_lock = threading.Lock()
 
     async def _process_response(
         self,
@@ -233,8 +235,14 @@ class ToolCallLoopDetectionFeature(IResponseFeature):
                 asyncio.get_running_loop()
                 # Fire and forget - don't await, but store reference to avoid GC
                 task = asyncio.create_task(self._lifecycle.clear_stream(session_id))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
+                with self._tasks_lock:
+                    self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks_discard)
+
+    def _background_tasks_discard(self, task: Any) -> None:
+        """Discard a background task in a thread-safe manner."""
+        with self._tasks_lock:
+            self._background_tasks.discard(task)
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content."""
@@ -449,6 +457,7 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
         self._lifecycle = lifecycle_registry or ToolCallLifecycleRegistry()
         # Keep track of background tasks to prevent GC
         self._background_tasks: set[Any] = set()
+        self._tasks_lock = threading.Lock()
 
     async def process(
         self,
@@ -613,8 +622,14 @@ class ToolCallLoopDetectionMiddleware(IResponseMiddleware):
                 asyncio.get_running_loop()
                 # Fire and forget - don't await, but store reference to avoid GC
                 task = asyncio.create_task(self._lifecycle.clear_stream(session_id))
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
+                with self._tasks_lock:
+                    self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks_discard)
+
+    def _background_tasks_discard(self, task: Any) -> None:
+        """Discard a background task in a thread-safe manner."""
+        with self._tasks_lock:
+            self._background_tasks.discard(task)
 
     def _extract_tool_calls(self, content: Any) -> list[dict[str, Any]]:
         """Extract tool calls from response content.

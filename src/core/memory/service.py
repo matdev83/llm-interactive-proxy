@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -120,6 +121,7 @@ class MemoryService:
         )
         # Track when sessions entered analysis_in_progress for TTL cleanup
         self._analysis_in_progress: dict[str, float] = {}
+        self._tasks_lock = threading.Lock()
         # Track cleanup tasks to prevent resource leaks
         # Use WeakSet to allow garbage collection of completed tasks, preventing unbounded accumulation
         # Tasks are kept alive by done callbacks until completion, then automatically removed
@@ -588,7 +590,8 @@ class MemoryService:
         all resources (HTTP connections, file handles, etc.) are properly released.
         """
         # Take snapshot of pending tasks
-        pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
+        with self._tasks_lock:
+            pending_tasks = [t for t in self._cleanup_tasks if not t.done()]
         if pending_tasks:
             try:
                 await asyncio.wait_for(
@@ -626,7 +629,8 @@ class MemoryService:
                     )  # Suppress errors during final cleanup
 
         # Clear the cleanup tasks set to prevent memory leaks
-        self._cleanup_tasks.clear()
+        with self._tasks_lock:
+            self._cleanup_tasks.clear()
 
     async def _maybe_cleanup_stale_sessions_locked(self) -> None:
         """Clean up stale session states based on TTL.
@@ -668,14 +672,11 @@ class MemoryService:
                 )
                 # Add done callbacks to remove tasks from WeakSet when they complete
                 # This prevents unbounded accumulation while allowing GC after completion
-                cleanup_task1.add_done_callback(
-                    lambda task: self._cleanup_tasks.discard(task)
-                )
-                cleanup_task2.add_done_callback(
-                    lambda task: self._cleanup_tasks.discard(task)
-                )
-                self._cleanup_tasks.add(cleanup_task1)
-                self._cleanup_tasks.add(cleanup_task2)
+                cleanup_task1.add_done_callback(self._cleanup_tasks_discard)
+                cleanup_task2.add_done_callback(self._cleanup_tasks_discard)
+                with self._tasks_lock:
+                    self._cleanup_tasks.add(cleanup_task1)
+                    self._cleanup_tasks.add(cleanup_task2)
 
     async def _evict_oldest_session_locked(self) -> None:
         """Evict the oldest session state when max limit is reached (LRU eviction).
@@ -715,10 +716,11 @@ class MemoryService:
         )
         # Add done callbacks to remove tasks from WeakSet when they complete
         # This prevents unbounded accumulation while allowing GC after completion
-        cleanup_task1.add_done_callback(lambda task: self._cleanup_tasks.discard(task))
-        cleanup_task2.add_done_callback(lambda task: self._cleanup_tasks.discard(task))
-        self._cleanup_tasks.add(cleanup_task1)
-        self._cleanup_tasks.add(cleanup_task2)
+        cleanup_task1.add_done_callback(self._cleanup_tasks_discard)
+        cleanup_task2.add_done_callback(self._cleanup_tasks_discard)
+        with self._tasks_lock:
+            self._cleanup_tasks.add(cleanup_task1)
+            self._cleanup_tasks.add(cleanup_task2)
 
     async def _cleanup_stale_analysis_in_progress(self) -> None:
         """Clean up stale entries from _analysis_in_progress based on TTL.
@@ -741,3 +743,8 @@ class MemoryService:
                         sid,
                         now - timestamp,
                     )
+
+    def _cleanup_tasks_discard(self, task: asyncio.Task[None]) -> None:
+        """Remove a task from the cleanup tasks set in a thread-safe manner."""
+        with self._tasks_lock:
+            self._cleanup_tasks.discard(task)

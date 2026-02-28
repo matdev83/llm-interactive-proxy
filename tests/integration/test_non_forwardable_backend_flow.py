@@ -2,13 +2,14 @@
 
 Tests verify:
 - Filtering happens before wire capture (requirement 6.3)
-- Filtering works after history compaction (requirement 7.4, 1.12)
+- Filtering works when tool message content is rewritten (requirement 7.4, 1.12)
 - Error cases fail closed before backend calls (requirement 5.3, 10.1, 14.3)
 - Session scoping prevents tag leakage (requirement 8.4)
 """
 
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -28,38 +29,38 @@ from src.core.interfaces.non_forwardable_interface import (
 )
 
 
-@pytest_asyncio.fixture
-async def test_app():
+@pytest_asyncio.fixture  # type: ignore[misc]
+async def test_app() -> Any:
     """Create test app with non-forwardable services."""
     config = create_test_config()
     app = build_test_app(config)
     yield app
 
 
-@pytest_asyncio.fixture
-async def backend_flow(test_app):
+@pytest_asyncio.fixture  # type: ignore[misc]
+async def backend_flow(test_app: Any) -> IBackendCompletionFlow:
     """Get BackendCompletionFlow from test app."""
     service_provider = test_app.state.service_provider
     flow = service_provider.get_required_service(IBackendCompletionFlow)
-    return flow
+    return cast(IBackendCompletionFlow, flow)
 
 
-@pytest_asyncio.fixture
-async def identity_service(test_app):
+@pytest_asyncio.fixture  # type: ignore[misc]
+async def identity_service(test_app: Any) -> INonForwardableMessageIdentityService:
     """Get identity service from test app."""
     service_provider = test_app.state.service_provider
     identity_service = service_provider.get_service(
         INonForwardableMessageIdentityService
     )
-    return identity_service
+    return cast(INonForwardableMessageIdentityService, identity_service)
 
 
-@pytest_asyncio.fixture
-async def registry(test_app):
+@pytest_asyncio.fixture  # type: ignore[misc]
+async def registry(test_app: Any) -> INonForwardableMessageRegistry:
     """Get registry service from test app."""
     service_provider = test_app.state.service_provider
     registry = service_provider.get_service(INonForwardableMessageRegistry)
-    return registry
+    return cast(INonForwardableMessageRegistry, registry)
 
 
 @pytest.mark.integration
@@ -140,16 +141,16 @@ async def test_filtering_before_wire_capture(
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_filtering_after_compaction(
+async def test_filtering_after_tool_message_content_rewrite(
     test_app,
     backend_flow: IBackendCompletionFlow,
     identity_service: INonForwardableMessageIdentityService,
     registry: INonForwardableMessageRegistry,
 ):
-    """Test that filtering works after history compaction (requirement 7.4, 1.12)."""
-    session_id = "test-session-compaction"
+    """Tool result identity is stable when content is rewritten (requirement 7.4, 1.12)."""
+    session_id = "test-session-tool-rewrite"
 
-    # Create tool result message that will be compacted
+    # Create tool result message (identity excludes content for stability)
     tool_result_msg = ChatMessage(
         role="tool",
         tool_call_id="call_123",
@@ -165,12 +166,17 @@ async def test_filtering_after_compaction(
         reason="test",
     )
 
-    # Create request with tool result
+    # Simulate rewrite/truncation: same tool_call_id, different content.
+    rewritten_tool_result_msg = tool_result_msg.model_copy(
+        update={"content": "[Tool output truncated]"}
+    )
+
+    # Create request with rewritten tool result
     request = CanonicalChatRequest(
         model="openai:gpt-4",
         messages=[
             ChatMessage(role="user", content="Use tool"),
-            tool_result_msg,
+            rewritten_tool_result_msg,
             ChatMessage(role="user", content="Continue"),
         ],
     )
@@ -210,7 +216,7 @@ async def test_filtering_after_compaction(
     with patch.object(backend_invoker, "acquire_backend", return_value=mock_backend):
         await backend_flow.call_completion(request, stream=False, context=context)
 
-    # Verify tool result was filtered (even if compaction rewrote content)
+    # Verify tool result was filtered even if content was rewritten
     # The identity should still match
     assert len(backend_received_messages) == 2  # user messages only
     assert all(msg.role != "tool" for msg in backend_received_messages)

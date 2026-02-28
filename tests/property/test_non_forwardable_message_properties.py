@@ -6,7 +6,7 @@ Property-based tests for non-forwardable message tagging.
 
 This module tests the correctness properties of identity computation and filtering:
 - Identity determinism across equivalent messages
-- Tool result identity stability across compaction rewrites
+    - Tool result identity stability across content rewrites
 - Filtering order preservation
 - Filtering removes only tagged messages
 - Filtering does not mutate remaining messages
@@ -372,20 +372,20 @@ def test_property_identity_determinism(message: ChatMessage) -> None:
     content2=text_content_strategy(),
 )
 @property_test_settings()
-def test_property_tool_result_compaction_stability(
+def test_property_tool_result_content_rewrite_stability(
     tool_call_id: str,
     name: str | None,
     content1: str,
     content2: str,
 ) -> None:
     """
-    **Feature: non-forwardable-message-tagging, Property: Tool Result Compaction Stability**
+    **Feature: non-forwardable-message-tagging, Property: Tool Result Content Rewrite Stability**
     **Validates: Requirements 1.12, 1.13**
 
-    Property: Tool Result Compaction Stability
+    Property: Tool Result Content Rewrite Stability
 
     *For any* tool result message (role="tool" with tool_call_id), the identity
-    SHALL remain stable when content is rewritten by history compaction. Only
+    SHALL remain stable when content is rewritten. Only
     tool_call_id and name affect identity, not content.
     """
     service = NonForwardableMessageIdentityService()
@@ -409,7 +409,7 @@ def test_property_tool_result_compaction_stability(
 
     assert (
         identity1 == identity2
-    ), "Tool result identity must be stable across content rewrites (compaction scenario)"
+    ), "Tool result identity must be stable across content rewrites"
 
     # Verify that changing tool_call_id produces different identity
     msg3 = ChatMessage(

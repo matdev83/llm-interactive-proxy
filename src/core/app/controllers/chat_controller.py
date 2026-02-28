@@ -1046,15 +1046,27 @@ class ChatController:
             # Map domain exceptions to HTTP exceptions
             http_exc = map_domain_exception_to_http_exception(e, request=request)
 
-            # For streaming requests, prefer a standard JSON error response.
-            # Many OpenAI SDKs treat non-2xx streaming responses as regular JSON errors.
-            # Returning an SSE payload for errors can leave some clients waiting.
+            # Streaming error formatting:
+            # - Default remains JSON because most OpenAI SDKs parse JSON on non-2xx.
+            # - Some raw SSE clients (curl -N, custom parsers) expect SSE frames even
+            #   when the request fails; for those, we emit a small SSE error stream.
             #
-            # If a client explicitly wants SSE-formatted errors, it can opt in via
-            # `x-llmproxy-error-format: sse`.
-            if getattr(request_data, "stream", False) and (
-                (request.headers.get("x-llmproxy-error-format") or "").lower() == "sse"
-            ):
+            # Opt-in/override rules:
+            # - `x-llmproxy-error-format: sse` forces SSE error stream
+            # - `x-llmproxy-error-format: json` forces JSON error
+            # - If header is absent and client Accept includes text/event-stream, use SSE
+            if getattr(request_data, "stream", False):
+                requested = (
+                    request.headers.get("x-llmproxy-error-format") or ""
+                ).lower()
+                accept = (request.headers.get("accept") or "").lower()
+                wants_sse = "text/event-stream" in accept
+                use_sse = requested == "sse" or (requested == "" and wants_sse)
+
+            else:
+                use_sse = False
+
+            if use_sse:
                 from fastapi.responses import StreamingResponse
 
                 async def _error_stream_generator(original_exc=e, final_exc=http_exc):
@@ -1085,7 +1097,10 @@ class ChatController:
                         error_dict["code"] = final_exc.detail.get("code")
 
                     error_payload = {"error": error_dict}
+                    # Emit an error event and a [DONE] sentinel to ensure simple SSE
+                    # clients terminate their read loops deterministically.
                     yield f"data: {json.dumps(error_payload)}\n\n".encode()
+                    yield b"data: [DONE]\n\n"
 
                 return StreamingResponse(
                     _error_stream_generator(),
@@ -1126,8 +1141,10 @@ class ChatController:
                             "status_code": 500,
                         }
                     }
-                    # For errors, emit a single SSE error event and DO NOT emit [DONE].
+                    # Emit a single SSE error event and a [DONE] sentinel so naive
+                    # SSE clients don't wait indefinitely.
                     yield f"data: {json.dumps(error_payload)}\n\n".encode()
+                    yield b"data: [DONE]\n\n"
 
                 return StreamingResponse(
                     _generic_error_stream_generator(),

@@ -195,7 +195,7 @@ class RequestProcessor(IRequestProcessor):
 
         Quality Verifier scheduling should remain stable across B2BUA A-leg session
         rotations. Unlike random replacement continuity, verifier scheduling avoids
-        first-user-message hashing because message churn and compaction can cause
+        first-user-message hashing because message churn can cause
         key churn that prevents frequency counters from progressing.
         """
         identity = getattr(context, "b2bua_identity", None)
@@ -806,8 +806,10 @@ class RequestProcessor(IRequestProcessor):
             # Check if result is an error response (for streaming requests)
             # Streaming requests return error envelopes instead of raising exceptions
             is_error_response = False
-            if hasattr(result, "status_code") and isinstance(result.status_code, int):
-                is_error_response = result.status_code >= 400
+            status_code = getattr(result, "status_code", None)
+            if status_code is not None:
+                with contextlib.suppress(TypeError, ValueError):
+                    is_error_response = int(status_code) >= 400
 
             if is_error_response:
                 # Extract original error details from metadata if available
@@ -936,11 +938,13 @@ class RequestProcessor(IRequestProcessor):
 
                         # CRITICAL: Also check fallback result for error status
                         # If fallback also fails, we need to raise the error (no infinite retries)
-                        if (
-                            hasattr(fallback_result, "status_code")
-                            and isinstance(fallback_result.status_code, int)
-                            and fallback_result.status_code >= 400
-                        ):
+                        fallback_status = getattr(fallback_result, "status_code", None)
+                        fallback_failed = False
+                        if fallback_status is not None:
+                            with contextlib.suppress(TypeError, ValueError):
+                                fallback_failed = int(fallback_status) >= 400
+
+                        if fallback_failed:
 
                             from src.core.common.exceptions import (
                                 AuthenticationError,
@@ -955,7 +959,9 @@ class RequestProcessor(IRequestProcessor):
 
                             metadata = getattr(fallback_result, "metadata", None)
                             if isinstance(metadata, dict):
-                                fallback_message = str(metadata.get("error_message") or "")
+                                fallback_message = str(
+                                    metadata.get("error_message") or ""
+                                )
                                 fallback_type = str(metadata.get("error_type") or "")
                                 fallback_code = str(metadata.get("error_code") or "")
                                 fallback_details = metadata.get("error_details")

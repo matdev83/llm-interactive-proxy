@@ -1185,8 +1185,9 @@ class BufferedWireCapture(IWireCapture):
                         flush_task = asyncio.create_task(
                             self._flush_entries_async(entries)
                         )
-                        self._active_flushes.add(flush_task)
-                        flush_task.add_done_callback(self._active_flushes.discard)
+                        with self._tasks_lock:
+                            self._active_flushes.add(flush_task)
+                        flush_task.add_done_callback(self._active_flushes_discard)
                         await asyncio.shield(flush_task)
                 except asyncio.CancelledError:
                     break

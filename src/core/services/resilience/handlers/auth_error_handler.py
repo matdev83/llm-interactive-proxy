@@ -91,6 +91,7 @@ class AuthErrorHandler(BaseErrorHandler):
             ResilienceAction indicating instance was disabled
         """
         backend_type = str(context.extra.get("backend_type", "")).lower()
+        instance_id_lower = str(context.instance_id or "").lower()
         if "oauth-auto" in backend_type:
             return ResilienceAction(
                 type=ActionType.PROCEED,
@@ -101,7 +102,14 @@ class AuthErrorHandler(BaseErrorHandler):
         # A 401 can be transient (expired token) and the connector can refresh.
         # Permanently disabling even a scoped instance turns auth blips into
         # persistent RoutingError 503s for that user.
-        if context.extra.get("is_personal_backend") is True or "oauth" in backend_type:
+        # NOTE: Some failure recorders don't attach __resilience_context__ to the
+        # error (e.g., failures observed after returning an error envelope).
+        # In that case, infer OAuth-ness from the instance id.
+        if (
+            context.extra.get("is_personal_backend") is True
+            or "oauth" in backend_type
+            or "oauth" in instance_id_lower
+        ):
             return ResilienceAction(
                 type=ActionType.PROCEED,
                 reason="Auth errors for personal/OAuth backends are not permanently disabled",

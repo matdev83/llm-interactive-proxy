@@ -2,7 +2,7 @@
 Non-forwardable message identity service implementation.
 
 Computes deterministic SHA-256-based identities for ChatMessage instances.
-Identities are stable across history compaction rewrites and do not depend
+Identities are stable across message content rewrites and do not depend
 on client-provided metadata.
 
 Requirements: 1.2, 1.9, 1.10, 1.12, 1.13, 5.2, 9.1
@@ -80,7 +80,7 @@ class NonForwardableMessageIdentityService(INonForwardableMessageIdentityService
         """Build the identity input dictionary from message attributes.
 
         For tool result messages (role="tool" and tool_call_id set), excludes
-        content to ensure stability across history compaction rewrites.
+        content to ensure stability across content rewrites.
         For all other messages, includes all canonical attributes except metadata.
 
         Args:
@@ -140,34 +140,30 @@ class NonForwardableMessageIdentityService(INonForwardableMessageIdentityService
         if isinstance(content, str):
             return self._normalize_text(content)
 
-        if isinstance(content, Sequence):
-            # Preserve part order, normalize each part
-            normalized_parts: list[dict[str, Any]] = []
-            for part in content:
-                # Serialize part to dict (preserving all fields)
-                if hasattr(part, "model_dump"):
-                    part_dict = part.model_dump()
-                elif isinstance(part, dict):
-                    part_dict = part.copy()
+        # Sequence content: preserve part order, normalize each part
+        normalized_parts: list[dict[str, Any]] = []
+        for part in content:
+            # Serialize part to dict (preserving all fields)
+            if hasattr(part, "model_dump"):
+                part_dict = part.model_dump()
+            elif isinstance(part, dict):
+                part_dict = part.copy()
+            else:
+                # Fallback: convert to dict
+                if hasattr(part, "__dict__"):
+                    part_dict = vars(part)
                 else:
-                    # Fallback: convert to dict
-                    if hasattr(part, "__dict__"):
-                        part_dict = vars(part)
-                    else:
-                        part_dict = {"value": str(part)}
+                    part_dict = {"value": str(part)}
 
-                # Exclude transport-specific fields (per design.md line 272)
-                # cache_control is a transport/protocol wrapper field
-                part_dict.pop("cache_control", None)
+            # Exclude transport-specific fields (per design.md line 272)
+            # cache_control is a transport/protocol wrapper field
+            part_dict.pop("cache_control", None)
 
-                # Normalize text fields in the part
-                normalized_part = self._normalize_dict_text_fields(part_dict)
-                normalized_parts.append(normalized_part)
+            # Normalize text fields in the part
+            normalized_part = self._normalize_dict_text_fields(part_dict)
+            normalized_parts.append(normalized_part)
 
-            return normalized_parts
-
-        # Fallback: convert to string
-        return self._normalize_text(str(content))
+        return normalized_parts
 
     def _normalize_dict_text_fields(self, d: dict[str, Any]) -> dict[str, Any]:
         """Recursively normalize text fields in a dictionary.

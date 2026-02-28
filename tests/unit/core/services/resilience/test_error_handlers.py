@@ -242,6 +242,27 @@ class TestAuthErrorHandler:
         assert action.permanent is True
         assert manager.get_instance_status("backend.1") == InstanceStatus.DISABLED
 
+    def test_does_not_disable_when_instance_id_looks_oauth(self) -> None:
+        """OAuth-like instance ids should not be permanently disabled even if extra context is missing."""
+        manager = RateLimitStateManager()
+        handler = AuthErrorHandler(manager)
+
+        error = AuthenticationError("Token expired")
+        context = ErrorContext(
+            instance_id="qwen-oauth:session-123",
+            model="qwen/coder-model",
+            error=error,
+            extra={},
+        )
+
+        action = handler.handle(context)
+
+        assert action.type == ActionType.PROCEED
+        assert (
+            manager.get_instance_status("qwen-oauth:session-123")
+            == InstanceStatus.ACTIVE
+        )
+
     def test_skips_disable_for_unscoped_personal_backend(self) -> None:
         """Should not disable unscoped instances for personal OAuth backends."""
         manager = RateLimitStateManager()

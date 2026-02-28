@@ -211,7 +211,8 @@ def _register_quality_verifier_service_factory(services: ServiceCollection) -> N
     except Exception as e:
         if logger.isEnabledFor(logging.WARNING):
             logger.warning(
-                f"Failed to register IQualityVerifierServiceFactory interface: {e}", exc_info=True
+                f"Failed to register IQualityVerifierServiceFactory interface: {e}",
+                exc_info=True,
             )
 
 
@@ -345,7 +346,9 @@ def _register_backend_request_manager(services: ServiceCollection) -> None:
         if quality_verifier_service_factory is None:
             from unittest.mock import MagicMock
 
-            quality_verifier_service_factory = MagicMock(spec=IQualityVerifierServiceFactory)
+            quality_verifier_service_factory = MagicMock(
+                spec=IQualityVerifierServiceFactory
+            )
 
         wire_capture = provider.get_service(cast(type, IWireCapture))  # type: ignore[type-abstract]
 

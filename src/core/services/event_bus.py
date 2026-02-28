@@ -242,7 +242,14 @@ class EventBus(IEventBus):
         # Schedule handlers without waiting
         for handler in handlers:
             task = asyncio.create_task(self._invoke_handler(handler, event))
-            self._pending_tasks.add(task)
+            with self._lock:
+                self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks_discard)
+
+    def _pending_tasks_discard(self, task: asyncio.Task[Any]) -> None:
+        """Discard a pending task in a thread-safe manner."""
+        with self._lock:
+            self._pending_tasks.discard(task)
 
     def _get_handlers_for_event(
         self, event_type: type, topic: str | None = None
@@ -394,7 +401,8 @@ class EventBus(IEventBus):
         self._shutting_down = True
 
         # Wait for any pending tasks with timeout
-        pending = [t for t in self._pending_tasks if not t.done()]
+        with self._lock:
+            pending = [t for t in self._pending_tasks if not t.done()]
         if pending:
             if logger.isEnabledFor(logging.INFO):
                 logger.info(
@@ -415,8 +423,9 @@ class EventBus(IEventBus):
                         task.cancel()
 
         # Clear all handlers
-        self._handlers.clear()
-        self._pending_tasks.clear()
+        with self._lock:
+            self._handlers.clear()
+            self._pending_tasks.clear()
 
         if logger.isEnabledFor(logging.INFO):
             logger.info("Event bus shutdown complete")
