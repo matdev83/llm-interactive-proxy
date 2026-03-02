@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import json
 import logging
-import re
 import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
@@ -42,6 +41,9 @@ from src.core.interfaces.streaming_response_processor_interface import (
 )
 from src.core.memory.capture_middleware import MemoryCaptureMiddleware
 from src.core.memory.response_capture_processor import ResponseCaptureProcessor
+from src.core.services.quality_verifier_steering_store import (
+    store_pending_quality_verifier_steering,
+)
 from src.core.services.response_pipeline import UnifiedResponsePipeline
 from src.core.services.streaming.chunk_normalizer import (
     normalize_to_processed_chunk_content,
@@ -176,11 +178,10 @@ class ResponseProcessor(IResponseProcessor):
     async def _apply_quality_verifier_verification(  # noqa: C901
         self, original_request: Any, content: Any, context: dict[str, Any] | None = None
     ) -> dict[str, Any] | None:
-        """Apply Quality Verifier and optionally correction.
+        """Apply Quality Verifier assessment and store steering (soft fail).
 
         Returns a dict with keys:
-        - action: "pass" | "steer"
-        - corrected_content: str (when action=="steer")
+        - action: "pass" (always; Quality Verifier never modifies user-visible content)
         """
         try:
             from src.core.di.services import get_service_provider
@@ -293,6 +294,15 @@ class ResponseProcessor(IResponseProcessor):
                 candidate = context.get("request_context")
                 if isinstance(candidate, RequestContext):
                     request_context = candidate
+
+            # Respect upstream per-request skip flag.
+            try:
+                if request_context and request_context.extensions.get(
+                    "quality_verifier_skip_verification"
+                ):
+                    return {"action": "pass"}
+            except Exception:
+                pass
 
             ttft_timeout_seconds = float(
                 getattr(self, "_quality_verifier_ttft_timeout_seconds", 30.0)
@@ -665,169 +675,74 @@ class ResponseProcessor(IResponseProcessor):
                 svc.validate_quality_verifier_output_format(quality_verifier_text)
             )
             if not is_valid_format:
-                retry_request = svc.build_invalid_format_retry_request(
-                    verification_request,
-                    quality_verifier_text,
-                    invalid_reason,
-                )
-                retry_text = await _call_quality_verifier_once(retry_request)
-                if retry_text is None:
-                    return {"action": "pass"}
-                quality_verifier_text = retry_text
-
-                is_valid_format, invalid_reason = (
-                    svc.validate_quality_verifier_output_format(quality_verifier_text)
-                )
-                if not is_valid_format:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Quality Verifier response still invalid after single retry; failing-open (%s)",
-                            invalid_reason or "invalid format",
-                        )
-                    return {"action": "pass"}
+                # Soft fail: ignore invalid formats. Count as failure so circuit breaker
+                # can disable a misconfigured verifier without affecting the client.
+                await svc.report_failure()
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Quality Verifier output invalid; ignoring (%s)",
+                        invalid_reason or "invalid format",
+                    )
+                return {"action": "pass"}
 
             decision = svc.parse_quality_verifier_output(quality_verifier_text)
-            if decision.decision == "pass":
-                return {"action": "pass"}
-
             steering_msg = (decision.steering_message or "").strip()
-            if not steering_msg:
+            if decision.decision != "steer" or not steering_msg:
                 return {"action": "pass"}
 
-            correction_request = svc.build_correction_request(
-                original_request, content, steering_msg
+            # Store steering note for injection into a future main-model request.
+            # Prefer the ResponseProcessor's configured app_state.
+            # Some handlers may wrap/replace RequestContext.app_state.
+            app_state = self._app_state
+            if app_state is None:
+                try:
+                    candidate = (
+                        getattr(request_context, "app_state", None)
+                        if request_context is not None
+                        else None
+                    )
+                    if (
+                        candidate is not None
+                        and hasattr(candidate, "get_setting")
+                        and hasattr(candidate, "set_setting")
+                    ):
+                        app_state = candidate
+                except Exception:
+                    pass
+
+            if app_state is None:
+                return {"action": "pass"}
+
+            session_key_value = None
+            try:
+                if request_context is not None:
+                    session_key_value = request_context.extensions.get(
+                        "quality_verifier_effective_session_id"
+                    )
+            except Exception:
+                session_key_value = None
+
+            steering_session_key = str(session_key_value or "").strip()
+            if not steering_session_key:
+                steering_session_key = str(
+                    getattr(request_context, "session_id", None) or ""
+                )
+            if not steering_session_key:
+                try:
+                    steering_session_key = str((context or {}).get("session_id") or "")
+                except Exception:
+                    steering_session_key = ""
+            steering_session_key = steering_session_key.strip()
+            if not steering_session_key:
+                return {"action": "pass"}
+
+            store_pending_quality_verifier_steering(
+                app_state=app_state,
+                session_key=steering_session_key,
+                steering_message=steering_msg,
             )
 
-            # Tag the quality verifier steering message as non-forwardable and set injection boundary
-            if correction_request.messages and request_context:
-                from src.core.domain.non_forwardable import NonForwardableTagScope
-                from src.core.interfaces.non_forwardable_interface import (
-                    INonForwardableMessageIdentityService,
-                    INonForwardableMessageRegistry,
-                )
-                from src.core.services.non_forwardable_message_enforcer import (
-                    PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
-                )
-
-                # Get registry and identity service from provider
-                non_forwardable_registry = None
-                non_forwardable_identity_service = None
-
-                if provider:
-                    non_forwardable_registry = provider.get_service(
-                        cast(type, INonForwardableMessageRegistry)
-                    )
-                    non_forwardable_identity_service = provider.get_service(
-                        cast(type, INonForwardableMessageIdentityService)
-                    )
-
-                # Find the steering message (last user message with steering marker)
-                steering_message = None
-                for msg in reversed(correction_request.messages):
-                    if msg.role == "user" and "QUALITY VERIFIER STEERING" in (
-                        str(msg.content) or ""
-                    ):
-                        steering_message = msg
-                        break
-
-                if (
-                    steering_message
-                    and non_forwardable_registry
-                    and non_forwardable_identity_service
-                ):
-                    session_id = request_context.session_id or "unknown"
-                    try:
-                        identity = non_forwardable_identity_service.compute_identity(  # type: ignore[reportUnknownMemberType]
-                            steering_message
-                        )
-                        await non_forwardable_registry.tag_identities(  # type: ignore[reportUnknownMemberType]
-                            session_id=session_id,
-                            identities=[identity],
-                            scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
-                            reason="quality_verifier_steering",
-                        )
-                        # Set injection boundary
-                        injection_start_index = len(original_request.messages)
-                        # extensions is dict[str, JsonValue] (not None), so no need to check
-                        request_context.extensions[
-                            PROXY_INJECTED_MESSAGES_START_INDEX_KEY
-                        ] = injection_start_index
-                    except Exception as e:
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Failed to tag quality verifier steering message as non-forwardable: %s",
-                                e,
-                                exc_info=True,
-                            )
-
-            # Cancellation gate: ensure session is not cancelled before Quality Verifier correction backend call
-            if self._cancellation_coordinator and request_context:
-                session_key = resolve_session_key_from_request_context(request_context)
-                if session_key:
-                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
-
-            # Call correction with fail-open
-            try:
-                corrected_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
-                    correction_request,
-                    stream=True,
-                    allow_failover=True,
-                    context=request_context,
-                )
-                if _response_indicates_backend_error(corrected_response):
-                    return {"action": "pass"}
-
-                if isinstance(corrected_response, StreamingResponseEnvelope):
-                    corrected_text = await _collect_stream_text_with_ttft(
-                        corrected_response
-                    )
-                    if corrected_text is None:
-                        return {"action": "pass"}
-                else:
-                    corrected_text = _extract_text(corrected_response)
-
-                # Prevent internal override markers from reaching the client.
-                # If the correction is *only* an override marker (or becomes empty after stripping),
-                # fail-open to the original response content.
-                cleaned = re.sub(
-                    r"<override_quality_verifier>[\s\S]*?</override_quality_verifier>",
-                    "",
-                    str(corrected_text or ""),
-                    flags=re.IGNORECASE,
-                )
-                cleaned = re.sub(
-                    r"<override_quality_verifier\s*/\s*>",
-                    "",
-                    cleaned,
-                    flags=re.IGNORECASE,
-                ).strip()
-
-                if not cleaned:
-                    return {"action": "pass"}
-
-                return {"action": "steer", "corrected_content": cleaned}
-            except asyncio.TimeoutError:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Quality Verifier correction TTFT timeout after %.1fs; failing-open",
-                        ttft_timeout_seconds,
-                    )
-                return {"action": "pass"}
-            except BackendError as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Quality Verifier correction call failed (%s); failing-open",
-                        e.message,
-                    )
-                return {"action": "pass"}
-            except Exception as e:
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Quality Verifier correction call failed (%s); failing-open",
-                        type(e).__name__,
-                        exc_info=True,
-                    )
-                return {"action": "pass"}
+            return {"action": "pass"}
 
         except Exception as e:
             if logger.isEnabledFor(logging.WARNING):
@@ -989,48 +904,39 @@ class ResponseProcessor(IResponseProcessor):
                 )
 
             # Quality Verifier for non-streaming responses (post-pipeline)
+            # Runs asynchronously and never modifies the client-visible response.
             try:
                 original_request = None
                 if context is not None:
                     original_request = (
                         context.original_request or context.domain_request
                     )
-                # Only run when quality verifier is configured in session
 
                 if original_request is not None:
-                    # Build context dict for quality verifier (internal method expects dict)
                     quality_verifier_context: dict[str, Any] | None = None
                     if context is not None:
                         quality_verifier_context = {}
                         if context.processing_context is not None:
-                            processing_values = context.processing_context.values
-                            # ProcessingContext.values is dict[str, Any], no isinstance check needed
-                            quality_verifier_context.update(processing_values)
-                        # Provide RequestContext for cancellation and Quality Verifier gating.
+                            quality_verifier_context.update(
+                                context.processing_context.values
+                            )
                         quality_verifier_context["request_context"] = context
-                    decision = await self._apply_quality_verifier_verification(
-                        original_request,
-                        processed_response.content or "",
-                        quality_verifier_context,
+                        quality_verifier_context["session_id"] = session_id
+
+                    task = asyncio.create_task(
+                        self._apply_quality_verifier_verification(
+                            original_request,
+                            processed_response.content or "",
+                            quality_verifier_context,
+                        )
                     )
-                    if decision and decision.get("action") == "steer":
-                        corrected = decision.get("corrected_content", "")
-                        # Normalize content and metadata to ensure boundary safety
-                        normalized_corrected = normalize_to_processed_chunk_content(
-                            corrected
-                        )
-                        normalized_metadata = self._normalize_metadata(
-                            processed_response.metadata
-                        )
-                        processed_response = ProcessedResponse(
-                            content=normalized_corrected,
-                            usage=processed_response.usage,
-                            metadata=normalized_metadata,
-                        )
+                    self.add_background_task(task)
             except (KeyError, TypeError, ValueError, AttributeError):
-                # Be conservative: do not break normal flow on Quality Verifier errors
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning("Quality Verifier failed; continuing", exc_info=True)
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "Quality Verifier scheduling failed; continuing",
+                        exc_info=True,
+                    )
 
             return processed_response
 

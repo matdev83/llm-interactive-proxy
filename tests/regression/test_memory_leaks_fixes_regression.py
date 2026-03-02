@@ -1,5 +1,4 @@
 import asyncio
-import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -29,7 +28,8 @@ class TestMemoryLeaksFixesRegression:
         # Fill it exactly to the max
         for i in range(max_conns):
             activity = MagicMock()
-            activity.started_at = time.time()
+            # Deterministic "started_at" timestamps (oldest = smallest).
+            activity.started_at = float(i)
             tracker._connections[("test_backend", f"session_{i}")] = activity
 
         with tracker.track_connection(
@@ -79,34 +79,42 @@ class TestMemoryLeaksFixesRegression:
 
     @pytest.mark.asyncio
     async def test_cbor_wire_capture_cleanup(self):
+        import src.core.services.cbor_wire_capture_service as cwcs_module
+
         config = MagicMock()
         service = CborWireCaptureService(config=config)
         service._enabled = True
 
-        # Insert a stale entry
-        old_time = time.time() - 600 - 10  # > _REQUEST_TIMING_TTL_SECONDS
-        service._request_timings["old_req"] = _RequestTimingState(old_time)
+        now = 1_000_000.0
 
-        # Insert a new entry
-        service._request_timings["new_req"] = _RequestTimingState(time.time())
+        def mock_time_ns() -> int:
+            return int(now * 1_000_000_000)
 
-        ctx = MagicMock()
-        ctx.request_id = "new_req2"
-        ctx.b2bua_identity = None
+        with patch.object(cwcs_module.time, "time_ns", mock_time_ns):
+            # Insert a stale entry
+            old_time = now - 600 - 10  # > _REQUEST_TIMING_TTL_SECONDS
+            service._request_timings["old_req"] = _RequestTimingState(old_time)
 
-        with patch.object(service, "_buffer_entry", AsyncMock()):
-            await service.capture_outbound_request(
-                context=ctx,
-                session_id="sess1",
-                backend="b1",
-                model="m1",
-                key_name=None,
-                request_payload={},
-            )
+            # Insert a new entry
+            service._request_timings["new_req"] = _RequestTimingState(now)
 
-        assert "old_req" not in service._request_timings
-        assert "new_req" in service._request_timings
-        assert "new_req2" in service._request_timings
+            ctx = MagicMock()
+            ctx.request_id = "new_req2"
+            ctx.b2bua_identity = None
+
+            with patch.object(service, "_buffer_entry", AsyncMock()):
+                await service.capture_outbound_request(
+                    context=ctx,
+                    session_id="sess1",
+                    backend="b1",
+                    model="m1",
+                    key_name=None,
+                    request_payload={},
+                )
+
+            assert "old_req" not in service._request_timings
+            assert "new_req" in service._request_timings
+            assert "new_req2" in service._request_timings
 
     @pytest.mark.asyncio
     async def test_model_catalog_updater_close(self):

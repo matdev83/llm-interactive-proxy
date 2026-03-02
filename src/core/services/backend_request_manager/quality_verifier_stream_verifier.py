@@ -13,12 +13,10 @@ import asyncio
 import contextlib
 import json
 import logging
-import re
 import time
 from collections.abc import AsyncIterator
 from typing import Any, cast
 
-from src.core.common.exceptions import BackendError
 from src.core.common.session_key_resolver import (
     resolve_session_key_from_request_context,
 )
@@ -36,6 +34,9 @@ from src.core.interfaces.session_cancellation_coordinator_interface import (
     ISessionCancellationCoordinator,
 )
 from src.core.services.quality_verifier_service import QualityVerifierService
+from src.core.services.quality_verifier_steering_store import (
+    store_pending_quality_verifier_steering,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,9 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
         self._quality_verifier_service_factory = quality_verifier_service_factory
         self._provider = provider
         self._cancellation_coordinator = cancellation_coordinator
+        # Keep references to background tasks to avoid premature GC and to prevent
+        # "Task exception was never retrieved" warnings.
+        self._background_tasks: set[asyncio.Task[Any]] = set()
 
     def _extract_text_from_chunk(self, chunk: ProcessedResponse) -> str:
         """Extract textual content from a streaming chunk."""
@@ -374,14 +378,14 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                 return value.decode("utf-8", errors="ignore")
         return str(value)
 
-    async def verify_or_passthrough(  # type: ignore[override, misc]  # noqa: C901
+    async def verify_or_passthrough(  # type: ignore[override, misc]
         self,
         request: ChatRequest,
         stream: AsyncIterator[ProcessedResponse],
         context: StreamingContext,
         request_context: RequestContext | None = None,
     ) -> AsyncIterator[ProcessedResponse]:
-        """Return verified stream or original stream when no steering is needed.
+        """Pass through stream and optionally schedule assessment.
 
         Args:
             request: The original backend request
@@ -542,79 +546,49 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                         exc_info=True,
                     )
 
-        # If Quality Verifier is not enabled, pass through original stream
-        if not should_buffer:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Quality Verifier buffering NOT enabled (should_run=%s), passing through original stream",
-                    should_run,
-                )
-            async for chunk in stream:
-                yield chunk
-            return
+        # Always forward the original stream immediately. If scheduled, we capture
+        # the textual response in parallel and run the verifier asynchronously after
+        # the stream completes.
 
-        # Buffer chunks for verification
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Quality Verifier starting to buffer response chunks")
-        buffered_chunks: list[ProcessedResponse] = []
-        text_fragments: list[str] = []
-        total_buffered_bytes = 0
+        capture_enabled = bool(should_buffer)
+        captured_text_parts: list[str] = []
+        total_captured_bytes = 0
 
         async for chunk in stream:
-            buffered_chunks.append(chunk)
-            text_piece = self._extract_text_from_chunk(chunk)
-            if text_piece:
-                text_fragments.append(text_piece)
-                total_buffered_bytes += len(text_piece.encode("utf-8", errors="ignore"))
+            # Forward to client first.
+            yield chunk
 
-            # Check for buffer limit to avoid OOM (Fail-open)
-            if total_buffered_bytes > MAX_QUALITY_VERIFIER_BUFFER_BYTES:
+            if not capture_enabled:
+                continue
+
+            text_piece = self._extract_text_from_chunk(chunk)
+            if not text_piece:
+                continue
+
+            captured_text_parts.append(text_piece)
+            total_captured_bytes += len(text_piece.encode("utf-8", errors="ignore"))
+            if total_captured_bytes > MAX_QUALITY_VERIFIER_BUFFER_BYTES:
+                capture_enabled = False
+                captured_text_parts.clear()
                 if logger.isEnabledFor(logging.WARNING):
                     logger.warning(
-                        "Quality Verifier buffer limit exceeded (%d bytes); failing-open and forwarding original chunks",
-                        total_buffered_bytes,
+                        "Quality Verifier capture limit exceeded (%d bytes); skipping assessment for this turn",
+                        total_captured_bytes,
                     )
-                # Yield what we have so far
-                for buffered in buffered_chunks:
-                    yield buffered
-                # Yield the rest of the stream
-                async for remaining_chunk in stream:
-                    yield remaining_chunk
-                return
 
-        if not buffered_chunks:
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("Quality Verifier: no chunks buffered, returning")
+        combined_text = "".join(captured_text_parts).strip()
+        if not combined_text:
             return
 
-        combined_text = "".join(text_fragments)
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(
-                "Quality Verifier buffered %d chunks (%d text bytes)",
-                len(buffered_chunks),
-                len(combined_text),
-            )
+        if not should_buffer:
+            return
 
-        if not combined_text.strip():
-            # Empty text, just yield buffered chunks
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(
-                    "Quality Verifier: combined text empty, yielding buffered chunks"
+        async def _run_assessment_in_background() -> None:
+            try:
+                backend_service: IBackendService = self._provider.get_required_service(
+                    cast(type, IBackendService)
                 )
-            for buffered in buffered_chunks:
-                yield buffered
-            return
 
-        # Perform verification
-        if logger.isEnabledFor(logging.DEBUG):
-            logger.debug("Quality Verifier: preparing verification request")
-        try:
-            backend_service: IBackendService = self._provider.get_required_service(
-                cast(type, IBackendService)
-            )
-
-            if not quality_verifier_service_instance:
-                # Should not happen given the check above, but safe fallback
                 from src.core.interfaces.notification_service_interface import (
                     INotificationService,
                 )
@@ -623,351 +597,134 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     cast(Any, INotificationService)
                 )
 
-                created_instance = self._quality_verifier_service_factory.create(
-                    quality_verifier_model_spec or "",
-                    max_history=quality_verifier_max_history,
-                    max_consecutive_failures=quality_verifier_max_consecutive_failures,
-                    cooldown_seconds=quality_verifier_cooldown_seconds,
-                    notification_service=notification_service,
+                svc: QualityVerifierService = (
+                    self._quality_verifier_service_factory.create(
+                        quality_verifier_model_spec or "",
+                        max_history=quality_verifier_max_history,
+                        max_consecutive_failures=quality_verifier_max_consecutive_failures,
+                        cooldown_seconds=quality_verifier_cooldown_seconds,
+                        notification_service=notification_service,
+                    )
                 )
 
-                if created_instance is None:
-                    # Fail-open: return original chunks if service creation fails
-                    for buffered in buffered_chunks:
-                        yield buffered
+                if not svc.is_enabled() or not svc.is_healthy():
                     return
-                quality_verifier_service_instance = created_instance
 
-            # Type guard: ensure quality_verifier_service_instance is not None
-            if quality_verifier_service_instance is None:
-                for buffered in buffered_chunks:
-                    yield buffered
-                return
-
-            verification_request = (
-                quality_verifier_service_instance.build_verification_request(
-                    request, combined_text
-                )
-            )
-
-            def _ensure_quality_verifier_not_cancelled() -> None:
+                # Cancellation gate (best effort)
                 if self._cancellation_coordinator and request_context:
-                    session_key = resolve_session_key_from_request_context(
+                    cancel_session_key = resolve_session_key_from_request_context(
                         request_context
                     )
-                    if session_key:
-                        self._cancellation_coordinator.ensure_not_cancelled(session_key)
-
-            async def _call_quality_verifier_once(
-                quality_verifier_request: ChatRequest,
-            ) -> str | None:
-                try:
-                    _ensure_quality_verifier_not_cancelled()
-
-                    if logger.isEnabledFor(logging.INFO):
-                        session_id = str(context.get("session_id") or "")
-                        stream_id = str(context.get("stream_id") or "")
-                        logger.info(
-                            "Quality Verifier calling backend (session=%s stream=%s model=%s)",
-                            session_id or "unknown",
-                            stream_id or "unknown",
-                            quality_verifier_model_spec,
+                    if cancel_session_key:
+                        self._cancellation_coordinator.ensure_not_cancelled(
+                            cancel_session_key
                         )
 
-                    quality_verifier_response = await backend_service.chat_completions(
-                        quality_verifier_request,
+                verification_request = svc.build_verification_request(
+                    request, combined_text
+                )
+
+                try:
+                    verifier_response = await backend_service.chat_completions(
+                        verification_request,
                         stream=True,
                         allow_failover=True,
                         context=request_context,
                     )
+                except Exception:
+                    await svc.report_failure()
+                    return
 
-                    if self._response_indicates_backend_error(
-                        quality_verifier_response
-                    ):
-                        await quality_verifier_service_instance.report_failure()
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Quality Verifier model returned error response; "
-                                "failing-open and forwarding original chunks"
-                            )
-                        return None
+                if self._response_indicates_backend_error(verifier_response):
+                    await svc.report_failure()
+                    return
 
-                    if isinstance(quality_verifier_response, StreamingResponseEnvelope):
-                        quality_verifier_text = await self._collect_streaming_quality_verifier_text(
-                            quality_verifier_response,
+                try:
+                    if isinstance(verifier_response, StreamingResponseEnvelope):
+                        verifier_text = await self._collect_streaming_quality_verifier_text(
+                            verifier_response,
                             ttft_timeout_seconds=quality_verifier_ttft_timeout_seconds,
                         )
-                        if quality_verifier_text is None:
-                            await quality_verifier_service_instance.report_failure()
-                            if logger.isEnabledFor(logging.WARNING):
-                                logger.warning(
-                                    "Quality Verifier stream ended with backend error; "
-                                    "failing-open and forwarding original chunks"
-                                )
-                            return None
+                        if verifier_text is None:
+                            await svc.report_failure()
+                            return
                     else:
-                        quality_verifier_text = self._extract_text_from_response(
-                            quality_verifier_response
+                        verifier_text = self._extract_text_from_response(
+                            verifier_response
                         )
-
-                    await quality_verifier_service_instance.report_success()
-                    return quality_verifier_text
                 except asyncio.TimeoutError:
-                    await quality_verifier_service_instance.report_failure()
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Quality Verifier TTFT timeout after %.1fs; "
-                            "failing-open and forwarding original chunks",
-                            quality_verifier_ttft_timeout_seconds,
-                        )
-                    return None
-                except BackendError as e:
-                    await quality_verifier_service_instance.report_failure()
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Quality Verifier model call failed (%s); "
-                            "failing-open and forwarding original chunks",
-                            e.message,
-                        )
-                    return None
-                except Exception as e:
-                    await quality_verifier_service_instance.report_failure()
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Quality Verifier model call failed (%s); failing-open and forwarding original chunks",
-                            type(e).__name__,
-                            exc_info=True,
-                        )
-                    return None
+                    await svc.report_failure()
+                    return
+                except Exception:
+                    await svc.report_failure()
+                    return
 
-            quality_verifier_text = await _call_quality_verifier_once(
-                verification_request
-            )
-            if quality_verifier_text is None:
-                for buffered in buffered_chunks:
-                    yield buffered
-                return
-
-            is_valid_format, invalid_reason = (
-                quality_verifier_service_instance.validate_quality_verifier_output_format(
-                    quality_verifier_text
+                is_valid, _reason = svc.validate_quality_verifier_output_format(
+                    verifier_text or ""
                 )
-            )
-            if not is_valid_format:
-                _session_id = str(context.get("session_id") or "unknown")
+                if not is_valid:
+                    # Soft fail: ignore bad formats. Count as failure so circuit breaker can
+                    # disable a misconfigured verifier without impacting the client.
+                    await svc.report_failure()
+                    if logger.isEnabledFor(logging.DEBUG):
+                        logger.debug(
+                            "Quality Verifier output invalid; ignoring (%s)",
+                            _reason or "invalid format",
+                        )
+                    return
+
+                decision = svc.parse_quality_verifier_output(verifier_text or "")
+                steering_msg = (decision.steering_message or "").strip()
+                if decision.decision != "steer" or not steering_msg:
+                    await svc.report_success()
+                    return
+
+                await svc.report_success()
+
+                if request_context is None:
+                    return
+                app_state = getattr(request_context, "app_state", None)
+                if app_state is None:
+                    return
+
+                session_key_value = (
+                    request_context.extensions.get(
+                        "quality_verifier_effective_session_id"
+                    )
+                    if hasattr(request_context, "extensions")
+                    else None
+                )
+                session_key = str(
+                    session_key_value
+                    or context.get("session_id")
+                    or request_context.session_id
+                    or ""
+                ).strip()
+                if not session_key:
+                    return
+
+                store_pending_quality_verifier_steering(
+                    app_state=app_state,
+                    session_key=session_key,
+                    steering_message=steering_msg,
+                )
+            except Exception:
                 if logger.isEnabledFor(logging.DEBUG):
-                    snippet = (
-                        quality_verifier_text[:500]
-                        if quality_verifier_text
-                        else "(empty)"
-                    )
                     logger.debug(
-                        "Quality Verifier response format invalid (session=%s reason=%s): %s",
-                        _session_id,
-                        invalid_reason or "unknown",
-                        snippet,
-                    )
-                if logger.isEnabledFor(logging.INFO):
-                    logger.info(
-                        "Quality Verifier retrying due to invalid format (session=%s reason=%s)",
-                        _session_id,
-                        invalid_reason or "unknown",
-                    )
-                retry_request = quality_verifier_service_instance.build_invalid_format_retry_request(
-                    verification_request,
-                    quality_verifier_text,
-                    invalid_reason,
-                )
-                retry_text = await _call_quality_verifier_once(retry_request)
-                if retry_text is None:
-                    for buffered in buffered_chunks:
-                        yield buffered
-                    return
-                quality_verifier_text = retry_text
-
-                is_valid_format, invalid_reason = (
-                    quality_verifier_service_instance.validate_quality_verifier_output_format(
-                        quality_verifier_text
-                    )
-                )
-                if not is_valid_format:
-                    if logger.isEnabledFor(logging.WARNING):
-                        logger.warning(
-                            "Quality Verifier response still invalid after single retry; failing-open and forwarding original chunks (%s)",
-                            invalid_reason or "invalid format",
-                        )
-                    for buffered in buffered_chunks:
-                        yield buffered
-                    return
-
-            decision = quality_verifier_service_instance.parse_quality_verifier_output(
-                quality_verifier_text
-            )
-            steering_msg = (decision.steering_message or "").strip()
-
-            _session_id = str(context.get("session_id") or "unknown")
-            if logger.isEnabledFor(logging.INFO):
-                logger.info(
-                    "Quality Verifier decision: %s (session=%s has_steering_message=%s)",
-                    decision.decision,
-                    _session_id,
-                    bool(steering_msg),
-                )
-
-            # If no steering needed, pass through original chunks
-            if decision.decision != "steer" or not steering_msg:
-                for buffered in buffered_chunks:
-                    yield buffered
-                return
-
-            # Build correction request and get corrected response
-            correction_request = (
-                quality_verifier_service_instance.build_correction_request(
-                    request, combined_text, steering_msg
-                )
-            )
-
-            # Tag the quality verifier steering message as non-forwardable and set injection boundary
-            if correction_request.messages and request_context:
-                from src.core.domain.non_forwardable import NonForwardableTagScope
-                from src.core.interfaces.non_forwardable_interface import (
-                    INonForwardableMessageIdentityService,
-                    INonForwardableMessageRegistry,
-                )
-                from src.core.services.non_forwardable_message_enforcer import (
-                    PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
-                )
-
-                # Get registry and identity service from provider
-                non_forwardable_registry = self._provider.get_service(
-                    cast(type, INonForwardableMessageRegistry)
-                )
-                non_forwardable_identity_service = self._provider.get_service(
-                    cast(type, INonForwardableMessageIdentityService)
-                )
-
-                # Find the steering message (last user message with steering marker)
-                steering_message = None
-                for msg in reversed(correction_request.messages):
-                    if msg.role == "user" and "QUALITY VERIFIER STEERING" in (
-                        str(msg.content) or ""
-                    ):
-                        steering_message = msg
-                        break
-
-                if (
-                    steering_message
-                    and non_forwardable_registry
-                    and non_forwardable_identity_service
-                ):
-                    session_id = request_context.session_id or "unknown"
-                    try:
-                        identity = non_forwardable_identity_service.compute_identity(
-                            steering_message
-                        )
-                        await non_forwardable_registry.tag_identities(
-                            session_id=session_id,
-                            identities=[identity],
-                            scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
-                            reason="quality_verifier_steering",
-                        )
-                        # Set injection boundary
-                        injection_start_index = len(request.messages)
-                        request_context.extensions[
-                            PROXY_INJECTED_MESSAGES_START_INDEX_KEY
-                        ] = injection_start_index
-                    except Exception as e:
-                        # LOG BUT DO NOT BREAK MAIN FLOW
-                        # Steering is not a security feature, tagging failure is acceptable here
-                        # if it means we can still recover the session
-                        if logger.isEnabledFor(logging.WARNING):
-                            logger.warning(
-                                "Failed to tag quality verifier steering message as non-forwardable: %s",
-                                e,
-                                exc_info=True,
-                            )
-
-            # Cancellation gate: ensure session is not cancelled before Quality Verifier correction backend call
-            if self._cancellation_coordinator and request_context:
-                session_key = resolve_session_key_from_request_context(request_context)
-                if session_key:
-                    self._cancellation_coordinator.ensure_not_cancelled(session_key)
-
-            try:
-                if logger.isEnabledFor(logging.INFO):
-                    session_id = str(context.get("session_id") or "")
-                    stream_id = str(context.get("stream_id") or "")
-                    logger.info(
-                        "Quality Verifier requesting correction (session=%s stream=%s)",
-                        session_id or "unknown",
-                        stream_id or "unknown",
-                    )
-                corrected_response = await backend_service.chat_completions(
-                    correction_request,
-                    stream=False,
-                    allow_failover=True,
-                    context=request_context,
-                )
-                corrected_text = self._extract_text_from_response(corrected_response)
-            except Exception as e:
-                # Fail-open if correction call fails
-                if logger.isEnabledFor(logging.WARNING):
-                    logger.warning(
-                        "Quality Verifier correction call failed (%s); failing-open and forwarding original chunks",
-                        type(e).__name__,
+                        "Quality Verifier background assessment failed",
                         exc_info=True,
                     )
-                for buffered in buffered_chunks:
-                    yield buffered
-                return
 
-            # Prevent internal override markers from reaching the client.
-            cleaned = re.sub(
-                r"<override_quality_verifier>[\s\S]*?</override_quality_verifier>",
-                "",
-                str(corrected_text or ""),
-                flags=re.IGNORECASE,
-            )
-            cleaned = re.sub(
-                r"<override_quality_verifier\s*/\s*>",
-                "",
-                cleaned,
-                flags=re.IGNORECASE,
-            ).strip()
+        try:
+            task = asyncio.create_task(_run_assessment_in_background())
+            self._background_tasks.add(task)
 
-            if not cleaned:
-                # Fail-open: forward original chunks if the correction contains no usable content.
-                for buffered in buffered_chunks:
-                    yield buffered
-                return
+            def _consume_task_result(t: asyncio.Task[Any]) -> None:
+                self._background_tasks.discard(t)
+                with contextlib.suppress(Exception):
+                    _ = t.result()
 
-            if logger.isEnabledFor(logging.INFO):
-                _session_id = str(context.get("session_id") or "unknown")
-                logger.info(
-                    "Quality Verifier steering applied (session=%s corrected_length=%d)",
-                    _session_id,
-                    len(cleaned),
-                )
-
-            # Yield corrected output with steering replacement marker
-            yield ProcessedResponse(
-                content=cleaned,
-                metadata={
-                    "corrected_by_quality_verifier": True,
-                    "is_done": True,
-                    "quality_verifier_decision": "steer",
-                    "_steering_replacement": True,
-                },
-            )
-
-        except Exception as e:
-            # Final catch-all for any unexpected errors during verification/correction
-            if logger.isEnabledFor(logging.WARNING):
-                logger.warning(
-                    "Quality Verifier process encountered an unexpected error (%s); "
-                    "failing-open and forwarding original chunks",
-                    type(e).__name__,
-                    exc_info=True,
-                )
-            for buffered in buffered_chunks:
-                yield buffered
+            task.add_done_callback(_consume_task_result)
+        except Exception:
+            # If we cannot schedule, just skip assessment.
+            return

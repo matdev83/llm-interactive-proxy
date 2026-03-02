@@ -10,6 +10,7 @@ Tests cover:
 
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -99,9 +100,16 @@ async def test_transform_pipeline_preserves_ordering(
         transformation_order.append("tool_filtering")
         return request
 
+    async def mock_quality_verifier_injection(ctx, session, session_id, request):
+        transformation_order.append("quality_verifier_steering")
+        return request
+
     pipeline._apply_redaction = mock_redaction  # type: ignore
     pipeline._apply_edit_precision = mock_precision  # type: ignore
     pipeline._apply_tool_filtering = mock_filtering  # type: ignore
+    pipeline._apply_quality_verifier_steering_injection = (  # type: ignore
+        mock_quality_verifier_injection
+    )
 
     # Execute transformation
     await pipeline.transform(
@@ -109,7 +117,48 @@ async def test_transform_pipeline_preserves_ordering(
     )
 
     # Verify ordering
-    assert transformation_order == ["redaction", "edit_precision", "tool_filtering"]
+    assert transformation_order == [
+        "redaction",
+        "edit_precision",
+        "tool_filtering",
+        "quality_verifier_steering",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_quality_verifier_steering_injection_appends_system_message(
+    mock_app_state: IApplicationState,
+    request_context: RequestContext,
+    basic_request: ChatRequest,
+    basic_session: Mock,
+) -> None:
+    """Pending Quality Verifier steering should be injected as a system message."""
+    pipeline = RequestTransformPipeline(app_state=mock_app_state)
+
+    # Arrange: store pending steering in app_state settings
+    pending_key = "quality_verifier_pending_steering_v1"
+
+    def _get_setting(key: str, default: Any = None) -> Any:
+        if key == pending_key:
+            return {"qv-sess": {"message": "Do X", "created_at": 0.0}}
+        return default
+
+    cast(Any, mock_app_state).get_setting.side_effect = _get_setting
+
+    # Ensure effective session key is used
+    request_context.extensions["quality_verifier_effective_session_id"] = "qv-sess"
+
+    result = await pipeline.transform(
+        request_context,
+        basic_session,
+        "test-session-id",
+        basic_request,
+    )
+
+    assert isinstance(result, ChatRequest)
+    assert result.messages
+    assert result.messages[-1].role == "system"
+    assert "QUALITY VERIFIER" in str(result.messages[-1].content).upper()
 
 
 # ==============================================================================
@@ -591,6 +640,7 @@ async def test_tool_filtering_preserves_original_request(
     mock_app_state = MagicMock(spec=IApplicationState)
     mock_policy_service = MagicMock()
     # Filter out one tool
+    assert request_with_tools.tools is not None
     filtered_tools = [request_with_tools.tools[0]]
     from src.core.services.tool_access_policy_service import (
         ToolFilterMetadata,

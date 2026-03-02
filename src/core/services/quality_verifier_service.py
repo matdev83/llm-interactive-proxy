@@ -59,16 +59,12 @@ def get_quality_verifier_prompt_loader() -> QualityVerifierPromptLoader:
 class QualityVerifierService:
     """Service orchestrating Quality Verifier and steering."""
 
-    _PASS_DECISION_RE = re.compile(
-        r"<quality_verifier_decision>\s*Pass\s*</quality_verifier_decision>",
+    _NO_STEERING_RE = re.compile(
+        r"<status>\s*NO_STEERING_NEEDED\s*</status>",
         re.IGNORECASE,
     )
-    _STEER_DECISION_RE = re.compile(
-        r"<quality_verifier_decision>\s*Steer\s*</quality_verifier_decision>",
-        re.IGNORECASE,
-    )
-    _STEERING_MESSAGE_RE = re.compile(
-        r"<quality_verifier_steering_message>([\s\S]*?)</quality_verifier_steering_message>",
+    _STEERING_RE = re.compile(
+        r"<steering>([\s\S]*?)</steering>",
         re.IGNORECASE,
     )
     _TOOL_DEFINITION_TAG_RE = re.compile(
@@ -126,7 +122,8 @@ class QualityVerifierService:
         with _health_lock:
             if self._model_spec in _model_health:
                 logger.debug(
-                    "Resetting health state for Quality Verifier model %s", self._model_spec
+                    "Resetting health state for Quality Verifier model %s",
+                    self._model_spec,
                 )
                 del _model_health[self._model_spec]
 
@@ -393,35 +390,21 @@ class QualityVerifierService:
     def validate_quality_verifier_output_format(
         self, text: str
     ) -> tuple[bool, str | None]:
-        pass_match = bool(self._PASS_DECISION_RE.search(text))
-        steer_match = bool(self._STEER_DECISION_RE.search(text))
-        steering_message_match = self._STEERING_MESSAGE_RE.search(text)
+        no_steering_match = bool(self._NO_STEERING_RE.search(text))
+        steering_match = self._STEERING_RE.search(text)
 
-        if pass_match and steer_match:
-            return False, "Response contains conflicting Pass and Steer decisions."
+        if no_steering_match and steering_match:
+            return False, "Response contains both <status> and <steering> tags."
 
-        if pass_match:
-            if steering_message_match:
-                return (
-                    False,
-                    "Pass decision must not include <quality_verifier_steering_message>.",
-                )
+        if no_steering_match:
             return True, None
 
-        if steer_match:
-            if not steering_message_match:
-                return (
-                    False,
-                    "Steer decision is missing <quality_verifier_steering_message>.",
-                )
-            if not steering_message_match.group(1).strip():
-                return False, "Steering message tag is empty."
+        if steering_match:
+            if not (steering_match.group(1) or "").strip():
+                return False, "<steering> tag is empty."
             return True, None
 
-        if steering_message_match:
-            return False, "Missing <quality_verifier_decision> tag."
-
-        return False, "Missing required XML decision tags."
+        return False, "Missing required <status> or <steering> XML tags."
 
     def build_invalid_format_retry_request(
         self,
@@ -444,10 +427,9 @@ class QualityVerifierService:
             "<invalid_quality_verifier_reply>\n"
             f"{invalid_clean or '(empty response)'}\n"
             "</invalid_quality_verifier_reply>\n\n"
-            "Regenerate your audit now. Output must strictly follow one format:\n"
-            "1) <quality_verifier_decision>Pass</quality_verifier_decision>\n"
-            "2) <quality_verifier_decision>Steer</quality_verifier_decision> and "
-            "<quality_verifier_steering_message>...</quality_verifier_steering_message>\n"
+            "Regenerate your output now. It must be EXACTLY one of:\n"
+            "1) <status>NO_STEERING_NEEDED</status>\n"
+            "2) <steering>...short actionable steering note...</steering>\n"
             "Do not include any extra wrappers or prose outside the required XML tags."
         )
 
@@ -535,23 +517,19 @@ class QualityVerifierService:
             QualityVerifierDecision with 'pass' or 'steer' and optional steering message.
         """
         try:
-            # Explicit Pass check
-            if self._PASS_DECISION_RE.search(text):
+            if self._NO_STEERING_RE.search(text):
                 return QualityVerifierDecision(decision="pass")
 
-            # Explicit Steer check
-            steer_match = self._STEER_DECISION_RE.search(text)
-            message_match = self._STEERING_MESSAGE_RE.search(text)
+            steering_match = self._STEERING_RE.search(text)
+            if steering_match:
+                msg = (steering_match.group(1) or "").strip()
+                if msg:
+                    return QualityVerifierDecision(
+                        decision="steer",
+                        steering_message=msg,
+                    )
 
-            if steer_match or message_match:
-                msg = (
-                    message_match.group(1).strip()
-                    if message_match
-                    else "Correction required."
-                )
-                return QualityVerifierDecision(decision="steer", steering_message=msg)
-
-            # Default to pass if output is ambiguous or fails to use tags
+            # Soft fail-open: ignore malformed / free-form output
             return QualityVerifierDecision(decision="pass")
         except Exception as e:
             # Absolute fail-open: return pass on any parsing error

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock
@@ -48,7 +49,7 @@ class _RecordingBackendService:
         self.categories.append(category)
         if category == "quality_verifier_verification":
             return ResponseEnvelope(
-                content="<quality_verifier_decision>Pass</quality_verifier_decision>",
+                content="<status>NO_STEERING_NEEDED</status>",
                 status_code=200,
                 headers={},
             )
@@ -200,5 +201,8 @@ async def test_quality_verifier_flow_uses_shared_backend_service_entrypoint() ->
     assert result.content is not None
     async for _ in result.content:
         pass
+
+    # Quality Verifier runs asynchronously after stream completion.
+    await asyncio.sleep(0)
 
     assert "quality_verifier_verification" in backend_service.categories

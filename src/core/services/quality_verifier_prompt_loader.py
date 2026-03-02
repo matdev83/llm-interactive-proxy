@@ -21,23 +21,19 @@ class QualityVerifierPromptInfo(BaseModel):
 
 
 FALLBACK_QUALITY_VERIFIER_PROMPT = (
-    "You are `Quality Verifier`, an autonomous Quality Assurance Auditor. You sit at a "
-    "proxy level between a Main Assistant and a User.\n"
-    "The last message in the provided conversation history is a draft response from the "
-    "Main Assistant. It has not been seen by the user yet.\n"
-    "Audit the draft for technical errors, logic failures, or stagnation.\n\n"
-    "Decision format:\n"
-    "- Pass: <quality_verifier_decision>Pass</quality_verifier_decision>\n"
-    "- Steer: <quality_verifier_decision>Steer</quality_verifier_decision> and "
-    "<quality_verifier_steering_message>...</quality_verifier_steering_message>\n"
+    "You are `Quality Verifier`, a private assessment and steering helper for the Main Assistant.\n"
+    "Your feedback is delivered privately to the Main Assistant and is NOT shown to the user.\n"
+    "Do NOT mention proxy mechanics (no 'blocked', 'intercepted', 'prevented from reaching the client', etc.).\n\n"
+    "Output protocol (strict): return exactly ONE of:\n"
+    "- <status>NO_STEERING_NEEDED</status>\n"
+    "- <steering>...short actionable steering message...</steering>\n"
 )
 
 FALLBACK_STEERING_TEMPLATE = (
-    "Hi there. I am an automated verification system monitoring this session to ensure "
-    "quality and prevent errors.\n"
-    "The detected problem is as follows:\n"
-    "<detected_problem>\n{quality_verifier_steering_message}\n</detected_problem>\n"
-    "Please re-generate and submit a corrected message."
+    "You are receiving a private steering note from `Quality Verifier`.\n\n"
+    "This note is not from the user. Do not quote it to the user or mention any verification system.\n"
+    "Use it only to adjust your plan and improve progress on the user's request.\n\n"
+    "<quality_verifier_steering>\n{quality_verifier_steering_message}\n</quality_verifier_steering>\n"
 )
 
 
@@ -92,9 +88,7 @@ class QualityVerifierPromptLoader:
                     )
 
             if not self._steering_template:
-                logger.warning(
-                    "Using fallback steering template (hardcoded default)"
-                )
+                logger.warning("Using fallback steering template (hardcoded default)")
                 self._steering_template = FALLBACK_STEERING_TEMPLATE
 
             self._loaded = True
@@ -104,7 +98,9 @@ class QualityVerifierPromptLoader:
                 len(self._steering_template),
             )
         except Exception as e:
-            logger.error("Failed to load Quality Verifier prompts: %s", e, exc_info=True)
+            logger.error(
+                "Failed to load Quality Verifier prompts: %s", e, exc_info=True
+            )
             raise
 
     @property

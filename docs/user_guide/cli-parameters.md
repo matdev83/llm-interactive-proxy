@@ -128,6 +128,7 @@ Configuration is resolved in the following order (highest to lowest priority):
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--log-level LEVEL` | `LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL). |
+| `--log-stream {stdout,stderr}` | N/A | Write console logs to stdout or stderr (default: stderr). |
 | `--log FILE` | `LOG_FILE` | Path to log file. |
 | `--log-colors` | `LOG_COLORS=true` | Enable colored log output. |
 | `--no-log-colors` | `LOG_COLORS=false` | Disable colored log output. |

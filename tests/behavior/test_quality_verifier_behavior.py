@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -8,6 +9,9 @@ from src.core.config.app_config import AppConfig, SessionConfig
 from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.response_parser_interface import IResponseParser
+from src.core.services.quality_verifier_steering_store import (
+    PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY,
+)
 from src.core.services.response_processor_service import ResponseProcessor
 from src.core.services.streaming.content_accumulation_processor import (
     ContentAccumulationProcessor,
@@ -32,21 +36,27 @@ class _DummyParser:
 class _DummyAppState:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
+        self._settings: dict[str, Any] = {}
 
-    def get_setting(self, key: str) -> Any:
+    def get_setting(self, key: str, default: Any = None) -> Any:
         if key == "app_config":
             return self._config
-        raise KeyError(key)
+        return self._settings.get(key, default)
+
+    def set_setting(self, key: str, value: Any) -> None:
+        self._settings[key] = value
+
+    def get_service(self, _t: Any) -> Any:
+        return None
 
 
-def _make_processor(config: AppConfig) -> ResponseProcessor:
-    """Create a ResponseProcessor with the unified pipeline architecture."""
+def _make_processor(app_state: _DummyAppState) -> ResponseProcessor:
     stream_normalizer = StreamNormalizer([ContentAccumulationProcessor()])
     processor = ResponseProcessor(
         response_parser=cast(IResponseParser, _DummyParser()),
         stream_normalizer=stream_normalizer,
     )
-    processor._app_state = _DummyAppState(config)  # type: ignore[attr-defined]
+    processor._app_state = app_state  # type: ignore[attr-defined]
     return processor
 
 
@@ -55,7 +65,8 @@ async def test_quality_verifier_disabled_does_not_call_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = AppConfig(session=SessionConfig(quality_verifier_model=None))
-    processor = _make_processor(config)
+    app_state = _DummyAppState(config)
+    processor = _make_processor(app_state)
 
     provider_called = False
 
@@ -74,8 +85,9 @@ async def test_quality_verifier_disabled_does_not_call_backend(
         headers={},
         cookies={},
         state=None,
-        app_state=None,
+        app_state=app_state,
         original_request=original_request,
+        session_id="s1",
     )
     result = await processor.process_response(
         {"content": "World"},
@@ -87,7 +99,7 @@ async def test_quality_verifier_disabled_does_not_call_backend(
 
 
 @pytest.mark.asyncio
-async def test_override_marker_never_reaches_client(
+async def test_quality_verifier_steering_is_private_and_does_not_modify_content(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = AppConfig(
@@ -95,20 +107,15 @@ async def test_override_marker_never_reaches_client(
             quality_verifier_model="demo", quality_verifier_frequency=1
         )
     )
-    processor = _make_processor(config)
+    app_state = _DummyAppState(config)
+    processor = _make_processor(app_state)
 
     class DummyBackendService:
         calls = 0
 
         async def chat_completions(self, req: Any, *args: Any, **kwargs: Any) -> Any:
             self.calls += 1
-            if self.calls == 1:
-                return SimpleNamespace(
-                    content="<quality_verifier_steering_message>Something</quality_verifier_steering_message>"
-                )
-            return SimpleNamespace(
-                content="<override_quality_verifier>True</override_quality_verifier>"
-            )
+            return SimpleNamespace(content="<steering>Do Y instead</steering>")
 
     service = DummyBackendService()
 
@@ -131,78 +138,24 @@ async def test_override_marker_never_reaches_client(
         headers={},
         cookies={},
         state=None,
-        app_state=None,
+        app_state=app_state,
         original_request=original_request,
+        session_id="s2",
     )
+
     result = await processor.process_response(
         {"content": "Initial"},
         session_id="s2",
         context=context,
     )
 
-    content_str = str(result.content or "")
-    assert "<override_quality_verifier>" not in content_str
-    assert content_str == "Initial"
-    assert service.calls == 2
+    assert str(result.content or "") == "Initial"
 
-
-@pytest.mark.asyncio
-async def test_client_never_sees_angel_xml(monkeypatch: pytest.MonkeyPatch) -> None:
-    config = AppConfig(
-        session=SessionConfig(
-            quality_verifier_model="demo", quality_verifier_frequency=1
-        )
-    )
-    processor = _make_processor(config)
-
-    class DummyBackendService:
-        calls = 0
-
-        async def chat_completions(self, req: Any, *args: Any, **kwargs: Any) -> Any:
-            self.calls += 1
-            if self.calls == 1:
-                return SimpleNamespace(
-                    content=(
-                        "<quality_verifier_decision>Steer</quality_verifier_decision>"
-                        "<quality_verifier_steering_message>Fix</quality_verifier_steering_message>"
-                    )
-                )
-            return SimpleNamespace(content="Final answer")
-
-    service = DummyBackendService()
-
-    class DummyProvider:
-        def get_required_service(self, t: Any) -> Any:
-            return service
-
-        def get_service(self, t: Any) -> Any:
-            return None
-
-    monkeypatch.setattr(
-        "src.core.di.services.get_service_provider", lambda: DummyProvider()
-    )
-
-    original_request = ChatRequest(
-        model="any",
-        messages=[ChatMessage(role="user", content="Hello")],
-    )
-    context = RequestContext(
-        headers={},
-        cookies={},
-        state=None,
-        app_state=None,
-        original_request=original_request,
-    )
-    result = await processor.process_response(
-        {"content": "Initial"},
-        session_id="s3",
-        context=context,
-    )
-
-    content_str = str(result.content or "")
-    assert "<quality_verifier_steering_message>" not in content_str
-    assert "<quality_verifier_decision>" not in content_str
-    assert content_str == "Final answer"
+    await asyncio.sleep(0)
+    assert service.calls == 1
+    pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
+    assert isinstance(pending, dict)
+    assert "s2" in pending
 
 
 @pytest.mark.asyncio
@@ -214,7 +167,8 @@ async def test_quality_verifier_frequency_can_skip_turns(
             quality_verifier_model="demo", quality_verifier_frequency=10
         )
     )
-    processor = _make_processor(config)
+    app_state = _DummyAppState(config)
+    processor = _make_processor(app_state)
 
     class DummyBackendService:
         async def chat_completions(self, req: Any, *args: Any, **kwargs: Any) -> Any:
@@ -239,12 +193,13 @@ async def test_quality_verifier_frequency_can_skip_turns(
         headers={},
         cookies={},
         state=None,
-        app_state=None,
+        app_state=app_state,
         original_request=original_request,
+        session_id="s3",
     )
     result = await processor.process_response(
         {"content": "First turn"},
-        session_id="s4",
+        session_id="s3",
         context=context,
     )
     assert result.content == "First turn"

@@ -10,7 +10,7 @@ from src.core.services.quality_verifier_service import (
 
 def test_parse_quality_verifier_output_pass() -> None:
     svc = QualityVerifierService("openai:gpt-4o-mini")
-    decision = svc.parse_quality_verifier_output("<quality_verifier_decision>Pass</quality_verifier_decision>")
+    decision = svc.parse_quality_verifier_output("<status>NO_STEERING_NEEDED</status>")
     assert decision.decision == "pass"
     assert decision.steering_message is None
 
@@ -18,9 +18,9 @@ def test_parse_quality_verifier_output_pass() -> None:
 def test_parse_quality_verifier_output_steer() -> None:
     svc = QualityVerifierService("openai:gpt-4o-mini")
     text = """
-<quality_verifier_steering_message>
+<steering>
 Use tool X instead of Y.
-</quality_verifier_steering_message>
+</steering>
 """
     decision = svc.parse_quality_verifier_output(text)
     assert decision.decision == "steer"
@@ -38,7 +38,10 @@ def test_build_verification_messages_includes_prompt() -> None:
     )
     messages = svc.build_verification_messages(request, "draft response")
     assert messages[0].role == "system"
-    assert messages[0].content == get_quality_verifier_prompt_loader().quality_verifier_prompt
+    assert (
+        messages[0].content
+        == get_quality_verifier_prompt_loader().quality_verifier_prompt
+    )
     assert messages[-1].role == "assistant"
     assert messages[-1].content == "draft response"
 
@@ -136,7 +139,10 @@ def test_build_verification_request_uses_default_backend() -> None:
     assert verification.model == "openai:gpt-4o-mini"
     assert verification.stream is False
     assert verification.messages[0].role == "system"
-    assert verification.messages[0].content == get_quality_verifier_prompt_loader().quality_verifier_prompt
+    assert (
+        verification.messages[0].content
+        == get_quality_verifier_prompt_loader().quality_verifier_prompt
+    )
     assert verification.messages[-1].role == "assistant"
     assert verification.messages[-1].content == "Draft reply"
 
@@ -215,7 +221,10 @@ def test_build_verification_messages_strips_main_system_messages() -> None:
     messages = svc.build_verification_messages(request, "Latest draft")
 
     assert messages[0].role == "system"
-    assert messages[0].content == get_quality_verifier_prompt_loader().quality_verifier_prompt
+    assert (
+        messages[0].content
+        == get_quality_verifier_prompt_loader().quality_verifier_prompt
+    )
     assert all(
         not (m.role == "system" and str(m.content) == "MAIN SYSTEM PROMPT")
         for m in messages[1:]
@@ -239,23 +248,29 @@ def test_build_verification_messages_strips_serialized_tool_definitions() -> Non
     messages = svc.build_verification_messages(request, "draft")
 
     assert messages[1].role == "user"
-    assert messages[1].content == "[Tool definitions omitted for Quality Verifier audit.]"
+    assert (
+        messages[1].content == "[Tool definitions omitted for Quality Verifier audit.]"
+    )
 
 
 @pytest.mark.parametrize(
     "angel_output, is_valid, reason_fragment",
     [
-        ("<quality_verifier_decision>Pass</quality_verifier_decision>", True, None),
+        ("<status>NO_STEERING_NEEDED</status>", True, None),
         (
-            "<quality_verifier_decision>Steer</quality_verifier_decision><quality_verifier_steering_message>Fix it</quality_verifier_steering_message>",
+            "<steering>Fix it</steering>",
             True,
             None,
         ),
-        ("I think this looks okay.", False, "Missing required XML decision tags"),
         (
-            "<quality_verifier_decision>Steer</quality_verifier_decision>",
+            "I think this looks okay.",
             False,
-            "missing <quality_verifier_steering_message>",
+            "Missing required <status> or <steering>",
+        ),
+        (
+            "<steering>   </steering>",
+            False,
+            "empty",
         ),
     ],
 )

@@ -81,6 +81,7 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
         *,
         target_temperature: float = 0.1,
         min_top_p: float | None = 0.3,
+        target_top_k: int | None = None,
         extra_patterns: Iterable[str] | None = None,
         force_apply: bool = False,
         temperatures_config: EditPrecisionTemperaturesConfig | None = None,
@@ -89,8 +90,11 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
         self._min_top_p = None if min_top_p is None else max(0.0, float(min_top_p))
         self._force_apply = force_apply
         self._logger = logging.getLogger(__name__)
-        # Optional target top_k may be injected via context in RequestProcessor; default None here
-        self._target_top_k: int | None = None
+        # Optional target top_k from configuration (best effort).
+        try:
+            self._target_top_k = int(target_top_k) if target_top_k is not None else None
+        except (TypeError, ValueError):
+            self._target_top_k = None
         # Model-specific temperatures configuration
         self._temperatures_config = (
             temperatures_config or EditPrecisionTemperaturesConfig()
@@ -147,7 +151,7 @@ class EditPrecisionTuningMiddleware(IRequestMiddleware):
         # Best-effort logging; do not let logging failures affect flow
         try:
             session_id = ""
-            if context and isinstance(context, dict):
+            if context:
                 session_id = str(context.get("session_id", ""))
             self._logger.info(
                 "Edit-precision overrides applied; session_id=%s force_apply=%s temp:%s->%s top_p:%s->%s top_k:%s->%s one_shot=True meta=%s",

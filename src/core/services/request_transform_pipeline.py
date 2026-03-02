@@ -17,10 +17,13 @@ from typing import Any
 
 from pydantic.types import JsonValue
 
-from src.core.domain.chat import ChatRequest
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.interfaces.application_state_interface import IApplicationState
 from src.core.interfaces.request_processor_internal import IRequestTransformPipeline
+from src.core.services.quality_verifier_steering_store import (
+    consume_pending_quality_verifier_steering,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +114,118 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                     exc_info=True,
                 )
 
+        # Inject pending Quality Verifier steering (fail-open)
+        try:
+            request = await self._apply_quality_verifier_steering_injection(
+                context, session, session_id, request
+            )
+        except Exception as e:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Quality Verifier steering injection failed; proceeding without injection: %s",
+                    e,
+                    exc_info=True,
+                )
+
+        return request
+
+    async def _apply_quality_verifier_steering_injection(
+        self,
+        context: RequestContext,
+        session: object,
+        session_id: str,
+        request: ChatRequest,
+    ) -> ChatRequest:
+        if self._app_state is None:
+            return request
+
+        # Use Quality Verifier effective session id when present (stable across B2BUA rotations).
+        qv_session_key_raw = None
+        try:
+            qv_session_key_raw = context.extensions.get(
+                "quality_verifier_effective_session_id"
+            )
+        except Exception:
+            qv_session_key_raw = None
+
+        qv_session_key = str(qv_session_key_raw or session_id or "").strip()
+        if not qv_session_key:
+            return request
+
+        steering_msg = consume_pending_quality_verifier_steering(
+            app_state=self._app_state,
+            session_key=qv_session_key,
+        )
+        if not steering_msg:
+            return request
+
+        # Render injection content using the configurable steering template (best effort).
+        rendered = None
+        try:
+            from src.core.services.quality_verifier_service import (
+                get_quality_verifier_prompt_loader,
+            )
+
+            template = get_quality_verifier_prompt_loader().steering_template
+            rendered = template.format(
+                quality_verifier_steering_message=steering_msg.strip()
+            )
+        except Exception:
+            rendered = (
+                "[SYSTEM MESSAGE: QUALITY VERIFIER STEERING]\n\n" + steering_msg.strip()
+            )
+
+        injection_start_index = len(request.messages or [])
+        steering_message = ChatMessage(role="system", content=rendered)
+        new_messages = [*list(request.messages or []), steering_message]
+        request = request.model_copy(update={"messages": new_messages})
+
+        # Set injection boundary in RequestContext for non-forwardable enforcement.
+        try:
+            from src.core.services.non_forwardable_message_enforcer import (
+                PROXY_INJECTED_MESSAGES_START_INDEX_KEY,
+            )
+
+            existing = context.extensions.get(PROXY_INJECTED_MESSAGES_START_INDEX_KEY)
+            if isinstance(existing, int):
+                context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = min(
+                    existing, injection_start_index
+                )
+            else:
+                context.extensions[PROXY_INJECTED_MESSAGES_START_INDEX_KEY] = (
+                    injection_start_index
+                )
+        except Exception:
+            # Soft fail: steering is best-effort.
+            pass
+
+        # Tag as client-history-only (best effort; failure should not break requests).
+        try:
+            from typing import cast
+
+            from src.core.domain.non_forwardable import NonForwardableTagScope
+            from src.core.interfaces.non_forwardable_interface import (
+                INonForwardableMessageIdentityService,
+                INonForwardableMessageRegistry,
+            )
+
+            registry = self._app_state.get_service(
+                cast(Any, INonForwardableMessageRegistry)
+            )
+            identity_service = self._app_state.get_service(
+                cast(Any, INonForwardableMessageIdentityService)
+            )
+            if registry is not None and identity_service is not None:
+                identity = identity_service.compute_identity(steering_message)
+                await registry.tag_identities(
+                    session_id=session_id,
+                    identities=[identity],
+                    scope=NonForwardableTagScope.CLIENT_HISTORY_ONLY,
+                    reason="quality_verifier_steering",
+                )
+        except Exception:
+            pass
+
         return request
 
     def _get_app_config(self) -> Any | None:
@@ -134,7 +249,7 @@ class RequestTransformPipeline(IRequestTransformPipeline):
 
     def _should_redact_api_keys(self, session: object, app_config: Any | None) -> bool:
         should_redact = True
-        session_override: bool | None = None
+        session_override: object | None = None
 
         try:
             session_state = self._get_session_state(session)
@@ -459,13 +574,10 @@ class RequestTransformPipeline(IRequestTransformPipeline):
             edit_precision = EditPrecisionTuningMiddleware(
                 target_temperature=cfg_temp,
                 min_top_p=cfg_min_top_p,
+                target_top_k=cfg_target_top_k,
                 force_apply=force_apply,
                 temperatures_config=temperatures_config,
             )
-            # Inject target top_k dynamically if configured
-            if cfg_target_top_k is not None:
-                with contextlib.suppress(AttributeError, TypeError, ValueError):
-                    edit_precision._target_top_k = int(cfg_target_top_k)
 
             request = await edit_precision.process(
                 request,
@@ -475,7 +587,7 @@ class RequestTransformPipeline(IRequestTransformPipeline):
                 },
             )
 
-            if hybrid_reasoning_disabled and request is not None:
+            if hybrid_reasoning_disabled:
                 request = self._apply_hybrid_reasoning_override(
                     request, session_id, app_config
                 )

@@ -76,7 +76,7 @@ OPENAI_CODEX_WEBSOCKET_ENABLED=1
 
 **Note**: The Codex WebSocket implementation uses opportunistic support - it will connect to `wss://chatgpt.com/backend-api/codex/responses` and automatically falls back to HTTP/SSE if WebSocket is unavailable.
 
-## Client Usage
+## Usage Examples
 
 ### Python Client (websockets library)
 
@@ -290,7 +290,9 @@ Connection has been open for 60 minutes (OpenAI limit):
 - **Cause**: Connection timeout reached
 - **Solution**: Close and reconnect, then continue with `previous_response_id` if responses are stored
 
-## Performance Benefits
+## Use Cases
+
+### Performance Benefits
 
 ### When to Use WebSocket
 

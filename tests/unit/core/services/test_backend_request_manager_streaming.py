@@ -202,21 +202,26 @@ async def test_empty_stream_retry_respects_max_limit() -> None:
         StreamingResponseEnvelope(content=retry_empty_stream()),
     ]
 
-    # Use public API - empty stream will trigger retry, then hit limit and return a warning message
+    # Use public API - empty stream will trigger retry, then hit limit and return a terminal error chunk
     envelope = await manager.process_backend_request(
         original_request,
         "session-empty-max",
         _make_context(),
     )
-    
+
     assert isinstance(envelope, StreamingResponseEnvelope)
     assert envelope.content is not None
     chunks = [chunk async for chunk in envelope.content]
-    
+
     # Should have retried
     assert backend_processor.process_backend_request.await_count >= 1
-    # Should contain proxy warning message
-    assert any("[Proxy] Upstream model returned no user-visible content" in str(chunk.content) for chunk in chunks)
+    # Should contain terminal error metadata (never assistant text)
+    assert any(
+        isinstance(chunk.metadata, dict)
+        and chunk.metadata.get("finish_reason") == "error"
+        and isinstance(chunk.metadata.get("error"), dict)
+        for chunk in chunks
+    )
 
 
 @pytest.mark.asyncio

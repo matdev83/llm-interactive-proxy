@@ -297,7 +297,10 @@ class BackendFactory(IBackendFactory):
         default_backend_env = os.environ.get("LLM_BACKEND")
         current_api_key = init_config.get("api_key")
 
-        if not current_api_key:
+        # If a BackendConfig was explicitly provided, treat it as the complete
+        # source of truth and do not implicitly pull credentials from the
+        # process environment.
+        if backend_config is None and not current_api_key:
             env_key_mapping: dict[str, dict[str, str]] = {
                 "openai": {
                     "api_key_env": "OPENAI_API_KEY",

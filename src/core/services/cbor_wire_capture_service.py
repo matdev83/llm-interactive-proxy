@@ -275,7 +275,9 @@ class CborWireCaptureService(IWireCapture):
         Must be called with _timing_lock held.
         Entries that haven't been cleaned up within TTL are removed.
         """
-        now = time.time()
+        # Use the same timestamp source as _RequestTimingState to keep TTL
+        # comparisons deterministic under tests that override the clock.
+        now = _get_timestamp()
         stale_ids = [
             req_id
             for req_id, timing in self._request_timings.items()

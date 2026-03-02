@@ -5,13 +5,16 @@ from collections.abc import AsyncGenerator
 from typing import Any, cast
 
 import pytest
+from src.core.domain.chat import ChatMessage, ChatRequest
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import StreamingResponseEnvelope
 from src.core.interfaces.response_parser_interface import IResponseParser
 from src.core.interfaces.response_processor_interface import ProcessedResponse
 from src.core.interfaces.streaming_response_processor_interface import IStreamNormalizer
 from src.core.ports.streaming_contracts import StreamingContent
-from src.core.services.quality_verifier_service import QualityVerifierService
+from src.core.services.quality_verifier_steering_store import (
+    PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY,
+)
 from src.core.services.response_processor_service import ResponseProcessor
 
 
@@ -30,7 +33,7 @@ class DummyParser:
 
 
 class DummyStreamNormalizer:
-    """Minimal stream normalizer that passes through content."""
+    """Minimal stream normalizer that produces a single done chunk."""
 
     def __init__(self, content: str = "initial") -> None:
         self._content = content
@@ -50,12 +53,13 @@ class DummyStreamNormalizer:
 
 class DummyAppState:
     def __init__(
-        self, model: str | None = "openai:gpt-4o-mini", frequency: int = 1
+        self, *, model: str | None = "openai:gpt-4o-mini", frequency: int = 1
     ) -> None:
         self._model = model
         self._frequency = frequency
+        self._settings: dict[str, Any] = {}
 
-    def get_setting(self, key: str) -> Any:
+    def get_setting(self, key: str, default: Any = None) -> Any:
         if key == "app_config":
 
             class Sess:
@@ -66,21 +70,28 @@ class DummyAppState:
                 session = Sess()
 
             return Cfg()
+
+        return self._settings.get(key, default)
+
+    def set_setting(self, key: str, value: Any) -> None:
+        self._settings[key] = value
+
+    def get_service(self, _t: Any) -> Any:
         return None
 
 
 @pytest.mark.asyncio
-async def test_response_processor_calls_quality_verifier_when_configured(monkeypatch) -> None:
-    """Test that Quality Verifier is called and can modify responses."""
-    # Prepare processor with a normalizer that returns initial content
+async def test_response_processor_stores_steering_without_modifying_content(
+    monkeypatch,
+) -> None:
     proc = ResponseProcessor(
         response_parser=cast(IResponseParser, DummyParser()),
         stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
     )
 
-    proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
+    app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
+    proc._app_state = app_state
 
-    # Stub backend_service
     class DummyBackendService:
         def __init__(self) -> None:
             self.requests: list[Any] = []
@@ -89,151 +100,10 @@ async def test_response_processor_calls_quality_verifier_when_configured(monkeyp
             self, request, stream=False, allow_failover=True, context=None
         ):
             self.requests.append(request)
-            call_index = len(self.requests)
-
-            if call_index == 1:
-                # Quality Verifier request
-                assert request.stream is False
-                assert request.model == "openai:gpt-4o-mini"
-                assert request.messages[-1].role == "assistant"
-                assert request.messages[-1].content == "initial"
-                return type(
-                    "R",
-                    (),
-                    {
-                        "content": "\n<quality_verifier_steering_message>Fix it</quality_verifier_steering_message>\n"
-                    },
-                )()
-
-            # Correction request
             assert request.stream is False
-            assert request.model == "openai:gpt-4o-mini"
-            assert request.messages[-2].role == "assistant"
-            assert request.messages[-2].content == "initial"
-            assert request.messages[-1].role == "system"
-            assert "<detected_problem>" in request.messages[-1].content
-            return type("R", (), {"content": "Corrected output"})()
-
-    class DummyProvider:
-        def get_required_service(self, t):
-            return DummyBackendService()
-
-    monkeypatch.setattr(
-        "src.core.di.services.get_service_provider", lambda: DummyProvider()
-    )
-
-    # Original request context
-    from src.core.domain.chat import ChatMessage, ChatRequest
-
-    original_req = ChatRequest(
-        model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
-    )
-    context = RequestContext(
-        headers={},
-        cookies={},
-        state=None,
-        app_state=None,
-        original_request=original_req,
-    )
-
-    # Process response
-    pr = await proc.process_response(
-        {"content": "initial"}, session_id="s1", context=context
-    )
-    assert isinstance(pr, ProcessedResponse)
-    assert pr.content == "initial"  # Angel not called in test setup
-
-
-@pytest.mark.asyncio
-async def test_response_processor_keeps_original_on_pass(monkeypatch) -> None:
-    """Test that Angel decision 'Pass' keeps original content."""
-    proc = ResponseProcessor(
-        response_parser=cast(IResponseParser, DummyParser()),
-        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
-    )
-
-    proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
-
-    call_counter: dict[str, int] = {"count": 0}
-
-    class DummyBackendService:
-        def __init__(self) -> None:
-            self.requests: list[Any] = []
-
-        async def chat_completions(self, request, *args, **kwargs):
-            call_counter["count"] += 1
-            self.requests.append(request)
-            assert request.stream is False
-            assert request.model == "openai:gpt-4o-mini"
             assert request.messages[-1].role == "assistant"
-            return type(
-                "R",
-                (),
-                {"content": "<quality_verifier_decision>Pass</quality_verifier_decision>"},
-            )()
-
-    class DummyProvider:
-        def get_required_service(self, t):
-            return DummyBackendService()
-
-    monkeypatch.setattr(
-        "src.core.di.services.get_service_provider", lambda: DummyProvider()
-    )
-
-    from src.core.domain.chat import ChatMessage, ChatRequest
-
-    original_req = ChatRequest(
-        model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
-    )
-    context = RequestContext(
-        headers={},
-        cookies={},
-        state=None,
-        app_state=None,
-        original_request=original_req,
-    )
-
-    pr = await proc.process_response(
-        {"content": "initial"}, session_id="s2", context=context
-    )
-    assert isinstance(pr, ProcessedResponse)
-    assert pr.content == "initial"
-    assert call_counter["count"] == 1
-
-
-@pytest.mark.asyncio
-async def test_response_processor_respects_override(monkeypatch) -> None:
-    """Test that override_quality_verifier marker keeps original content."""
-    proc = ResponseProcessor(
-        response_parser=cast(IResponseParser, DummyParser()),
-        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
-    )
-
-    proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
-
-    class DummyBackendService:
-        def __init__(self) -> None:
-            self.calls = 0
-
-        async def chat_completions(self, request, *args, **kwargs):
-            self.calls += 1
-            if self.calls == 1:
-                assert request.messages[-1].role == "assistant"
-                return type(
-                    "R",
-                    (),
-                    {
-                        "content": "\n<quality_verifier_steering_message>Fix it</quality_verifier_steering_message>\n"
-                    },
-                )()
-
-            assert request.messages[-2].role == "assistant"
-            assert request.messages[-1].role == "system"
-            return type(
-                "R",
-                (),
-                {"content": "<override_quality_verifier>True</override_quality_verifier>"},
-            )()
+            assert request.messages[-1].content == "initial"
+            return type("R", (), {"content": "<steering>Fix it</steering>"})()
 
     backend_service = DummyBackendService()
 
@@ -248,195 +118,142 @@ async def test_response_processor_respects_override(monkeypatch) -> None:
         "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )
 
-    from src.core.domain.chat import ChatMessage, ChatRequest
+    original_req = ChatRequest(
+        model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
+    )
+    ctx = RequestContext(
+        headers={},
+        cookies={},
+        state=None,
+        app_state=app_state,
+        original_request=original_req,
+        session_id="session-1",
+    )
+    ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-1"
+
+    pr = await proc.process_response(
+        {"content": "initial"}, session_id="session-1", context=ctx
+    )
+    assert isinstance(pr, ProcessedResponse)
+    assert pr.content == "initial"
+
+    # Let background verifier run.
+    await asyncio.sleep(0)
+
+    assert len(backend_service.requests) == 1
+    pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
+    assert isinstance(pending, dict)
+    assert "qv-sess-1" in pending
+
+
+@pytest.mark.asyncio
+async def test_response_processor_quality_verifier_invalid_output_soft_fails(
+    monkeypatch,
+) -> None:
+    proc = ResponseProcessor(
+        response_parser=cast(IResponseParser, DummyParser()),
+        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
+    )
+    app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
+    proc._app_state = app_state
+
+    class DummyBackendService:
+        async def chat_completions(self, request, *args, **kwargs):
+            return type("R", (), {"content": "free form"})()
+
+    class DummyProvider:
+        def get_required_service(self, t):
+            return DummyBackendService()
+
+        def get_service(self, t):
+            return None
+
+    monkeypatch.setattr(
+        "src.core.di.services.get_service_provider", lambda: DummyProvider()
+    )
 
     original_req = ChatRequest(
         model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
     )
-    context = RequestContext(
+    ctx = RequestContext(
         headers={},
         cookies={},
         state=None,
-        app_state=None,
+        app_state=app_state,
         original_request=original_req,
+        session_id="session-2",
     )
+    ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-2"
 
     pr = await proc.process_response(
-        {"content": "initial"}, session_id="s3", context=context
+        {"content": "initial"}, session_id="session-2", context=ctx
     )
-    assert isinstance(pr, ProcessedResponse)
     assert pr.content == "initial"
-    assert backend_service.calls == 2
+
+    await asyncio.sleep(0)
+    pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
+    assert pending == {}
 
 
 @pytest.mark.asyncio
-async def test_response_processor_respects_quality_verifier_frequency(monkeypatch) -> None:
-    """Test that Quality Verifier respects frequency setting."""
+async def test_response_processor_quality_verifier_respects_frequency(
+    monkeypatch,
+) -> None:
     proc = ResponseProcessor(
         response_parser=cast(IResponseParser, DummyParser()),
-        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("unverified")),
+        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
     )
-
-    proc._app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=5)
+    app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=5)
+    proc._app_state = app_state
 
     class FailingBackendService:
         async def chat_completions(self, *args, **kwargs):
-            pytest.fail(
-                "Angel should not run before the configured frequency threshold"
-            )
+            pytest.fail("Quality Verifier should not run before frequency threshold")
 
     class DummyProvider:
         def get_required_service(self, t):
             return FailingBackendService()
 
+        def get_service(self, t):
+            return None
+
     monkeypatch.setattr(
         "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )
 
-    from src.core.domain.chat import ChatMessage, ChatRequest
-
     original_req = ChatRequest(
-        model="openai:gpt-4o-mini",
-        messages=[ChatMessage(role="user", content="Hi")],
+        model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
     )
-    context = RequestContext(
+    ctx = RequestContext(
         headers={},
         cookies={},
         state=None,
-        app_state=None,
+        app_state=app_state,
         original_request=original_req,
+        session_id="session-3",
     )
+    ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-3"
 
     pr = await proc.process_response(
-        {"content": "unverified"},
-        session_id="freq-test",
-        context=context,
+        {"content": "initial"}, session_id="session-3", context=ctx
     )
-    assert isinstance(pr, ProcessedResponse)
-    assert pr.content == "unverified"
+    assert pr.content == "initial"
+
+    await asyncio.sleep(0)
+    pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
+    assert pending == {}
 
 
 @pytest.mark.asyncio
-async def test_apply_quality_verifier_verification_retries_once_on_invalid_format(
+async def test_response_processor_quality_verifier_ttft_timeout_soft_fails(
     monkeypatch,
 ) -> None:
     proc = ResponseProcessor(
         response_parser=cast(IResponseParser, DummyParser()),
         stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
     )
-    proc._quality_verifier_service = QualityVerifierService("openai:gpt-4o-mini")
-    proc._quality_verifier_frequency = 1
-
-    class DummyBackendService:
-        def __init__(self) -> None:
-            self.requests: list[Any] = []
-
-        async def chat_completions(self, request, *args, **kwargs):
-            self.requests.append(request)
-            call_index = len(self.requests)
-
-            if call_index == 1:
-                return type("R", (), {"content": "This is not valid XML output."})()
-
-            if call_index == 2:
-                assert request.messages[-2].role == "assistant"
-                assert request.messages[-2].content == "This is not valid XML output."
-                assert request.messages[-1].role == "user"
-                assert "FORMAT CORRECTION" in str(request.messages[-1].content)
-                return type(
-                    "R",
-                    (),
-                    {
-                        "content": "<quality_verifier_decision>Steer</quality_verifier_decision>"
-                        "<quality_verifier_steering_message>Fix output</quality_verifier_steering_message>"
-                    },
-                )()
-
-            return type("R", (), {"content": "Corrected output"})()
-
-    backend_service = DummyBackendService()
-
-    class DummyProvider:
-        def get_required_service(self, t):
-            return backend_service
-
-        def get_service(self, t):
-            return None
-
-    monkeypatch.setattr(
-        "src.core.di.services.get_service_provider", lambda: DummyProvider()
-    )
-
-    from src.core.domain.chat import ChatMessage, ChatRequest
-
-    original_req = ChatRequest(
-        model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
-    )
-
-    decision = await proc._apply_quality_verifier_verification(original_req, "initial")
-
-    assert decision == {"action": "steer", "corrected_content": "Corrected output"}
-    assert len(backend_service.requests) == 3
-
-
-@pytest.mark.asyncio
-async def test_apply_quality_verifier_verification_fails_open_after_invalid_retry(
-    monkeypatch,
-) -> None:
-    proc = ResponseProcessor(
-        response_parser=cast(IResponseParser, DummyParser()),
-        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
-    )
-    proc._quality_verifier_service = QualityVerifierService("openai:gpt-4o-mini")
-    proc._quality_verifier_frequency = 1
-
-    class DummyBackendService:
-        def __init__(self) -> None:
-            self.requests: list[Any] = []
-
-        async def chat_completions(self, request, *args, **kwargs):
-            self.requests.append(request)
-            if len(self.requests) == 2:
-                assert request.messages[-1].role == "user"
-                assert "FORMAT CORRECTION" in str(request.messages[-1].content)
-            return type("R", (), {"content": "still invalid"})()
-
-    backend_service = DummyBackendService()
-
-    class DummyProvider:
-        def get_required_service(self, t):
-            return backend_service
-
-        def get_service(self, t):
-            return None
-
-    monkeypatch.setattr(
-        "src.core.di.services.get_service_provider", lambda: DummyProvider()
-    )
-
-    from src.core.domain.chat import ChatMessage, ChatRequest
-
-    original_req = ChatRequest(
-        model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
-    )
-
-    decision = await proc._apply_quality_verifier_verification(original_req, "initial")
-
-    assert decision == {"action": "pass"}
-    assert len(backend_service.requests) == 2
-
-
-@pytest.mark.asyncio
-async def test_apply_quality_verifier_verification_ttft_timeout_fails_open(
-    monkeypatch,
-) -> None:
-    proc = ResponseProcessor(
-        response_parser=cast(IResponseParser, DummyParser()),
-        stream_normalizer=cast(IStreamNormalizer, DummyStreamNormalizer("initial")),
-    )
-    proc._quality_verifier_service = QualityVerifierService("openai:gpt-4o-mini")
-    proc._quality_verifier_frequency = 1
-    proc._quality_verifier_ttft_timeout_seconds = 0.01
+    app_state = DummyAppState(model="openai:gpt-4o-mini", frequency=1)
+    proc._app_state = app_state
 
     class DummyBackendService:
         async def chat_completions(self, request, *args, **kwargs):
@@ -458,24 +275,25 @@ async def test_apply_quality_verifier_verification_ttft_timeout_fails_open(
         "src.core.di.services.get_service_provider", lambda: DummyProvider()
     )
 
-    from src.core.domain.chat import ChatMessage, ChatRequest
-
     original_req = ChatRequest(
         model="openai:gpt-4o-mini", messages=[ChatMessage(role="user", content="Hi")]
     )
-    context = RequestContext(
+    ctx = RequestContext(
         headers={},
         cookies={},
         state=None,
-        app_state=None,
+        app_state=app_state,
         original_request=original_req,
+        session_id="session-4",
     )
-    context.extensions["quality_verifier_ttft_timeout_seconds"] = 0.01
+    ctx.extensions["quality_verifier_effective_session_id"] = "qv-sess-4"
+    ctx.extensions["quality_verifier_ttft_timeout_seconds"] = 0.01
 
-    decision = await proc._apply_quality_verifier_verification(
-        original_req,
-        "initial",
-        context={"request_context": context},
+    pr = await proc.process_response(
+        {"content": "initial"}, session_id="session-4", context=ctx
     )
+    assert pr.content == "initial"
 
-    assert decision == {"action": "pass"}
+    await asyncio.sleep(0)
+    pending = app_state.get_setting(PENDING_QUALITY_VERIFIER_STEERING_SETTING_KEY, {})
+    assert pending == {}

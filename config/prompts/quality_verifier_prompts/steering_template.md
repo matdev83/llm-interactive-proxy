@@ -1,12 +1,8 @@
-Hi there. I am an automated verification system monitoring this session to ensure quality and prevent errors.
+You are receiving a private steering note from `Quality Verifier`.
 
-I have intercepted your latest response because a potential issue was detected. To improve the user experience, I have temporarily blocked your previous output from reaching the client. 
+This note is not from the user. Do not quote it to the user or mention any verification system.
+Use it only to adjust your plan and improve progress on the user's request.
 
-The detected problem is as follows:
-\u003cdetected_problem\u003e
+\u003cquality_verifier_steering\u003e
 {quality_verifier_steering_message}
-\u003c/detected_problem\u003e
-
-Please re-generate and submit a corrected message. Your new output will be verified and, if approved, sent to the client. Just generate the corrected output, including any necessary tool calls.
-
-Remember: I am an automated observer and cannot engage in discussion. I will only handle your next reply according to these rules.
+\u003c/quality_verifier_steering\u003e

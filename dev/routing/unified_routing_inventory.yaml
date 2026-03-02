@@ -16,14 +16,14 @@ call_surfaces:
   - id: quality_verifier_verification
     kind: direct
     file: src/core/services/backend_request_manager/quality_verifier_stream_verifier.py
-    function: _call_quality_verifier_once
+    function: _run_assessment_in_background
     call: backend_service.chat_completions
 
   - id: quality_verifier_correction
-    kind: direct
-    file: src/core/services/backend_request_manager/quality_verifier_stream_verifier.py
-    function: verify_or_passthrough
-    call: backend_service.chat_completions
+    kind: indirect
+    file: src/core/services/request_transform_pipeline.py
+    marker: consume_pending_quality_verifier_steering(
+    routes_via: primary_request_execution
 
   - id: quality_verifier_response_verification
     kind: direct
@@ -32,10 +32,10 @@ call_surfaces:
     call: backend_service.chat_completions
 
   - id: quality_verifier_response_correction
-    kind: direct
+    kind: indirect
     file: src/core/services/response_processor_service.py
-    function: _apply_quality_verifier_verification
-    call: backend_service.chat_completions
+    marker: store_pending_quality_verifier_steering(
+    routes_via: primary_request_execution
 
   - id: project_directory_resolution
     kind: direct

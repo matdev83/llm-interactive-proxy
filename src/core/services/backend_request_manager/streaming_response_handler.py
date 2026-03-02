@@ -1122,6 +1122,24 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                     cfg: IConfig | None = None
                     app_state = getattr(context, "app_state", None)
                     if app_state is not None:
+                        # FastAPI adapter passes `request.app.state` (Starlette State) as app_state.
+                        # That object does not expose the domain config directly, but it typically
+                        # holds the DI container under `service_provider`.
+                        try:
+                            service_provider = getattr(
+                                app_state, "service_provider", None
+                            )
+                            if service_provider is not None and hasattr(
+                                service_provider, "get_service"
+                            ):
+                                cfg_any = service_provider.get_service(
+                                    cast(type[Any], IConfig)
+                                )
+                                if cfg_any is not None and hasattr(cfg_any, "session"):
+                                    cfg = cast(IConfig, cfg_any)
+                        except Exception:
+                            cfg = None
+
                         for attr in ("config", "app_config"):
                             candidate = getattr(app_state, attr, None)
                             # Avoid isinstance() on abstract/protocol config types.
@@ -1266,19 +1284,27 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                             exc,
                         )
                     # Do not raise an exception from inside the streaming generator.
-                    # Instead, emit a terminal, OpenAI-compatible *assistant message*
-                    # so strict clients don't treat the response as a connection drop
-                    # and clients that bail on `finish_reason="error"` can continue.
+                    # Emit a terminal, OpenAI-compatible *error* chunk instead.
+                    #
+                    # IMPORTANT: Never surface proxy diagnostics as assistant content.
+                    # Many clients treat assistant text as model output; error details
+                    # must be carried via the structured `error` field.
+                    provider = processing_context.backend_name or "unknown"
+                    model_name = processing_context.model_name or "unknown"
                     yield ProcessedResponse(
-                        content=(
-                            "[Proxy] Upstream model returned no user-visible content after retries. "
-                            "Try a different model, disable strict reasoning-only behavior, or set reasoning_is_output if your client supports it."
-                        ),
+                        content="",
                         metadata={
                             "session_id": processing_context.session_id,
-                            # Keep this as a normal terminal stop so OpenAI-compatible
-                            # clients treat it as a completed turn.
-                            "finish_reason": "stop",
+                            "provider": provider,
+                            "model": model_name,
+                            "finish_reason": "error",
+                            "error": {
+                                "message": "Upstream model returned no user-visible content after retries.",
+                                "type": "empty_stream_after_retries",
+                                "code": "empty_stream_after_retries",
+                                "retryable": False,
+                                "status_code": 502,
+                            },
                             # Preserve structured details for logging/diagnostics.
                             "proxy_warning": {
                                 "message": "empty_stream_after_retries",

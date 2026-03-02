@@ -1,55 +1,30 @@
 # Quality Verifier System
 
-The Quality Verifier system is a proxy-level quality control feature that uses a secondary LLM to review and verify assistant responses before they reach the user.
+The Quality Verifier system is a proxy-level quality helper that uses a secondary LLM to periodically assess a session and optionally provide private steering guidance to the main model.
 
 ## Overview
 
 
 ## Key Features
 
-- **Real-Time Response Verification**: Reviews each assistant response before forwarding it to the user
-- **Error Detection**: Identifies logical errors, wrong tool calls, and misbehaviors
-- **Automatic Correction**: Prompts the main model to fix detected issues transparently
-- **Configurable Frequency**: Control how often verification runs (every N user turns)
+- **Periodic Assessment (Asynchronous)**: Runs every N eligible turns without delaying the user-visible response
+- **Progress & Direction Steering**: Detects stagnation, wrong approaches, or missing next steps and suggests better course corrections
+- **Private Guidance**: Steering notes are injected into future main-model requests; they are not shown to the user
+- **Configurable Frequency**: Control how often assessment runs (every N eligible turns)
 - **Context Window Protection**: Truncate conversation history sent to the verifier (opt-in)
-- **Memory Safety**: 1MB buffer limit for streaming verification to prevent OOM
-- **Model Flexibility**: Use any supported backend/model for verification
-- **User-Configurable Prompts**: Customize verification behavior by editing markdown files
-- **Fail-Open Design**: Automatically falls back to original response if the verifier backend fails
+- **Memory Safety**: 1MB capture limit for streaming assessment to prevent OOM
+- **Model Flexibility**: Use any supported backend/model for assessment
+- **User-Configurable Prompts**: Customize verifier behavior by editing markdown files
+- **Fail-Open Design**: Verifier failures never break the user session
 
 ## How It Works
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Proxy
-    participant Main as Main Model
-    participant Verifier as Quality Verifier Model
+1. Main model generates a response and it is streamed/returned to the user normally.
+2. Periodically (every N eligible turns), the proxy calls the Quality Verifier model *asynchronously*.
+3. If the verifier decides guidance is useful, it emits a short steering note.
+4. The proxy stores that note and injects it as a private system message into a *future* main-model request.
 
-    User->>Proxy: Request
-    Proxy->>Main: Forward Request
-    Main-->>Proxy: Response 1
-    
-    Note over Proxy: Buffer Response 1
-    
-    Proxy->>Verifier: Verify Response 1
-    Verifier-->>Proxy: Decision
-    
-    alt Decision = Pass
-        Proxy-->>User: Response 1
-    else Decision = Fail (Steer)
-        Note over Proxy: Construct Correction Request
-        Proxy->>Main: Correction Request + Steering
-        Main-->>Proxy: Response 2 (Corrected)
-        Proxy-->>User: Response 2
-    end
-```
-
-1. Main model generates a response
-2. Quality Verifier (secondary LLM) reviews the response for issues
-3. If issues are found, Quality Verifier provides steering feedback to the main model
-4. Main model regenerates a corrected response
-5. Corrected response is sent to the user (original error never seen)
+The verifier does not block or rewrite the current response.
 
 ## Configuration
 
@@ -111,7 +86,7 @@ python -m src.core.cli \
 Quality Verifier prompts are stored as markdown files in `config/prompts/quality_verifier_prompts/` and can be customized to change verification behavior:
 
 - **`quality_verifier_prompt.md`**: The main instruction prompt that defines the verifier role, output format, and what problems to look for
-- **`steering_template.md`**: The template used when Quality Verifier detects an issue and needs to guide the main model to correct it
+- **`steering_template.md`**: The template used to wrap the private steering note that is injected into future main-model requests
 
 ### Example Customization
 
@@ -125,25 +100,22 @@ After editing the prompts, restart the proxy to load the updated configuration.
 
 ## Use Cases
 
-- **Prevent Tool Call Errors**: Catch incorrect tool usage before it causes issues
-- **Detect Logic Errors**: Identify flawed reasoning or incorrect conclusions
-- **Stop Dangerous Commands**: Block potentially destructive operations
 - **Maintain Focus**: Detect when the assistant loses track of the main goal
-- **Quality Control**: Ensure outputs meet quality standards before reaching users
+- **Improve Progress**: Suggest next actions when the assistant is stuck
+- **Detect Logic Errors**: Identify flawed reasoning or incorrect conclusions and suggest course corrections
 
 ## Robustness & Security
 
 The Quality Verifier system is designed for high reliability and safety:
 
-- **Fail-Open**: If the Quality Verifier model errors, times out, or the proxy hits a 1MB buffer limit, the original assistant response is released immediately. Verification never breaks the user session.
+- **Fail-Open**: If the Quality Verifier model errors, times out, or the proxy hits the 1MB capture limit, the main response is unaffected.
 - **Atomic Loading**: Prompts are loaded once at startup with thread-safe mechanisms to prevent race conditions.
-- **Secure Steering**: Steering instructions are injected as `user` role messages with distinct markers, ensuring compatibility with all backends (like Claude/Gemini) and preventing internal prompt leakage.
-- **No Bypass**: The previous "Override" mechanism has been removed to prevent malfunctioning models from vetoing safety checks.
+- **Private Injection**: Steering notes are injected as proxy-generated messages and not shown to the user.
 
 ## When to Use Quality Verifier
 
-- Use Quality Verifier for immediate, per-response quality control and error prevention.
-- It is best for critical workflows where each response should be checked before delivery.
+- Use Quality Verifier when you want periodic, lightweight guidance to keep long sessions on track.
+- It is best for complex workflows where occasional course corrections are valuable.
 
 ## Related Features
 

@@ -969,7 +969,7 @@ class TestEmptyStreamRecovery:
         mock_backend_processor.process_backend_request.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_emits_terminal_stop_chunk_when_empty_stream_retry_limit_exceeded(
+    async def test_emits_terminal_error_chunk_when_empty_stream_retry_limit_exceeded(
         self,
         handler: IStreamingBackendResponseHandler,
         mock_response_processor: AsyncMock,
@@ -980,7 +980,7 @@ class TestEmptyStreamRecovery:
         request_context: RequestContext,
         processing_context: ResponseProcessingContext,
     ) -> None:
-        """Handler emits a terminal stop chunk when empty stream retry limit exceeded."""
+        """Handler emits a terminal error chunk when empty stream retry limit exceeded."""
         # Arrange
         # Empty stream (no chunks) should trigger retry exhaustion
         empty_chunks: list[ProcessedResponse] = []
@@ -1029,11 +1029,14 @@ class TestEmptyStreamRecovery:
 
         assert chunks
         terminal = chunks[-1]
-        assert isinstance(terminal.content, str)
-        assert terminal.content.strip()
-        assert terminal.metadata.get("finish_reason") == "stop"
+        assert terminal.content in ("", b"")
+        assert terminal.metadata.get("finish_reason") == "error"
         assert terminal.metadata.get("is_done") is True
         assert terminal.metadata.get("session_id") == "test-session-123"
+        err = terminal.metadata.get("error")
+        assert isinstance(err, dict)
+        assert err.get("type") == "empty_stream_after_retries"
+        assert "message" in err
         warn = terminal.metadata.get("proxy_warning")
         assert isinstance(warn, dict)
         warn_dict = cast(dict, warn)
