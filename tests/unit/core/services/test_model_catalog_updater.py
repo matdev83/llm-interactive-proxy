@@ -1,9 +1,10 @@
-import pytest
 from unittest.mock import AsyncMock, patch
 
-from src.core.services.model_catalog_updater import ModelCatalogUpdater
+import pytest
 from src.core.config.models.misc import ModelRegistryConfig
 from src.core.services.model_catalog_service import ModelCatalogService
+from src.core.services.model_catalog_updater import ModelCatalogUpdater
+
 
 @pytest.mark.asyncio
 async def test_model_catalog_updater_closes_client_on_stop():

@@ -119,7 +119,15 @@ class SSESerializer:
         consider a turn complete. When finish_reason is missing, the client may
         continue looping even though the SSE stream is properly terminated.
         """
-        if "usage" not in content_copy and not chunk.metadata.usage:
+        # Only infer/force finish_reason when this chunk *actually* carries usage.
+        # Some providers include `"usage": null` on every streaming chunk. Treat
+        # that as "no usage" to avoid prematurely marking a non-terminal chunk as
+        # finished (clients may stop reading after seeing finish_reason="stop").
+        usage_from_payload = (
+            content_copy.get("usage") if "usage" in content_copy else None
+        )
+        has_usage_payload = isinstance(usage_from_payload, dict)
+        if not has_usage_payload and not chunk.metadata.usage:
             return
 
         choices = content_copy.get("choices")

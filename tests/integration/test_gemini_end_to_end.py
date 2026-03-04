@@ -18,7 +18,7 @@ pytestmark = [
 def check_gemini_key():
     """Check for Gemini API keys using the configuration system."""
     try:
-        from src.core.config.config_loader import _collect_api_keys
+        from src.core.config import _collect_api_keys
 
         gemini_keys = _collect_api_keys("GEMINI_API_KEY")
         if not gemini_keys:
@@ -131,7 +131,7 @@ def _stop_server(proc: subprocess.Popen) -> None:
 def _has_gemini_api_key() -> bool:
     """Check if Gemini API keys are available using the configuration resolution mechanism."""
     try:
-        from src.core.config.config_loader import _collect_api_keys
+        from src.core.config import _collect_api_keys
 
         gemini_keys = _collect_api_keys("GEMINI_API_KEY")
         return bool(gemini_keys)

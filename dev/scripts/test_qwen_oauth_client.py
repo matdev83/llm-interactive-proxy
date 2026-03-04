@@ -4,6 +4,7 @@
 import json
 import sys
 import time
+from typing import Any
 
 import requests
 
@@ -86,8 +87,8 @@ def test_chat_completion(base_url: str = "http://127.0.0.1:8000", api_key: str =
         "Authorization": f"Bearer {api_key}"
     }
     
-    payload = {
-        "model": "qwen-oauth:qwen3-coder-plus",
+    payload: dict[str, Any] = {
+        "model": "qwen-oauth:coder-model",
         "messages": [
             {"role": "user", "content": "Say 'Hello from qwen-oauth test' and nothing else."}
         ],
@@ -97,9 +98,12 @@ def test_chat_completion(base_url: str = "http://127.0.0.1:8000", api_key: str =
     
     safe_print(f"   Request: POST {base_url}/v1/chat/completions")
     safe_print(f"   Model: {payload['model']}")
-    first_message = payload['messages'][0]
-    message_content = first_message['content']
-    safe_print(f"   Message: {message_content[:50]}...")
+    messages = payload.get("messages")
+    first_message = messages[0] if isinstance(messages, list) and messages else {}
+    if not isinstance(first_message, dict):
+        first_message = {}
+    message_content_str = str(first_message.get("content", ""))
+    safe_print(f"   Message: {message_content_str[:50]}...")
     
     try:
         start_time = time.time()
@@ -151,8 +155,8 @@ def test_streaming_chat(base_url: str = "http://127.0.0.1:8000", api_key: str = 
         "Authorization": f"Bearer {api_key}"
     }
     
-    payload = {
-        "model": "qwen-oauth:qwen3-coder-plus",
+    payload: dict[str, Any] = {
+        "model": "qwen-oauth:coder-model",
         "messages": [
             {"role": "user", "content": "Count from 1 to 3"}
         ],
@@ -176,6 +180,7 @@ def test_streaming_chat(base_url: str = "http://127.0.0.1:8000", api_key: str = 
         
         if response.status_code == 200:
             content_chunks = []
+            raw_events = 0
             for line in response.iter_lines():
                 if line:
                     line_text = line.decode('utf-8')
@@ -183,14 +188,26 @@ def test_streaming_chat(base_url: str = "http://127.0.0.1:8000", api_key: str = 
                         data = line_text[6:]
                         if data == '[DONE]':
                             break
+                        raw_events += 1
                         try:
                             chunk = json.loads(data)
-                            delta = chunk.get('choices', [{}])[0].get('delta', {})
-                            content = delta.get('content', '')
-                            if content:
+                            choices = chunk.get('choices')
+                            if not isinstance(choices, list) or not choices:
+                                continue
+                            first = choices[0]
+                            if not isinstance(first, dict):
+                                continue
+                            delta = first.get('delta')
+                            if not isinstance(delta, dict):
+                                continue
+                            content = delta.get('content')
+                            if isinstance(content, str) and content:
                                 content_chunks.append(content)
                         except json.JSONDecodeError:
                             pass
+
+                    if raw_events <= 5:
+                        safe_print(f"   SSE: {line_text[:160]}")
             
             elapsed = time.time() - start_time
             full_content = ''.join(content_chunks)

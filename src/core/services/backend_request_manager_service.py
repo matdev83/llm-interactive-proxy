@@ -170,24 +170,35 @@ class BackendRequestManager(IBackendRequestManager):
         Returns:
             Typed processing context with all required fields
         """
-        # Extract backend_name from extra_body or model
-        backend_name: str | None = None
+        # Extract backend_name.
+        # Prefer the routed backend from RequestContext (set by routing/registry).
+        backend_name: str | None = (
+            context.backend
+            if isinstance(context.backend, str) and context.backend
+            else None
+        )
         extra_body = getattr(request, "extra_body", None)
-        if isinstance(extra_body, dict):
+        if backend_name is None and isinstance(extra_body, dict):
             raw_backend_type = extra_body.get("backend_type")
             if isinstance(raw_backend_type, str):
                 backend_name = raw_backend_type
 
+        # Last-resort fallback for legacy flows that smuggle backend into model.
         if backend_name is None:
             raw_model = getattr(request, "model", None)
-            if isinstance(raw_model, str):
+            if isinstance(raw_model, str) and raw_model:
                 backend_name = raw_model
 
-        # Extract model_name from request
-        model_name: str | None = None
-        raw_model = getattr(request, "model", None)
-        if isinstance(raw_model, str):
-            model_name = raw_model
+        # Extract model_name.
+        model_name: str | None = (
+            context.effective_model
+            if isinstance(context.effective_model, str) and context.effective_model
+            else None
+        )
+        if model_name is None:
+            raw_model = getattr(request, "model", None)
+            if isinstance(raw_model, str):
+                model_name = raw_model
 
         # Extract client_os from processing_context if available
         client_os: str | None = None

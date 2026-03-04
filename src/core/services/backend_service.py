@@ -17,6 +17,7 @@ from src.core.common.exceptions import (
 from src.core.config.app_config import AppConfig
 from src.core.domain.backend_target import BackendTarget
 from src.core.domain.chat import ChatRequest
+from src.core.domain.model_utils import has_explicit_backend_selector
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.validation import BackendModelValidation
@@ -315,6 +316,9 @@ class BackendService(IBackendService):
         context: RequestContext | None = None,
     ) -> ResponseEnvelope | StreamingResponseEnvelope:
         """Call the LLM backend for a completion (delegates to BackendCompletionFlow)."""
+        model_spec = getattr(request, "model", None)
+        if isinstance(model_spec, str) and has_explicit_backend_selector(model_spec):
+            allow_failover = False
         return await self._backend_completion_flow.call_completion(
             request=request,
             stream=stream,

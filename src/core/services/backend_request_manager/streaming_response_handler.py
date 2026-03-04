@@ -1098,6 +1098,32 @@ class BackendStreamingResponseHandler(IStreamingBackendResponseHandler):
                 # Start with existing metadata or empty dict
                 processed_metadata = dict(chunk.metadata) if chunk.metadata else {}
 
+                # Backend-specific defaults must be applied outside of the
+                # client-compatibility resolution block (which is best-effort and
+                # may fail if config/DI is unavailable).
+                try:
+                    from src.core.common.backend_discovery_state import (
+                        normalize_backend_name,
+                    )
+
+                    normalized_backend = normalize_backend_name(
+                        processing_context.backend_name or ""
+                    )
+                except Exception:
+                    normalized_backend = (processing_context.backend_name or "").lower()
+
+                if normalized_backend == "qwen-oauth":
+                    processed_metadata.setdefault(
+                        "_client_supports_reasoning_fields", True
+                    )
+                    processed_metadata.setdefault("reasoning_is_output", True)
+                    # Strip reasoning aliases but keep `reasoning_content`.
+                    processed_metadata.setdefault("_suppress_reasoning_fields", True)
+                    processed_metadata.setdefault("_keep_reasoning_content", True)
+                    processed_metadata.setdefault(
+                        "_coerce_reasoning_into_content", False
+                    )
+
                 if original_request_payload is not None:
                     processed_metadata.setdefault(
                         "original_request", original_request_payload

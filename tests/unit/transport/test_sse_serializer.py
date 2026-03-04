@@ -418,7 +418,42 @@ class TestSSESerializerNormalChunks:
         assert payload["choices"][0]["index"] == 0
         assert payload["choices"][0]["finish_reason"] is None
 
-        assert payload["choices"][0]["delta"]["content"] == "Hello world"
+    def test_openai_chunk_with_null_usage_does_not_infer_finish_reason(self) -> None:
+        """Regression: `usage: null` must not cause finish_reason inference.
+
+        Some providers include `"usage": null` on every streamed OpenAI chunk.
+        Inferring finish_reason in that case can make clients stop reading after
+        the first token.
+        """
+
+        serializer = SSESerializer()
+        openai_chunk: dict[str, Any] = {
+            "id": "chatcmpl-null-usage",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "test-model",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "Hello"},
+                    "finish_reason": None,
+                }
+            ],
+            "usage": None,
+        }
+        chunk = StreamingContent(
+            content=openai_chunk,
+            metadata={"provider": "openai"},
+            is_done=False,
+        )
+
+        result = serializer.serialize(chunk).decode("utf-8")
+        json_line = result.strip().split("\n\n")[0][6:]
+        payload = json.loads(json_line)
+        assert payload["choices"][0]["finish_reason"] is None
+
+        # Payload should be preserved; only finish_reason inference is under test.
+        assert payload["choices"][0]["delta"]["content"] == "Hello"
         assert payload["choices"][0]["delta"]["role"] == "assistant"
 
     def test_normal_chunk_with_reasoning_content(self) -> None:

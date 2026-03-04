@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from src.core.domain.chat import ChatMessage, ChatRequest
+from src.core.domain.model_utils import has_explicit_backend_selector
 from src.core.domain.request_context import RequestContext
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
 from src.core.domain.session import SessionInteraction
@@ -108,22 +109,26 @@ class BackendProcessor(IBackendProcessor):
                 if not k.startswith("_") and not callable(v)
             }
 
-        # Get failover routes from session and add them to extra_body
+        model_spec = str(getattr(request, "model", "") or "")
+        explicit_backend = has_explicit_backend_selector(model_spec)
+
+        # Get failover routes from session and add them to extra_body.
+        # IMPORTANT: explicit backend routing ("backend:model") must never be subject
+        # to automatic failover routing.
         failover_routes: list[Any] | None = None
 
         # Prefer session-scoped failover routes
         try:
             if session and session.state.backend_config.failover_routes:
                 session_routes = session.state.backend_config.failover_routes
-                if isinstance(session_routes, dict):
-                    failover_routes = []
-                    for name, data in session_routes.items():
-                        if hasattr(data, "model_dump"):
-                            failover_routes.append(data)
-                        elif isinstance(data, dict):
-                            failover_routes.append({"name": name, **data})
-                elif isinstance(session_routes, list) and session_routes:
-                    failover_routes = list(session_routes)
+                failover_routes = []
+                for name, data in session_routes.items():
+                    if hasattr(data, "model_dump"):
+                        failover_routes.append(data)
+                    elif isinstance(data, dict):
+                        failover_routes.append({"name": name, **data})
+                    else:
+                        failover_routes.append({"name": name, "value": str(data)})
         except (AttributeError, KeyError, TypeError, ValueError):
             logger.debug(
                 "Failed to extract failover routes from session", exc_info=True
@@ -141,18 +146,23 @@ class BackendProcessor(IBackendProcessor):
                 )
                 failover_routes = None
 
-        if failover_routes:
+        if failover_routes and not explicit_backend:
             serializable_routes = [
                 r.model_dump() if hasattr(r, "model_dump") else r
                 for r in failover_routes
             ]
             extra_body_dict["failover_routes"] = serializable_routes
+        else:
+            # Defensive: ensure we don't forward any caller-provided failover routes
+            # when the request explicitly targets a backend.
+            extra_body_dict.pop("failover_routes", None)
 
         # Call the backend
         call_request = request.model_copy(update={"extra_body": extra_body_dict})
         backend_response = await self._backend_service.call_completion(
             request=call_request,
             stream=call_request.stream if call_request.stream is not None else False,
+            allow_failover=not explicit_backend,
             context=context,
         )
 

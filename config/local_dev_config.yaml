@@ -26,6 +26,19 @@ backends:
   gemini-oauth-plan:
     timeout: 120
 
+# Client compatibility defaults
+#
+# Some upstream providers stream content via non-standard reasoning fields.
+# Most OpenAI-compatible clients do not render those fields, so we coerce them
+# into `delta.content` for known CLI clients.
+session:
+  client_compatibility:
+    user_agent_rules:
+      - name: "factory-cli"
+        user_agent_regex: "^factory-cli/"
+        reasoning_mode: "coerce_to_content"
+        reasoning_counts_as_meaningful: true
+
 # Auxiliary request routing - route title/summary requests to a different backend
 # to avoid rate limiting on the primary backend.
 # Uncomment and configure to enable:

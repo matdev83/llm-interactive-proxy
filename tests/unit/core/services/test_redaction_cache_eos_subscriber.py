@@ -5,8 +5,6 @@ Unit tests for RedactionCacheEosSubscriber.
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock
-
 from src.core.domain.events.end_of_session_events import (
     EndOfSessionSignalType,
     RemoteBackendConnectionEndOfSessionEvent,

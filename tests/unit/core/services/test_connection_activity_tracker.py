@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import time
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -426,10 +427,8 @@ class TestConnectionActivityTracker:
                 
             # Cleanup
             for ctx in contexts:
-                try:
+                with contextlib.suppress(Exception):
                     ctx.__exit__(None, None, None)
-                except Exception:
-                    pass
         finally:
             cat_module._MAX_CONNECTIONS = original_max
 
