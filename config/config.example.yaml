@@ -287,6 +287,21 @@ backends:
   # Note: qwen-oauth backend is configured via backend-instances file:
   # config/backends/backend-instances/qwen-oauth.default.yaml
 
+  kiro_oauth_auto:
+    # Amazon Kiro / Q Developer OAuth connector
+    # To add accounts, run: python scripts/manage_kiro_accounts.py add
+    timeout: 120
+    # Static model list - Kiro backend has no model enumeration endpoint
+    models:
+      - "amazon/claude-sonnet-4.5"
+      - "amazon/claude-opus-4.5"
+      - "amazon/claude-opus-4.6"
+      - "amazon/claude-haiku-4.5"
+    extra:
+      storage_path: "var/kiro_oauth_accounts"
+      selection_strategy: "first-available"
+      refresh_buffer_seconds: 300
+
   zai:
     # API key set via ZAI_API_KEY environment variable
     timeout: 120
