@@ -284,9 +284,8 @@ backends:
       tool_output_truncation_log_level: null
 
 
-  qwen_oauth:
-    # API key set via environment variables (OAuth flow)
-    timeout: 120
+  # Note: qwen-oauth backend is configured via backend-instances file:
+  # config/backends/backend-instances/qwen-oauth.default.yaml
 
   zai:
     # API key set via ZAI_API_KEY environment variable

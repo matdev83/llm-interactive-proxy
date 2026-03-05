@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any, cast
 
@@ -144,6 +145,33 @@ class BackendSettings(DomainModel):
 
         super().__init__(**init_data)
 
+        # Import constrained family detection to avoid creating duplicate instances
+        from src.core.config.constrained_backend_policy import (
+            match_constrained_connector_family,
+        )
+
+        # Track which constrained families already have instances configured
+        # (an instance is something like 'qwen-oauth.default', which differs from the base name 'qwen-oauth' or 'qwen_oauth')
+        claimed_constrained_families: set[str] = set()
+        for existing_name in backend_data:
+            family = match_constrained_connector_family(existing_name)
+            # Consider it an "instance" if the existing name has a dot suffix
+            if family and "." in existing_name:
+                claimed_constrained_families.add(family)
+
+        # Drop legacy base configuration if an instance exists
+        for backend_name in list(backend_data.keys()):
+            family = match_constrained_connector_family(backend_name)
+            if family and family in claimed_constrained_families:
+                # If it's literally the base name (with underscore or hyphen), drop it
+                if backend_name.replace("_", "-") == family:
+                    logger = logging.getLogger(__name__)
+                    logger.warning(
+                        f"Dropping legacy backend configuration '{backend_name}' "
+                        f"because instance of '{family}' already exists."
+                    )
+                    del backend_data[backend_name]
+
         for backend_name, config_data in backend_data.items():
             if isinstance(config_data, dict):
                 self.__dict__[backend_name] = BackendConfig(**config_data)
@@ -153,6 +181,11 @@ class BackendSettings(DomainModel):
         registered_backends = backend_registry.get_registered_backends()
         for backend_name in registered_backends:
             if backend_name not in self.__dict__:
+                # Skip creating default entry if this backend belongs to a constrained family
+                # that already has an instance (e.g., skip 'qwen-oauth' if 'qwen-oauth.default' exists)
+                family = match_constrained_connector_family(backend_name)
+                if family and family in claimed_constrained_families:
+                    continue
                 self.__dict__[backend_name] = BackendConfig()
 
         self._initialization_complete = True

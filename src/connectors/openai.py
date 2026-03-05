@@ -24,6 +24,7 @@ from src.connectors.contracts import (
 )
 from src.core.common.exceptions import (
     AuthenticationError,
+    BackendError,
     InvalidRequestError,
     ServiceUnavailableError,
 )
@@ -1724,7 +1725,12 @@ class OpenAIConnector(LLMBackend):
                         exc_info=True,
                     )
                 err = response.text
-            raise HTTPException(status_code=response.status_code, detail=err)
+            raise BackendError(
+                message=str(err),
+                status_code=response.status_code,
+                code=str(response.status_code),
+                details={"error_payload": err} if isinstance(err, dict) else {},
+            )
 
         # For Responses API, we need to handle the response differently
         # The response should already be in Responses API format from OpenAI
@@ -1899,13 +1905,10 @@ class OpenAIConnector(LLMBackend):
                 with contextlib.suppress(BaseException):
                     await response.aclose()
 
-            raise HTTPException(
+            raise BackendError(
+                message=body,
                 status_code=status_code,
-                detail={
-                    "message": body,
-                    "type": "openai_error",
-                    "code": status_code,
-                },
+                code=str(status_code),
             )
 
         # Stream SSE messages
