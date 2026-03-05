@@ -1,0 +1,5 @@
+# Default Qwen OAuth backend instance
+# Uses OAuth credentials from ~/.qwen/oauth_creds.json
+connector: qwen-oauth
+extra:
+  enable_qwen_oauth_backend_debugging_override: true
