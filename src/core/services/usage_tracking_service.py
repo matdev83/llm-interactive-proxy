@@ -63,6 +63,7 @@ class UsageTrackingService(IUsageTrackingService):
         user_agent: str | None = None,
         proxy_user: str | None = None,
         turn_number: int = 1,
+        call_purpose: str | None = None,
     ) -> str:
         """Record an incoming request (or leg start), returns record_id.
 
@@ -77,69 +78,8 @@ class UsageTrackingService(IUsageTrackingService):
         mutated_prompt = 0
 
         if leg in (TrafficLeg.CLIENT_TO_PROXY, TrafficLeg.BACKEND_TO_PROXY):
-            # Ingress points (from client or from backend) - typically "verbatim" relative to proxy processing
-            # Note: BTP is a response, but record_request might be used to init the record if we treat it as a new event
-            # However, usually BTP is recorded via record_response of the PTB record, OR as a new record if we track distinct legs.
-            # The spec implies 4 separate measurements. If we store them as separate records, each has its own ID.
-            # If we store them as fields in one record, we need to correlate.
-            # The Requirement 1 says: "Usage_Tracking_System SHALL record verbatim_inbound_tokens... mutated_outbound_tokens..."
-            # The Design says: UsageRecord has fields for both verbatim and mutated.
-            # But the interaction diagram shows:
-            # Frontend->UsageService: record_request(CTP) -> Create UsageRecord
-            # UsageService->UsageService: record_request(PTB) -> Update UsageRecord? Or Create new?
-            #
-            # Design doc: "UsageRecord... The core data structure for tracking individual request/response cycles"
-            # It seems one UsageRecord represents one Turn (CTP -> PTB -> BTP -> PTC).
-            # But `leg` is a field in `UsageRecord`.
-            #
-            # Let's look at `UsageRecord` definition in `src/core/domain/usage_record.py`
-            # and `src/core/database/models/usage.py`.
-            # `leg` is a field. This suggests separate records for each leg.
-            #
-            # IF `leg` is a field, then each "leg" creates a new `UsageRecord`.
-            # So:
-            # 1. CTP: Record created.
-            # 2. PTB: Record created.
-            # 3. BTP: Record created.
-            # 4. PTC: Record created.
-            #
-            # This seems redundant if we want to compare verbatim vs mutated in one view.
-            # BUT, the design doc says:
-            # "UsageRecord... leg: TrafficLeg # CTP, PTC, PTB, BTP"
-            # AND "verbatim_prompt_tokens", "mutated_prompt_tokens" fields exist.
-            #
-            # If we have one record per leg, then for CTP:
-            # verbatim_prompt_tokens = X, mutated = 0 (or X?).
-            #
-            # Let's re-read Requirement 7: "support filtering by traffic leg".
-            # This confirms separate records per leg.
-            #
-            # So, for CTP:
-            # - verbatim_prompt_tokens = input tokens
-            # - mutated_prompt_tokens = 0 (or same as verbatim?)
-            #
-            # Actually, `verbatim` usually means "before proxy mutations". `mutated` means "after".
-            # CTP is "before". PTB is "after".
-            # If we have separate records, CTP record tracks what came in. PTB tracks what went out.
-            #
-            # So:
-            # CTP Record: leg=CTP, verbatim_prompt=X, mutated_prompt=0
-            # PTB Record: leg=PTB, verbatim_prompt=0, mutated_prompt=Y
-            #
-            # This allows full tracing.
-
             verbatim_prompt = prompt_tokens
         else:
-            # Egress points (to backend or to client)
-            # PTB: Proxy to Backend. This is "mutated" prompt.
-            # PTC: Proxy to Client. This is response flow, but if record_request is called for it...
-            # actually record_request is usually for PROMPTS. record_response is for COMPLETIONS.
-            #
-            # CTP (Request): Verbatim Prompt.
-            # PTB (Request): Mutated Prompt.
-            # BTP (Response): Verbatim Completion.
-            # PTC (Response): Mutated Completion.
-
             mutated_prompt = prompt_tokens
 
         record = UsageRecord(
@@ -166,6 +106,7 @@ class UsageTrackingService(IUsageTrackingService):
             user_agent=user_agent,
             app_title=None,
             proxy_user=proxy_user,
+            call_purpose=call_purpose,
         )
 
         try:

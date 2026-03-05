@@ -32,6 +32,7 @@ class IUsageRecordingService(abc.ABC):
         user_agent: str | None = None,
         proxy_user: str | None = None,
         app_title: str | None = None,
+        call_purpose: str | None = None,
     ) -> str:
         """Record an incoming request and create a usage record.
 
@@ -48,6 +49,7 @@ class IUsageRecordingService(abc.ABC):
             user_agent: User agent string (optional)
             proxy_user: Proxy user identifier (optional)
             app_title: Application title (optional)
+            call_purpose: Purpose of the call (e.g., 'quality_verifier') (optional)
 
         Returns:
             Record ID that can be used to complete the record with response data

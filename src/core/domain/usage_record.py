@@ -110,6 +110,7 @@ class UsageRecord(DomainModel):
     user_agent: str | None = None
     app_title: str | None = None
     proxy_user: str | None = None
+    call_purpose: str | None = None  # e.g., "quality_verifier" for internal calls
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the usage record to a dictionary.
@@ -150,6 +151,7 @@ class UsageRecord(DomainModel):
             "user_agent": self.user_agent,
             "app_title": self.app_title,
             "proxy_user": self.proxy_user,
+            "call_purpose": self.call_purpose,
         }
 
     @classmethod

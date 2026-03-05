@@ -605,6 +605,11 @@ class ResponseProcessor(IResponseProcessor):
             ) -> str | None:
                 try:
                     _ensure_quality_verifier_not_cancelled()
+                    
+                    # Ensure Quality Verifier calls are captured and tagged
+                    if request_context is not None:
+                        request_context.extensions["call_purpose"] = "quality_verifier"
+
                     quality_verifier_response = await backend_service.chat_completions(  # type: ignore[reportUnknownMemberType]
                         quality_verifier_request,
                         stream=True,
@@ -687,6 +692,20 @@ class ResponseProcessor(IResponseProcessor):
 
             decision = svc.parse_quality_verifier_output(quality_verifier_text)
             steering_msg = (decision.steering_message or "").strip()
+
+            if logger.isEnabledFor(logging.INFO):
+                logger.info(
+                    "Quality Verifier decision: %s (steering_message=%s)",
+                    decision.decision,
+                    steering_msg or "None",
+                    extra={
+                        "session_id": getattr(request_context, "session_id", None),
+                        "decision": decision.decision,
+                        "steering_message": steering_msg,
+                        "call_purpose": "quality_verifier",
+                    },
+                )
+
             if decision.decision != "steer" or not steering_msg:
                 return {"action": "pass"}
 

@@ -148,6 +148,7 @@ class UsageRecordRepository(AsyncRepository[UsageRecordTable]):
                         existing.user_agent = table_record.user_agent
                         existing.app_title = table_record.app_title
                         existing.proxy_user = table_record.proxy_user
+                        existing.call_purpose = table_record.call_purpose
 
                         session.add(existing)
                         updated_count += 1

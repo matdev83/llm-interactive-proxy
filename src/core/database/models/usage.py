@@ -82,6 +82,7 @@ class UsageRecordTable(SQLModel, table=True):
     user_agent: str | None = Field(default=None, max_length=512)
     app_title: str | None = Field(default=None, max_length=256)
     proxy_user: str | None = Field(default=None, max_length=256, index=True)
+    call_purpose: str | None = Field(default=None, max_length=64, index=True)
 
     # Define composite indexes for common queries
     __table_args__ = (
@@ -158,6 +159,7 @@ class UsageRecordTable(SQLModel, table=True):
             user_agent=record.user_agent,
             app_title=record.app_title,
             proxy_user=record.proxy_user,
+            call_purpose=record.call_purpose,
         )
 
     def to_domain(self) -> UsageRecord:
@@ -210,6 +212,7 @@ class UsageRecordTable(SQLModel, table=True):
             user_agent=self.user_agent,
             app_title=self.app_title,
             proxy_user=self.proxy_user,
+            call_purpose=self.call_purpose,
         )
 
 

@@ -211,6 +211,7 @@ class BackendRequestPreparer(IBackendRequestPreparer):
                     JsonValue, target.backend
                 )
                 context.extensions["auxiliary_model"] = cast(JsonValue, target.model)
+                context.extensions["call_purpose"] = "auxiliary"
 
         return target
 

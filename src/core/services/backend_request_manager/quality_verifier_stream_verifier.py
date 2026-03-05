@@ -624,6 +624,10 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
                     request, combined_text
                 )
 
+                # Ensure Quality Verifier calls are captured and tagged
+                if request_context is not None:
+                    request_context.extensions["call_purpose"] = "quality_verifier"
+
                 try:
                     verifier_response = await backend_service.chat_completions(
                         verification_request,
@@ -675,6 +679,21 @@ class QualityVerifierStreamVerifier(IQualityVerifierStreamVerifier):
 
                 decision = svc.parse_quality_verifier_output(verifier_text or "")
                 steering_msg = (decision.steering_message or "").strip()
+
+                # Log the Quality Verifier decision and steering message
+                if logger.isEnabledFor(logging.INFO):
+                    logger.info(
+                        "Quality Verifier decision: %s (steering_message=%s)",
+                        decision.decision,
+                        steering_msg or "None",
+                        extra={
+                            "session_id": str(context.get("session_id") or ""),
+                            "decision": decision.decision,
+                            "steering_message": steering_msg,
+                            "call_purpose": "quality_verifier",
+                        },
+                    )
+
                 if decision.decision != "steer" or not steering_msg:
                     await svc.report_success()
                     return

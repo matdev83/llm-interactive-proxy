@@ -244,6 +244,13 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
 
                     sid = usage_session_id or "unknown"
 
+                    # Extract call_purpose from context if available
+                    call_purpose: str | None = None
+                    if context is not None:
+                        raw_purpose = context.extensions.get("call_purpose")
+                        if isinstance(raw_purpose, str):
+                            call_purpose = raw_purpose
+
                     ctp_record_id = await self._usage_tracking_service.record_request(
                         session_id=sid,
                         backend_type=backend_type,
@@ -253,6 +260,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         prompt_tokens=verbatim_tokens,
                         proxy_user=proxy_user,
                         turn_number=1,
+                        call_purpose=call_purpose,
                     )
 
                     ptb_record_id = await self._usage_tracking_service.record_request(
@@ -264,6 +272,7 @@ class UsageAccountingOrchestrator(IUsageAccountingOrchestrator):
                         prompt_tokens=outbound_tokens,
                         proxy_user=proxy_user,
                         turn_number=ptb_turn_number,
+                        call_purpose=call_purpose,
                     )
                 except Exception as e:
                     if logger.isEnabledFor(logging.WARNING):

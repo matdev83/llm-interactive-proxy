@@ -24,6 +24,7 @@ class IUsageTrackingService(abc.ABC):
         user_agent: str | None = None,
         proxy_user: str | None = None,
         turn_number: int = 1,
+        call_purpose: str | None = None,
     ) -> str:
         """Record an incoming request (or leg start), returns record_id.
 

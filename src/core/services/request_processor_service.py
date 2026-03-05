@@ -320,6 +320,7 @@ class RequestProcessor(IRequestProcessor):
             context.extensions["auxiliary_original_model"] = original_model
             context.extensions["auxiliary_backend"] = aux_backend
             context.extensions["auxiliary_model"] = routed_model
+            context.extensions["call_purpose"] = "auxiliary"
 
             return routed_request
         except Exception:
@@ -666,6 +667,7 @@ class RequestProcessor(IRequestProcessor):
                     update={"model": f"{effective_backend}:{effective_model}"}
                 )
                 replacement_active_for_request = True
+                context.extensions["call_purpose"] = "replacement"
 
                 if logger.isEnabledFor(logging.DEBUG) and quality_verifier_enabled:
                     logger.debug(
@@ -891,6 +893,7 @@ class RequestProcessor(IRequestProcessor):
                     # Revert context to original backend
                     context.backend = state.original_backend
                     context.effective_model = state.original_model
+                    context.extensions.pop("call_purpose", None)
 
                     # Revert request model
                     request_data_fallback = request_data.model_copy(
