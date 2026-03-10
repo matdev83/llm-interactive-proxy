@@ -3,6 +3,7 @@
 This applicator handles:
 - default_backend, static_route
 - disable_gemini_oauth_fallback, disable_hybrid_backend
+- disable_gemini_oauth_reasoning_prompt_injection
 - hybrid_backend_repeat_messages, reasoning_injection_probability
 - hybrid_reasoning_model_timeout, hybrid_reasoning_force_initial_turns
 - API keys (openrouter, gemini, zai, zenmux)
@@ -123,6 +124,16 @@ class BackendApplicator:
                 True,
                 ParameterSource.CLI,
                 origin="--disable-gemini-oauth-fallback",
+            )
+
+        if getattr(args, "disable_gemini_oauth_reasoning_prompt_injection", False):
+            backend_overrides["disable_gemini_oauth_reasoning_prompt_injection"] = True
+            os.environ["DISABLE_GEMINI_OAUTH_REASONING_PROMPT_INJECTION"] = "1"
+            resolution.record(
+                "backends.disable_gemini_oauth_reasoning_prompt_injection",
+                True,
+                ParameterSource.CLI,
+                origin="--disable-gemini-oauth-reasoning-prompt-injection",
             )
 
         if getattr(args, "disable_hybrid_backend", False):

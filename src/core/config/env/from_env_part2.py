@@ -210,6 +210,13 @@ def apply_config_part2(
             path="backends.disable_gemini_oauth_fallback",
             resolution=resolution,
         ),
+        "disable_gemini_oauth_reasoning_prompt_injection": _env_to_bool(
+            "DISABLE_GEMINI_OAUTH_REASONING_PROMPT_INJECTION",
+            False,
+            env,
+            path="backends.disable_gemini_oauth_reasoning_prompt_injection",
+            resolution=resolution,
+        ),
         "disable_hybrid_backend": _env_to_bool(
             "DISABLE_HYBRID_BACKEND",
             False,

@@ -214,6 +214,12 @@ class ArgumentParserBuilder:
             help="Disable automatic Gemini OAuth fallback to gemini-2.5-flash",
         )
         parser.add_argument(
+            "--disable-gemini-oauth-reasoning-prompt-injection",
+            dest="disable_gemini_oauth_reasoning_prompt_injection",
+            action="store_true",
+            help="Disable automatic reasoning effort prompt injection for Gemini OAuth backends (enabled by default)",
+        )
+        parser.add_argument(
             "--disable-hybrid-backend",
             dest="disable_hybrid_backend",
             action="store_true",

@@ -56,6 +56,7 @@ export OPENROUTER_API_KEY=sk-or-...
 # Backend Selection
 export LLM_BACKEND=openai
 export STATIC_ROUTE="gemini-oauth-plan:gemini-2.5-pro"
+export DISABLE_GEMINI_OAUTH_REASONING_PROMPT_INJECTION=false
 
 # Proxy Configuration
 export APP_HOST=127.0.0.1
@@ -125,6 +126,7 @@ backends:
   default_backend: "openai"    # Default backend identifier
   static_route: null           # Force all traffic to "backend:model"
   disable_gemini_oauth_fallback: false
+  disable_gemini_oauth_reasoning_prompt_injection: false
   disable_hybrid_backend: false
   hybrid_backend_repeat_messages: false
   reasoning_injection_probability: 1.0

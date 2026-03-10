@@ -102,6 +102,7 @@ class BackendSettings(DomainModel):
     default_backend: str = "openai"
     static_route: str | None = None
     disable_gemini_oauth_fallback: bool = False
+    disable_gemini_oauth_reasoning_prompt_injection: bool = False
     disable_hybrid_backend: bool = False
     hybrid_backend_repeat_messages: bool = False
     reasoning_injection_probability: float = Field(

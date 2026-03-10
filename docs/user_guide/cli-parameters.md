@@ -29,6 +29,7 @@ Configuration is resolved in the following order (highest to lowest priority):
 | `--default-backend BACKEND` | `LLM_BACKEND` | Default backend to use (e.g., `openai`, `anthropic`, `gemini`). |
 | `--static-route BACKEND:MODEL` | `STATIC_ROUTE` | Force all requests to use this backend:model combination. |
 | `--disable-gemini-oauth-fallback` | `DISABLE_GEMINI_OAUTH_FALLBACK=1` | Disable automatic Gemini OAuth fallback to `gemini-2.5-flash`. |
+| `--disable-gemini-oauth-reasoning-prompt-injection` | `DISABLE_GEMINI_OAUTH_REASONING_PROMPT_INJECTION=1` | Disable automatic reasoning effort prompt injection for Gemini OAuth backends (enabled by default). |
 | `--disable-hybrid-backend` | `DISABLE_HYBRID_BACKEND=1` | Disable the hybrid backend (enabled by default). |
 | `--hybrid-backend-repeat-messages` | `HYBRID_BACKEND_REPEAT_MESSAGES=1` | Repeat reasoning output as an artificial message in the session. |
 | `--reasoning-injection-probability FLOAT` (or `--reasoning_injection_probability`) | `REASONING_INJECTION_PROBABILITY` | Probability of using the reasoning model in the hybrid backend (0.0 to 1.0). |
@@ -318,8 +319,10 @@ Real-time connection activity tracking for debugging and monitoring. Disabled by
 | CLI Argument | Environment Variable | Description |
 | :--- | :--- | :--- |
 | `--disable-routing-with-backend-ids` | `DISABLE_ROUTING_WITH_BACKEND_IDS=true` | Disable routing using explicit backend instance IDs (e.g. `openai.1:gpt-4`). |
-| `--disable-routing-with-backend-names` | `DISABLE_ROUTING_WITH_BACKEND_NAMES=true` | Disable routing using backend names (e.g. `openai:gpt-4`). Implies disabling IDs. |
+| `--disable-routing-with-backend_names` | `DISABLE_ROUTING_WITH_BACKEND_NAMES=true` | Disable routing using backend names (e.g. `openai:gpt-4`). Implies disabling IDs. |
 | `--disable-routing-with-only-model-names` | `DISABLE_ROUTING_WITH_ONLY_MODEL_NAMES=true` | Disable routing using only model names (e.g. `gpt-4`). |
+
+### Auxiliary Request Routing
 
 ### Auxiliary Request Routing
 
