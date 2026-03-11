@@ -46,8 +46,13 @@ jobs:
         # Run the enhanced architectural linter on each changed file
         EXIT_CODE=0
         for file in $CHANGED_FILES; do
-          if [[ "$file" == *"/tests/"* ]] || [[ "$file" == *"migrations"* ]] || [[ "$file" == *"generated"* ]]; then
+          if [[ "$file" == tests/* ]] || [[ "$file" == */tests/* ]] || [[ "$file" == *"migrations"* ]] || [[ "$file" == *"generated"* ]]; then
             echo "Skipping test/generated file: $file"
+            continue
+          fi
+
+          if [ ! -f "$file" ]; then
+            echo "Skipping non-existent file (deleted/renamed): $file"
             continue
           fi
           
