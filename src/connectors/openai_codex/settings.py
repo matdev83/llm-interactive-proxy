@@ -1,0 +1,457 @@
+"""Settings loader for OpenAI Codex connector.
+
+This module normalizes connector configuration with precedence:
+CLI > ENV > YAML (app config), while preserving defaults.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+from collections.abc import Mapping
+from typing import Any
+
+from src.connectors._openai_codex_capabilities import CodexClientCapabilities
+from src.connectors.openai_codex.contracts import CodexConnectorSettings
+from src.connectors.openai_codex.interfaces import ISettingsLoader
+from src.connectors.openai_codex.utils import (
+    coerce_float_sequence,
+    coerce_positive_int,
+    load_json_env,
+    to_mapping,
+    to_string_list,
+)
+from src.core.config.app_config import AppConfig
+from src.core.services.tool_text_renderer import configure_renderer_registry
+
+logger = logging.getLogger(__name__)
+
+
+class SettingsLoader(ISettingsLoader):
+    """Service for loading and normalizing Codex connector settings."""
+
+    def load(self, app_config: AppConfig) -> CodexConnectorSettings:  # noqa: C901
+        settings: dict[str, Any] = {
+            # Default to client-supplied tools only.
+            #
+            # This backend is typically used by external agents (not Codex CLI),
+            # and exposing Codex CLI-style built-in tools (e.g. apply_patch/shell)
+            # by default can cause clients to receive tool calls they cannot execute.
+            "default_capabilities": CodexClientCapabilities(
+                tool_schema_mode="custom_only",
+                bypass_tool_call_reactor=True,
+                include_environment_context=False,
+            ),
+            "agent_overrides": {},
+            "renderer": {
+                "default": "none",
+                "fallback": "summary",
+                "aliases": {},
+                "modules": {},
+            },
+            "prompt": {
+                "template": None,
+                "prepend": [],
+                "append": [],
+                "deduplicate": True,
+                "fallback_to_default": True,
+            },
+            "tool_schema": {
+                "base_tools": None,
+                "custom_tools": [],
+            },
+            "streaming": {
+                "max_retries": 2,
+                "retry_backoff_seconds": (0.5, 1.5, 3.0),
+            },
+            "websocket": {
+                "enabled": False,
+            },
+            "compatibility_layer": {
+                "enabled": False,
+                "detection": {
+                    "cache_ttl_seconds": 3600,
+                    "heuristic_threshold": 2,
+                },
+                "translation": {
+                    "max_tool_execution_timeout": 30,
+                    "result_format": "kilo_standard",
+                },
+                "telemetry": {
+                    "log_translations": True,
+                    "log_detection": True,
+                    "emit_metrics": True,
+                },
+            },
+        }
+
+        backend_config = getattr(app_config.backends, "openai_codex", None)
+        backend_extra: dict[str, Any] = {}
+        if backend_config and hasattr(backend_config, "extra"):
+            try:
+                extra_candidate = backend_config.extra
+                if isinstance(extra_candidate, Mapping):
+                    backend_extra = dict(extra_candidate)
+            except (TypeError, ValueError) as e:
+                logger.debug(
+                    "Failed to extract backend extra config: %s (type=%s)",
+                    str(e),
+                    type(e).__name__,
+                    exc_info=True,
+                )
+                backend_extra = {}
+
+        codex_cfg = to_mapping(backend_extra.get("codex")) or {}
+
+        # Default capabilities
+        for override_source in (
+            codex_cfg.get("default_capabilities"),
+            load_json_env("OPENAI_CODEX_DEFAULT_CAPABILITIES"),
+        ):
+            mapping = to_mapping(override_source)
+            if mapping:
+                settings["default_capabilities"] = settings[
+                    "default_capabilities"
+                ].merge(mapping)
+
+        # Agent overrides
+        combined_agent_overrides: dict[str, dict[str, Any]] = {}
+        for source in (
+            codex_cfg.get("agent_capabilities"),
+            load_json_env("OPENAI_CODEX_AGENT_CAPABILITIES"),
+        ):
+            mapping = to_mapping(source)
+            if not mapping:
+                continue
+            for raw_agent, caps in mapping.items():
+                if not isinstance(raw_agent, str):  # type: ignore[unreachable]
+                    continue
+                agent_key = raw_agent.strip().lower()
+                if not agent_key:
+                    continue
+                cap_mapping = to_mapping(caps)
+                if not cap_mapping:
+                    continue
+                combined_agent_overrides.setdefault(agent_key, {}).update(cap_mapping)
+        settings["agent_overrides"] = combined_agent_overrides
+
+        # Renderer configuration
+        renderer_cfg = to_mapping(codex_cfg.get("renderer")) or {}
+        renderer_aliases = to_mapping(renderer_cfg.get("aliases")) or {}
+        renderer_modules = to_mapping(renderer_cfg.get("modules")) or {}
+        env_renderer_aliases = (
+            to_mapping(load_json_env("OPENAI_CODEX_RENDERER_ALIASES") or {}) or {}
+        )
+        env_renderer_modules = (
+            to_mapping(load_json_env("OPENAI_CODEX_RENDERER_MODULES") or {}) or {}
+        )
+
+        env_renderer_default = os.getenv("OPENAI_CODEX_RENDERER_DEFAULT")
+        env_renderer_fallback = os.getenv("OPENAI_CODEX_RENDERER_FALLBACK")
+        renderer_default = (
+            env_renderer_default
+            if env_renderer_default is not None
+            else renderer_cfg.get("default")
+        )
+        renderer_fallback = (
+            env_renderer_fallback
+            if env_renderer_fallback is not None
+            else renderer_cfg.get("fallback")
+        )
+        renderer_default = (renderer_default or "none").strip() or "none"
+        renderer_fallback = (renderer_fallback or "summary").strip() or "summary"
+
+        # Prompt configuration
+        prompt_cfg = to_mapping(codex_cfg.get("prompt")) or {}
+        prompt_template = prompt_cfg.get("template") or os.getenv(
+            "OPENAI_CODEX_PROMPT_TEMPLATE"
+        )
+        prepend_sections = to_string_list(prompt_cfg.get("prepend")) + to_string_list(
+            load_json_env("OPENAI_CODEX_PROMPT_PREPEND")
+        )
+        append_sections = to_string_list(prompt_cfg.get("append")) + to_string_list(
+            load_json_env("OPENAI_CODEX_PROMPT_APPEND")
+        )
+        prompt_deduplicate_env = os.getenv("OPENAI_CODEX_PROMPT_DEDUPLICATE")
+        if prompt_deduplicate_env is not None:
+            prompt_deduplicate = prompt_deduplicate_env.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        else:
+            prompt_deduplicate = bool(prompt_cfg.get("deduplicate", True))
+        fallback_to_default_env = os.getenv("OPENAI_CODEX_PROMPT_FALLBACK_DEFAULT")
+        if fallback_to_default_env is not None:
+            fallback_to_default = fallback_to_default_env.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        else:
+            fallback_to_default = bool(prompt_cfg.get("fallback_to_default", True))
+
+        settings["prompt"].update(
+            {
+                "template": (
+                    prompt_template.strip()
+                    if isinstance(prompt_template, str)
+                    else None
+                ),
+                "prepend": prepend_sections,
+                "append": append_sections,
+                "deduplicate": prompt_deduplicate,
+                "fallback_to_default": fallback_to_default,
+            }
+        )
+
+        # Tool schema configuration
+        tool_schema_cfg = to_mapping(codex_cfg.get("tool_schema")) or {}
+        # base_tools should be stored as raw dicts (Codex format), not ToolDefinition objects
+        base_tools_raw = tool_schema_cfg.get("base_tools") or load_json_env(
+            "OPENAI_CODEX_TOOL_SCHEMA_BASE"
+        )
+        base_tools: list[dict[str, Any]] | None = None
+        if base_tools_raw:
+            # Convert to list of dicts, preserving Codex format
+            if isinstance(base_tools_raw, list):
+                base_tools = []
+                for tool in base_tools_raw:
+                    if isinstance(tool, dict | Mapping):
+                        base_tools.append(dict(tool))
+                    elif hasattr(tool, "model_dump") and callable(tool.model_dump):
+                        base_tools.append(tool.model_dump())  # type: ignore[attr-defined]
+                    else:
+                        base_tools.append(
+                            dict(tool) if isinstance(tool, Mapping) else {}
+                        )
+            elif isinstance(base_tools_raw, dict | Mapping):
+                base_tools = [dict(base_tools_raw)]
+
+        # custom_tools should also be stored as raw dicts (Codex format)
+        custom_tools_raw = tool_schema_cfg.get("custom_tools") or load_json_env(
+            "OPENAI_CODEX_TOOL_SCHEMA_CUSTOM"
+        )
+        custom_tools_dicts: list[dict[str, Any]] = []
+        if custom_tools_raw:
+            # Convert to list of dicts, preserving Codex format
+            if isinstance(custom_tools_raw, list):
+                for tool in custom_tools_raw:
+                    if isinstance(tool, dict | Mapping):
+                        tool_dict = dict(tool)
+                        # Validate tool schema: must have a non-empty "name" field
+                        tool_name = tool_dict.get("name")
+                        if isinstance(tool_name, str) and tool_name.strip():
+                            custom_tools_dicts.append(tool_dict)
+                        # Skip tools without name or with empty name
+                    elif hasattr(tool, "model_dump"):
+                        tool_dict = tool.model_dump()
+                        tool_name = tool_dict.get("name")
+                        if isinstance(tool_name, str) and tool_name.strip():
+                            custom_tools_dicts.append(tool_dict)
+            elif isinstance(custom_tools_raw, dict | Mapping):
+                tool_dict = dict(custom_tools_raw)
+                tool_name = tool_dict.get("name")
+                if isinstance(tool_name, str) and tool_name.strip():
+                    custom_tools_dicts = [tool_dict]
+
+        settings["tool_schema"].update(
+            {
+                "base_tools": base_tools,
+                "custom_tools": custom_tools_dicts,
+            }
+        )
+
+        # Configure renderer registry after aliases/modules are ready
+        combined_aliases_raw: dict[Any, Any] = {}
+        combined_aliases_raw.update(renderer_aliases)
+        combined_aliases_raw.update(env_renderer_aliases)
+        combined_modules_raw: dict[Any, Any] = {}
+        combined_modules_raw.update(renderer_modules)
+        combined_modules_raw.update(env_renderer_modules)
+
+        sanitized_aliases: dict[str, str] = {}
+        for alias, target in combined_aliases_raw.items():
+            if not isinstance(alias, str) or not isinstance(target, str):
+                continue
+            alias_key = alias.strip()
+            target_key = target.strip()
+            if alias_key and target_key:
+                sanitized_aliases[alias_key] = target_key
+
+        sanitized_modules: dict[str, str] = {}
+        for name, dotted_path in combined_modules_raw.items():
+            if not isinstance(name, str) or not isinstance(dotted_path, str):
+                continue
+            renderer_name = name.strip()
+            path_value = dotted_path.strip()
+            if renderer_name and path_value:
+                sanitized_modules[renderer_name] = path_value
+
+        try:
+            configure_renderer_registry(
+                aliases=sanitized_aliases or None,
+                modules=sanitized_modules or None,
+                default=renderer_default,
+                fallback=renderer_fallback,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to configure tool text renderer registry: %s",
+                exc,
+                exc_info=True,
+            )
+
+        settings["renderer"].update(
+            {
+                "default": renderer_default,
+                "fallback": renderer_fallback,
+                "aliases": sanitized_aliases,
+                "modules": sanitized_modules,
+            }
+        )
+
+        if settings["default_capabilities"].tool_text_format in {
+            None,
+            "none",
+        } and renderer_default not in {None, "", "none"}:
+            settings["default_capabilities"] = settings["default_capabilities"].merge(
+                {"tool_text_format": renderer_default}
+            )
+
+        # Streaming settings
+        streaming_cfg = to_mapping(codex_cfg.get("streaming")) or {}
+        max_retries = coerce_positive_int(streaming_cfg.get("max_retries"))
+        env_max_retries = os.getenv("OPENAI_CODEX_STREAMING_MAX_RETRIES")
+        if env_max_retries is not None:
+            max_retries_env = coerce_positive_int(env_max_retries)
+            if max_retries_env is not None:
+                max_retries = max_retries_env
+        if max_retries is None:
+            max_retries = settings["streaming"]["max_retries"]
+
+        backoff_seq = (
+            coerce_float_sequence(streaming_cfg.get("retry_backoff_seconds"))
+            or settings["streaming"]["retry_backoff_seconds"]
+        )
+        env_backoff = os.getenv("OPENAI_CODEX_STREAMING_RETRY_BACKOFF")
+        if env_backoff:
+            maybe_env_backoff = coerce_float_sequence(env_backoff)
+            if maybe_env_backoff:
+                backoff_seq = maybe_env_backoff
+
+        if not backoff_seq:
+            backoff_seq = (0.5, 1.5, 3.0)
+
+        settings["streaming"] = {
+            "max_retries": max_retries,
+            "retry_backoff_seconds": tuple(backoff_seq),
+        }
+
+        # WebSocket settings
+        websocket_cfg = to_mapping(codex_cfg.get("websocket")) or {}
+        ws_enabled = websocket_cfg.get("enabled")
+        env_ws_enabled = os.getenv("OPENAI_CODEX_WEBSOCKET_ENABLED")
+        if env_ws_enabled is not None:
+            ws_enabled = env_ws_enabled.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        elif ws_enabled is None:
+            ws_enabled = settings["websocket"]["enabled"]
+
+        settings["websocket"] = {
+            "enabled": bool(ws_enabled),
+        }
+
+        # Compatibility layer settings
+        compat_cfg = to_mapping(codex_cfg.get("compatibility_layer")) or {}
+
+        compat_enabled = compat_cfg.get("enabled")
+        env_compat_enabled = os.getenv("OPENAI_CODEX_COMPATIBILITY_LAYER_ENABLED")
+        if env_compat_enabled is not None:
+            compat_enabled = env_compat_enabled.strip().lower() in {
+                "1",
+                "true",
+                "yes",
+                "on",
+            }
+        elif compat_enabled is None:
+            compat_enabled = settings["compatibility_layer"]["enabled"]
+
+        detection_cfg = to_mapping(compat_cfg.get("detection")) or {}
+        cache_ttl = coerce_positive_int(detection_cfg.get("cache_ttl_seconds"))
+        if cache_ttl is None:
+            cache_ttl = settings["compatibility_layer"]["detection"][
+                "cache_ttl_seconds"
+            ]
+
+        heuristic_threshold = coerce_positive_int(
+            detection_cfg.get("heuristic_threshold")
+        )
+        if heuristic_threshold is None:
+            heuristic_threshold = settings["compatibility_layer"]["detection"][
+                "heuristic_threshold"
+            ]
+
+        translation_cfg = to_mapping(compat_cfg.get("translation")) or {}
+        max_timeout = coerce_positive_int(
+            translation_cfg.get("max_tool_execution_timeout")
+        )
+        if max_timeout is None:
+            max_timeout = settings["compatibility_layer"]["translation"][
+                "max_tool_execution_timeout"
+            ]
+
+        result_format = (
+            translation_cfg.get("result_format")
+            or settings["compatibility_layer"]["translation"]["result_format"]
+        )
+
+        telemetry_cfg = to_mapping(compat_cfg.get("telemetry")) or {}
+        log_translations = telemetry_cfg.get("log_translations")
+        if log_translations is None:
+            log_translations = settings["compatibility_layer"]["telemetry"][
+                "log_translations"
+            ]
+
+        log_detection = telemetry_cfg.get("log_detection")
+        if log_detection is None:
+            log_detection = settings["compatibility_layer"]["telemetry"][
+                "log_detection"
+            ]
+
+        emit_metrics = telemetry_cfg.get("emit_metrics")
+        if emit_metrics is None:
+            emit_metrics = settings["compatibility_layer"]["telemetry"]["emit_metrics"]
+
+        settings["compatibility_layer"] = {
+            "enabled": bool(compat_enabled),
+            "detection": {
+                "cache_ttl_seconds": cache_ttl,
+                "heuristic_threshold": heuristic_threshold,
+            },
+            "translation": {
+                "max_tool_execution_timeout": max_timeout,
+                "result_format": str(result_format),
+            },
+            "telemetry": {
+                "log_translations": bool(log_translations),
+                "log_detection": bool(log_detection),
+                "emit_metrics": bool(emit_metrics),
+            },
+        }
+
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Codex connector settings loaded: default_capabilities=%s, renderer_default=%s, renderer_fallback=%s",
+                settings["default_capabilities"].to_dict(),
+                renderer_default,
+                renderer_fallback,
+            )
+
+        return CodexConnectorSettings(**settings)

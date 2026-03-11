@@ -61,7 +61,6 @@ g
 .secret
 credentials.json
 config.ini
-settings.py
 local_settings.py
 db.sqlite3
 *.db
