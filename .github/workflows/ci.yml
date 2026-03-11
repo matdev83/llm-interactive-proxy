@@ -69,11 +69,9 @@ jobs:
         OPENROUTER_API_KEY: dummy_key
       run: |
         python -m pytest -v \
-          tests/unit/core/common/test_oauth_packaging_contract.py \
-          tests/unit/core/common/test_backend_discovery_state.py \
-          tests/unit/core/services/test_backend_plugin_discovery.py \
-          tests/unit/core/services/test_backend_registry_oauth_errors.py \
-          tests/unit/connectors/openai_codex/test_executor.py \
+          tests/unit/core/cli_support \
+          tests/unit/core/common \
+          tests/unit/connectors/openai_codex \
           tests/unit/chat_completions_tests/test_gemini_api_compatibility_di.py \
           tests/unit/test_app_startup.py \
           --cov=src --cov-branch --cov-report=xml
