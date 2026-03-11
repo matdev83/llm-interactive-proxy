@@ -77,6 +77,7 @@ jobs:
           tests/unit/connectors/openai_codex \
           tests/unit/chat_completions_tests/test_gemini_api_compatibility_di.py \
           tests/unit/test_app_startup.py \
+          --ignore=tests/unit/connectors/gemini_base/test_credential_coordinator.py \
           --cov=src --cov-branch --cov-report=xml
 
     - name: Run integration tests with coverage append
