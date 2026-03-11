@@ -69,8 +69,11 @@ jobs:
         OPENROUTER_API_KEY: dummy_key
       run: |
         python -m pytest -v \
+          tests/unit/core/app \
           tests/unit/core/cli_support \
           tests/unit/core/common \
+          tests/unit/core/di \
+          tests/unit/connectors/gemini_base \
           tests/unit/connectors/openai_codex \
           tests/unit/chat_completions_tests/test_gemini_api_compatibility_di.py \
           tests/unit/test_app_startup.py \
@@ -159,3 +162,36 @@ jobs:
         else
           echo "No OAuth plugin entry points detected; skipping OAuth-only integration boundary checks."
         fi
+
+  test-extended-nonblocking:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      matrix:
+        python-version: ['3.10']
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .[dev]
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Run extended unit suite (non-blocking)
+      env:
+        OPENAI_API_KEY: dummy_key
+        GEMINI_API_KEY: dummy_key
+        ANTHROPIC_API_KEY: dummy_key
+        OPENROUTER_API_KEY: dummy_key
+      run: |
+        python -m pytest -v tests/unit
