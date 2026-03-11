@@ -126,14 +126,14 @@ jobs:
           tests/unit/core/services/test_backend_registry_oauth_errors.py
 
         if python - <<'PY'
-from importlib.metadata import entry_points
+        from importlib.metadata import entry_points
 
-oauth_entry_points = [
-    ep for ep in entry_points(group="llm_proxy.backends")
-    if "oauth" in ep.name.lower()
-]
-raise SystemExit(0 if oauth_entry_points else 1)
-PY
+        oauth_entry_points = [
+            ep for ep in entry_points(group="llm_proxy.backends")
+            if "oauth" in ep.name.lower()
+        ]
+        raise SystemExit(0 if oauth_entry_points else 1)
+        PY
         then
           echo "OAuth plugin entry points detected; running integration boundary checks."
           python -m pytest -v tests/integration/test_oauth_connector_filtering.py
