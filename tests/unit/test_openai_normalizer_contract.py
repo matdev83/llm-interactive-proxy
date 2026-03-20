@@ -730,3 +730,37 @@ class TestOpenAIStreamNormalizerContract:
         assert len(chunks) == 1
         assert normalizer.validate_chunk(chunks[0])
         assert chunks[0].metadata["tool_calls"][0]["id"] == "42"
+
+    @pytest.mark.asyncio
+    async def test_tool_calls_null_type_passes_validation(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """NIM and similar gateways may send type: null on streaming tool_call fragments."""
+        payload = {
+            "id": "chatcmpl-nim",
+            "created": 1700000000,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_abc",
+                                "type": None,
+                                "function": {"name": "bash", "arguments": ""},
+                            }
+                        ]
+                    },
+                }
+            ],
+        }
+        raw = f"data: {json.dumps(payload)}\n\n".encode()
+
+        async def mock_stream():
+            yield raw
+
+        chunks = [c async for c in normalizer.normalize_stream(mock_stream(), "openai")]
+        assert len(chunks) == 1
+        assert normalizer.validate_chunk(chunks[0])
+        assert chunks[0].metadata["tool_calls"][0]["type"] == "function"

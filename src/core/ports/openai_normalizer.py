@@ -14,10 +14,21 @@ from typing import Any
 
 from src.core.domain.streaming.sentinels import SentinelManager
 from src.core.domain.streaming.streaming_content import StreamingContent
+from src.core.domain.translation_utils.openai_compat_ids import (
+    coerce_openai_completion_id,
+)
 from src.core.ports.streaming.normalizer_base import BaseStreamNormalizer
 from src.core.services.streaming.error_mapping import handle_streaming_error
 
 logger = logging.getLogger(__name__)
+
+
+def _event_created_fallback(created_raw: Any) -> int | None:
+    if isinstance(created_raw, int) and not isinstance(created_raw, bool):
+        return created_raw
+    if isinstance(created_raw, float) and created_raw.is_integer():
+        return int(created_raw)
+    return None
 
 
 def _prepare_tool_calls_for_metadata(raw: list[Any]) -> list[Any]:
@@ -26,6 +37,9 @@ def _prepare_tool_calls_for_metadata(raw: list[Any]) -> list[Any]:
     Some OpenAI-compatible providers emit ``\"id\": null`` on early streaming deltas
     or non-string ids; strict str-only validation would drop every chunk and stall
     the stream.
+
+    NIM and other gateways may also send ``type: null`` or non-string ``type``, and
+    odd ``function.name`` / ``function.arguments`` shapes on partial tool deltas.
     """
     prepared: list[Any] = []
     for item in raw:
@@ -41,6 +55,33 @@ def _prepare_tool_calls_for_metadata(raw: list[Any]) -> list[Any]:
                 tc["id"] = str(tid)
             elif not isinstance(tid, str):
                 del tc["id"]
+
+        if "type" in tc:
+            tval = tc["type"]
+            if tval is None or tval == "":
+                tc["type"] = "function"
+            elif isinstance(tval, bool | int | float):
+                tc["type"] = str(tval)
+            elif not isinstance(tval, str):
+                tc["type"] = "function"
+
+        fn = tc.get("function")
+        if isinstance(fn, dict):
+            fn = dict(fn)
+            if "name" in fn:
+                nmv = fn["name"]
+                if nmv is None:
+                    del fn["name"]
+                elif not isinstance(nmv, str):
+                    fn["name"] = str(nmv)
+            if "arguments" in fn:
+                av = fn["arguments"]
+                if av is None:
+                    del fn["arguments"]
+                elif not isinstance(av, str):
+                    fn["arguments"] = str(av)
+            tc["function"] = fn
+
         prepared.append(tc)
     return prepared
 
@@ -122,7 +163,12 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
 
                     # Extract stream_id from first chunk if available
                     if stream_id is None and "id" in event_data:
-                        stream_id = event_data["id"]
+                        stream_id = coerce_openai_completion_id(
+                            event_data["id"],
+                            created_fallback=_event_created_fallback(
+                                event_data.get("created")
+                            ),
+                        )
 
                     # Convert to StreamingContent
                     normalized_chunk = self._normalize_chunk(event_data, stream_id)
@@ -288,9 +334,12 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         if "model" in event_data:
             metadata["model"] = event_data["model"]
 
-        # Add id if available
+        # Add id if available (must be str | None for metadata schema)
         if "id" in event_data:
-            metadata["id"] = event_data["id"]
+            metadata["id"] = coerce_openai_completion_id(
+                event_data["id"],
+                created_fallback=_event_created_fallback(event_data.get("created")),
+            )
 
         # Add created timestamp if available
         if "created" in event_data:
