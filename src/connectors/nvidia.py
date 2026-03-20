@@ -78,6 +78,9 @@ class NvidiaConnector(OpenAIConnector):
         mct = payload.pop("max_completion_tokens", None)
         if mct is not None and payload.get("max_tokens") is None:
             payload["max_tokens"] = mct
+        # Strict OpenAI-compat schema on hosted NIM often rejects Chat Completions extensions
+        # that the generic OpenAI connector adds (unknown keys -> 422/extra_forbidden).
+        payload.pop("stream_options", None)
         return payload
 
 

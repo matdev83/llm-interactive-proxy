@@ -10,6 +10,7 @@ The proxy registers backend type `nvidia`. It uses the same OpenAI-style chat co
 
 - OpenAI-compatible `POST /v1/chat/completions` and model listing via `GET /v1/models` when credentials allow
 - Outbound requests map `max_completion_tokens` to `max_tokens` when needed: the hosted NIM integrator uses a strict request schema and rejects `max_completion_tokens` as an unknown field
+- The connector omits `stream_options` (for example `include_usage`) from outbound chat bodies: the same strict schema often rejects that nested object even though other OpenAI-compatible providers accept it
 - Default hosted base URL `https://integrate.api.nvidia.com/v1` (overridable for self-hosted NIM)
 - API key via environment variable `NVIDIA_API_KEY` when no key is supplied through higher-precedence initialization (see [Configuration](#configuration))
 

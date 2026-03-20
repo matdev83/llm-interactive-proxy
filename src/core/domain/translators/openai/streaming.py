@@ -9,8 +9,20 @@ from src.core.domain.chat import (
     StreamingChatCompletionChoiceDelta,
 )
 from src.core.domain.translation_utils.content_utils import coerce_reasoning_text
+from src.core.domain.translation_utils.openai_compat_ids import (
+    coerce_openai_completion_id,
+    sanitize_openai_chunk_tool_call_ids_inplace,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _int_created_fallback(created_raw: Any) -> int | None:
+    if isinstance(created_raw, int) and not isinstance(created_raw, bool):
+        return created_raw
+    if isinstance(created_raw, float) and created_raw.is_integer():
+        return int(created_raw)
+    return None
 
 
 def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str, Any]:
@@ -90,9 +102,10 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
     if not isinstance(chunk, dict):
         return {"error": "Invalid chunk format: expected a dictionary"}
 
-    chunk_id = chunk.get("id")
-    if not chunk_id or "choices" not in chunk:
-        return {"error": "Invalid chunk: missing 'id' or 'choices'"}
+    if "choices" not in chunk or not isinstance(chunk.get("choices"), list):
+        return {"error": "Invalid chunk: missing 'choices'"}
+
+    sanitize_openai_chunk_tool_call_ids_inplace(chunk)
 
     choices = chunk.get("choices")
     if isinstance(choices, list):
@@ -140,8 +153,12 @@ def openai_to_domain_stream_chunk(chunk: Any) -> CanonicalStreamChunk | dict[str
                 )
                 canonical_choices.append(choice_obj)
 
+        coerced_id = coerce_openai_completion_id(
+            chunk.get("id"),
+            created_fallback=_int_created_fallback(chunk.get("created")),
+        )
         return CanonicalStreamChunk(
-            id=chunk.get("id"),
+            id=coerced_id,
             object=chunk.get("object", "chat.completion.chunk"),
             created=chunk.get("created"),
             model=chunk.get("model"),
@@ -239,8 +256,16 @@ def from_domain_to_openai_stream_chunk(chunk: Any) -> dict[str, Any]:
         ),
     }
 
+    raw_top_id = chunk_dict.get("id")
+    if raw_top_id is None and not isinstance(chunk, dict):
+        raw_top_id = getattr(chunk, "id", None)
+    outbound_id = coerce_openai_completion_id(
+        raw_top_id,
+        created_fallback=_int_created_fallback(chunk_dict.get("created")),
+    )
+
     return {
-        "id": chunk_dict.get("id", getattr(chunk, "id", "chatcmpl-stream")),
+        "id": outbound_id,
         "object": chunk_dict.get(
             "object", getattr(chunk, "object", "chat.completion.chunk")
         ),

@@ -21,6 +21,10 @@ from src.core.domain.streaming.stop_chunk_with_usage import (
     UsageChunkLeakError,
 )
 from src.core.domain.streaming.streaming_content import StreamingContent
+from src.core.domain.translation_utils.openai_compat_ids import (
+    coerce_openai_completion_id,
+    normalize_tool_call_dict_id_inplace,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +167,7 @@ class SSESerializer:
         except Exception:
             # Best-effort: usage chunks should never fail serialization.
             pass
+        self._ensure_openai_compatible_top_level_id(plain_dict)
         return f"data: {json.dumps(plain_dict)}\n\ndata: [DONE]\n\n".encode()
 
     def _serialize_error_chunk(
@@ -342,6 +347,24 @@ class SSESerializer:
             normalized["object"] = "chat.completion.chunk"
         return normalized
 
+    @staticmethod
+    def _openai_chunk_created_fallback(created_raw: Any) -> int | None:
+        if isinstance(created_raw, int) and not isinstance(created_raw, bool):
+            return created_raw
+        if isinstance(created_raw, float) and created_raw.is_integer():
+            return int(created_raw)
+        return None
+
+    def _ensure_openai_compatible_top_level_id(self, payload: dict[str, Any]) -> None:
+        """Force string ``id`` on OpenAI-shaped stream payloads for strict clients."""
+
+        payload["id"] = coerce_openai_completion_id(
+            payload.get("id"),
+            created_fallback=self._openai_chunk_created_fallback(
+                payload.get("created")
+            ),
+        )
+
     def _serialize_openai_chunk_with_done(
         self, chunk: StreamingChunk, content: StreamingContent
     ) -> bytes:
@@ -352,6 +375,7 @@ class SSESerializer:
                 cast(dict[str, Any], content.content)
             )
         )
+        self._ensure_openai_compatible_top_level_id(content_copy)
 
         if content.metadata.get("_suppress_reasoning_fields"):
             self._sanitize_reasoning_fields_in_openai_payload(
@@ -400,6 +424,7 @@ class SSESerializer:
                                 # Ensure index is present (required by OpenAI streaming spec)
                                 if "index" not in sanitized_tc:
                                     sanitized_tc["index"] = idx
+                                normalize_tool_call_dict_id_inplace(sanitized_tc)
                                 sanitized_calls.append(sanitized_tc)
                             new_container = dict(container)
                             new_container["tool_calls"] = sanitized_calls
@@ -435,6 +460,7 @@ class SSESerializer:
                 # Ensure index is present (required by OpenAI streaming spec)
                 if "index" not in sanitized_dict:
                     sanitized_dict["index"] = idx
+                normalize_tool_call_dict_id_inplace(sanitized_dict)
                 if sanitized_dict:
                     sanitized_calls.append(sanitized_dict)
 
@@ -463,6 +489,7 @@ class SSESerializer:
             # Ensure index is present (required by OpenAI streaming spec)
             if "index" not in sanitized:
                 sanitized["index"] = idx
+            normalize_tool_call_dict_id_inplace(sanitized)
             result.append(sanitized)
         return result
 
@@ -520,6 +547,7 @@ class SSESerializer:
         content_copy = dict(
             self._normalize_openai_chat_completion_to_stream_chunk(working_content)
         )
+        self._ensure_openai_compatible_top_level_id(content_copy)
 
         if suppress_reasoning:
             self._sanitize_reasoning_fields_in_openai_payload(

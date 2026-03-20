@@ -198,3 +198,21 @@ async def test_prepare_payload_keeps_max_tokens_when_both_token_limits_set() -> 
     payload = await connector._prepare_payload(req, list(req.messages), req.model, None)
     assert "max_completion_tokens" not in payload
     assert payload.get("max_tokens") == 10
+
+
+@pytest.mark.asyncio
+async def test_prepare_payload_drops_stream_options_for_nim_schema() -> None:
+    """Hosted NIM body schema often rejects unknown keys such as ``stream_options``."""
+    client = AsyncMock()
+    connector = NvidiaConnector(
+        client, AppConfig(), translation_service=TranslationService()
+    )
+    connector.api_key = "k"
+    req = CanonicalChatRequest(
+        model="moonshotai/kimi-k2.5",
+        messages=[ChatMessage(role="user", content="hi")],
+        stream=True,
+    )
+    payload = await connector._prepare_payload(req, list(req.messages), req.model, None)
+    assert payload.get("stream") is True
+    assert "stream_options" not in payload

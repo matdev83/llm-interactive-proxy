@@ -14,8 +14,19 @@ from src.core.domain.chat import (
     ToolCall,
 )
 from src.core.domain.translation_utils.content_utils import coerce_reasoning_text
+from src.core.domain.translation_utils.openai_compat_ids import (
+    coerce_openai_completion_id,
+)
 from src.core.domain.translation_utils.usage_utils import normalize_usage_metadata
 from src.core.domain.usage_summary import UsageSummary
+
+
+def _response_created_fallback(created_raw: Any) -> int | None:
+    if isinstance(created_raw, int) and not isinstance(created_raw, bool):
+        return created_raw
+    if isinstance(created_raw, float) and created_raw.is_integer():
+        return int(created_raw)
+    return None
 
 
 def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
@@ -109,7 +120,10 @@ def openai_to_domain_response(response: Any) -> CanonicalChatResponse:
     normalized_usage = normalize_usage_metadata(usage, "openai")
 
     result = CanonicalChatResponse(
-        id=response.get("id", "chatcmpl-openai-unk"),
+        id=coerce_openai_completion_id(
+            response.get("id"),
+            created_fallback=_response_created_fallback(response.get("created")),
+        ),
         object=response.get("object", "chat.completion"),
         created=response.get("created", int(time.time())),
         model=response.get("model", "unknown"),
