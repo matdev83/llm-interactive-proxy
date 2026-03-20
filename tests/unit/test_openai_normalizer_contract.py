@@ -660,3 +660,73 @@ class TestOpenAIStreamNormalizerContract:
         for chunk in chunks:
             assert chunk.stream_id == stream_id
             assert chunk.metadata["provider"] == "openai"
+
+    @pytest.mark.asyncio
+    async def test_tool_calls_with_null_id_passes_validation(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """OpenAI-compatible streams may send id: null on early tool_call deltas."""
+        payload = {
+            "id": "chatcmpl-x",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": None,
+                                "type": "function",
+                                "function": {
+                                    "name": "attempt_completion",
+                                    "arguments": "{}",
+                                },
+                            }
+                        ]
+                    },
+                }
+            ],
+        }
+        raw = f"data: {json.dumps(payload)}\n\n".encode()
+
+        async def mock_stream():
+            yield raw
+
+        chunks = [c async for c in normalizer.normalize_stream(mock_stream(), "openai")]
+        assert len(chunks) == 1
+        assert normalizer.validate_chunk(chunks[0])
+        tc0 = chunks[0].metadata["tool_calls"][0]
+        assert "id" not in tc0
+
+    @pytest.mark.asyncio
+    async def test_tool_calls_numeric_id_coerced_to_str(
+        self, normalizer: OpenAIStreamNormalizer
+    ) -> None:
+        """Some backends emit non-string tool_call ids."""
+        payload = {
+            "id": "chatcmpl-x",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": 42,
+                                "type": "function",
+                                "function": {"name": "x", "arguments": ""},
+                            }
+                        ]
+                    },
+                }
+            ],
+        }
+        raw = f"data: {json.dumps(payload)}\n\n".encode()
+
+        async def mock_stream():
+            yield raw
+
+        chunks = [c async for c in normalizer.normalize_stream(mock_stream(), "openai")]
+        assert len(chunks) == 1
+        assert normalizer.validate_chunk(chunks[0])
+        assert chunks[0].metadata["tool_calls"][0]["id"] == "42"

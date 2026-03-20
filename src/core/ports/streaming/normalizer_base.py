@@ -205,13 +205,19 @@ class BaseStreamNormalizer(IProviderStreamNormalizer):
                 )
                 return False
 
-            # Validate required fields in tool_call
-            if "id" in tool_call and not isinstance(tool_call["id"], str):
-                logger.warning(
-                    "Invalid tool_call.id type",
-                    extra={"provider": self.provider},
-                )
-                return False
+            # Validate tool_call id: OpenAI-style streaming deltas may include
+            # "id": null until the provider assigns an id; some backends send numeric ids.
+            if "id" in tool_call:
+                tc_id = tool_call["id"]
+                if tc_id is not None and not isinstance(tc_id, str):
+                    logger.warning(
+                        "Invalid tool_call.id type",
+                        extra={
+                            "provider": self.provider,
+                            "actual_type": type(tc_id).__name__,
+                        },
+                    )
+                    return False
 
             if "type" in tool_call and not isinstance(tool_call["type"], str):
                 logger.warning(

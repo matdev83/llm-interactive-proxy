@@ -20,6 +20,31 @@ from src.core.services.streaming.error_mapping import handle_streaming_error
 logger = logging.getLogger(__name__)
 
 
+def _prepare_tool_calls_for_metadata(raw: list[Any]) -> list[Any]:
+    """Normalize tool_calls from SSE JSON for metadata validation and downstream use.
+
+    Some OpenAI-compatible providers emit ``\"id\": null`` on early streaming deltas
+    or non-string ids; strict str-only validation would drop every chunk and stall
+    the stream.
+    """
+    prepared: list[Any] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            prepared.append(item)
+            continue
+        tc = dict(item)
+        if "id" in tc:
+            tid = tc["id"]
+            if tid is None:
+                del tc["id"]
+            elif isinstance(tid, bool | int | float):
+                tc["id"] = str(tid)
+            elif not isinstance(tid, str):
+                del tc["id"]
+        prepared.append(tc)
+    return prepared
+
+
 class OpenAIStreamNormalizer(BaseStreamNormalizer):
     """Normalizer for OpenAI streaming responses.
 
@@ -289,7 +314,7 @@ class OpenAIStreamNormalizer(BaseStreamNormalizer):
         if not tool_calls_val:
             tool_calls_val = message.get("tool_calls")
         if isinstance(tool_calls_val, list) and tool_calls_val:
-            metadata["tool_calls"] = tool_calls_val
+            metadata["tool_calls"] = _prepare_tool_calls_for_metadata(tool_calls_val)
 
         # Add tool_call_id if present
         if "tool_call_id" in delta:
