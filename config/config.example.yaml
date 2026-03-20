@@ -223,6 +223,7 @@ logging:
 # - GEMINI_API_KEY for Gemini
 # - ANTHROPIC_API_KEY for Anthropic
 # - ZAI_API_KEY for ZAI
+# - NVIDIA_API_KEY for Nvidia (NIM OpenAI-compatible API)
 # - GOOGLE_CLOUD_PROJECT for Google Cloud Project ID
 # See README.md and config/sample.env for examples
 
@@ -243,6 +244,18 @@ backends:
     # API key set via OPENROUTER_API_KEY environment variable
     api_url: "https://openrouter.ai/api/v1"
     timeout: 180
+
+  # nvidia:
+  #   # NVIDIA NIM / hosted integrator OpenAI-compatible chat API.
+  #   # Default base URL when api_url is omitted: https://integrate.api.nvidia.com/v1
+  #   # Set api_url to your self-hosted NIM OpenAI base if not using the hosted integrator.
+  #   # Secrets: use NVIDIA_API_KEY in the environment (do not put real keys in YAML).
+  #   # Precedence: proxy-wide CLI > ENV > YAML where applicable; for this backend, an explicit
+  #   # api_key passed into connector initialization (e.g. from YAML) overrides NVIDIA_API_KEY,
+  #   # which is only used when no api_key is supplied in init kwargs.
+  #   # api_url: null
+  #   # timeout: 120
+  #   # models: []  # Optional static allowlist; with no API key and no models list, discovery is empty
 
   anthropic:
     # API key set via ANTHROPIC_API_KEY environment variable

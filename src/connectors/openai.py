@@ -13,7 +13,7 @@ from collections.abc import (
     Mapping,
 )
 from json import JSONDecodeError
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 from fastapi import HTTPException
@@ -50,6 +50,77 @@ from .base import LLMBackend, add_vendor_prefix
 
 # Maximum SSE buffer size to prevent DoS attacks (16KB)
 MAX_SSE_BUFFER_SIZE = 16384
+
+# Internal-only keys passed via CanonicalChatRequest.extra_body so streaming uses the
+# same resolved URL and headers as the canonical chat_completions path. Stripped from
+# outbound JSON in _clean_openai_payload.
+_LLM_PROXY_STREAM_URL_KEY = "_llm_proxy_stream_url"
+_LLM_PROXY_STREAM_HEADERS_KEY = "_llm_proxy_stream_headers"
+
+
+def _raise_for_httpx_request_error(
+    exc: httpx.RequestError,
+    *,
+    url: str,
+    log_extra: dict[str, str] | None,
+) -> NoReturn:
+    """Map httpx transport errors to domain errors (read timeout vs connect vs other)."""
+
+    if isinstance(exc, httpx.ReadTimeout):
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Upstream read timeout waiting for response headers or body: %s",
+                url,
+                extra=log_extra,
+            )
+        raise BackendError(
+            message=(
+                "Upstream timed out before sending a complete response. "
+                "Increase the HTTP client read timeout or use streaming for long generations."
+            ),
+            details={"url": url, "reason": "read_timeout"},
+            status_code=504,
+        ) from exc
+
+    if isinstance(exc, httpx.ConnectTimeout):
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Connect timeout to %s: %s",
+                url,
+                exc,
+                extra=log_extra,
+            )
+        raise ServiceUnavailableError(
+            message=f"Could not connect to backend (connect timeout: {exc!s})",
+            details={"url": url, "reason": "connect_timeout"},
+        ) from exc
+
+    if isinstance(exc, httpx.WriteTimeout):
+        if logger.isEnabledFor(logging.WARNING):
+            logger.warning(
+                "Write timeout to %s: %s",
+                url,
+                exc,
+                extra=log_extra,
+            )
+        raise BackendError(
+            message="Request body upload timed out.",
+            details={"url": url, "reason": "write_timeout"},
+            status_code=504,
+        ) from exc
+
+    logger.error(
+        "Request failed to %s: %s",
+        url,
+        exc,
+        exc_info=True,
+        extra=log_extra if log_extra else None,
+    )
+    raise ServiceUnavailableError(
+        message=f"Could not connect to backend ({exc!s})",
+        details={"url": url},
+    ) from exc
+
 
 # Legacy ChatCompletionRequest removed from connector signatures; use domain ChatRequest
 
@@ -499,14 +570,14 @@ class OpenAIConnector(LLMBackend):
             base_headers = None
 
         if headers_override is not None:
-            # Avoid mutating the caller-provided mapping while preserving any
-            # Authorization header we compute from the configured API key.
-            # headers_override is already dict[str, str] from line 428
-            headers = dict(headers_override)  # type: ignore[arg-type]
+            # Provider auth from base_headers must win on conflicts (e.g. a mistaken
+            # Authorization value in headers_override must not replace the backend key).
+            merged: dict[str, str] = {
+                str(k): str(v) for k, v in headers_override.items()
+            }
             if base_headers:
-                merged_headers = dict(base_headers)
-                merged_headers.update(headers)
-                headers = merged_headers
+                merged = {**merged, **base_headers}
+            headers = merged
         else:
             headers = base_headers
 
@@ -517,8 +588,15 @@ class OpenAIConnector(LLMBackend):
             # Use the new streaming pipeline orchestrator
             # This integrates: Backend → Normalizer → Processors → Assembler
             try:
+                stream_extra = dict(domain_request.extra_body or {})
+                stream_extra[_LLM_PROXY_STREAM_URL_KEY] = url
+                if headers:
+                    stream_extra[_LLM_PROXY_STREAM_HEADERS_KEY] = dict(headers)
+                streaming_domain_request = domain_request.model_copy(
+                    update={"extra_body": stream_extra}
+                )
                 # Get raw stream from backend via StreamProducer protocol
-                raw_stream = self.stream_completion(domain_request)
+                raw_stream = self.stream_completion(streaming_domain_request)
 
                 # Calculate prompt tokens for usage tracking
                 prompt_tokens = 0
@@ -904,6 +982,8 @@ class OpenAIConnector(LLMBackend):
             "agent",
             "session_id",
             "reasoning_effort",
+            _LLM_PROXY_STREAM_URL_KEY,
+            _LLM_PROXY_STREAM_HEADERS_KEY,
         }
 
         def _strip_none(value: Any) -> Any:
@@ -946,14 +1026,9 @@ class OpenAIConnector(LLMBackend):
             )
             self.update_quota_headers(response.headers)
         except httpx.RequestError as e:
-            logger.error(
-                f"DEBUG: Request failed to {url}. Error: {e}",
-                exc_info=True,
-                extra=log_extra if log_extra else None,
+            _raise_for_httpx_request_error(
+                e, url=url, log_extra=log_extra if log_extra else None
             )
-            raise ServiceUnavailableError(
-                message=f"Could not connect to backend ({e})"
-            ) from e
 
         if int(response.status_code) >= 400:
             # For backwards compatibility with existing error handlers, still use HTTPException here.
@@ -1061,10 +1136,10 @@ class OpenAIConnector(LLMBackend):
         try:
             response = await self.client.send(request, stream=True)
             self.update_quota_headers(response.headers)
-        except httpx.RequestError as exc:  # Normalize network failures
-            raise ServiceUnavailableError(
-                message=f"Could not connect to backend ({exc})"
-            ) from exc
+        except httpx.RequestError as exc:
+            _raise_for_httpx_request_error(
+                exc, url=url, log_extra=log_extra if log_extra else None
+            )
 
         status_code = (
             int(response.status_code) if hasattr(response, "status_code") else 200
@@ -1287,12 +1362,30 @@ class OpenAIConnector(LLMBackend):
                         if buffer:
                             yield buffer
                             buffer = ""
+                    except httpx.ReadTimeout as exc:
+                        if buffer:
+                            yield buffer
+                            buffer = ""
+                        if logger.isEnabledFor(logging.WARNING):
+                            logger.warning(
+                                "Streaming read timeout during SSE for %s",
+                                url,
+                                extra=log_extra if log_extra else None,
+                            )
+                        raise BackendError(
+                            message=(
+                                "Upstream timed out while streaming. "
+                                "Increase the HTTP client read timeout."
+                            ),
+                            details={"url": url, "reason": "read_timeout"},
+                            status_code=504,
+                        ) from exc
                     except httpx.RequestError as exc:
                         if buffer:
                             yield buffer
                             buffer = ""
                         raise ServiceUnavailableError(
-                            message=f"Streaming connection interrupted ({exc})"
+                            message=f"Streaming connection interrupted ({exc!s})"
                         ) from exc
 
                 try:
@@ -1558,13 +1651,13 @@ class OpenAIConnector(LLMBackend):
             base_headers = None
 
         headers: dict[str, str] | None = None
-        if base_headers is not None:
-            merged_headers = dict(base_headers)
-            if resolved_headers:
-                merged_headers.update(resolved_headers)
-            headers = merged_headers
+        if resolved_headers:
+            merged_resp = dict(resolved_headers)
+            if base_headers is not None:
+                merged_resp = {**merged_resp, **base_headers}
+            headers = merged_resp
         else:
-            headers = resolved_headers
+            headers = base_headers
 
         api_base = kwargs.get("openai_url") or self.api_base_url
         url = f"{api_base.rstrip('/')}/responses"
@@ -1702,9 +1795,7 @@ class OpenAIConnector(LLMBackend):
             )
             self.update_quota_headers(response.headers)
         except httpx.RequestError as e:
-            raise ServiceUnavailableError(
-                message=f"Could not connect to backend ({e})"
-            ) from e
+            _raise_for_httpx_request_error(e, url=url, log_extra=None)
 
         if int(response.status_code) >= 400:
             try:
@@ -1829,13 +1920,30 @@ class OpenAIConnector(LLMBackend):
         Error logs from this method cannot include context correlation identifiers.
         Adding context would require a protocol change, which is beyond Task 2.4 scope.
         """
-        # Build the request URL and payload
-        api_base = getattr(request, "api_base", None) or self.api_base_url
-        url = f"{api_base.rstrip('/')}/chat/completions"
+        extra_body = getattr(request, "extra_body", None) or {}
+        override_url: str | None = None
+        override_headers: dict[str, str] | None = None
+        if isinstance(extra_body, dict):
+            raw_u = extra_body.get(_LLM_PROXY_STREAM_URL_KEY)
+            if isinstance(raw_u, str) and raw_u.strip():
+                override_url = raw_u.strip()
+            raw_h = extra_body.get(_LLM_PROXY_STREAM_HEADERS_KEY)
+            if isinstance(raw_h, dict) and raw_h.get("Authorization"):
+                override_headers = {str(k): str(v) for k, v in raw_h.items()}
 
-        # Get headers
-        identity = getattr(request, "identity", None)
-        headers = self.get_headers(identity=identity)
+        # Build the request URL and payload
+        if override_url is not None:
+            url = override_url
+        else:
+            api_base = getattr(request, "api_base", None) or self.api_base_url
+            url = f"{api_base.rstrip('/')}/chat/completions"
+
+        # Get headers (prefer canonical path when injected via extra_body)
+        if override_headers is not None:
+            headers = override_headers
+        else:
+            identity = getattr(request, "identity", None)
+            headers = self.get_headers(identity=identity)
 
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
@@ -1864,9 +1972,7 @@ class OpenAIConnector(LLMBackend):
             response = await self.client.send(http_request, stream=True)
             self.update_quota_headers(response.headers)
         except httpx.RequestError as exc:
-            raise ServiceUnavailableError(
-                message=f"Could not connect to backend ({exc})"
-            ) from exc
+            _raise_for_httpx_request_error(exc, url=url, log_extra=None)
 
         # Check for errors
         status_code = (
@@ -1943,9 +2049,20 @@ class OpenAIConnector(LLMBackend):
             if buffer:
                 yield buffer
 
+        except httpx.ReadTimeout as exc:
+            if logger.isEnabledFor(logging.WARNING):
+                logger.warning("Streaming read timeout for %s", url)
+            raise BackendError(
+                message=(
+                    "Upstream timed out while streaming. "
+                    "Increase the HTTP client read timeout."
+                ),
+                details={"url": url, "reason": "read_timeout"},
+                status_code=504,
+            ) from exc
         except httpx.RequestError as exc:
             raise ServiceUnavailableError(
-                message=f"Streaming connection interrupted ({exc})"
+                message=f"Streaming connection interrupted ({exc!s})"
             ) from exc
         finally:
             with contextlib.suppress(BaseException):

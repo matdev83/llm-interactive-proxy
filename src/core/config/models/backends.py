@@ -163,15 +163,18 @@ class BackendSettings(DomainModel):
         # Drop legacy base configuration if an instance exists
         for backend_name in list(backend_data.keys()):
             family = match_constrained_connector_family(backend_name)
-            if family and family in claimed_constrained_families:
-                # If it's literally the base name (with underscore or hyphen), drop it
-                if backend_name.replace("_", "-") == family:
-                    logger = logging.getLogger(__name__)
-                    logger.warning(
-                        f"Dropping legacy backend configuration '{backend_name}' "
-                        f"because instance of '{family}' already exists."
-                    )
-                    del backend_data[backend_name]
+            # If it's literally the base name (with underscore or hyphen), drop it
+            if (
+                family
+                and family in claimed_constrained_families
+                and backend_name.replace("_", "-") == family
+            ):
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Dropping legacy backend configuration '{backend_name}' "
+                    f"because instance of '{family}' already exists."
+                )
+                del backend_data[backend_name]
 
         for backend_name, config_data in backend_data.items():
             if isinstance(config_data, dict):

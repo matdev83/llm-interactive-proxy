@@ -18,6 +18,7 @@ The proxy supports the following backend providers out of the box:
 | `gemini-oauth-free` | Google Gemini (CLI) | OAuth | Free tier users |
 | `gemini-cli-cloud-project` | Google Gemini (GCP) | OAuth + GCP Project | Enterprise, team workflows, central billing |
 | `openrouter` | OpenRouter | API Key | Access to many hosted models |
+| `nvidia` | NVIDIA (NIM / OpenAI-compatible) | API Key (`NVIDIA_API_KEY`) | Hosted NVIDIA integrator or self-hosted NIM |
 | `zenmux` | ZenMux | API Key | OpenAI-compatible ZenMux router |
 | `zai` | ZAI | API Key | Zhipu/Z.ai access |
 | `zai-coding-plan` | ZAI Coding Plan | API Key | Coding-specific workflows |
@@ -62,6 +63,7 @@ export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
 export GEMINI_API_KEY="AIza..."
 export OPENROUTER_API_KEY="sk-or-..."
+export NVIDIA_API_KEY="..."
 export ZENMUX_API_KEY="..."
 export ZAI_API_KEY="..."
 export KIMI_API_KEY="..."
@@ -121,6 +123,7 @@ For detailed configuration and usage information for each backend, see:
 - [Gemini Backends](gemini.md)
 - [Cline Backend](cline.md)
 - [OpenRouter Backend](openrouter.md)
+- [Nvidia Backend](nvidia.md)
 - [ZAI Backend](zai.md)
 - [Qwen Backend](qwen.md)
 - [MiniMax Backend](minimax.md)

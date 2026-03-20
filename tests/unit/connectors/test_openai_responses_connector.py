@@ -295,7 +295,6 @@ class TestOpenAIResponsesConnector:
         mock_response.status_code = 400
         mock_response.headers = {}
         mock_response.json.return_value = {
-
             "error": {"message": "Invalid request", "type": "invalid_request_error"}
         }
         mock_client.post.return_value = mock_response
@@ -316,10 +315,9 @@ class TestOpenAIResponsesConnector:
             },
         }
 
-        # Call the responses method and expect an exception
-        from fastapi import HTTPException
+        from src.core.common.exceptions import BackendError
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BackendError) as exc_info:
             await connector.responses(
                 request_data=request_data,
                 processed_messages=[],

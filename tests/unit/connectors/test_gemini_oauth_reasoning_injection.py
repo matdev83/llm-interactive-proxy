@@ -3,8 +3,6 @@
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-
 from src.connectors.gemini_base.chat_request_preparer import ChatRequestPreparer
 
 

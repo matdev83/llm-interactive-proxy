@@ -247,7 +247,6 @@ class TestOpenAIResponsesBackendIntegration:
         mock_response.status_code = 200
         mock_response.headers = {}
 
-
         # Simulate streaming chunks
         streaming_chunks = [
             'data: {"id": "resp-stream123", "object": "response.chunk", "created": 1234567890, "model": "gpt-4", "choices": [{"index": 0, "delta": {"content": "{"}, "finish_reason": null}]}\n\n',
@@ -308,7 +307,6 @@ class TestOpenAIResponsesBackendIntegration:
         mock_response.status_code = 400
         mock_response.headers = {}
         mock_response.json.return_value = {
-
             "error": {
                 "message": "Invalid JSON schema provided",
                 "type": "invalid_request_error",
@@ -332,9 +330,9 @@ class TestOpenAIResponsesBackendIntegration:
             },
         }
 
-        from fastapi import HTTPException
+        from src.core.common.exceptions import BackendError
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BackendError) as exc_info:
             await connector.responses(
                 request_data=request_data,
                 processed_messages=[],
@@ -349,7 +347,7 @@ class TestOpenAIResponsesBackendIntegration:
             "error": {"message": "Invalid API key", "type": "authentication_error"}
         }
 
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(BackendError) as exc_info:
             await connector.responses(
                 request_data=request_data,
                 processed_messages=[],

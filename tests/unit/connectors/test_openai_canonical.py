@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -11,7 +12,11 @@ from src.connectors.contracts import (
     ConnectorChatCompletionsRequest,
     ConnectorRequestContext,
 )
-from src.connectors.openai import OpenAIConnector
+from src.connectors.openai import (
+    _LLM_PROXY_STREAM_HEADERS_KEY,
+    _LLM_PROXY_STREAM_URL_KEY,
+    OpenAIConnector,
+)
 from src.core.config.app_config import AppConfig
 from src.core.domain.chat import CanonicalChatRequest, ChatMessage
 from src.core.domain.responses import ResponseEnvelope, StreamingResponseEnvelope
@@ -30,7 +35,6 @@ def mock_config():
     config = MagicMock(spec=AppConfig)
     config.streaming_yield_interval = 100
     return config
-
 
 
 @pytest.fixture
@@ -451,3 +455,118 @@ class TestOpenAICanonicalAPI:
                 assert passed_context is not None
                 assert passed_context.request_id == "test-req-warn-789"
                 assert passed_context.session_id == "test-session-warn-012"
+
+    @pytest.mark.asyncio
+    async def test_headers_override_does_not_replace_backend_authorization(
+        self, openai_connector, canonical_request
+    ):
+        """Backend Bearer token must win when options.headers_override also sets Authorization."""
+        openai_connector.api_key = "backend-real-key"
+        canonical_request.options = {
+            "headers_override": {"Authorization": "Bearer wrong-client-token"},
+        }
+        non_streaming_request = CanonicalChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="Hello")],
+            max_tokens=100,
+            stream=False,
+        )
+        canonical_request.request = non_streaming_request
+
+        captured: dict[str, Any] = {}
+
+        async def fake_handle(
+            url: str,
+            payload: dict[str, Any],
+            headers: dict[str, str] | None,
+            session_id: str,
+            context: Any | None = None,
+        ) -> ResponseEnvelope:
+            captured["headers"] = dict(headers or {})
+            return ResponseEnvelope(
+                content={"id": "x", "model": "gpt-4", "choices": []},
+                status_code=200,
+                headers={},
+            )
+
+        with patch.object(
+            openai_connector,
+            "_handle_non_streaming_response",
+            new_callable=AsyncMock,
+            side_effect=fake_handle,
+        ):
+            await openai_connector.chat_completions(canonical_request)
+
+        assert captured["headers"]["Authorization"] == "Bearer backend-real-key"
+
+    @pytest.mark.asyncio
+    async def test_streaming_passes_resolved_url_and_headers_via_extra_body(
+        self, openai_connector, canonical_request
+    ):
+        """Streaming must use the same URL/headers as the canonical non-stream path."""
+        openai_connector.api_key = "stream-backend-key"
+        canonical_request.options = {"openai_url": "https://custom.openai.example/v1"}
+        streaming_request = CanonicalChatRequest(
+            model="gpt-4",
+            messages=[ChatMessage(role="user", content="Hello")],
+            max_tokens=100,
+            stream=True,
+        )
+        canonical_request.request = streaming_request
+
+        captured_extra: dict[str, Any] = {}
+
+        async def capture_stream(request: CanonicalChatRequest):
+            captured_extra["extra_body"] = dict(request.extra_body or {})
+            # Make this an async generator for the streaming pipeline
+            if False:
+                yield b""
+
+        async def fake_integrate(raw_stream, *args: Any, **kwargs: Any):
+            # Real pipeline iterates raw_stream; a bare AsyncMock return skips this,
+            # so the async generator body of stream_completion would never run.
+            async for _ in raw_stream:
+                break
+            return StreamingResponseEnvelope(
+                content=AsyncMock(),
+                media_type="text/event-stream",
+                headers={},
+            )
+
+        with (
+            patch(
+                "src.core.ports.streaming_integration.integrate_streaming_pipeline",
+                side_effect=fake_integrate,
+            ),
+            patch.object(openai_connector, "stream_completion", capture_stream),
+        ):
+            await openai_connector.chat_completions(canonical_request)
+
+        extra = captured_extra["extra_body"]
+        assert (
+            extra[_LLM_PROXY_STREAM_URL_KEY]
+            == "https://custom.openai.example/v1/chat/completions"
+        )
+        assert (
+            extra[_LLM_PROXY_STREAM_HEADERS_KEY]["Authorization"]
+            == "Bearer stream-backend-key"
+        )
+
+
+class TestOpenAIPayloadCleaning:
+    """Tests for outbound payload hygiene."""
+
+    def test_clean_openai_payload_strips_internal_stream_routing_keys(
+        self, openai_connector
+    ):
+        cleaned = openai_connector._clean_openai_payload(
+            {
+                "model": "gpt-4",
+                "messages": [],
+                _LLM_PROXY_STREAM_URL_KEY: "https://x/v1/chat/completions",
+                _LLM_PROXY_STREAM_HEADERS_KEY: {"Authorization": "Bearer z"},
+            }
+        )
+        assert _LLM_PROXY_STREAM_URL_KEY not in cleaned
+        assert _LLM_PROXY_STREAM_HEADERS_KEY not in cleaned
+        assert cleaned.get("model") == "gpt-4"

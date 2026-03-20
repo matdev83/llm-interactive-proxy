@@ -114,6 +114,7 @@ Backend provider configuration and usage:
 - **[Kimi Code Backend](backends/kimi-code.md)** - Kimi For Coding via OpenAI-compatible API
 
 - **[OpenRouter Backend](backends/openrouter.md)** - OpenRouter multi-model access
+- **[Nvidia Backend](backends/nvidia.md)** - NVIDIA NIM OpenAI-compatible API
 - **[ZAI Backend](backends/zai.md)** - Zhipu/Z.ai configuration
 - **[Qwen Backend](backends/qwen.md)** - Alibaba Qwen OAuth configuration
 - **[Minimax Backend](backends/minimax.md)** - Minimax API configuration

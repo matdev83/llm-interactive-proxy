@@ -19,6 +19,7 @@ from src.core.common.exceptions import ConfigurationError
 from src.core.config.app_config import (
     AppConfig,
     AuthConfig,
+    BackendConfig,
     BackendSettings,
     LoggingConfig,
     LogLevel,
@@ -183,7 +184,10 @@ def test_core_only_mode_keeps_openai_request_path_operational(monkeypatch) -> No
     """Core-only mode should still serve OpenAI protocol requests."""
     monkeypatch.setenv("OPENAI_API_KEY", "dummy-key")
     config = AppConfig(
-        backends=BackendSettings(static_route="openai:gpt-4o-mini"),
+        backends=BackendSettings(
+            static_route="openai:gpt-4o-mini",
+            openai=BackendConfig(api_key="dummy-key"),
+        ),
         auth=AuthConfig(disable_auth=True),
         logging=LoggingConfig(level=LogLevel.INFO),
     )

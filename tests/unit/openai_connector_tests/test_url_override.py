@@ -8,6 +8,7 @@ pytestmark = pytest.mark.filterwarnings(
     "ignore:unclosed event loop <ProactorEventLoop.*:ResourceWarning"
 )
 from src.connectors.openai import OpenAIConnector
+from src.core.common.exceptions import BackendError
 from src.core.domain.chat import ChatMessage, ChatRequest
 
 
@@ -201,3 +202,23 @@ async def test_initialize_with_custom_url(mock_client):
     assert url == "https://custom-api.example.com/v1/models"
     assert connector.api_base_url == custom_url
     assert connector.available_models == ["gpt-3.5-turbo", "gpt-4"]
+
+
+@pytest.mark.asyncio
+async def test_handle_non_streaming_read_timeout_raises_backend_error_504(
+    openai_connector: OpenAIConnector, mock_client
+) -> None:
+    """ReadTimeout must not be misreported as a generic connect failure."""
+    mock_client.post = AsyncMock(side_effect=httpx.ReadTimeout("timed out"))
+    with pytest.raises(BackendError) as exc_info:
+        await openai_connector._handle_non_streaming_response(
+            "https://api.openai.com/v1/chat/completions",
+            {"model": "gpt-4", "messages": []},
+            {"Authorization": "Bearer test-api-key"},
+            "sid",
+            None,
+        )
+    err = exc_info.value
+    assert err.status_code == 504
+    assert (err.details or {}).get("reason") == "read_timeout"
+    assert "timed out" in err.message.lower() or "Upstream timed out" in err.message
