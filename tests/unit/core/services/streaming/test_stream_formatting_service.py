@@ -36,6 +36,21 @@ class TestFormatChunkAsSSE:
         parsed = json.loads(json_part)
         assert parsed == chunk
 
+    def test_dict_numeric_id_coerced_without_mutating_caller(self) -> None:
+        """B2BUA / legacy paths must stringify OpenAI ids before json.dumps."""
+        service = StreamFormattingService()
+        chunk: dict[str, Any] = {
+            "id": 555,
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "m",
+            "choices": [{"index": 0, "delta": {"content": "x"}}],
+        }
+        result = service.format_chunk_as_sse(chunk)
+        parsed = json.loads(result.decode("utf-8")[6:-2])
+        assert parsed["id"] == "555"
+        assert chunk["id"] == 555
+
     def test_streaming_error_chunk_preserves_empty_delta(self) -> None:
         """OpenAI-style error chunks should not inject delta.content."""
         service = StreamFormattingService()

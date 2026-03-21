@@ -11,6 +11,41 @@ import time
 from typing import Any
 
 
+def openai_created_int_fallback(created_raw: Any) -> int | None:
+    """Best-effort int ``created`` for completion id fallbacks (mirrors SSE serializer)."""
+
+    if isinstance(created_raw, int) and not isinstance(created_raw, bool):
+        return created_raw
+    if isinstance(created_raw, float) and created_raw.is_integer():
+        return int(created_raw)
+    return None
+
+
+def sanitize_openai_compatible_sse_payload_inplace(payload: dict[str, Any]) -> None:
+    """Coerce OpenAI-style ``id`` / tool-call ids on dicts about to be sent as SSE JSON.
+
+    Covers escape hatches that ``json.dumps`` dicts without ``SSESerializer`` (error
+    passthrough, backend stream formatting, injected terminal chunks).
+    """
+
+    obj = payload.get("object")
+    has_choices = "choices" in payload
+    is_chat_object = isinstance(obj, str) and obj.startswith("chat.completion")
+    has_error = isinstance(payload.get("error"), dict)
+    raw_id = payload.get("id")
+    bad_id = "id" in payload and not isinstance(raw_id, str)
+
+    if not (has_choices or is_chat_object or (has_error and bad_id)):
+        return
+
+    payload["id"] = coerce_openai_completion_id(
+        payload.get("id"),
+        created_fallback=openai_created_int_fallback(payload.get("created")),
+    )
+    if has_choices:
+        sanitize_openai_chunk_tool_call_ids_inplace(payload)
+
+
 def coerce_openai_completion_id(
     raw: Any,
     *,

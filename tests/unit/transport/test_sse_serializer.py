@@ -88,6 +88,23 @@ class TestSSESerializerErrorChunks:
         assert "error" in payload
         assert payload["error"]["message"] == "Backend error"
 
+    def test_error_chunk_with_content_dict_numeric_id(self) -> None:
+        """Numeric provider error ids must stringify for strict SSE clients."""
+        serializer = SSESerializer()
+        chunk = StreamingContent(
+            content={
+                "id": 884422,
+                "error": {"message": "Backend error", "type": "api_error"},
+            },
+            metadata={},
+            is_done=True,
+        )
+
+        result = serializer.serialize(chunk)
+        lines = result.decode("utf-8").strip().split("\n\n")
+        payload = json.loads(lines[0][6:])
+        assert payload["id"] == "884422"
+
     def test_error_chunk_never_serializes_to_done_only(self) -> None:
         """Error chunks should never serialize to just [DONE], even with empty content."""
         serializer = SSESerializer()

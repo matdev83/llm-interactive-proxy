@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
 import pytest
 from src.connectors.nvidia import NVIDIA_DEFAULT_BASE_URL, NvidiaConnector
 from src.core.config.app_config import AppConfig
@@ -198,6 +199,26 @@ async def test_prepare_payload_keeps_max_tokens_when_both_token_limits_set() -> 
     payload = await connector._prepare_payload(req, list(req.messages), req.model, None)
     assert "max_completion_tokens" not in payload
     assert payload.get("max_tokens") == 10
+
+
+@pytest.mark.asyncio
+async def test_connector_uses_dedicated_http11_client_when_httpx_real() -> None:
+    """NVIDIA traffic must not use the shared HTTP/2 pool (integrator disconnects)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "meta/x"}]})
+
+    transport = httpx.MockTransport(handler)
+    shared = httpx.AsyncClient(http2=True, transport=transport, trust_env=False)
+    connector = NvidiaConnector(shared, AppConfig())
+    try:
+        await connector.initialize(api_key="k")
+        assert connector.client is not shared
+        assert connector._nvidia_http11_client is connector.client
+        assert not connector.client.is_closed
+    finally:
+        await connector.close()
+        await shared.aclose()
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import json
 
+from src.core.domain.translation_utils.openai_compat_ids import (
+    sanitize_openai_compatible_sse_payload_inplace,
+)
+
 
 class SSEFormatter:
     """Format content as SSE bytes."""
@@ -31,7 +35,9 @@ class SSEFormatter:
             # convert to plain dict to avoid accidental stringification elsewhere.
             # Format as SSE: data: {json}\n\n
             # Note: Using default separators to include spaces for readability
-            sse_line = f"data: {json.dumps(dict(content), ensure_ascii=False)}\n\n"
+            payload = dict(content)
+            sanitize_openai_compatible_sse_payload_inplace(payload)
+            sse_line = f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
             return sse_line.encode("utf-8")
         elif isinstance(content, bytes):
             return content

@@ -15,6 +15,9 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from src.core.app.constants.logging_constants import TRACE_LEVEL
+from src.core.domain.translation_utils.openai_compat_ids import (
+    sanitize_openai_compatible_sse_payload_inplace,
+)
 from src.core.ports.streaming_contracts import (
     IStreamAssembler,
     SentinelManager,
@@ -362,6 +365,8 @@ class SSEAssembler(IStreamAssembler):
                                 for key in ("id", "model", "created"):
                                     if key in last_openai_payload:
                                         terminal[key] = last_openai_payload[key]
+
+                            sanitize_openai_compatible_sse_payload_inplace(terminal)
 
                             terminal_bytes = (
                                 f"data: {json.dumps(terminal)}\n\n".encode()

@@ -6,6 +6,7 @@ from src.core.domain.translation_utils.openai_compat_ids import (
     coerce_openai_completion_id,
     normalize_tool_call_dict_id_inplace,
     sanitize_openai_chunk_tool_call_ids_inplace,
+    sanitize_openai_compatible_sse_payload_inplace,
 )
 from src.core.domain.translators.openai.response import openai_to_domain_response
 from src.core.domain.translators.openai.streaming import openai_to_domain_stream_chunk
@@ -48,6 +49,30 @@ def test_sanitize_openai_chunk_tool_call_ids_inplace() -> None:
     }
     sanitize_openai_chunk_tool_call_ids_inplace(chunk)
     assert chunk["choices"][0]["delta"]["tool_calls"][0]["id"] == "9"
+
+
+def test_sanitize_openai_compatible_sse_payload_inplace_coerces_ids() -> None:
+    payload = {
+        "object": "chat.completion.chunk",
+        "id": 4242,
+        "created": 1700000002,
+        "model": "m",
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"tool_calls": [{"id": 1, "index": 0, "type": "function"}]},
+            }
+        ],
+    }
+    sanitize_openai_compatible_sse_payload_inplace(payload)
+    assert payload["id"] == "4242"
+    assert payload["choices"][0]["delta"]["tool_calls"][0]["id"] == "1"
+
+
+def test_sanitize_openai_compatible_sse_payload_inplace_error_dict_numeric_id() -> None:
+    err = {"id": 99, "error": {"message": "x", "type": "api_error"}}
+    sanitize_openai_compatible_sse_payload_inplace(err)
+    assert err["id"] == "99"
 
 
 def test_openai_to_domain_stream_chunk_accepts_null_top_level_id() -> None:

@@ -10,6 +10,9 @@ import logging
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from src.core.domain.translation_utils.openai_compat_ids import (
+    sanitize_openai_compatible_sse_payload_inplace,
+)
 from src.core.interfaces.stream_formatting_interface import IStreamFormattingService
 
 if TYPE_CHECKING:
@@ -195,16 +198,21 @@ class StreamFormattingService(IStreamFormattingService):
 
         # Handle Pydantic models (like CanonicalStreamChunk) by converting to dict
         if hasattr(content, "model_dump") and callable(content.model_dump):
-            # Use model_dump_json() to avoid creating intermediate dict (performance optimization)
-            json_str = (
-                content.model_dump_json()
-                if hasattr(content, "model_dump_json")
-                else json.dumps(content.model_dump())
-            )
+            dumped = content.model_dump()
+            if isinstance(dumped, dict):
+                sanitize_openai_compatible_sse_payload_inplace(dumped)
+                json_str = json.dumps(dumped)
+            elif hasattr(content, "model_dump_json"):
+                json_str = content.model_dump_json()
+            else:
+                json_str = json.dumps(dumped)
             return f"data: {json_str}\n\n".encode()
 
         if isinstance(content, dict):
-            return f"data: {json.dumps(self._maybe_inject_error_delta_content(content))}\n\n".encode()
+            payload = dict(content)
+            sanitize_openai_compatible_sse_payload_inplace(payload)
+            payload = self._maybe_inject_error_delta_content(payload)
+            return f"data: {json.dumps(payload)}\n\n".encode()
 
         # Fallback: try to JSON serialize, otherwise use str representation
         try:

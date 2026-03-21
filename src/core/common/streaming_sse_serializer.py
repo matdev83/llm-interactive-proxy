@@ -24,6 +24,7 @@ from src.core.domain.streaming.streaming_content import StreamingContent
 from src.core.domain.translation_utils.openai_compat_ids import (
     coerce_openai_completion_id,
     normalize_tool_call_dict_id_inplace,
+    sanitize_openai_compatible_sse_payload_inplace,
 )
 
 logger = logging.getLogger(__name__)
@@ -217,7 +218,9 @@ class SSESerializer:
 
         # Check for error in content if it's a dict
         if isinstance(content.content, dict) and content.content.get("error"):
-            return f"data: {json.dumps(content.content)}\n\ndata: [DONE]\n\n".encode()
+            err_copy = dict(content.content)
+            sanitize_openai_compatible_sse_payload_inplace(err_copy)
+            return f"data: {json.dumps(err_copy)}\n\ndata: [DONE]\n\n".encode()
         return None
 
     def _serialize_cancellation_chunk(

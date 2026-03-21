@@ -32,6 +32,20 @@ class TestSSEFormatter:
         parsed = json.loads(json_part)
         assert parsed == chunk
 
+    def test_format_openai_dict_coerces_numeric_id(self) -> None:
+        formatter = SSEFormatter()
+        chunk = {
+            "id": 777,
+            "object": "chat.completion.chunk",
+            "created": 9,
+            "model": "m",
+            "choices": [{"index": 0, "delta": {"content": "a"}}],
+        }
+        decoded = formatter.format_chunk(chunk).decode("utf-8")
+        parsed = json.loads(decoded[6:-2])
+        assert parsed["id"] == "777"
+        assert chunk["id"] == 777
+
     def test_format_bytes_passthrough(self) -> None:
         """Test bytes pass-through."""
         formatter = SSEFormatter()
