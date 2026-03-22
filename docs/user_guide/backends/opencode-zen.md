@@ -62,7 +62,7 @@ The connector automatically finds the `auth.json` file in these default location
 
 ### OAuth tokens and refresh (important)
 
-The optional `llm-proxy-oauth-connectors` package implements this backend. For `type: "oauth"` entries, OpenCode’s `auth.json` uses the fields **`access`**, **`refresh`**, and **`expires`** under the `opencode` key (not `refresh_token`).
+The optional `llm-proxy-oauth-connectors` package reads the same `opencode` entry OpenCode’s CLI uses. On disk that is one of OpenCode’s `Auth.Info` shapes under the **`opencode`** key: **`type: "oauth"`** (`access`, `refresh`, `expires`), **`type: "api"`** (`key` only), or **`type: "wellknown"`** (`key` + **`token`**). See OpenCode’s [`auth/index.ts`](https://github.com/anomalyco/opencode/blob/dev/packages/opencode/src/auth/index.ts).
 
 **There is no proxy `config.yaml` switch that performs an OAuth refresh HTTP call for Zen.** Today the connector:
 
@@ -72,7 +72,16 @@ The optional `llm-proxy-oauth-connectors` package implements this backend. For `
 
 So “triggering refresh” in practice means **refreshing tokens where OpenCode already does**—typically by running or keeping the **`opencode` CLI** so it updates `auth.json` (for example `opencode auth login` again if `refresh` is missing or tokens are invalid). Check the current CLI with `opencode auth --help` for your installed version.
 
-If the proxy logs `Health check failed - no refresh token in credentials`, the `opencode` object in `auth.json` is missing the **`refresh`** field (wrong auth type, incomplete login, or stale file). Fix that with a full Zen OAuth login via the CLI, not a proxy-only setting.
+The Zen `Authorization` bearer is always a **single secret string** taken from that entry after field normalization:
+
+- If **`access`**, **`accessToken`**, **`access_token`**, **`token`**, etc. resolve to a non-empty string, that value is sent (typical for **`type: "oauth"`** or **`wellknown`**).
+- If none of those exist and **`type` is `"api"`**, OpenCode stores the Zen credential only as **`key`**; that **`key`** is the bearer (this matches the CLI — it is **not** used when a separate access-style field already exists, so it is not a “fallback” that overrides OAuth tokens).
+
+If nothing above yields a bearer string, initialization fails — run `opencode auth login` so the CLI writes a valid `opencode` record into `auth.json`.
+
+**`refresh`** / **`expires`** (or camelCase equivalents) may be missing temporarily for some entries; the connector still loads and logs a warning, but you should rely on the OpenCode CLI to refresh the file.
+
+Fix missing OAuth refresh with a full Zen login via the CLI, not a proxy-only setting.
 
 Optional YAML still passes through to connector `initialize()`, for example:
 
@@ -88,7 +97,13 @@ Automatic refresh by **calling a Zen/OpenCode token endpoint** (and writing `aut
 
 ## Supported Models
 
-On startup, the connector loads model IDs from the live Zen OpenAI-compatible endpoint `GET https://opencode.ai/zen/v1/models` (or `{api_base_url}/models` if you override the base URL). It tries that request with your OpenCode credentials first, then repeats without credentials if the catalog is still empty or the authenticated call fails (the catalog is publicly reachable in practice). Only if both remote attempts fail does it use an embedded snapshot list. Each `id` is normalized to a `vendor/model-name` form where the connector can infer a vendor; otherwise the raw gateway id is kept. In requests to this proxy, prefix the normalized (or raw) id with `opencode-zen:`.
+On startup, the connector loads model IDs from the live Zen OpenAI-compatible endpoint `GET https://opencode.ai/zen/v1/models` (or `{api_base_url}/models` if you override the base URL). It calls **`/models` without `Authorization` first** (same catalog for discovery in practice, and it avoids spending **token-scoped** Zen quota before any `chat/completions` call). Only if that returns no usable list does it retry **with** your bearer. If both fail (including HTTP **429** on each), it uses an embedded snapshot. Each `id` is normalized to a `vendor/model-name` form where the connector can infer a vendor; otherwise the raw gateway id is kept. In requests to this proxy, prefix the normalized (or raw) id with `opencode-zen:`.
+
+Because the proxy may construct a **new** connector instance per request, the optional `llm-proxy-oauth-connectors` implementation keeps a **short-lived process-wide cache** of that `/models` response (keyed by credentials file path, its mtime, and base URL). Together with the public-catalog-first rule, this avoids burning authenticated `/models` RPM and tripping **429** / `FreeUsageLimitError` before chat traffic.
+
+Outbound Zen requests intentionally **omit** the proxy’s internal `x-llmproxy-loop-guard` header (other OpenAI-style backends still send it). Some gateways treat that marker as non-client traffic and respond with **429** even when the OpenCode app works. The connector also sets a **Zen-style `User-Agent`** instead of the default `python-httpx/...` string for the same reason.
+
+The optional `llm-proxy-oauth-connectors` implementation further aligns with strict OpenAI-compatible gateways (same motivation as the in-tree **NVIDIA** connector): it uses a dedicated **HTTP/1.1** httpx client to Zen (the shared proxy client may negotiate **HTTP/2**), strips **`stream_options`** from chat payloads (the generic OpenAI stack adds `include_usage` for streaming, which some hosts reject), and **allowlists** outbound HTTP header names so unexpected client/identity headers are not forwarded upstream.
 
 The connector keeps the resolved catalog in memory and **refetches `/models` at most about every 10 minutes** when callers use the async model enumeration path (for example capability discovery); synchronous `get_available_models()` returns the latest cached list without doing I/O.
 
@@ -143,6 +158,25 @@ Snapshot (selector after `opencode-zen:`):
 - `opencode-zen:nemotron-3-super-free`
 
 If **both** live `/models` attempts fail during initialization, the optional `llm-proxy-oauth-connectors` package uses a **hardcoded** snapshot of gateway ids (maintained to mirror `/models`); that list can lag the live gateway.
+
+### Diagnosing upstream 429 / request-shape issues
+
+For structured experiments against the live Zen gateway (HTTP/1.1 vs HTTP/2, header sets, JSON body variants, and an optional `OpencodeZenConnector` non-stream call), run:
+
+```bash
+./.venv/Scripts/python.exe dev/scripts/diagnose_opencode_zen_429.py --probe both
+```
+
+Use `--quick` for a smaller matrix, `--probe raw` for httpx-only probes, or `--model <gateway-id>` to override the default free model (`minimax-m2.5-free`). Set `OPENCODE_AUTH_PATH` if `auth.json` is not in the default OS location.
+
+### `FreeUsageLimitError` on chat (real free-tier quota)
+
+If Zen returns HTTP **429** with a JSON body like `error.type: "FreeUsageLimitError"` and the **same** message for every variation (HTTP/1.1 vs HTTP/2, headers, payload shape), the problem is **Zen’s free-usage limit for that credential**, not the proxy’s request shape.
+
+Typical causes:
+
+- The **free tier for the OAuth access token** the proxy reads from `auth.json` is exhausted or differs from the token the OpenCode **app** currently holds (e.g. app refreshed in memory but the file on disk is stale, or a different `auth.json` path). Re-run `opencode auth login`, confirm `OPENCODE_AUTH_PATH` / file mtime, and retry.
+- The free tier window has not reset yet; try again later or another account.
 
 ## Usage Example
 

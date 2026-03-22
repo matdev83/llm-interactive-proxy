@@ -268,6 +268,12 @@ class OpenAIConnector(LLMBackend):
             if identity_headers:
                 headers.update(identity_headers)
 
+        return self._apply_loop_guard_to_outbound_headers(headers)
+
+    def _apply_loop_guard_to_outbound_headers(
+        self, headers: Mapping[str, str] | None
+    ) -> dict[str, str]:
+        """Attach loop-guard for upstream calls. Subclasses may omit it for strict gateways."""
         return ensure_loop_guard_header(headers)
 
     async def initialize(self, **kwargs: Any) -> None:
@@ -1017,7 +1023,7 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
-        guarded_headers = ensure_loop_guard_header(headers)
+        guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
         log_extra = self._get_log_extra(context)
 
         try:
@@ -1128,7 +1134,7 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
-        guarded_headers = ensure_loop_guard_header(headers)
+        guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
 
         request = self.client.build_request(
             "POST", url, json=payload, headers=guarded_headers
@@ -1662,7 +1668,7 @@ class OpenAIConnector(LLMBackend):
         api_base = kwargs.get("openai_url") or self.api_base_url
         url = f"{api_base.rstrip('/')}/responses"
 
-        guarded_headers = ensure_loop_guard_header(headers)
+        guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
 
         # Check if WebSocket transport is enabled and requested
         use_websocket = kwargs.get("use_websocket", self._use_websocket)
@@ -1787,7 +1793,7 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
-        guarded_headers = ensure_loop_guard_header(headers)
+        guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
 
         try:
             response = await self.client.post(
@@ -1948,7 +1954,7 @@ class OpenAIConnector(LLMBackend):
         if not headers or not headers.get("Authorization"):
             raise AuthenticationError(message="No auth credentials found")
 
-        guarded_headers = ensure_loop_guard_header(headers)
+        guarded_headers = self._apply_loop_guard_to_outbound_headers(headers)
 
         # Prepare payload
         processed_messages = request.messages
